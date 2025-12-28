@@ -1,0 +1,1277 @@
+// Package agent implements the main agent orchestration for Muti Metroo.
+package agent
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/coinstash/muti-metroo/internal/config"
+	"github.com/coinstash/muti-metroo/internal/exit"
+	"github.com/coinstash/muti-metroo/internal/flood"
+	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/peer"
+	"github.com/coinstash/muti-metroo/internal/protocol"
+	"github.com/coinstash/muti-metroo/internal/routing"
+	"github.com/coinstash/muti-metroo/internal/socks5"
+	"github.com/coinstash/muti-metroo/internal/stream"
+	"github.com/coinstash/muti-metroo/internal/transport"
+)
+
+// relayStream tracks a stream being relayed through this agent.
+type relayStream struct {
+	UpstreamPeer   identity.AgentID
+	UpstreamID     uint64 // Stream ID from upstream
+	DownstreamPeer identity.AgentID
+	DownstreamID   uint64 // Stream ID to downstream
+}
+
+// Agent is the main Muti Metroo agent that orchestrates all components.
+type Agent struct {
+	cfg     *config.Config
+	id      identity.AgentID
+	dataDir string
+
+	// Transport layer - supports QUIC, WebSocket, and HTTP/2
+	transports map[transport.TransportType]transport.Transport
+	listeners  []transport.Listener
+
+	// Core components
+	peerMgr     *peer.Manager
+	routeMgr    *routing.Manager
+	streamMgr   *stream.Manager
+	flooder     *flood.Flooder
+	socks5Srv   *socks5.Server
+	exitHandler *exit.Handler
+
+	// Relay stream tracking
+	relayMu          sync.RWMutex
+	relayByUpstream  map[uint64]*relayStream // Upstream stream ID -> relay
+	relayByDownstream map[uint64]*relayStream // Downstream stream ID -> relay
+	nextRelayID      uint64
+
+	// State
+	running  atomic.Bool
+	stopOnce sync.Once
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+}
+
+// New creates a new agent with the given configuration.
+func New(cfg *config.Config) (*Agent, error) {
+	// Load or create agent identity
+	agentID, _, err := identity.LoadOrCreate(cfg.Agent.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("load identity: %w", err)
+	}
+
+	a := &Agent{
+		cfg:               cfg,
+		id:                agentID,
+		dataDir:           cfg.Agent.DataDir,
+		stopCh:            make(chan struct{}),
+		relayByUpstream:   make(map[uint64]*relayStream),
+		relayByDownstream: make(map[uint64]*relayStream),
+	}
+
+	// Initialize components
+	if err := a.initComponents(); err != nil {
+		return nil, err
+	}
+
+	return a, nil
+}
+
+// initComponents initializes all agent components.
+func (a *Agent) initComponents() error {
+	// Initialize all transports
+	a.transports = make(map[transport.TransportType]transport.Transport)
+	a.transports[transport.TransportQUIC] = transport.NewQUICTransport()
+	a.transports[transport.TransportWebSocket] = transport.NewWebSocketTransport()
+	a.transports[transport.TransportHTTP2] = transport.NewH2Transport()
+
+	// Initialize routing manager
+	a.routeMgr = routing.NewManager(a.id)
+
+	// Initialize stream manager
+	streamCfg := stream.ManagerConfig{
+		MaxStreamsPerPeer: a.cfg.Limits.MaxStreamsPerPeer,
+		MaxStreamsTotal:   a.cfg.Limits.MaxStreamsTotal,
+		BufferSize:        a.cfg.Limits.BufferSize,
+		IdleTimeout:       a.cfg.Connections.IdleThreshold,
+	}
+	a.streamMgr = stream.NewManager(streamCfg, a.id)
+
+	// Initialize peer manager with default QUIC transport
+	// Other transports are used via ConnectWithTransport()
+	peerCfg := peer.DefaultManagerConfig(a.id, a.transports[transport.TransportQUIC])
+	peerCfg.KeepaliveInterval = a.cfg.Connections.IdleThreshold
+	peerCfg.KeepaliveTimeout = a.cfg.Connections.Timeout
+	peerCfg.ReconnectConfig = peer.ReconnectConfig{
+		InitialDelay: a.cfg.Connections.Reconnect.InitialDelay,
+		MaxDelay:     a.cfg.Connections.Reconnect.MaxDelay,
+		Multiplier:   a.cfg.Connections.Reconnect.Multiplier,
+		Jitter:       a.cfg.Connections.Reconnect.Jitter,
+		MaxAttempts:  a.cfg.Connections.Reconnect.MaxRetries,
+	}
+	a.peerMgr = peer.NewManager(peerCfg)
+
+	// Initialize flooder (needs peer manager for sending)
+	floodCfg := flood.DefaultFloodConfig()
+	a.flooder = flood.NewFlooder(floodCfg, a.id, a.routeMgr, a.peerMgr)
+
+	// Initialize SOCKS5 server if enabled
+	if a.cfg.SOCKS5.Enabled {
+		auths := a.buildSOCKS5Auth()
+		socksCfg := socks5.ServerConfig{
+			Address:        a.cfg.SOCKS5.Address,
+			MaxConnections: a.cfg.SOCKS5.MaxConnections,
+			ConnectTimeout: 30 * time.Second,
+			IdleTimeout:    a.cfg.Connections.IdleThreshold,
+			Authenticators: auths,
+			Dialer:         a, // Agent implements socks5.Dialer
+		}
+		a.socks5Srv = socks5.NewServer(socksCfg)
+	}
+
+	// Initialize exit handler if enabled
+	if a.cfg.Exit.Enabled {
+		routes, err := exit.ParseAllowedRoutes(a.cfg.Exit.Routes)
+		if err != nil {
+			return fmt.Errorf("parse exit routes: %w", err)
+		}
+
+		exitCfg := exit.HandlerConfig{
+			AllowedRoutes:  routes,
+			ConnectTimeout: 30 * time.Second,
+			IdleTimeout:    a.cfg.Connections.IdleThreshold,
+			MaxConnections: a.cfg.Limits.MaxStreamsTotal,
+			DNS: exit.DNSConfig{
+				Servers: a.cfg.Exit.DNS.Servers,
+				Timeout: a.cfg.Exit.DNS.Timeout,
+			},
+		}
+		a.exitHandler = exit.NewHandler(exitCfg, a.id, nil)
+	}
+
+	// Add local routes
+	for _, route := range a.cfg.Exit.Routes {
+		network := routing.MustParseCIDR(route)
+		a.routeMgr.AddLocalRoute(network, 0)
+	}
+
+	// Wire up exit handler with Agent as StreamWriter
+	if a.exitHandler != nil {
+		a.exitHandler.SetWriter(a)
+	}
+
+	return nil
+}
+
+// buildSOCKS5Auth builds SOCKS5 authenticators from config.
+func (a *Agent) buildSOCKS5Auth() []socks5.Authenticator {
+	if !a.cfg.SOCKS5.Auth.Enabled {
+		return []socks5.Authenticator{&socks5.NoAuthAuthenticator{}}
+	}
+
+	users := make(map[string]string)
+	for _, u := range a.cfg.SOCKS5.Auth.Users {
+		users[u.Username] = u.Password
+	}
+
+	return socks5.CreateAuthenticators(socks5.AuthConfig{
+		Enabled:  true,
+		Required: true,
+		Users:    users,
+	})
+}
+
+// Start starts all agent components.
+func (a *Agent) Start() error {
+	if a.running.Load() {
+		return fmt.Errorf("agent already running")
+	}
+
+	a.running.Store(true)
+
+	// Set frame callback on peer manager
+	a.peerMgr.SetFrameCallback(a.processFrame)
+
+	// Start listeners
+	for _, listenerCfg := range a.cfg.Listeners {
+		if err := a.startListener(listenerCfg); err != nil {
+			a.running.Store(false)
+			return fmt.Errorf("start listener %s: %w", listenerCfg.Address, err)
+		}
+	}
+
+	// Connect to configured peers
+	for _, peerCfg := range a.cfg.Peers {
+		a.wg.Add(1)
+		go a.connectToPeer(peerCfg)
+	}
+
+	// Start SOCKS5 server if enabled
+	if a.socks5Srv != nil {
+		if err := a.socks5Srv.Start(); err != nil {
+			a.running.Store(false)
+			return fmt.Errorf("start socks5: %w", err)
+		}
+	}
+
+	// Start exit handler if enabled
+	if a.exitHandler != nil {
+		a.exitHandler.Start()
+	}
+
+	// Announce local routes
+	if a.cfg.Exit.Enabled {
+		a.flooder.AnnounceLocalRoutes()
+	}
+
+	return nil
+}
+
+// startListener starts a listener for the given configuration.
+func (a *Agent) startListener(cfg config.ListenerConfig) error {
+	// Load or generate TLS config
+	tlsConfig, err := a.loadTLSConfig(cfg.TLS)
+	if err != nil {
+		return fmt.Errorf("load TLS config: %w", err)
+	}
+
+	// Select the appropriate transport based on config
+	transportType := transport.TransportType(cfg.Transport)
+	if transportType == "" {
+		transportType = transport.TransportQUIC // Default to QUIC
+	}
+
+	tr, ok := a.transports[transportType]
+	if !ok {
+		return fmt.Errorf("unsupported transport type: %s", transportType)
+	}
+
+	// Start the listener
+	listener, err := tr.Listen(cfg.Address, transport.ListenOptions{
+		TLSConfig:  tlsConfig,
+		Path:       cfg.Path, // Used by WebSocket and HTTP/2
+		MaxStreams: a.cfg.Limits.MaxStreamsTotal,
+	})
+	if err != nil {
+		return err
+	}
+
+	a.listeners = append(a.listeners, listener)
+
+	// Start accept loop
+	a.wg.Add(1)
+	go a.acceptLoop(listener)
+
+	return nil
+}
+
+// loadTLSConfig loads TLS configuration from files or generates self-signed.
+func (a *Agent) loadTLSConfig(cfg config.TLSConfig) (*tls.Config, error) {
+	var cert tls.Certificate
+	var err error
+
+	if cfg.Cert != "" && cfg.Key != "" {
+		// Load from files
+		cert, err = tls.LoadX509KeyPair(cfg.Cert, cfg.Key)
+		if err != nil {
+			return nil, fmt.Errorf("load certificate: %w", err)
+		}
+	} else {
+		// Generate self-signed for development
+		certPEM, keyPEM, err := transport.GenerateSelfSignedCert(a.id.ShortString(), 365*24*time.Hour)
+		if err != nil {
+			return nil, fmt.Errorf("generate self-signed cert: %w", err)
+		}
+		cert, err = tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("parse generated cert: %w", err)
+		}
+	}
+
+	return &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
+		NextProtos:         []string{transport.ALPNProtocol},
+		MinVersion:         tls.VersionTLS13,
+	}, nil
+}
+
+// acceptLoop accepts incoming connections from a listener.
+func (a *Agent) acceptLoop(listener transport.Listener) {
+	defer a.wg.Done()
+
+	for {
+		select {
+		case <-a.stopCh:
+			return
+		default:
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		peerConn, err := listener.Accept(ctx)
+		cancel()
+
+		if err != nil {
+			select {
+			case <-a.stopCh:
+				return
+			default:
+				// Log error and continue
+				continue
+			}
+		}
+
+		// Handle the connection in a goroutine
+		a.wg.Add(1)
+		go a.handleIncomingConnection(peerConn)
+	}
+}
+
+// handleIncomingConnection processes an incoming peer connection.
+func (a *Agent) handleIncomingConnection(peerConn transport.PeerConn) {
+	defer a.wg.Done()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := a.peerMgr.Accept(ctx, peerConn)
+	if err != nil {
+		peerConn.Close()
+		return
+	}
+
+	// Send full routing table to new peer
+	a.flooder.SendFullTable(conn.RemoteID)
+}
+
+// connectToPeer initiates a connection to a configured peer.
+func (a *Agent) connectToPeer(cfg config.PeerConfig) {
+	defer a.wg.Done()
+
+	// Parse expected peer ID (if specified)
+	var expectedID identity.AgentID
+	if cfg.ID != "" && cfg.ID != "auto" {
+		var err error
+		expectedID, err = identity.ParseAgentID(cfg.ID)
+		if err != nil {
+			return
+		}
+	}
+	// If ID is "auto" or empty, expectedID will be zero and peer manager will accept any ID
+
+	// Add peer info to manager
+	a.peerMgr.AddPeer(peer.PeerInfo{
+		Address:    cfg.Address,
+		ExpectedID: expectedID,
+		Persistent: true,
+	})
+
+	// Attempt connection
+	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Connections.Timeout)
+	defer cancel()
+
+	// Select the appropriate transport based on config
+	transportType := transport.TransportType(cfg.Transport)
+	if transportType == "" {
+		transportType = transport.TransportQUIC // Default to QUIC
+	}
+
+	var conn *peer.Connection
+	var err error
+
+	if transportType == transport.TransportQUIC {
+		// Use default Connect for QUIC
+		conn, err = a.peerMgr.Connect(ctx, cfg.Address)
+	} else {
+		// Use ConnectWithTransport for other transports
+		tr, ok := a.transports[transportType]
+		if !ok {
+			return
+		}
+		conn, err = a.peerMgr.ConnectWithTransport(ctx, tr, cfg.Address)
+	}
+
+	if err != nil {
+		// Reconnection will be handled by peer manager
+		return
+	}
+
+	// Send full routing table to new peer
+	a.flooder.SendFullTable(conn.RemoteID)
+}
+
+// Stop gracefully stops the agent.
+func (a *Agent) Stop() error {
+	var err error
+	a.stopOnce.Do(func() {
+		a.running.Store(false)
+		close(a.stopCh)
+
+		// Withdraw routes before shutdown
+		if a.cfg.Exit.Enabled {
+			a.flooder.WithdrawLocalRoutes()
+		}
+
+		// Stop components in reverse order
+		if a.exitHandler != nil {
+			a.exitHandler.Stop()
+		}
+
+		if a.socks5Srv != nil {
+			a.socks5Srv.Stop()
+		}
+
+		if a.flooder != nil {
+			a.flooder.Stop()
+		}
+
+		if a.peerMgr != nil {
+			a.peerMgr.Close()
+		}
+
+		// Close listeners
+		for _, l := range a.listeners {
+			l.Close()
+		}
+		a.listeners = nil
+
+		// Close all transports
+		for _, tr := range a.transports {
+			if tr != nil {
+				tr.Close()
+			}
+		}
+
+		a.wg.Wait()
+	})
+
+	return err
+}
+
+// StopWithContext stops with a timeout.
+func (a *Agent) StopWithContext(ctx context.Context) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- a.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// IsRunning returns true if the agent is running.
+func (a *Agent) IsRunning() bool {
+	return a.running.Load()
+}
+
+// ID returns the agent's identity.
+func (a *Agent) ID() identity.AgentID {
+	return a.id
+}
+
+// processFrame dispatches incoming frames to the appropriate handler.
+func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
+	switch frame.Type {
+	case protocol.FrameStreamOpen:
+		a.handleStreamOpen(peerID, frame)
+	case protocol.FrameStreamOpenAck:
+		a.handleStreamOpenAck(peerID, frame)
+	case protocol.FrameStreamOpenErr:
+		a.handleStreamOpenErr(peerID, frame)
+	case protocol.FrameStreamData:
+		a.handleStreamData(peerID, frame)
+	case protocol.FrameStreamClose:
+		a.handleStreamClose(peerID, frame)
+	case protocol.FrameStreamReset:
+		a.handleStreamReset(peerID, frame)
+	case protocol.FrameRouteAdvertise:
+		a.handleRouteAdvertise(peerID, frame)
+	case protocol.FrameRouteWithdraw:
+		a.handleRouteWithdraw(peerID, frame)
+	case protocol.FrameKeepalive:
+		a.handleKeepalive(peerID, frame)
+	case protocol.FrameKeepaliveAck:
+		a.handleKeepaliveAck(peerID, frame)
+	}
+}
+
+// handleStreamOpen processes a STREAM_OPEN request.
+func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame) {
+	open, err := protocol.DecodeStreamOpen(frame.Payload)
+	if err != nil {
+		return
+	}
+
+	// Check if we are the exit node (path is empty or we're the target)
+	if len(open.RemainingPath) == 0 || (len(open.RemainingPath) == 1 && open.RemainingPath[0] == a.id) {
+		// We are the exit node
+		if a.exitHandler != nil {
+			ctx := context.Background()
+			// Convert address bytes to string based on address type
+			destAddr := addressToString(open.AddressType, open.Address)
+			a.exitHandler.HandleStreamOpen(ctx, frame.StreamID, open.RequestID, peerID, destAddr, open.Port)
+		}
+		return
+	}
+
+	// Forward to next hop
+	nextHop := open.RemainingPath[0]
+
+	// Get connection to next hop
+	conn := a.peerMgr.GetPeer(nextHop)
+	if conn == nil {
+		// No route to next hop, send error back
+		errPayload := &protocol.StreamOpenErr{
+			RequestID: open.RequestID,
+			ErrorCode: protocol.ErrHostUnreachable,
+			Message:   "no route to next hop",
+		}
+		errFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamOpenErr,
+			StreamID: frame.StreamID,
+			Payload:  errPayload.Encode(),
+		}
+		a.peerMgr.SendToPeer(peerID, errFrame)
+		return
+	}
+
+	// Generate new downstream stream ID
+	downstreamID := conn.NextStreamID()
+
+	// Create relay entry
+	relay := &relayStream{
+		UpstreamPeer:   peerID,
+		UpstreamID:     frame.StreamID,
+		DownstreamPeer: nextHop,
+		DownstreamID:   downstreamID,
+	}
+
+	a.relayMu.Lock()
+	a.relayByUpstream[frame.StreamID] = relay
+	a.relayByDownstream[downstreamID] = relay
+	a.relayMu.Unlock()
+
+	// Update remaining path (remove the next hop)
+	newPath := open.RemainingPath[1:]
+
+	// Build forwarded STREAM_OPEN
+	fwdOpen := &protocol.StreamOpen{
+		RequestID:     open.RequestID,
+		AddressType:   open.AddressType,
+		Address:       open.Address,
+		Port:          open.Port,
+		RemainingPath: newPath,
+	}
+
+	fwdFrame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: downstreamID,
+		Payload:  fwdOpen.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(nextHop, fwdFrame); err != nil {
+		// Clean up relay entry on failure
+		a.relayMu.Lock()
+		delete(a.relayByUpstream, frame.StreamID)
+		delete(a.relayByDownstream, downstreamID)
+		a.relayMu.Unlock()
+
+		// Send error back
+		errPayload := &protocol.StreamOpenErr{
+			RequestID: open.RequestID,
+			ErrorCode: protocol.ErrConnectionRefused,
+			Message:   err.Error(),
+		}
+		errFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamOpenErr,
+			StreamID: frame.StreamID,
+			Payload:  errPayload.Encode(),
+		}
+		a.peerMgr.SendToPeer(peerID, errFrame)
+	}
+}
+
+// addressToString converts address bytes to a string representation.
+func addressToString(addrType uint8, addr []byte) string {
+	switch addrType {
+	case protocol.AddrTypeIPv4:
+		if len(addr) >= 4 {
+			return net.IP(addr[:4]).String()
+		}
+	case protocol.AddrTypeIPv6:
+		if len(addr) >= 16 {
+			return net.IP(addr[:16]).String()
+		}
+	case protocol.AddrTypeDomain:
+		return string(addr)
+	}
+	return ""
+}
+
+// handleStreamOpenAck processes a STREAM_OPEN_ACK.
+func (a *Agent) handleStreamOpenAck(peerID identity.AgentID, frame *protocol.Frame) {
+	// Check if this is a relay stream response - ACK comes from downstream
+	a.relayMu.RLock()
+	relay := a.relayByDownstream[frame.StreamID]
+	a.relayMu.RUnlock()
+
+	// Verify ACK is from the expected downstream peer
+	if relay != nil && peerID == relay.DownstreamPeer {
+		// Forward ACK to upstream with upstream stream ID
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamOpenAck,
+			StreamID: relay.UpstreamID,
+			Payload:  frame.Payload,
+		}
+		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
+		return
+	}
+
+	ack, err := protocol.DecodeStreamOpenAck(frame.Payload)
+	if err != nil {
+		return
+	}
+
+	// Convert bound address bytes to net.IP
+	var boundIP net.IP
+	if len(ack.BoundAddr) > 0 {
+		boundIP = net.IP(ack.BoundAddr)
+	}
+
+	a.streamMgr.HandleStreamOpenAck(ack.RequestID, boundIP, ack.BoundPort)
+}
+
+// handleStreamOpenErr processes a STREAM_OPEN_ERR.
+func (a *Agent) handleStreamOpenErr(peerID identity.AgentID, frame *protocol.Frame) {
+	// Check if this is a relay stream response - ERR comes from downstream
+	a.relayMu.Lock()
+	relay := a.relayByDownstream[frame.StreamID]
+
+	// Verify ERR is from the expected downstream peer
+	if relay != nil && peerID == relay.DownstreamPeer {
+		// Clean up relay entry
+		delete(a.relayByUpstream, relay.UpstreamID)
+		delete(a.relayByDownstream, frame.StreamID)
+		a.relayMu.Unlock()
+
+		// Forward error to upstream with upstream stream ID
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamOpenErr,
+			StreamID: relay.UpstreamID,
+			Payload:  frame.Payload,
+		}
+		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
+		return
+	}
+	a.relayMu.Unlock()
+
+	errPayload, err := protocol.DecodeStreamOpenErr(frame.Payload)
+	if err != nil {
+		return
+	}
+
+	a.streamMgr.HandleStreamOpenErr(errPayload.RequestID, errPayload.ErrorCode, errPayload.Message)
+}
+
+// handleStreamData processes stream data.
+func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame) {
+	// Check if this is a relay stream - could be from upstream or downstream
+	// We must check both the stream ID AND the peer ID to determine direction,
+	// because upstream and downstream may use the same stream ID number
+	a.relayMu.RLock()
+	upRelay := a.relayByUpstream[frame.StreamID]
+	downRelay := a.relayByDownstream[frame.StreamID]
+	a.relayMu.RUnlock()
+
+	// Check if data is from upstream (matches upRelay's upstream peer)
+	if upRelay != nil && peerID == upRelay.UpstreamPeer {
+		// Data from upstream, forward to downstream
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: upRelay.DownstreamID,
+			Flags:    frame.Flags,
+			Payload:  frame.Payload,
+		}
+		a.peerMgr.SendToPeer(upRelay.DownstreamPeer, fwdFrame)
+		return
+	}
+
+	// Check if data is from downstream (matches downRelay's downstream peer)
+	if downRelay != nil && peerID == downRelay.DownstreamPeer {
+		// Data from downstream, forward to upstream
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: downRelay.UpstreamID,
+			Flags:    frame.Flags,
+			Payload:  frame.Payload,
+		}
+		a.peerMgr.SendToPeer(downRelay.UpstreamPeer, fwdFrame)
+		return
+	}
+
+	// Check if this is an exit handler stream
+	if a.exitHandler != nil && a.exitHandler.GetConnection(frame.StreamID) != nil {
+		a.exitHandler.HandleStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags)
+		return
+	}
+	a.streamMgr.HandleStreamData(frame.StreamID, frame.Flags, frame.Payload)
+}
+
+// handleStreamClose processes a stream close.
+func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame) {
+	// Check if this is a relay stream - must check peerID to determine direction
+	a.relayMu.Lock()
+	upRelay := a.relayByUpstream[frame.StreamID]
+	downRelay := a.relayByDownstream[frame.StreamID]
+
+	// Check if close is from upstream
+	if upRelay != nil && peerID == upRelay.UpstreamPeer {
+		// Close from upstream, forward to downstream and clean up
+		delete(a.relayByUpstream, frame.StreamID)
+		delete(a.relayByDownstream, upRelay.DownstreamID)
+		a.relayMu.Unlock()
+
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamClose,
+			StreamID: upRelay.DownstreamID,
+		}
+		a.peerMgr.SendToPeer(upRelay.DownstreamPeer, fwdFrame)
+		return
+	}
+
+	// Check if close is from downstream
+	if downRelay != nil && peerID == downRelay.DownstreamPeer {
+		// Close from downstream, forward to upstream and clean up
+		delete(a.relayByUpstream, downRelay.UpstreamID)
+		delete(a.relayByDownstream, frame.StreamID)
+		a.relayMu.Unlock()
+
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamClose,
+			StreamID: downRelay.UpstreamID,
+		}
+		a.peerMgr.SendToPeer(downRelay.UpstreamPeer, fwdFrame)
+		return
+	}
+	a.relayMu.Unlock()
+
+	// Check if this is an exit handler stream
+	if a.exitHandler != nil && a.exitHandler.GetConnection(frame.StreamID) != nil {
+		a.exitHandler.HandleStreamClose(peerID, frame.StreamID)
+		return
+	}
+	a.streamMgr.HandleStreamClose(frame.StreamID)
+}
+
+// handleStreamReset processes a stream reset.
+func (a *Agent) handleStreamReset(peerID identity.AgentID, frame *protocol.Frame) {
+	reset, err := protocol.DecodeStreamReset(frame.Payload)
+	if err != nil {
+		return
+	}
+
+	// Check if this is a relay stream - must check peerID to determine direction
+	a.relayMu.Lock()
+	upRelay := a.relayByUpstream[frame.StreamID]
+	downRelay := a.relayByDownstream[frame.StreamID]
+
+	// Check if reset is from upstream
+	if upRelay != nil && peerID == upRelay.UpstreamPeer {
+		// Reset from upstream, forward to downstream and clean up
+		delete(a.relayByUpstream, frame.StreamID)
+		delete(a.relayByDownstream, upRelay.DownstreamID)
+		a.relayMu.Unlock()
+
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamReset,
+			StreamID: upRelay.DownstreamID,
+			Payload:  frame.Payload,
+		}
+		a.peerMgr.SendToPeer(upRelay.DownstreamPeer, fwdFrame)
+		return
+	}
+
+	// Check if reset is from downstream
+	if downRelay != nil && peerID == downRelay.DownstreamPeer {
+		// Reset from downstream, forward to upstream and clean up
+		delete(a.relayByUpstream, downRelay.UpstreamID)
+		delete(a.relayByDownstream, frame.StreamID)
+		a.relayMu.Unlock()
+
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameStreamReset,
+			StreamID: downRelay.UpstreamID,
+			Payload:  frame.Payload,
+		}
+		a.peerMgr.SendToPeer(downRelay.UpstreamPeer, fwdFrame)
+		return
+	}
+	a.relayMu.Unlock()
+
+	// Check if this is an exit handler stream
+	if a.exitHandler != nil && a.exitHandler.GetConnection(frame.StreamID) != nil {
+		a.exitHandler.HandleStreamReset(peerID, frame.StreamID, reset.ErrorCode)
+		return
+	}
+	a.streamMgr.HandleStreamReset(frame.StreamID, reset.ErrorCode)
+}
+
+// handleRouteAdvertise processes a route advertisement.
+func (a *Agent) handleRouteAdvertise(peerID identity.AgentID, frame *protocol.Frame) {
+	adv, err := protocol.DecodeRouteAdvertise(frame.Payload)
+	if err != nil {
+		return
+	}
+
+	a.flooder.HandleRouteAdvertise(peerID, adv.OriginAgent, adv.Sequence, adv.Routes, adv.Path, adv.SeenBy)
+}
+
+// handleRouteWithdraw processes a route withdrawal.
+func (a *Agent) handleRouteWithdraw(peerID identity.AgentID, frame *protocol.Frame) {
+	withdraw, err := protocol.DecodeRouteWithdraw(frame.Payload)
+	if err != nil {
+		return
+	}
+
+	a.flooder.HandleRouteWithdraw(peerID, withdraw.OriginAgent, withdraw.Sequence, withdraw.Routes, withdraw.SeenBy)
+}
+
+// handleKeepalive processes a keepalive.
+// Note: This is kept for completeness but is currently not called.
+// The peer.Manager handles keepalive frames internally and sends acks
+// before frames reach the agent's callback. See manager.go readLoop.
+func (a *Agent) handleKeepalive(peerID identity.AgentID, frame *protocol.Frame) {
+	ka, err := protocol.DecodeKeepalive(frame.Payload)
+	if err != nil {
+		return
+	}
+
+	// Send keepalive ack - uses the same Keepalive type with the original timestamp
+	ackPayload := (&protocol.Keepalive{
+		Timestamp: ka.Timestamp,
+	}).Encode()
+
+	ackFrame := &protocol.Frame{
+		Type:     protocol.FrameKeepaliveAck,
+		StreamID: protocol.ControlStreamID,
+		Payload:  ackPayload,
+	}
+
+	a.peerMgr.SendToPeer(peerID, ackFrame)
+}
+
+// handleKeepaliveAck processes a keepalive ack.
+// Note: This is kept for completeness but is currently not called.
+// The peer.Manager handles keepalive acks internally and updates RTT
+// before frames reach the agent's callback. See manager.go readLoop.
+func (a *Agent) handleKeepaliveAck(peerID identity.AgentID, frame *protocol.Frame) {
+	// RTT tracking is handled by peer.Manager.readLoop which calls
+	// conn.UpdateRTT(ka.Timestamp) for FrameKeepaliveAck frames.
+}
+
+// Dial implements socks5.Dialer for SOCKS5 connections.
+// This routes connections through the mesh network.
+func (a *Agent) Dial(network, address string) (net.Conn, error) {
+	// Parse the address
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %w", err)
+	}
+
+	port, err := net.LookupPort(network, portStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port: %w", err)
+	}
+
+	// Resolve hostname to IP
+	var destIP net.IP
+	destIP = net.ParseIP(host)
+	if destIP == nil {
+		// Need to resolve hostname
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no IP addresses for %s", host)
+		}
+		destIP = ips[0]
+	}
+
+	// Look up route in routing table
+	route := a.routeMgr.Lookup(destIP)
+
+	// If no route, or route is to ourselves (local exit), do direct dial
+	if route == nil || route.OriginAgent == a.id {
+		return net.Dial(network, address)
+	}
+
+	// Route through mesh - get next hop connection
+	conn := a.peerMgr.GetPeer(route.NextHop)
+	if conn == nil {
+		// Next hop not connected, fall back to direct
+		return net.Dial(network, address)
+	}
+
+	// Build the path for STREAM_OPEN
+	// The path contains [NextHop, ..., OriginAgent]
+	// We need to skip the first entry (NextHop) since we're sending to them directly
+	var remainingPath []identity.AgentID
+	if len(route.Path) > 1 {
+		// Skip first entry (NextHop) - the rest leads to OriginAgent
+		remainingPath = make([]identity.AgentID, len(route.Path)-1)
+		copy(remainingPath, route.Path[1:])
+	}
+	// If path is empty or single hop, remainingPath stays empty (next hop is the exit)
+
+	// Generate stream ID
+	streamID := conn.NextStreamID()
+
+	// Build address bytes
+	var addrType uint8
+	var addrBytes []byte
+	if ip4 := destIP.To4(); ip4 != nil {
+		addrType = protocol.AddrTypeIPv4
+		addrBytes = ip4
+	} else {
+		addrType = protocol.AddrTypeIPv6
+		addrBytes = destIP
+	}
+
+	// Create the stream in stream manager
+	pending := a.streamMgr.OpenStream(streamID, route.NextHop, host, uint16(port), 30*time.Second)
+
+	// Build and send STREAM_OPEN
+	openPayload := &protocol.StreamOpen{
+		RequestID:     pending.RequestID,
+		AddressType:   addrType,
+		Address:       addrBytes,
+		Port:          uint16(port),
+		RemainingPath: remainingPath,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
+		return nil, fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for response
+	result := <-pending.ResultCh
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	// Return a MeshConn wrapper
+	return &meshConn{
+		agent:    a,
+		stream:   result.Stream,
+		peerID:   route.NextHop,
+		streamID: streamID,
+		localAddr: &net.TCPAddr{
+			IP:   result.BoundIP,
+			Port: int(result.BoundPort),
+		},
+		remoteAddr: &net.TCPAddr{
+			IP:   destIP,
+			Port: port,
+		},
+	}, nil
+}
+
+// meshConn implements net.Conn for mesh-routed connections.
+type meshConn struct {
+	agent      *Agent
+	stream     *stream.Stream
+	peerID     identity.AgentID
+	streamID   uint64
+	localAddr  net.Addr
+	remoteAddr net.Addr
+	readBuf    []byte
+	readOffset int
+
+	// Deadlines for read/write operations
+	mu            sync.Mutex
+	readDeadline  time.Time
+	writeDeadline time.Time
+}
+
+// Read reads data from the mesh connection.
+func (c *meshConn) Read(b []byte) (int, error) {
+	// If we have buffered data, return from that
+	if c.readOffset < len(c.readBuf) {
+		n := copy(b, c.readBuf[c.readOffset:])
+		c.readOffset += n
+		if c.readOffset >= len(c.readBuf) {
+			c.readBuf = nil
+			c.readOffset = 0
+		}
+		return n, nil
+	}
+
+	// Create context with deadline if set
+	c.mu.Lock()
+	deadline := c.readDeadline
+	c.mu.Unlock()
+
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if !deadline.IsZero() {
+		ctx, cancel = context.WithDeadline(context.Background(), deadline)
+		defer cancel()
+	} else {
+		ctx = context.Background()
+	}
+
+	// Read new data from stream
+	data, err := c.stream.Read(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	n := copy(b, data)
+	if n < len(data) {
+		c.readBuf = data
+		c.readOffset = n
+	}
+	return n, nil
+}
+
+// Write writes data to the mesh connection.
+// Chunks data larger than MaxPayloadSize into multiple frames.
+func (c *meshConn) Write(b []byte) (int, error) {
+	if !c.stream.CanWrite() {
+		return 0, fmt.Errorf("stream closed for writing")
+	}
+
+	if len(b) == 0 {
+		return 0, nil
+	}
+
+	// Chunk data into MaxPayloadSize pieces
+	for offset := 0; offset < len(b); {
+		end := offset + protocol.MaxPayloadSize
+		if end > len(b) {
+			end = len(b)
+		}
+
+		chunk := b[offset:end]
+
+		frame := &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: c.streamID,
+			Payload:  chunk,
+		}
+
+		if err := c.agent.peerMgr.SendToPeer(c.peerID, frame); err != nil {
+			// Return bytes written so far
+			return offset, err
+		}
+
+		offset = end
+	}
+
+	return len(b), nil
+}
+
+// Close closes the mesh connection.
+func (c *meshConn) Close() error {
+	// Send close frame
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamClose,
+		StreamID: c.streamID,
+	}
+	c.agent.peerMgr.SendToPeer(c.peerID, frame)
+
+	return c.stream.Close()
+}
+
+// LocalAddr returns the local address.
+func (c *meshConn) LocalAddr() net.Addr {
+	return c.localAddr
+}
+
+// RemoteAddr returns the remote address.
+func (c *meshConn) RemoteAddr() net.Addr {
+	return c.remoteAddr
+}
+
+// SetDeadline sets read and write deadlines.
+func (c *meshConn) SetDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readDeadline = t
+	c.writeDeadline = t
+	return nil
+}
+
+// SetReadDeadline sets the read deadline.
+func (c *meshConn) SetReadDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readDeadline = t
+	return nil
+}
+
+// SetWriteDeadline sets the write deadline.
+func (c *meshConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.writeDeadline = t
+	return nil
+}
+
+// Stats returns agent statistics.
+func (a *Agent) Stats() AgentStats {
+	return AgentStats{
+		PeerCount:       a.peerMgr.PeerCount(),
+		StreamCount:     a.streamMgr.StreamCount(),
+		RouteCount:      a.routeMgr.TotalRoutes(),
+		SOCKS5Running:   a.socks5Srv != nil && a.socks5Srv.IsRunning(),
+		ExitHandlerRun:  a.exitHandler != nil && a.exitHandler.IsRunning(),
+	}
+}
+
+// AgentStats contains agent statistics.
+type AgentStats struct {
+	PeerCount       int
+	StreamCount     int
+	RouteCount      int
+	SOCKS5Running   bool
+	ExitHandlerRun  bool
+}
+
+// GetRoutes returns all routes for debugging.
+func (a *Agent) GetRoutes() []*routing.Route {
+	return a.routeMgr.Table().GetAllRoutes()
+}
+
+// GetPeerIDs returns all connected peer IDs for debugging.
+func (a *Agent) GetPeerIDs() []identity.AgentID {
+	return a.peerMgr.GetPeerIDs()
+}
+
+// SOCKS5Address returns the SOCKS5 server address, or nil if not running.
+func (a *Agent) SOCKS5Address() net.Addr {
+	if a.socks5Srv == nil {
+		return nil
+	}
+	return a.socks5Srv.Address()
+}
+
+// WriteStreamData implements exit.StreamWriter.
+// Chunks data larger than MaxPayloadSize into multiple frames.
+func (a *Agent) WriteStreamData(peerID identity.AgentID, streamID uint64, data []byte, flags uint8) error {
+	// Handle empty data with flags (e.g., FIN_WRITE)
+	if len(data) == 0 {
+		frame := &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: streamID,
+			Flags:    flags,
+			Payload:  nil,
+		}
+		return a.peerMgr.SendToPeer(peerID, frame)
+	}
+
+	// Chunk data into MaxPayloadSize pieces
+	for offset := 0; offset < len(data); {
+		end := offset + protocol.MaxPayloadSize
+		if end > len(data) {
+			end = len(data)
+		}
+
+		chunk := data[offset:end]
+		isLast := end >= len(data)
+
+		// Only set flags on the last chunk
+		var chunkFlags uint8
+		if isLast {
+			chunkFlags = flags
+		}
+
+		frame := &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: streamID,
+			Flags:    chunkFlags,
+			Payload:  chunk,
+		}
+
+		if err := a.peerMgr.SendToPeer(peerID, frame); err != nil {
+			return err
+		}
+
+		offset = end
+	}
+
+	return nil
+}
+
+// WriteStreamOpenAck implements exit.StreamWriter.
+func (a *Agent) WriteStreamOpenAck(peerID identity.AgentID, streamID uint64, requestID uint64, boundIP net.IP, boundPort uint16) error {
+	var addrType uint8
+	var addrBytes []byte
+	if ip4 := boundIP.To4(); ip4 != nil {
+		addrType = protocol.AddrTypeIPv4
+		addrBytes = ip4
+	} else if len(boundIP) == 16 {
+		addrType = protocol.AddrTypeIPv6
+		addrBytes = boundIP
+	} else {
+		addrType = protocol.AddrTypeIPv4
+		addrBytes = []byte{0, 0, 0, 0}
+	}
+
+	ack := &protocol.StreamOpenAck{
+		RequestID:     requestID,
+		BoundAddrType: addrType,
+		BoundAddr:     addrBytes,
+		BoundPort:     boundPort,
+	}
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpenAck,
+		StreamID: streamID,
+		Payload:  ack.Encode(),
+	}
+	return a.peerMgr.SendToPeer(peerID, frame)
+}
+
+// WriteStreamOpenErr implements exit.StreamWriter.
+func (a *Agent) WriteStreamOpenErr(peerID identity.AgentID, streamID uint64, requestID uint64, errorCode uint16, message string) error {
+	errPayload := &protocol.StreamOpenErr{
+		RequestID: requestID,
+		ErrorCode: errorCode,
+		Message:   message,
+	}
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpenErr,
+		StreamID: streamID,
+		Payload:  errPayload.Encode(),
+	}
+	return a.peerMgr.SendToPeer(peerID, frame)
+}
+
+// WriteStreamClose implements exit.StreamWriter.
+func (a *Agent) WriteStreamClose(peerID identity.AgentID, streamID uint64) error {
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamClose,
+		StreamID: streamID,
+	}
+	return a.peerMgr.SendToPeer(peerID, frame)
+}

@@ -1,0 +1,45 @@
+# Binaries
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+coverage/
+*.test.exe
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Development data and certificates
+data/
+certs/
+*.pem
+*.key
+*.crt
+
+# Configuration files with secrets
+config.yaml
+*.env
+.env*
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*.orig
+
+# Debug files
+__debug_bin*

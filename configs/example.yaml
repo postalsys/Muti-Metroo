@@ -1,0 +1,145 @@
+# ==============================================================================
+# Muti Metroo - Example Configuration
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Agent Identity
+# ------------------------------------------------------------------------------
+agent:
+  # Agent ID: "auto" generates on first run, or specify hex string
+  id: "auto"
+
+  # Directory for persistent state (agent_id, etc.)
+  data_dir: "./data"
+
+  # Logging configuration
+  log_level: "info"   # debug, info, warn, error
+  log_format: "text"  # text, json
+
+# ------------------------------------------------------------------------------
+# Transport Listeners
+# Listen for incoming peer connections
+# ------------------------------------------------------------------------------
+listeners:
+  # QUIC listener (best performance, recommended)
+  - transport: quic
+    address: "0.0.0.0:4433"
+    tls:
+      cert: "./certs/agent.crt"
+      key: "./certs/agent.key"
+      # Optional: require client certificates (mTLS)
+      # client_ca: "./certs/ca.crt"
+
+  # HTTP/2 listener (TCP fallback)
+  # - transport: h2
+  #   address: "0.0.0.0:8443"
+  #   path: "/mesh"
+  #   tls:
+  #     cert: "./certs/agent.crt"
+  #     key: "./certs/agent.key"
+
+  # WebSocket listener (maximum proxy compatibility)
+  # - transport: ws
+  #   address: "0.0.0.0:443"
+  #   path: "/mesh"
+  #   tls:
+  #     cert: "./certs/agent.crt"
+  #     key: "./certs/agent.key"
+
+# ------------------------------------------------------------------------------
+# Peer Connections
+# Connect to other agents in the mesh
+# ------------------------------------------------------------------------------
+peers:
+  # Example QUIC peer
+  # - id: "abc123def456789012345678901234ab"  # Expected peer AgentID
+  #   transport: quic
+  #   address: "192.168.1.50:4433"
+  #   tls:
+  #     ca: "./certs/peer-ca.crt"
+  #     # Or use certificate pinning:
+  #     # fingerprint: "sha256:ab12cd34..."
+
+  # Example WebSocket peer through corporate proxy
+  # - id: "ghi789jkl012345678901234567890cd"
+  #   transport: ws
+  #   address: "wss://relay.example.com:443/mesh"
+  #   proxy: "http://proxy.corp.local:8080"
+  #   proxy_auth:
+  #     username: "${PROXY_USER}"
+  #     password: "${PROXY_PASS}"
+
+# ------------------------------------------------------------------------------
+# SOCKS5 Server
+# Accept client connections (ingress role)
+# ------------------------------------------------------------------------------
+socks5:
+  enabled: true
+  address: "127.0.0.1:1080"
+
+  # Optional authentication
+  auth:
+    enabled: false
+    users:
+      - username: "user1"
+        password: "pass1"
+
+  # Connection limits
+  max_connections: 1000
+
+# ------------------------------------------------------------------------------
+# Exit Configuration
+# Open real TCP connections to destinations (exit role)
+# ------------------------------------------------------------------------------
+exit:
+  enabled: false
+
+  # CIDR routes to advertise to mesh
+  routes:
+    # - "10.0.0.0/8"
+    # - "192.168.0.0/16"
+    # - "0.0.0.0/0"  # Default route (be careful!)
+
+  # DNS settings for domain resolution
+  dns:
+    servers:
+      - "8.8.8.8:53"
+      - "1.1.1.1:53"
+    timeout: 5s
+
+# ------------------------------------------------------------------------------
+# Routing
+# Route advertisement and propagation settings
+# ------------------------------------------------------------------------------
+routing:
+  advertise_interval: 2m  # How often to re-advertise routes
+  route_ttl: 5m           # How long routes are valid
+  max_hops: 16            # Maximum path length (TTL)
+
+# ------------------------------------------------------------------------------
+# Connection Tuning
+# Peer connection behavior
+# ------------------------------------------------------------------------------
+connections:
+  # Keepalive settings
+  idle_threshold: 30s  # Send keepalive after this idle time
+  timeout: 90s         # Declare peer dead after no response
+
+  # Reconnection behavior
+  reconnect:
+    initial_delay: 1s
+    max_delay: 60s
+    multiplier: 2.0
+    jitter: 0.2
+    max_retries: 0     # 0 = infinite
+
+# ------------------------------------------------------------------------------
+# Resource Limits
+# Prevent resource exhaustion
+# ------------------------------------------------------------------------------
+limits:
+  max_streams_per_peer: 1000
+  max_streams_total: 10000
+  max_pending_opens: 100
+  stream_open_timeout: 30s
+  buffer_size: 262144  # 256 KB per stream
