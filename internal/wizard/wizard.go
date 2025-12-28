@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -15,15 +16,17 @@ import (
 	"github.com/coinstash/muti-metroo/internal/certutil"
 	"github.com/coinstash/muti-metroo/internal/config"
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/service"
 	"gopkg.in/yaml.v3"
 )
 
 // Result contains the wizard output.
 type Result struct {
-	Config     *config.Config
-	ConfigPath string
-	DataDir    string
-	CertsDir   string
+	Config           *config.Config
+	ConfigPath       string
+	DataDir          string
+	CertsDir         string
+	ServiceInstalled bool
 }
 
 // Wizard manages the interactive setup process.
@@ -117,11 +120,21 @@ func (w *Wizard) Run() (*Result, error) {
 	// Print summary
 	w.printSummary(agentID, configPath, cfg)
 
+	// Step 9: Service installation (only if root/admin on supported platforms)
+	var serviceInstalled bool
+	if service.IsRoot() && service.IsSupported() {
+		serviceInstalled, err = w.askServiceInstallation(configPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &Result{
-		Config:     cfg,
-		ConfigPath: configPath,
-		DataDir:    dataDir,
-		CertsDir:   certsDir,
+		Config:           cfg,
+		ConfigPath:       configPath,
+		DataDir:          dataDir,
+		CertsDir:         certsDir,
+		ServiceInstalled: serviceInstalled,
 	}, nil
 }
 
@@ -972,6 +985,94 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 	fmt.Println("  To start the agent:")
 	fmt.Printf("    muti-metroo run -c %s\n", configPath)
 	fmt.Println()
+}
+
+func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
+	var installService bool
+	var platformName string
+
+	switch runtime.GOOS {
+	case "linux":
+		platformName = "systemd service"
+	case "windows":
+		platformName = "Windows service"
+	default:
+		return false, nil
+	}
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Service Installation").
+				Description(fmt.Sprintf("You are running as %s.\nWould you like to install Muti Metroo as a %s?\n\nThe service will start automatically on boot.", w.privilegeLevel(), platformName)),
+
+			huh.NewConfirm().
+				Title(fmt.Sprintf("Install as %s?", platformName)).
+				Description("The agent will run in the background").
+				Value(&installService),
+		),
+	).WithTheme(w.theme)
+
+	if err := form.Run(); err != nil {
+		return false, err
+	}
+
+	if !installService {
+		return false, nil
+	}
+
+	// Get absolute path for config
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to get absolute config path: %w", err)
+	}
+
+	cfg := service.DefaultConfig(absConfigPath)
+
+	fmt.Println()
+	fmt.Printf("Installing %s...\n", platformName)
+
+	if err := service.Install(cfg); err != nil {
+		// Don't fail the wizard, just warn
+		fmt.Printf("\n⚠ Failed to install service: %v\n", err)
+		fmt.Println("You can install the service manually later.")
+		return false, nil
+	}
+
+	fmt.Println()
+	successStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("42"))
+	fmt.Println(successStyle.Render(fmt.Sprintf("✓ Installed as %s", platformName)))
+
+	switch runtime.GOOS {
+	case "linux":
+		fmt.Println("\nUseful commands:")
+		fmt.Println("  systemctl status muti-metroo    # Check status")
+		fmt.Println("  journalctl -u muti-metroo -f    # View logs")
+		fmt.Println("  systemctl restart muti-metroo   # Restart service")
+		fmt.Println("  muti-metroo uninstall           # Remove service")
+	case "windows":
+		fmt.Println("\nUseful commands:")
+		fmt.Println("  sc query muti-metroo            # Check status")
+		fmt.Println("  net start muti-metroo           # Start service")
+		fmt.Println("  net stop muti-metroo            # Stop service")
+		fmt.Println("  muti-metroo uninstall           # Remove service")
+	}
+	fmt.Println()
+
+	return true, nil
+}
+
+func (w *Wizard) privilegeLevel() string {
+	switch runtime.GOOS {
+	case "linux":
+		return "root"
+	case "windows":
+		return "Administrator"
+	default:
+		return "elevated privileges"
+	}
 }
 
 func contains(slice []string, item string) bool {

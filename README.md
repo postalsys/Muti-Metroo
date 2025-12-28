@@ -50,8 +50,40 @@ The wizard guides you through:
 - **SOCKS5 settings**: Configure proxy authentication (for ingress nodes)
 - **Exit routes**: Define allowed destination networks (for exit nodes)
 - **Advanced options**: Logging, health checks, control socket
+- **Service installation**: Install as system service (Linux/Windows, requires root/admin)
 
 The wizard generates a complete `config.yaml` and initializes your agent identity.
+
+### Service Installation
+
+When running the setup wizard as root (Linux) or Administrator (Windows), you'll be offered to install Muti Metroo as a system service:
+
+- **Linux**: Creates a systemd service that starts on boot
+- **Windows**: Registers a Windows service that starts automatically
+
+To uninstall the service:
+
+```bash
+# Linux (as root)
+sudo muti-metroo uninstall
+
+# Windows (as Administrator)
+muti-metroo uninstall
+```
+
+Service management commands:
+
+```bash
+# Linux (systemd)
+systemctl status muti-metroo    # Check status
+journalctl -u muti-metroo -f    # View logs
+systemctl restart muti-metroo   # Restart
+
+# Windows
+sc query muti-metroo            # Check status
+net start muti-metroo           # Start
+net stop muti-metroo            # Stop
+```
 
 ### Manual Setup
 
@@ -225,6 +257,7 @@ An agent can serve multiple roles simultaneously:
 | `wizard` | Interactive setup wizard with modern terminal UI |
 | `health` | Health check HTTP server with pprof endpoints |
 | `control` | Unix socket control server for CLI commands |
+| `service` | Cross-platform service management (systemd on Linux, Windows Service) |
 
 ## Development
 

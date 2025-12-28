@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/coinstash/muti-metroo/internal/config"
 	"github.com/coinstash/muti-metroo/internal/control"
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/service"
 	"github.com/coinstash/muti-metroo/internal/wizard"
 	"github.com/spf13/cobra"
 )
@@ -46,6 +48,7 @@ root privileges.`,
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(peersCmd())
 	rootCmd.AddCommand(routesCmd())
+	rootCmd.AddCommand(uninstallCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -306,6 +309,69 @@ func routesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&socketPath, "socket", "s", "./data/control.sock", "Path to control socket")
+
+	return cmd
+}
+
+func uninstallCmd() *cobra.Command {
+	var serviceName string
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Uninstall the system service",
+		Long: `Remove the Muti Metroo system service.
+
+On Linux, this stops and removes the systemd service.
+On Windows, this stops and removes the Windows service.
+
+This command requires root/administrator privileges.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check platform support
+			if !service.IsSupported() {
+				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
+			}
+
+			// Check privileges
+			if !service.IsRoot() {
+				switch runtime.GOOS {
+				case "linux":
+					return fmt.Errorf("must run as root to uninstall the service (try: sudo muti-metroo uninstall)")
+				case "windows":
+					return fmt.Errorf("must run as Administrator to uninstall the service")
+				}
+			}
+
+			// Check if installed
+			if !service.IsInstalled(serviceName) {
+				fmt.Printf("Service '%s' is not installed.\n", serviceName)
+				return nil
+			}
+
+			// Confirm unless force flag is set
+			if !force {
+				fmt.Printf("This will stop and remove the '%s' service.\n", serviceName)
+				fmt.Print("Continue? [y/N]: ")
+				var response string
+				fmt.Scanln(&response)
+				if response != "y" && response != "Y" && response != "yes" {
+					fmt.Println("Aborted.")
+					return nil
+				}
+			}
+
+			// Uninstall
+			if err := service.Uninstall(serviceName); err != nil {
+				return fmt.Errorf("failed to uninstall service: %w", err)
+			}
+
+			fmt.Println("\nService uninstalled successfully.")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
 
 	return cmd
 }

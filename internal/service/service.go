@@ -1,0 +1,124 @@
+// Package service provides cross-platform service management for Muti Metroo.
+// It supports systemd on Linux and Windows Service on Windows.
+package service
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+)
+
+// ServiceConfig holds configuration for installing the service.
+type ServiceConfig struct {
+	// Name is the service name (used in systemd/Windows service)
+	Name string
+
+	// DisplayName is the human-readable name (Windows only)
+	DisplayName string
+
+	// Description is the service description
+	Description string
+
+	// ConfigPath is the absolute path to the config file
+	ConfigPath string
+
+	// WorkingDir is the working directory for the service
+	WorkingDir string
+
+	// User is the user to run the service as (Linux only, empty for root)
+	User string
+
+	// Group is the group to run the service as (Linux only, empty for root)
+	Group string
+}
+
+// DefaultConfig returns a default service configuration.
+func DefaultConfig(configPath string) ServiceConfig {
+	absPath, _ := filepath.Abs(configPath)
+	workDir := filepath.Dir(absPath)
+
+	return ServiceConfig{
+		Name:        "muti-metroo",
+		DisplayName: "Muti Metroo Mesh Agent",
+		Description: "Userspace mesh networking agent for virtual TCP tunnels",
+		ConfigPath:  absPath,
+		WorkingDir:  workDir,
+	}
+}
+
+// IsRoot returns true if the current process is running with elevated privileges.
+// On Linux, this checks for UID 0 (root).
+// On Windows, this checks for Administrator privileges.
+func IsRoot() bool {
+	return isRootImpl()
+}
+
+// Install installs the application as a system service.
+// On Linux, this creates and enables a systemd unit.
+// On Windows, this registers a Windows service.
+func Install(cfg ServiceConfig) error {
+	if !IsRoot() {
+		return fmt.Errorf("must run as root/administrator to install service")
+	}
+
+	// Get the executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Resolve symlinks to get the real path
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve executable path: %w", err)
+	}
+
+	return installImpl(cfg, execPath)
+}
+
+// Uninstall removes the system service.
+// On Linux, this stops, disables, and removes the systemd unit.
+// On Windows, this stops and removes the Windows service.
+func Uninstall(serviceName string) error {
+	if !IsRoot() {
+		return fmt.Errorf("must run as root/administrator to uninstall service")
+	}
+
+	return uninstallImpl(serviceName)
+}
+
+// Status returns the current status of the service.
+func Status(serviceName string) (string, error) {
+	return statusImpl(serviceName)
+}
+
+// IsInstalled checks if the service is already installed.
+func IsInstalled(serviceName string) bool {
+	return isInstalledImpl(serviceName)
+}
+
+// Platform returns the current platform type.
+func Platform() string {
+	switch runtime.GOOS {
+	case "linux":
+		return "linux"
+	case "windows":
+		return "windows"
+	default:
+		return "unsupported"
+	}
+}
+
+// IsSupported returns true if service installation is supported on this platform.
+func IsSupported() bool {
+	return runtime.GOOS == "linux" || runtime.GOOS == "windows"
+}
+
+// runCommand executes a command and returns combined output.
+func runCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
