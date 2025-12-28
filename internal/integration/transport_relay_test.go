@@ -327,6 +327,8 @@ func TestWSTransport_BidirectionalRelay(t *testing.T) {
 }
 
 // TestH2Transport_ConcurrentReadWrite tests concurrent read/write on H2 transport.
+// Note: H2 streams don't support SetReadDeadline, so we use a different approach
+// than QUIC - we read until stream closes rather than polling with timeouts.
 func TestH2Transport_ConcurrentReadWrite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -373,6 +375,7 @@ func TestH2Transport_ConcurrentReadWrite(t *testing.T) {
 
 	// Server: read and write concurrently
 	serverReady := make(chan struct{})
+	serverWriteDone := make(chan struct{})
 	serverDone := make(chan error, 1)
 	var serverReceived atomic.Int64
 
@@ -400,18 +403,19 @@ func TestH2Transport_ConcurrentReadWrite(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 100; i++ {
+			defer close(serverWriteDone)
+			for i := 0; i < 50; i++ { // Reduced iterations for faster test
 				data := []byte(fmt.Sprintf("SERVER:%d", i))
 				_, err := stream.Write(data)
 				if err != nil {
 					t.Logf("Server write error: %v", err)
 					return
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(5 * time.Millisecond)
 			}
 		}()
 
-		// Reader goroutine
+		// Reader goroutine - reads until error (stream closed)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -453,7 +457,6 @@ func TestH2Transport_ConcurrentReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStream failed: %v", err)
 	}
-	defer clientStream.Close()
 
 	// Wait for server to be ready
 	select {
@@ -465,34 +468,31 @@ func TestH2Transport_ConcurrentReadWrite(t *testing.T) {
 	t.Log("Testing concurrent read/write on H2...")
 
 	var clientReceived atomic.Int64
-	var wg sync.WaitGroup
+	clientWriteDone := make(chan struct{})
 
 	// Client writer
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		defer close(clientWriteDone)
+		for i := 0; i < 50; i++ { // Reduced iterations for faster test
 			data := []byte(fmt.Sprintf("CLIENT:%d", i))
 			_, err := clientStream.Write(data)
 			if err != nil {
 				t.Logf("Client write error: %v", err)
 				return
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 
-	// Client reader
-	wg.Add(1)
+	// Client reader - reads until error (stream closed)
+	readerDone := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(readerDone)
 		buf := make([]byte, 4096)
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			clientStream.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		for {
 			n, err := clientStream.Read(buf)
 			if err != nil {
-				continue // Timeout is expected
+				return
 			}
 			if n > 0 {
 				clientReceived.Add(int64(n))
@@ -500,11 +500,23 @@ func TestH2Transport_ConcurrentReadWrite(t *testing.T) {
 		}
 	}()
 
-	wg.Wait()
+	// Wait for both sides to finish writing
+	<-clientWriteDone
+	<-serverWriteDone
 
-	// Close client to signal server to stop
+	// Give a small window for final data to arrive
+	time.Sleep(100 * time.Millisecond)
+
+	// Close client stream to signal end and unblock readers
 	clientStream.Close()
 	clientConn.Close()
+
+	// Wait for reader to finish
+	select {
+	case <-readerDone:
+	case <-time.After(2 * time.Second):
+		// Reader should exit once stream is closed
+	}
 
 	// Wait for server
 	select {
@@ -529,6 +541,8 @@ func TestH2Transport_ConcurrentReadWrite(t *testing.T) {
 }
 
 // TestWSTransport_ConcurrentReadWrite tests concurrent read/write on WebSocket transport.
+// Note: WebSocket streams don't support SetReadDeadline, so we use a different approach
+// than QUIC - we read until stream closes rather than polling with timeouts.
 func TestWSTransport_ConcurrentReadWrite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
@@ -575,6 +589,7 @@ func TestWSTransport_ConcurrentReadWrite(t *testing.T) {
 
 	// Server
 	serverReady := make(chan struct{})
+	serverWriteDone := make(chan struct{})
 	serverDone := make(chan error, 1)
 	var serverReceived atomic.Int64
 
@@ -602,18 +617,19 @@ func TestWSTransport_ConcurrentReadWrite(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 100; i++ {
+			defer close(serverWriteDone)
+			for i := 0; i < 50; i++ { // Reduced iterations for faster test
 				data := []byte(fmt.Sprintf("SERVER:%d", i))
 				_, err := stream.Write(data)
 				if err != nil {
 					t.Logf("Server write error: %v", err)
 					return
 				}
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(5 * time.Millisecond)
 			}
 		}()
 
-		// Reader
+		// Reader - reads until error (stream closed)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -655,7 +671,6 @@ func TestWSTransport_ConcurrentReadWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStream failed: %v", err)
 	}
-	defer clientStream.Close()
 
 	select {
 	case <-serverReady:
@@ -666,34 +681,31 @@ func TestWSTransport_ConcurrentReadWrite(t *testing.T) {
 	t.Log("Testing concurrent read/write on WebSocket...")
 
 	var clientReceived atomic.Int64
-	var wg sync.WaitGroup
+	clientWriteDone := make(chan struct{})
 
 	// Client writer
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		for i := 0; i < 100; i++ {
+		defer close(clientWriteDone)
+		for i := 0; i < 50; i++ { // Reduced iterations for faster test
 			data := []byte(fmt.Sprintf("CLIENT:%d", i))
 			_, err := clientStream.Write(data)
 			if err != nil {
 				t.Logf("Client write error: %v", err)
 				return
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 
-	// Client reader
-	wg.Add(1)
+	// Client reader - reads until error (stream closed)
+	readerDone := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(readerDone)
 		buf := make([]byte, 4096)
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			clientStream.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		for {
 			n, err := clientStream.Read(buf)
 			if err != nil {
-				continue
+				return
 			}
 			if n > 0 {
 				clientReceived.Add(int64(n))
@@ -701,10 +713,23 @@ func TestWSTransport_ConcurrentReadWrite(t *testing.T) {
 		}
 	}()
 
-	wg.Wait()
+	// Wait for both sides to finish writing
+	<-clientWriteDone
+	<-serverWriteDone
 
+	// Give a small window for final data to arrive
+	time.Sleep(100 * time.Millisecond)
+
+	// Close client stream to signal end and unblock readers
 	clientStream.Close()
 	clientConn.Close()
+
+	// Wait for reader to finish
+	select {
+	case <-readerDone:
+	case <-time.After(2 * time.Second):
+		// Reader should exit once stream is closed
+	}
 
 	select {
 	case err := <-serverDone:

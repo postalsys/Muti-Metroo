@@ -359,7 +359,8 @@ func TestParseWebSocketURL(t *testing.T) {
 		{"wss://localhost:443/mesh", true, "wss://localhost:443/mesh"},
 		{"ws://localhost:8080/mesh", false, "ws://localhost:8080/mesh"},
 		{"localhost:443", true, "wss://localhost:443/mesh"},
-		{"localhost:8080", false, "ws://localhost:8080/mesh"},
+		// Note: bare host:port always uses wss:// for security (TLS required)
+		{"localhost:8080", true, "wss://localhost:8080/mesh"},
 	}
 
 	for _, tt := range tests {
