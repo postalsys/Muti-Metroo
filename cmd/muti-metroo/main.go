@@ -4,12 +4,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/coinstash/muti-metroo/internal/agent"
+	"github.com/coinstash/muti-metroo/internal/certutil"
 	"github.com/coinstash/muti-metroo/internal/config"
 	"github.com/coinstash/muti-metroo/internal/identity"
 	"github.com/spf13/cobra"
@@ -36,6 +39,7 @@ root privileges.`,
 	// Add subcommands
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(runCmd())
+	rootCmd.AddCommand(certCmd())
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(peersCmd())
 	rootCmd.AddCommand(routesCmd())
@@ -192,4 +196,289 @@ func routesCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func certCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "cert",
+		Short: "Certificate management commands",
+		Long:  "Generate and manage TLS certificates for the mesh network.",
+	}
+
+	cmd.AddCommand(certCACmd())
+	cmd.AddCommand(certAgentCmd())
+	cmd.AddCommand(certClientCmd())
+	cmd.AddCommand(certInfoCmd())
+
+	return cmd
+}
+
+func certCACmd() *cobra.Command {
+	var (
+		commonName string
+		outDir     string
+		validDays  int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "ca",
+		Short: "Generate a CA certificate",
+		Long:  "Generate a new Certificate Authority certificate and private key.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if commonName == "" {
+				commonName = "Muti Metroo CA"
+			}
+
+			validFor := time.Duration(validDays) * 24 * time.Hour
+
+			fmt.Printf("Generating CA certificate...\n")
+			fmt.Printf("  Common Name: %s\n", commonName)
+			fmt.Printf("  Valid for: %d days\n", validDays)
+
+			ca, err := certutil.GenerateCA(commonName, validFor)
+			if err != nil {
+				return fmt.Errorf("failed to generate CA: %w", err)
+			}
+
+			certPath := outDir + "/ca.crt"
+			keyPath := outDir + "/ca.key"
+
+			if err := ca.SaveToFiles(certPath, keyPath); err != nil {
+				return fmt.Errorf("failed to save CA: %w", err)
+			}
+
+			fmt.Printf("\nCA certificate generated:\n")
+			fmt.Printf("  Certificate: %s\n", certPath)
+			fmt.Printf("  Private key: %s\n", keyPath)
+			fmt.Printf("  Fingerprint: %s\n", ca.Fingerprint())
+			fmt.Printf("  Expires: %s\n", ca.Certificate.NotAfter.Format(time.RFC3339))
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&commonName, "cn", "n", "Muti Metroo CA", "Common name for the CA")
+	cmd.Flags().StringVarP(&outDir, "out", "o", "./certs", "Output directory for certificate files")
+	cmd.Flags().IntVarP(&validDays, "days", "d", 365, "Validity period in days")
+
+	return cmd
+}
+
+func certAgentCmd() *cobra.Command {
+	var (
+		commonName string
+		outDir     string
+		validDays  int
+		caPath     string
+		caKeyPath  string
+		dnsNames   string
+		ipAddrs    string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "agent",
+		Short: "Generate an agent/peer certificate",
+		Long:  "Generate a new agent certificate signed by a CA. The certificate can be used for both server and client authentication.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if commonName == "" {
+				return fmt.Errorf("common name is required")
+			}
+
+			// Load CA
+			ca, err := certutil.LoadCert(caPath, caKeyPath)
+			if err != nil {
+				return fmt.Errorf("failed to load CA: %w", err)
+			}
+
+			validFor := time.Duration(validDays) * 24 * time.Hour
+
+			fmt.Printf("Generating agent certificate...\n")
+			fmt.Printf("  Common Name: %s\n", commonName)
+			fmt.Printf("  Valid for: %d days\n", validDays)
+			fmt.Printf("  CA: %s\n", ca.Certificate.Subject.CommonName)
+
+			// Build options
+			opts := certutil.DefaultPeerOptions(commonName)
+			opts.ValidFor = validFor
+			opts.ParentCert = ca.Certificate
+			opts.ParentKey = ca.PrivateKey
+
+			// Add DNS names
+			if dnsNames != "" {
+				opts.DNSNames = append(opts.DNSNames, strings.Split(dnsNames, ",")...)
+			}
+
+			// Add IP addresses
+			if ipAddrs != "" {
+				for _, ip := range strings.Split(ipAddrs, ",") {
+					parsed := net.ParseIP(strings.TrimSpace(ip))
+					if parsed == nil {
+						return fmt.Errorf("invalid IP address: %s", ip)
+					}
+					opts.IPAddresses = append(opts.IPAddresses, parsed)
+				}
+			}
+
+			cert, err := certutil.GenerateCert(opts)
+			if err != nil {
+				return fmt.Errorf("failed to generate certificate: %w", err)
+			}
+
+			certPath := outDir + "/" + commonName + ".crt"
+			keyPath := outDir + "/" + commonName + ".key"
+
+			if err := cert.SaveToFiles(certPath, keyPath); err != nil {
+				return fmt.Errorf("failed to save certificate: %w", err)
+			}
+
+			fmt.Printf("\nAgent certificate generated:\n")
+			fmt.Printf("  Certificate: %s\n", certPath)
+			fmt.Printf("  Private key: %s\n", keyPath)
+			fmt.Printf("  Fingerprint: %s\n", cert.Fingerprint())
+			fmt.Printf("  Expires: %s\n", cert.Certificate.NotAfter.Format(time.RFC3339))
+			if len(opts.DNSNames) > 0 {
+				fmt.Printf("  DNS Names: %s\n", strings.Join(opts.DNSNames, ", "))
+			}
+			if len(opts.IPAddresses) > 0 {
+				ips := make([]string, len(opts.IPAddresses))
+				for i, ip := range opts.IPAddresses {
+					ips[i] = ip.String()
+				}
+				fmt.Printf("  IP Addresses: %s\n", strings.Join(ips, ", "))
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&commonName, "cn", "n", "", "Common name for the certificate (required)")
+	cmd.Flags().StringVarP(&outDir, "out", "o", "./certs", "Output directory for certificate files")
+	cmd.Flags().IntVarP(&validDays, "days", "d", 90, "Validity period in days")
+	cmd.Flags().StringVar(&caPath, "ca", "./certs/ca.crt", "Path to CA certificate")
+	cmd.Flags().StringVar(&caKeyPath, "ca-key", "./certs/ca.key", "Path to CA private key")
+	cmd.Flags().StringVar(&dnsNames, "dns", "", "Additional DNS names (comma-separated)")
+	cmd.Flags().StringVar(&ipAddrs, "ip", "", "Additional IP addresses (comma-separated)")
+
+	_ = cmd.MarkFlagRequired("cn")
+
+	return cmd
+}
+
+func certClientCmd() *cobra.Command {
+	var (
+		commonName string
+		outDir     string
+		validDays  int
+		caPath     string
+		caKeyPath  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "client",
+		Short: "Generate a client certificate",
+		Long:  "Generate a new client certificate signed by a CA. The certificate is for client authentication only.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if commonName == "" {
+				return fmt.Errorf("common name is required")
+			}
+
+			// Load CA
+			ca, err := certutil.LoadCert(caPath, caKeyPath)
+			if err != nil {
+				return fmt.Errorf("failed to load CA: %w", err)
+			}
+
+			validFor := time.Duration(validDays) * 24 * time.Hour
+
+			fmt.Printf("Generating client certificate...\n")
+			fmt.Printf("  Common Name: %s\n", commonName)
+			fmt.Printf("  Valid for: %d days\n", validDays)
+			fmt.Printf("  CA: %s\n", ca.Certificate.Subject.CommonName)
+
+			cert, err := certutil.GenerateClientCert(commonName, validFor, ca)
+			if err != nil {
+				return fmt.Errorf("failed to generate certificate: %w", err)
+			}
+
+			certPath := outDir + "/" + commonName + ".crt"
+			keyPath := outDir + "/" + commonName + ".key"
+
+			if err := cert.SaveToFiles(certPath, keyPath); err != nil {
+				return fmt.Errorf("failed to save certificate: %w", err)
+			}
+
+			fmt.Printf("\nClient certificate generated:\n")
+			fmt.Printf("  Certificate: %s\n", certPath)
+			fmt.Printf("  Private key: %s\n", keyPath)
+			fmt.Printf("  Fingerprint: %s\n", cert.Fingerprint())
+			fmt.Printf("  Expires: %s\n", cert.Certificate.NotAfter.Format(time.RFC3339))
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&commonName, "cn", "n", "", "Common name for the certificate (required)")
+	cmd.Flags().StringVarP(&outDir, "out", "o", "./certs", "Output directory for certificate files")
+	cmd.Flags().IntVarP(&validDays, "days", "d", 90, "Validity period in days")
+	cmd.Flags().StringVar(&caPath, "ca", "./certs/ca.crt", "Path to CA certificate")
+	cmd.Flags().StringVar(&caKeyPath, "ca-key", "./certs/ca.key", "Path to CA private key")
+
+	_ = cmd.MarkFlagRequired("cn")
+
+	return cmd
+}
+
+func certInfoCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "info <certificate>",
+		Short: "Display certificate information",
+		Long:  "Display detailed information about a certificate file.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			certPath := args[0]
+
+			info, err := certutil.GetCertInfoFromFile(certPath)
+			if err != nil {
+				return fmt.Errorf("failed to read certificate: %w", err)
+			}
+
+			fmt.Printf("Certificate: %s\n\n", certPath)
+			fmt.Printf("Subject:      %s\n", info.Subject)
+			fmt.Printf("Issuer:       %s\n", info.Issuer)
+			fmt.Printf("Serial:       %s\n", info.SerialNumber)
+			fmt.Printf("Fingerprint:  %s\n", info.Fingerprint)
+			fmt.Printf("Is CA:        %v\n", info.IsCA)
+			fmt.Printf("Not Before:   %s\n", info.NotBefore.Format(time.RFC3339))
+			fmt.Printf("Not After:    %s\n", info.NotAfter.Format(time.RFC3339))
+
+			// Check expiration
+			now := time.Now()
+			if now.After(info.NotAfter) {
+				fmt.Printf("Status:       EXPIRED\n")
+			} else if now.Add(30 * 24 * time.Hour).After(info.NotAfter) {
+				daysLeft := int(info.NotAfter.Sub(now).Hours() / 24)
+				fmt.Printf("Status:       EXPIRING SOON (%d days left)\n", daysLeft)
+			} else {
+				daysLeft := int(info.NotAfter.Sub(now).Hours() / 24)
+				fmt.Printf("Status:       Valid (%d days left)\n", daysLeft)
+			}
+
+			if len(info.DNSNames) > 0 {
+				fmt.Printf("DNS Names:    %s\n", strings.Join(info.DNSNames, ", "))
+			}
+			if len(info.IPAddresses) > 0 {
+				fmt.Printf("IP Addresses: %s\n", strings.Join(info.IPAddresses, ", "))
+			}
+			if len(info.KeyUsage) > 0 {
+				fmt.Printf("Key Usage:    %s\n", strings.Join(info.KeyUsage, ", "))
+			}
+			if len(info.ExtKeyUsage) > 0 {
+				fmt.Printf("Ext Key Usage: %s\n", strings.Join(info.ExtKeyUsage, ", "))
+			}
+
+			return nil
+		},
+	}
+
+	return cmd
 }

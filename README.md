@@ -36,12 +36,34 @@ go build -o build/muti-metroo ./cmd/muti-metroo
 ### Initialize Agent
 
 ```bash
-# Generate development certificates
-make generate-certs
-
 # Initialize agent identity
 ./build/muti-metroo init -d ./data
 ```
+
+### Generate Certificates
+
+Generate fresh TLS certificates for your deployment:
+
+```bash
+# Generate CA certificate (valid for 1 year)
+./build/muti-metroo cert ca -n "My Mesh CA" -o ./certs
+
+# Generate agent certificates signed by the CA
+./build/muti-metroo cert agent -n "agent-a" --dns "node-a.example.com" --ip "192.168.1.10"
+./build/muti-metroo cert agent -n "agent-b" --dns "node-b.example.com" --ip "192.168.1.20"
+
+# Generate client certificate (for mTLS)
+./build/muti-metroo cert client -n "admin-client"
+
+# View certificate details
+./build/muti-metroo cert info ./certs/agent-a.crt
+```
+
+Certificate commands:
+- `cert ca` - Generate a new Certificate Authority
+- `cert agent` - Generate an agent/peer certificate (server + client auth)
+- `cert client` - Generate a client-only certificate
+- `cert info` - Display certificate information and expiration status
 
 ### Run
 
@@ -175,6 +197,7 @@ An agent can serve multiple roles simultaneously:
 | `stream` | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O |
 | `socks5` | SOCKS5 server with no-auth and username/password methods |
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
+| `certutil` | TLS certificate generation and management - CA, server, client, peer certificates |
 
 ## Development
 

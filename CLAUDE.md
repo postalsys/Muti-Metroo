@@ -34,6 +34,12 @@ make fmt                      # Format code
 make generate-certs           # Generate self-signed TLS certs for dev
 make init-dev                 # Initialize data directory and agent identity
 
+# Certificate Management
+./build/muti-metroo cert ca -n "My CA"           # Generate CA certificate
+./build/muti-metroo cert agent -n "agent-1"      # Generate agent/peer certificate
+./build/muti-metroo cert client -n "client-1"    # Generate client certificate
+./build/muti-metroo cert info ./certs/ca.crt     # Display certificate info
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -63,6 +69,7 @@ An agent can serve multiple roles simultaneously:
 | `stream` | Stream state machine (Opening→Open→HalfClosed→Closed), buffered I/O |
 | `socks5` | SOCKS5 server with no-auth and username/password methods |
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
+| `certutil` | TLS certificate generation and management - CA, server, client, peer certs |
 
 ### Frame Flow
 1. Client connects to SOCKS5 proxy on ingress agent
