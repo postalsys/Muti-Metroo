@@ -16,6 +16,7 @@ import (
 	"github.com/coinstash/muti-metroo/internal/config"
 	"github.com/coinstash/muti-metroo/internal/control"
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/wizard"
 	"github.com/spf13/cobra"
 )
 
@@ -38,6 +39,7 @@ root privileges.`,
 	}
 
 	// Add subcommands
+	rootCmd.AddCommand(setupCmd())
 	rootCmd.AddCommand(initCmd())
 	rootCmd.AddCommand(runCmd())
 	rootCmd.AddCommand(certCmd())
@@ -49,6 +51,36 @@ root privileges.`,
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func setupCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "setup",
+		Short: "Interactive setup wizard",
+		Long: `Run an interactive setup wizard to configure the mesh agent.
+
+The wizard will guide you through:
+  - Basic configuration (data directory, config file path)
+  - Agent role selection (ingress, transit, exit)
+  - Network configuration (transport, listen address)
+  - TLS setup (generate, paste, or use existing certificates)
+  - Peer connections
+  - SOCKS5 proxy settings (for ingress nodes)
+  - Exit node configuration (for exit nodes)
+  - Advanced options (logging, health checks)`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			w := wizard.New()
+			result, err := w.Run()
+			if err != nil {
+				return fmt.Errorf("setup wizard failed: %w", err)
+			}
+
+			_ = result // Result contains the generated config
+			return nil
+		},
+	}
+
+	return cmd
 }
 
 func initCmd() *cobra.Command {
