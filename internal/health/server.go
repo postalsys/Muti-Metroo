@@ -9,6 +9,8 @@ import (
 	"net/http/pprof"
 	"sync/atomic"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // StatsProvider provides agent statistics.
@@ -70,6 +72,9 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/ready", s.handleReady)
+
+	// Prometheus metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// pprof debug endpoints
 	mux.HandleFunc("/debug/pprof/", pprof.Index)

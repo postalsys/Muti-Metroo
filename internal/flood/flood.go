@@ -295,7 +295,11 @@ func (f *Flooder) floodAdvertisement(
 			continue
 		}
 
-		f.sender.SendToPeer(peerID, frame)
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to send route advertisement",
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
 	}
 }
 
@@ -339,7 +343,11 @@ func (f *Flooder) floodWithdrawal(
 			continue
 		}
 
-		f.sender.SendToPeer(peerID, frame)
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to send route withdrawal",
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
 	}
 }
 
@@ -386,7 +394,11 @@ func (f *Flooder) AnnounceLocalRoutes() {
 
 	// Send to all peers
 	for _, peerID := range f.sender.GetPeerIDs() {
-		f.sender.SendToPeer(peerID, frame)
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to announce local routes",
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
 	}
 }
 
@@ -429,7 +441,11 @@ func (f *Flooder) WithdrawLocalRoutes() {
 	}
 
 	for _, peerID := range f.sender.GetPeerIDs() {
-		f.sender.SendToPeer(peerID, frame)
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to withdraw local routes",
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
 	}
 }
 
@@ -490,7 +506,11 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 			Payload:  adv.Encode(),
 		}
 
-		f.sender.SendToPeer(peerID, frame)
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to send full routing table",
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
 	}
 }
 

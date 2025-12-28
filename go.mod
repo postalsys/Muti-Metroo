@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.23.12
 
 require (
+	github.com/prometheus/client_golang v1.20.5
 	github.com/quic-go/quic-go v0.48.2
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/net v0.28.0

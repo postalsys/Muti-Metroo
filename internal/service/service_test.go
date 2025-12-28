@@ -1,0 +1,198 @@
+package service
+
+import (
+	"path/filepath"
+	"runtime"
+	"testing"
+)
+
+func TestDefaultConfig(t *testing.T) {
+	configPath := "/path/to/config.yaml"
+	cfg := DefaultConfig(configPath)
+
+	if cfg.Name != "muti-metroo" {
+		t.Errorf("Name = %q, want %q", cfg.Name, "muti-metroo")
+	}
+
+	if cfg.DisplayName != "Muti Metroo Mesh Agent" {
+		t.Errorf("DisplayName = %q, want %q", cfg.DisplayName, "Muti Metroo Mesh Agent")
+	}
+
+	if cfg.Description != "Userspace mesh networking agent for virtual TCP tunnels" {
+		t.Errorf("Description = %q, want %q", cfg.Description, "Userspace mesh networking agent for virtual TCP tunnels")
+	}
+
+	// ConfigPath should be absolute
+	if !filepath.IsAbs(cfg.ConfigPath) {
+		t.Errorf("ConfigPath = %q, should be absolute", cfg.ConfigPath)
+	}
+
+	// WorkingDir should be the directory of the config file
+	expectedDir := filepath.Dir(cfg.ConfigPath)
+	if cfg.WorkingDir != expectedDir {
+		t.Errorf("WorkingDir = %q, want %q", cfg.WorkingDir, expectedDir)
+	}
+
+	// User and Group should be empty by default
+	if cfg.User != "" {
+		t.Errorf("User = %q, want empty", cfg.User)
+	}
+	if cfg.Group != "" {
+		t.Errorf("Group = %q, want empty", cfg.Group)
+	}
+}
+
+func TestDefaultConfigRelativePath(t *testing.T) {
+	// Test with relative path
+	cfg := DefaultConfig("./config.yaml")
+
+	// ConfigPath should still be made absolute
+	if !filepath.IsAbs(cfg.ConfigPath) {
+		t.Errorf("ConfigPath = %q, should be absolute", cfg.ConfigPath)
+	}
+}
+
+func TestServiceConfigFields(t *testing.T) {
+	cfg := ServiceConfig{
+		Name:        "test-service",
+		DisplayName: "Test Service",
+		Description: "A test service",
+		ConfigPath:  "/etc/test/config.yaml",
+		WorkingDir:  "/etc/test",
+		User:        "testuser",
+		Group:       "testgroup",
+	}
+
+	if cfg.Name != "test-service" {
+		t.Errorf("Name = %q, want %q", cfg.Name, "test-service")
+	}
+	if cfg.DisplayName != "Test Service" {
+		t.Errorf("DisplayName = %q, want %q", cfg.DisplayName, "Test Service")
+	}
+	if cfg.Description != "A test service" {
+		t.Errorf("Description = %q, want %q", cfg.Description, "A test service")
+	}
+	if cfg.ConfigPath != "/etc/test/config.yaml" {
+		t.Errorf("ConfigPath = %q, want %q", cfg.ConfigPath, "/etc/test/config.yaml")
+	}
+	if cfg.WorkingDir != "/etc/test" {
+		t.Errorf("WorkingDir = %q, want %q", cfg.WorkingDir, "/etc/test")
+	}
+	if cfg.User != "testuser" {
+		t.Errorf("User = %q, want %q", cfg.User, "testuser")
+	}
+	if cfg.Group != "testgroup" {
+		t.Errorf("Group = %q, want %q", cfg.Group, "testgroup")
+	}
+}
+
+func TestPlatform(t *testing.T) {
+	platform := Platform()
+
+	switch runtime.GOOS {
+	case "linux":
+		if platform != "linux" {
+			t.Errorf("Platform() = %q, want %q on Linux", platform, "linux")
+		}
+	case "windows":
+		if platform != "windows" {
+			t.Errorf("Platform() = %q, want %q on Windows", platform, "windows")
+		}
+	default:
+		if platform != "unsupported" {
+			t.Errorf("Platform() = %q, want %q on unsupported OS", platform, "unsupported")
+		}
+	}
+}
+
+func TestIsSupported(t *testing.T) {
+	supported := IsSupported()
+
+	switch runtime.GOOS {
+	case "linux", "windows":
+		if !supported {
+			t.Errorf("IsSupported() = false, want true on %s", runtime.GOOS)
+		}
+	default:
+		if supported {
+			t.Errorf("IsSupported() = true, want false on %s", runtime.GOOS)
+		}
+	}
+}
+
+func TestIsRoot(t *testing.T) {
+	// On non-Linux/non-Windows platforms, IsRoot should return false
+	// On Linux/Windows, it depends on actual privileges
+	isRoot := IsRoot()
+
+	// We can't assert the exact value since it depends on test environment,
+	// but we can verify it returns a boolean without panicking
+	_ = isRoot
+}
+
+func TestIsInstalled(t *testing.T) {
+	// Test with a service name that definitely doesn't exist
+	installed := IsInstalled("definitely-not-installed-service-12345")
+
+	// Should return false for a non-existent service
+	if installed {
+		t.Error("IsInstalled() = true for non-existent service, want false")
+	}
+}
+
+func TestStatusNonExistent(t *testing.T) {
+	// Test status of a non-existent service
+	status, err := Status("definitely-not-installed-service-12345")
+
+	// Behavior depends on platform
+	switch runtime.GOOS {
+	case "linux":
+		// On Linux, should return "inactive" or "unknown" without error,
+		// or an error if systemctl fails
+		if err == nil {
+			if status != "inactive" && status != "unknown" {
+				t.Errorf("Status() = %q, expected 'inactive' or 'unknown'", status)
+			}
+		}
+	default:
+		// On unsupported platforms, should return an error
+		if err == nil {
+			t.Error("Status() should return error on unsupported platform")
+		}
+	}
+}
+
+func TestInstallWithoutRoot(t *testing.T) {
+	// Skip if running as root (unlikely in test environment)
+	if IsRoot() {
+		t.Skip("Skipping test that requires non-root user")
+	}
+
+	cfg := DefaultConfig("/tmp/test-config.yaml")
+	err := Install(cfg)
+
+	if err == nil {
+		t.Error("Install() should return error when not running as root")
+	}
+
+	if err.Error() != "must run as root/administrator to install service" {
+		t.Errorf("Install() error = %q, want root/administrator error", err.Error())
+	}
+}
+
+func TestUninstallWithoutRoot(t *testing.T) {
+	// Skip if running as root (unlikely in test environment)
+	if IsRoot() {
+		t.Skip("Skipping test that requires non-root user")
+	}
+
+	err := Uninstall("test-service")
+
+	if err == nil {
+		t.Error("Uninstall() should return error when not running as root")
+	}
+
+	if err.Error() != "must run as root/administrator to uninstall service" {
+		t.Errorf("Uninstall() error = %q, want root/administrator error", err.Error())
+	}
+}

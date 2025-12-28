@@ -397,7 +397,80 @@ func isValidCIDR(cidr string) bool {
 }
 
 // String returns a string representation of the config (for debugging).
+// WARNING: This method redacts sensitive values. Use StringUnsafe() for full output.
 func (c *Config) String() string {
+	redacted := c.Redacted()
+	data, _ := yaml.Marshal(redacted)
+	return string(data)
+}
+
+// StringUnsafe returns a string representation including sensitive values.
+// Use with caution - do not log the output.
+func (c *Config) StringUnsafe() string {
 	data, _ := yaml.Marshal(c)
 	return string(data)
+}
+
+// redactedValue is the placeholder for sensitive values.
+const redactedValue = "[REDACTED]"
+
+// Redacted returns a copy of the config with sensitive values redacted.
+// This is safe to log or display to users.
+func (c *Config) Redacted() *Config {
+	// Create a deep copy by marshaling and unmarshaling
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return c
+	}
+
+	redacted := &Config{}
+	if err := yaml.Unmarshal(data, redacted); err != nil {
+		return c
+	}
+
+	// Redact sensitive fields in peers
+	for i := range redacted.Peers {
+		if redacted.Peers[i].ProxyAuth.Password != "" {
+			redacted.Peers[i].ProxyAuth.Password = redactedValue
+		}
+		// Redact TLS key paths as they point to sensitive files
+		if redacted.Peers[i].TLS.Key != "" {
+			redacted.Peers[i].TLS.Key = redactedValue
+		}
+	}
+
+	// Redact sensitive fields in listeners
+	for i := range redacted.Listeners {
+		if redacted.Listeners[i].TLS.Key != "" {
+			redacted.Listeners[i].TLS.Key = redactedValue
+		}
+	}
+
+	// Redact SOCKS5 user passwords
+	for i := range redacted.SOCKS5.Auth.Users {
+		if redacted.SOCKS5.Auth.Users[i].Password != "" {
+			redacted.SOCKS5.Auth.Users[i].Password = redactedValue
+		}
+	}
+
+	return redacted
+}
+
+// HasSensitiveData returns true if the config contains any sensitive data.
+func (c *Config) HasSensitiveData() bool {
+	// Check peer proxy passwords
+	for _, p := range c.Peers {
+		if p.ProxyAuth.Password != "" {
+			return true
+		}
+	}
+
+	// Check SOCKS5 passwords
+	for _, u := range c.SOCKS5.Auth.Users {
+		if u.Password != "" {
+			return true
+		}
+	}
+
+	return false
 }

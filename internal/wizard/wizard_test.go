@@ -1,0 +1,501 @@
+package wizard
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/coinstash/muti-metroo/internal/config"
+)
+
+func TestNew(t *testing.T) {
+	w := New()
+	if w == nil {
+		t.Fatal("New() returned nil")
+	}
+	if w.theme == nil {
+		t.Error("New() returned wizard with nil theme")
+	}
+}
+
+func TestContains(t *testing.T) {
+	tests := []struct {
+		name     string
+		slice    []string
+		item     string
+		expected bool
+	}{
+		{
+			name:     "item exists",
+			slice:    []string{"ingress", "transit", "exit"},
+			item:     "transit",
+			expected: true,
+		},
+		{
+			name:     "item does not exist",
+			slice:    []string{"ingress", "transit", "exit"},
+			item:     "other",
+			expected: false,
+		},
+		{
+			name:     "empty slice",
+			slice:    []string{},
+			item:     "test",
+			expected: false,
+		},
+		{
+			name:     "single item match",
+			slice:    []string{"only"},
+			item:     "only",
+			expected: true,
+		},
+		{
+			name:     "single item no match",
+			slice:    []string{"only"},
+			item:     "other",
+			expected: false,
+		},
+		{
+			name:     "empty item",
+			slice:    []string{"a", "", "b"},
+			item:     "",
+			expected: true,
+		},
+		{
+			name:     "case sensitive",
+			slice:    []string{"Ingress", "Transit"},
+			item:     "ingress",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := contains(tc.slice, tc.item)
+			if result != tc.expected {
+				t.Errorf("contains(%v, %q) = %v, want %v", tc.slice, tc.item, result, tc.expected)
+			}
+		})
+	}
+}
+
+func TestBuildConfig(t *testing.T) {
+	w := New()
+
+	tests := []struct {
+		name           string
+		dataDir        string
+		transport      string
+		listenAddr     string
+		listenPath     string
+		tlsConfig      config.TLSConfig
+		peers          []config.PeerConfig
+		socks5Config   config.SOCKS5Config
+		exitConfig     config.ExitConfig
+		healthEnabled  bool
+		controlEnabled bool
+		logLevel       string
+		validate       func(*testing.T, *config.Config)
+	}{
+		{
+			name:       "basic QUIC config",
+			dataDir:    "/data",
+			transport:  "quic",
+			listenAddr: "0.0.0.0:4433",
+			listenPath: "",
+			tlsConfig: config.TLSConfig{
+				Cert: "/certs/server.crt",
+				Key:  "/certs/server.key",
+			},
+			peers:          nil,
+			socks5Config:   config.SOCKS5Config{Enabled: false},
+			exitConfig:     config.ExitConfig{Enabled: false},
+			healthEnabled:  true,
+			controlEnabled: true,
+			logLevel:       "info",
+			validate: func(t *testing.T, cfg *config.Config) {
+				if cfg.Agent.DataDir != "/data" {
+					t.Errorf("DataDir = %q, want %q", cfg.Agent.DataDir, "/data")
+				}
+				if cfg.Agent.LogLevel != "info" {
+					t.Errorf("LogLevel = %q, want %q", cfg.Agent.LogLevel, "info")
+				}
+				if len(cfg.Listeners) != 1 {
+					t.Fatalf("Listeners count = %d, want 1", len(cfg.Listeners))
+				}
+				if cfg.Listeners[0].Transport != "quic" {
+					t.Errorf("Transport = %q, want %q", cfg.Listeners[0].Transport, "quic")
+				}
+				if cfg.Listeners[0].Address != "0.0.0.0:4433" {
+					t.Errorf("Address = %q, want %q", cfg.Listeners[0].Address, "0.0.0.0:4433")
+				}
+				if cfg.Listeners[0].Path != "" {
+					t.Errorf("Path = %q, want empty", cfg.Listeners[0].Path)
+				}
+				if !cfg.Health.Enabled {
+					t.Error("Health.Enabled = false, want true")
+				}
+				if cfg.Health.Address != ":8080" {
+					t.Errorf("Health.Address = %q, want %q", cfg.Health.Address, ":8080")
+				}
+				if !cfg.Control.Enabled {
+					t.Error("Control.Enabled = false, want true")
+				}
+				if cfg.Control.SocketPath != "/data/control.sock" {
+					t.Errorf("Control.SocketPath = %q, want %q", cfg.Control.SocketPath, "/data/control.sock")
+				}
+			},
+		},
+		{
+			name:       "HTTP/2 with path",
+			dataDir:    "./mydata",
+			transport:  "h2",
+			listenAddr: "0.0.0.0:443",
+			listenPath: "/mesh",
+			tlsConfig: config.TLSConfig{
+				Cert: "cert.pem",
+				Key:  "key.pem",
+			},
+			peers:          nil,
+			socks5Config:   config.SOCKS5Config{Enabled: false},
+			exitConfig:     config.ExitConfig{Enabled: false},
+			healthEnabled:  false,
+			controlEnabled: false,
+			logLevel:       "debug",
+			validate: func(t *testing.T, cfg *config.Config) {
+				if cfg.Listeners[0].Transport != "h2" {
+					t.Errorf("Transport = %q, want %q", cfg.Listeners[0].Transport, "h2")
+				}
+				if cfg.Listeners[0].Path != "/mesh" {
+					t.Errorf("Path = %q, want %q", cfg.Listeners[0].Path, "/mesh")
+				}
+				if cfg.Agent.LogLevel != "debug" {
+					t.Errorf("LogLevel = %q, want %q", cfg.Agent.LogLevel, "debug")
+				}
+				if cfg.Health.Enabled {
+					t.Error("Health.Enabled = true, want false")
+				}
+				if cfg.Control.Enabled {
+					t.Error("Control.Enabled = true, want false")
+				}
+			},
+		},
+		{
+			name:       "WebSocket with path",
+			dataDir:    "/opt/muti",
+			transport:  "ws",
+			listenAddr: "0.0.0.0:8080",
+			listenPath: "/ws",
+			tlsConfig: config.TLSConfig{
+				Cert: "ws.crt",
+				Key:  "ws.key",
+			},
+			peers:          nil,
+			socks5Config:   config.SOCKS5Config{Enabled: false},
+			exitConfig:     config.ExitConfig{Enabled: false},
+			healthEnabled:  true,
+			controlEnabled: true,
+			logLevel:       "warn",
+			validate: func(t *testing.T, cfg *config.Config) {
+				if cfg.Listeners[0].Transport != "ws" {
+					t.Errorf("Transport = %q, want %q", cfg.Listeners[0].Transport, "ws")
+				}
+				if cfg.Listeners[0].Path != "/ws" {
+					t.Errorf("Path = %q, want %q", cfg.Listeners[0].Path, "/ws")
+				}
+			},
+		},
+		{
+			name:       "with SOCKS5 enabled",
+			dataDir:    "/data",
+			transport:  "quic",
+			listenAddr: "0.0.0.0:4433",
+			listenPath: "",
+			tlsConfig:  config.TLSConfig{Cert: "c", Key: "k"},
+			peers:      nil,
+			socks5Config: config.SOCKS5Config{
+				Enabled:        true,
+				Address:        "127.0.0.1:1080",
+				MaxConnections: 500,
+				Auth: config.SOCKS5AuthConfig{
+					Enabled: true,
+					Users: []config.SOCKS5UserConfig{
+						{Username: "user1", Password: "pass1"},
+					},
+				},
+			},
+			exitConfig:     config.ExitConfig{Enabled: false},
+			healthEnabled:  false,
+			controlEnabled: false,
+			logLevel:       "info",
+			validate: func(t *testing.T, cfg *config.Config) {
+				if !cfg.SOCKS5.Enabled {
+					t.Error("SOCKS5.Enabled = false, want true")
+				}
+				if cfg.SOCKS5.Address != "127.0.0.1:1080" {
+					t.Errorf("SOCKS5.Address = %q, want %q", cfg.SOCKS5.Address, "127.0.0.1:1080")
+				}
+				if cfg.SOCKS5.MaxConnections != 500 {
+					t.Errorf("SOCKS5.MaxConnections = %d, want 500", cfg.SOCKS5.MaxConnections)
+				}
+				if !cfg.SOCKS5.Auth.Enabled {
+					t.Error("SOCKS5.Auth.Enabled = false, want true")
+				}
+				if len(cfg.SOCKS5.Auth.Users) != 1 {
+					t.Fatalf("SOCKS5.Auth.Users count = %d, want 1", len(cfg.SOCKS5.Auth.Users))
+				}
+				if cfg.SOCKS5.Auth.Users[0].Username != "user1" {
+					t.Errorf("Username = %q, want %q", cfg.SOCKS5.Auth.Users[0].Username, "user1")
+				}
+			},
+		},
+		{
+			name:       "with exit enabled",
+			dataDir:    "/data",
+			transport:  "quic",
+			listenAddr: "0.0.0.0:4433",
+			listenPath: "",
+			tlsConfig:  config.TLSConfig{Cert: "c", Key: "k"},
+			peers:      nil,
+			socks5Config: config.SOCKS5Config{Enabled: false},
+			exitConfig: config.ExitConfig{
+				Enabled: true,
+				Routes:  []string{"0.0.0.0/0", "10.0.0.0/8"},
+				DNS: config.DNSConfig{
+					Servers: []string{"8.8.8.8:53"},
+					Timeout: 10 * time.Second,
+				},
+			},
+			healthEnabled:  false,
+			controlEnabled: false,
+			logLevel:       "info",
+			validate: func(t *testing.T, cfg *config.Config) {
+				if !cfg.Exit.Enabled {
+					t.Error("Exit.Enabled = false, want true")
+				}
+				if len(cfg.Exit.Routes) != 2 {
+					t.Fatalf("Exit.Routes count = %d, want 2", len(cfg.Exit.Routes))
+				}
+				if cfg.Exit.Routes[0] != "0.0.0.0/0" {
+					t.Errorf("Exit.Routes[0] = %q, want %q", cfg.Exit.Routes[0], "0.0.0.0/0")
+				}
+				if len(cfg.Exit.DNS.Servers) != 1 {
+					t.Fatalf("Exit.DNS.Servers count = %d, want 1", len(cfg.Exit.DNS.Servers))
+				}
+			},
+		},
+		{
+			name:       "with peers",
+			dataDir:    "/data",
+			transport:  "quic",
+			listenAddr: "0.0.0.0:4433",
+			listenPath: "",
+			tlsConfig:  config.TLSConfig{Cert: "c", Key: "k"},
+			peers: []config.PeerConfig{
+				{
+					ID:        "peer1",
+					Transport: "quic",
+					Address:   "peer1.example.com:4433",
+					TLS:       config.TLSConfig{InsecureSkipVerify: true},
+				},
+				{
+					ID:        "peer2",
+					Transport: "h2",
+					Address:   "peer2.example.com:443",
+					Path:      "/mesh",
+				},
+			},
+			socks5Config:   config.SOCKS5Config{Enabled: false},
+			exitConfig:     config.ExitConfig{Enabled: false},
+			healthEnabled:  false,
+			controlEnabled: false,
+			logLevel:       "info",
+			validate: func(t *testing.T, cfg *config.Config) {
+				if len(cfg.Peers) != 2 {
+					t.Fatalf("Peers count = %d, want 2", len(cfg.Peers))
+				}
+				if cfg.Peers[0].ID != "peer1" {
+					t.Errorf("Peers[0].ID = %q, want %q", cfg.Peers[0].ID, "peer1")
+				}
+				if cfg.Peers[0].Address != "peer1.example.com:4433" {
+					t.Errorf("Peers[0].Address = %q, want %q", cfg.Peers[0].Address, "peer1.example.com:4433")
+				}
+				if !cfg.Peers[0].TLS.InsecureSkipVerify {
+					t.Error("Peers[0].TLS.InsecureSkipVerify = false, want true")
+				}
+				if cfg.Peers[1].Path != "/mesh" {
+					t.Errorf("Peers[1].Path = %q, want %q", cfg.Peers[1].Path, "/mesh")
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := w.buildConfig(
+				tc.dataDir, tc.transport, tc.listenAddr, tc.listenPath,
+				tc.tlsConfig, tc.peers, tc.socks5Config, tc.exitConfig,
+				tc.healthEnabled, tc.controlEnabled, tc.logLevel,
+			)
+
+			if cfg == nil {
+				t.Fatal("buildConfig returned nil")
+			}
+
+			tc.validate(t, cfg)
+		})
+	}
+}
+
+func TestWriteConfig(t *testing.T) {
+	w := New()
+
+	// Create temp directory
+	tmpDir, err := os.MkdirTemp("", "wizard_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := config.Default()
+	cfg.Agent.DataDir = "/data"
+	cfg.Agent.LogLevel = "debug"
+	cfg.SOCKS5.Enabled = true
+	cfg.SOCKS5.Address = "127.0.0.1:1080"
+
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	if err := w.writeConfig(cfg, configPath); err != nil {
+		t.Fatalf("writeConfig failed: %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("Config file was not created")
+	}
+
+	// Read and verify content
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	content := string(data)
+
+	// Check header comment
+	if !strings.HasPrefix(content, "# Muti Metroo Configuration") {
+		t.Error("Config file missing header comment")
+	}
+
+	// Check key values are present
+	if !strings.Contains(content, "data_dir: /data") {
+		t.Error("Config file missing data_dir value")
+	}
+	if !strings.Contains(content, "log_level: debug") {
+		t.Error("Config file missing log_level value")
+	}
+	if !strings.Contains(content, "enabled: true") {
+		t.Error("Config file missing enabled value")
+	}
+	if !strings.Contains(content, "address: 127.0.0.1:1080") {
+		t.Error("Config file missing SOCKS5 address")
+	}
+}
+
+func TestWriteConfigCreatesDirectory(t *testing.T) {
+	w := New()
+
+	// Create temp directory
+	tmpDir, err := os.MkdirTemp("", "wizard_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Path with non-existent subdirectory
+	configPath := filepath.Join(tmpDir, "subdir", "nested", "config.yaml")
+
+	cfg := config.Default()
+
+	if err := w.writeConfig(cfg, configPath); err != nil {
+		t.Fatalf("writeConfig failed: %v", err)
+	}
+
+	// Verify directory was created
+	dir := filepath.Dir(configPath)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		t.Error("writeConfig did not create parent directories")
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("Config file was not created")
+	}
+}
+
+func TestResultStruct(t *testing.T) {
+	// Test that Result struct fields are properly initialized
+	result := &Result{
+		Config:           config.Default(),
+		ConfigPath:       "/path/to/config.yaml",
+		DataDir:          "/data",
+		CertsDir:         "/data/certs",
+		ServiceInstalled: true,
+	}
+
+	if result.Config == nil {
+		t.Error("Result.Config is nil")
+	}
+	if result.ConfigPath != "/path/to/config.yaml" {
+		t.Errorf("Result.ConfigPath = %q, want %q", result.ConfigPath, "/path/to/config.yaml")
+	}
+	if result.DataDir != "/data" {
+		t.Errorf("Result.DataDir = %q, want %q", result.DataDir, "/data")
+	}
+	if result.CertsDir != "/data/certs" {
+		t.Errorf("Result.CertsDir = %q, want %q", result.CertsDir, "/data/certs")
+	}
+	if !result.ServiceInstalled {
+		t.Error("Result.ServiceInstalled = false, want true")
+	}
+}
+
+func TestBuildConfigLogFormat(t *testing.T) {
+	w := New()
+
+	cfg := w.buildConfig(
+		"/data", "quic", "0.0.0.0:4433", "",
+		config.TLSConfig{Cert: "c", Key: "k"},
+		nil, config.SOCKS5Config{}, config.ExitConfig{},
+		false, false, "info",
+	)
+
+	// Verify LogFormat is always set to "text"
+	if cfg.Agent.LogFormat != "text" {
+		t.Errorf("Agent.LogFormat = %q, want %q", cfg.Agent.LogFormat, "text")
+	}
+}
+
+func TestBuildConfigDefaults(t *testing.T) {
+	w := New()
+
+	cfg := w.buildConfig(
+		"/data", "quic", "0.0.0.0:4433", "",
+		config.TLSConfig{Cert: "c", Key: "k"},
+		nil, config.SOCKS5Config{}, config.ExitConfig{},
+		false, false, "info",
+	)
+
+	// Verify default values from config.Default() are preserved
+	if cfg.Routing.MaxHops == 0 {
+		t.Error("Routing.MaxHops should have default value")
+	}
+	if cfg.Limits.BufferSize == 0 {
+		t.Error("Limits.BufferSize should have default value")
+	}
+	if cfg.Connections.Timeout == 0 {
+		t.Error("Connections.Timeout should have default value")
+	}
+}
