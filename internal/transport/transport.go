@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"io"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -91,6 +92,11 @@ type DialOptions struct {
 	// TLSConfig is the TLS configuration for the connection.
 	TLSConfig *tls.Config
 
+	// InsecureSkipVerify allows skipping TLS certificate verification.
+	// WARNING: Only use this for development/testing. In production, always
+	// provide a proper TLSConfig with certificate verification enabled.
+	InsecureSkipVerify bool
+
 	// Timeout is the connection timeout.
 	Timeout time.Duration
 
@@ -133,8 +139,9 @@ func DefaultListenOptions() ListenOptions {
 // StreamIDAllocator helps allocate stream IDs avoiding collisions.
 // - Dialers use odd IDs (1, 3, 5, ...)
 // - Listeners use even IDs (2, 4, 6, ...)
+// Thread-safe: uses atomic operations for concurrent access.
 type StreamIDAllocator struct {
-	next     uint64
+	next     atomic.Uint64
 	isDialer bool
 }
 
@@ -144,17 +151,18 @@ func NewStreamIDAllocator(isDialer bool) *StreamIDAllocator {
 	if isDialer {
 		start = 1 // odd for dialer
 	}
-	return &StreamIDAllocator{
-		next:     start,
+	a := &StreamIDAllocator{
 		isDialer: isDialer,
 	}
+	a.next.Store(start)
+	return a
 }
 
 // Next returns the next available stream ID.
+// Thread-safe: can be called concurrently from multiple goroutines.
 func (a *StreamIDAllocator) Next() uint64 {
-	id := a.next
-	a.next += 2
-	return id
+	// Add 2 and return the value before the add
+	return a.next.Add(2) - 2
 }
 
 // IsDialer returns true if this allocator is for a dialer.

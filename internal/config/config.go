@@ -22,6 +22,8 @@ type Config struct {
 	Routing     RoutingConfig     `yaml:"routing"`
 	Connections ConnectionsConfig `yaml:"connections"`
 	Limits      LimitsConfig      `yaml:"limits"`
+	Health      HealthConfig      `yaml:"health"`
+	Control     ControlConfig     `yaml:"control"`
 }
 
 // AgentConfig contains agent identity settings.
@@ -132,6 +134,20 @@ type LimitsConfig struct {
 	BufferSize        int           `yaml:"buffer_size"`
 }
 
+// HealthConfig defines health check server settings.
+type HealthConfig struct {
+	Enabled      bool          `yaml:"enabled"`
+	Address      string        `yaml:"address"`
+	ReadTimeout  time.Duration `yaml:"read_timeout"`
+	WriteTimeout time.Duration `yaml:"write_timeout"`
+}
+
+// ControlConfig defines control socket settings.
+type ControlConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	SocketPath string `yaml:"socket_path"`
+}
+
 // Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
@@ -178,6 +194,16 @@ func Default() *Config {
 			MaxPendingOpens:   100,
 			StreamOpenTimeout: 30 * time.Second,
 			BufferSize:        262144, // 256 KB
+		},
+		Health: HealthConfig{
+			Enabled:      false,
+			Address:      ":8080",
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		},
+		Control: ControlConfig{
+			Enabled:    false,
+			SocketPath: "./data/control.sock",
 		},
 	}
 }

@@ -70,6 +70,12 @@ func (t *H2Transport) Dial(ctx context.Context, addr string, opts DialOptions) (
 	// Create HTTP/2 client with TLS
 	tlsConfig := opts.TLSConfig
 	if tlsConfig == nil {
+		if !opts.InsecureSkipVerify {
+			connCancel()
+			dialCancel()
+			return nil, fmt.Errorf("TLS config required; set InsecureSkipVerify=true for development only")
+		}
+		// Create insecure TLS config only when explicitly requested
 		tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
 			NextProtos:         []string{"h2"},

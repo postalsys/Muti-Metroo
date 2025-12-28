@@ -2,12 +2,15 @@
 package flood
 
 import (
+	"log/slog"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/logging"
 	"github.com/coinstash/muti-metroo/internal/protocol"
+	"github.com/coinstash/muti-metroo/internal/recovery"
 	"github.com/coinstash/muti-metroo/internal/routing"
 )
 
@@ -34,6 +37,9 @@ type FloodConfig struct {
 
 	// MaxSeenCacheSize limits the seen cache size
 	MaxSeenCacheSize int
+
+	// Logger for logging
+	Logger *slog.Logger
 }
 
 // DefaultFloodConfig returns sensible defaults.
@@ -60,26 +66,35 @@ type Flooder struct {
 	localID   identity.AgentID
 	routeMgr  *routing.Manager
 	sender    PeerSender
+	logger    *slog.Logger
 
 	mu        sync.RWMutex
 	seenCache map[AdvertisementKey]*SeenAdvertisement
 
+	wg       sync.WaitGroup
 	stopOnce sync.Once
 	stopCh   chan struct{}
 }
 
 // NewFlooder creates a new route flooder.
 func NewFlooder(cfg FloodConfig, localID identity.AgentID, routeMgr *routing.Manager, sender PeerSender) *Flooder {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = logging.NopLogger()
+	}
+
 	f := &Flooder{
 		cfg:       cfg,
 		localID:   localID,
 		routeMgr:  routeMgr,
 		sender:    sender,
+		logger:    logger,
 		seenCache: make(map[AdvertisementKey]*SeenAdvertisement),
 		stopCh:    make(chan struct{}),
 	}
 
 	// Start cache cleanup goroutine
+	f.wg.Add(1)
 	go f.cleanupLoop()
 
 	return f
@@ -481,6 +496,9 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 
 // cleanupLoop periodically cleans up expired seen entries.
 func (f *Flooder) cleanupLoop() {
+	defer f.wg.Done()
+	defer recovery.RecoverWithLog(f.logger, "flood.cleanupLoop")
+
 	ticker := time.NewTicker(f.cfg.SeenCacheTTL / 2)
 	defer ticker.Stop()
 
@@ -539,6 +557,7 @@ func (f *Flooder) Stop() {
 	f.stopOnce.Do(func() {
 		close(f.stopCh)
 	})
+	f.wg.Wait()
 }
 
 // HasSeen checks if an advertisement has been seen.

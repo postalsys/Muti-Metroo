@@ -4,11 +4,14 @@ package peer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/logging"
 	"github.com/coinstash/muti-metroo/internal/protocol"
+	"github.com/coinstash/muti-metroo/internal/recovery"
 	"github.com/coinstash/muti-metroo/internal/transport"
 )
 
@@ -18,6 +21,7 @@ type PeerInfo struct {
 	ExpectedID   identity.AgentID
 	Capabilities []string
 	Persistent   bool // If true, auto-reconnect on disconnect
+	DialOptions  *transport.DialOptions
 }
 
 // ManagerConfig contains configuration for the peer manager.
@@ -30,6 +34,7 @@ type ManagerConfig struct {
 	KeepaliveInterval time.Duration
 	KeepaliveTimeout  time.Duration
 	ReconnectConfig   ReconnectConfig
+	Logger            *slog.Logger
 	OnPeerConnected   func(*Connection)
 	OnPeerDisconnect  func(*Connection, error)
 	OnFrame           func(*Connection, *protocol.Frame)
@@ -52,6 +57,7 @@ func DefaultManagerConfig(localID identity.AgentID, tr transport.Transport) Mana
 type Manager struct {
 	cfg        ManagerConfig
 	handshaker *Handshaker
+	logger     *slog.Logger
 
 	mu          sync.RWMutex
 	peers       map[identity.AgentID]*Connection
@@ -67,9 +73,15 @@ type Manager struct {
 func NewManager(cfg ManagerConfig) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	logger := cfg.Logger
+	if logger == nil {
+		logger = logging.NopLogger()
+	}
+
 	m := &Manager{
 		cfg:        cfg,
 		handshaker: NewHandshaker(cfg.LocalID, cfg.Capabilities, cfg.HandshakeTimeout),
+		logger:     logger,
 		peers:      make(map[identity.AgentID]*Connection),
 		peerInfos:  make(map[string]*PeerInfo),
 		ctx:        ctx,
@@ -116,7 +128,13 @@ func (m *Manager) Connect(ctx context.Context, addr string) (*Connection, error)
 		OnDisconnect:     m.handleDisconnect,
 	}
 
-	conn, err := m.handshaker.DialAndHandshake(ctx, m.cfg.Transport, addr, connCfg, m.cfg.DialOptions)
+	// Use per-peer DialOptions if available, otherwise use manager defaults
+	dialOpts := m.cfg.DialOptions
+	if info != nil && info.DialOptions != nil {
+		dialOpts = *info.DialOptions
+	}
+
+	conn, err := m.handshaker.DialAndHandshake(ctx, m.cfg.Transport, addr, connCfg, dialOpts)
 	if err != nil {
 		// Schedule reconnect if this is a persistent peer
 		if info != nil && info.Persistent {
@@ -150,7 +168,13 @@ func (m *Manager) ConnectWithTransport(ctx context.Context, tr transport.Transpo
 		OnDisconnect:     m.handleDisconnect,
 	}
 
-	conn, err := m.handshaker.DialAndHandshake(ctx, tr, addr, connCfg, m.cfg.DialOptions)
+	// Use per-peer DialOptions if available, otherwise use manager defaults
+	dialOpts := m.cfg.DialOptions
+	if info != nil && info.DialOptions != nil {
+		dialOpts = *info.DialOptions
+	}
+
+	conn, err := m.handshaker.DialAndHandshake(ctx, tr, addr, connCfg, dialOpts)
 	if err != nil {
 		// Schedule reconnect if this is a persistent peer
 		if info != nil && info.Persistent {
@@ -245,6 +269,17 @@ func (m *Manager) handleReconnect(addr string) error {
 // readLoop reads frames from a connection.
 func (m *Manager) readLoop(conn *Connection) {
 	defer m.wg.Done()
+	defer recovery.RecoverWithLog(m.logger, "peer.readLoop")
+
+	// Wait for handshake to complete and reader to be initialized
+	select {
+	case <-conn.Ready():
+		// Handshake complete, reader is now safe to use
+	case <-conn.Done():
+		return
+	case <-m.ctx.Done():
+		return
+	}
 
 	for {
 		select {
@@ -253,11 +288,6 @@ func (m *Manager) readLoop(conn *Connection) {
 		case <-m.ctx.Done():
 			return
 		default:
-		}
-
-		if conn.reader == nil {
-			time.Sleep(10 * time.Millisecond)
-			continue
 		}
 
 		frame, err := conn.reader.Read()
@@ -293,6 +323,7 @@ func (m *Manager) readLoop(conn *Connection) {
 // keepaliveLoop sends periodic keepalives.
 func (m *Manager) keepaliveLoop(conn *Connection) {
 	defer m.wg.Done()
+	defer recovery.RecoverWithLog(m.logger, "peer.keepaliveLoop")
 
 	ticker := time.NewTicker(m.cfg.KeepaliveInterval)
 	defer ticker.Stop()

@@ -87,6 +87,9 @@ func (h *Handshaker) PerformHandshake(ctx context.Context, conn *Connection, exp
 	conn.capabilities = result.Capabilities
 	conn.SetState(StateConnected)
 
+	// Signal that reader/writer are ready for use
+	conn.markReady()
+
 	return result, nil
 }
 

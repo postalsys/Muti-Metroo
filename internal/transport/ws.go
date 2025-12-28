@@ -70,7 +70,10 @@ func (t *WebSocketTransport) Dial(ctx context.Context, addr string, opts DialOpt
 	}
 
 	// Configure HTTP client for TLS and proxy
-	httpClient := buildHTTPClient(opts)
+	httpClient, err := buildHTTPClient(opts)
+	if err != nil {
+		return nil, err
+	}
 	dialOpts.HTTPClient = httpClient
 
 	// Dial WebSocket
@@ -435,10 +438,14 @@ func parseWebSocketURL(addr string, opts DialOptions) (string, error) {
 }
 
 // buildHTTPClient creates an HTTP client with optional TLS and proxy settings.
-func buildHTTPClient(opts DialOptions) *http.Client {
+// Returns nil if TLS config is required but not provided.
+func buildHTTPClient(opts DialOptions) (*http.Client, error) {
 	tlsConfig := opts.TLSConfig
 	if tlsConfig == nil {
-		// Default to insecure TLS config for development/testing
+		if !opts.InsecureSkipVerify {
+			return nil, fmt.Errorf("TLS config required; set InsecureSkipVerify=true for development only")
+		}
+		// Create insecure TLS config only when explicitly requested
 		tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -463,5 +470,5 @@ func buildHTTPClient(opts DialOptions) *http.Client {
 	return &http.Client{
 		Transport: transport,
 		Timeout:   opts.Timeout,
-	}
+	}, nil
 }

@@ -75,6 +75,7 @@ type Connection struct {
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closed    chan struct{}
+	ready     chan struct{} // Closed when handshake completes and reader/writer are set
 
 	// Callbacks
 	onFrame      func(*Connection, *protocol.Frame)
@@ -113,6 +114,7 @@ func NewConnection(conn transport.PeerConn, cfg ConnectionConfig) *Connection {
 		ctx:          ctx,
 		cancel:       cancel,
 		closed:       make(chan struct{}),
+		ready:        make(chan struct{}),
 		onFrame:      cfg.OnFrame,
 		onDisconnect: cfg.OnDisconnect,
 	}
@@ -260,6 +262,22 @@ func (c *Connection) Close() error {
 // Done returns a channel that's closed when the connection is closed.
 func (c *Connection) Done() <-chan struct{} {
 	return c.closed
+}
+
+// Ready returns a channel that's closed when the handshake is complete.
+func (c *Connection) Ready() <-chan struct{} {
+	return c.ready
+}
+
+// markReady signals that the handshake is complete and reader/writer are initialized.
+// This should only be called once, after setting reader, writer, and controlStream.
+func (c *Connection) markReady() {
+	select {
+	case <-c.ready:
+		// Already closed
+	default:
+		close(c.ready)
+	}
 }
 
 // Context returns the connection's context.

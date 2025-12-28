@@ -5,17 +5,22 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coinstash/muti-metroo/internal/config"
+	"github.com/coinstash/muti-metroo/internal/control"
 	"github.com/coinstash/muti-metroo/internal/exit"
 	"github.com/coinstash/muti-metroo/internal/flood"
+	"github.com/coinstash/muti-metroo/internal/health"
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/logging"
 	"github.com/coinstash/muti-metroo/internal/peer"
 	"github.com/coinstash/muti-metroo/internal/protocol"
+	"github.com/coinstash/muti-metroo/internal/recovery"
 	"github.com/coinstash/muti-metroo/internal/routing"
 	"github.com/coinstash/muti-metroo/internal/socks5"
 	"github.com/coinstash/muti-metroo/internal/stream"
@@ -35,18 +40,21 @@ type Agent struct {
 	cfg     *config.Config
 	id      identity.AgentID
 	dataDir string
+	logger  *slog.Logger
 
 	// Transport layer - supports QUIC, WebSocket, and HTTP/2
 	transports map[transport.TransportType]transport.Transport
 	listeners  []transport.Listener
 
 	// Core components
-	peerMgr     *peer.Manager
-	routeMgr    *routing.Manager
-	streamMgr   *stream.Manager
-	flooder     *flood.Flooder
-	socks5Srv   *socks5.Server
-	exitHandler *exit.Handler
+	peerMgr       *peer.Manager
+	routeMgr      *routing.Manager
+	streamMgr     *stream.Manager
+	flooder       *flood.Flooder
+	socks5Srv     *socks5.Server
+	exitHandler   *exit.Handler
+	healthServer  *health.Server
+	controlServer *control.Server
 
 	// Relay stream tracking
 	relayMu          sync.RWMutex
@@ -69,10 +77,14 @@ func New(cfg *config.Config) (*Agent, error) {
 		return nil, fmt.Errorf("load identity: %w", err)
 	}
 
+	// Initialize logger
+	logger := logging.NewLogger(cfg.Agent.LogLevel, cfg.Agent.LogFormat)
+
 	a := &Agent{
 		cfg:               cfg,
 		id:                agentID,
 		dataDir:           cfg.Agent.DataDir,
+		logger:            logger,
 		stopCh:            make(chan struct{}),
 		relayByUpstream:   make(map[uint64]*relayStream),
 		relayByDownstream: make(map[uint64]*relayStream),
@@ -111,6 +123,7 @@ func (a *Agent) initComponents() error {
 	peerCfg := peer.DefaultManagerConfig(a.id, a.transports[transport.TransportQUIC])
 	peerCfg.KeepaliveInterval = a.cfg.Connections.IdleThreshold
 	peerCfg.KeepaliveTimeout = a.cfg.Connections.Timeout
+	peerCfg.Logger = a.logger
 	peerCfg.ReconnectConfig = peer.ReconnectConfig{
 		InitialDelay: a.cfg.Connections.Reconnect.InitialDelay,
 		MaxDelay:     a.cfg.Connections.Reconnect.MaxDelay,
@@ -118,10 +131,12 @@ func (a *Agent) initComponents() error {
 		Jitter:       a.cfg.Connections.Reconnect.Jitter,
 		MaxAttempts:  a.cfg.Connections.Reconnect.MaxRetries,
 	}
+	peerCfg.OnPeerDisconnect = a.handlePeerDisconnect
 	a.peerMgr = peer.NewManager(peerCfg)
 
 	// Initialize flooder (needs peer manager for sending)
 	floodCfg := flood.DefaultFloodConfig()
+	floodCfg.Logger = a.logger
 	a.flooder = flood.NewFlooder(floodCfg, a.id, a.routeMgr, a.peerMgr)
 
 	// Initialize SOCKS5 server if enabled
@@ -150,6 +165,7 @@ func (a *Agent) initComponents() error {
 			ConnectTimeout: 30 * time.Second,
 			IdleTimeout:    a.cfg.Connections.IdleThreshold,
 			MaxConnections: a.cfg.Limits.MaxStreamsTotal,
+			Logger:         a.logger,
 			DNS: exit.DNSConfig{
 				Servers: a.cfg.Exit.DNS.Servers,
 				Timeout: a.cfg.Exit.DNS.Timeout,
@@ -167,6 +183,27 @@ func (a *Agent) initComponents() error {
 	// Wire up exit handler with Agent as StreamWriter
 	if a.exitHandler != nil {
 		a.exitHandler.SetWriter(a)
+	}
+
+	// Initialize health server if enabled
+	if a.cfg.Health.Enabled {
+		healthCfg := health.ServerConfig{
+			Address:      a.cfg.Health.Address,
+			ReadTimeout:  a.cfg.Health.ReadTimeout,
+			WriteTimeout: a.cfg.Health.WriteTimeout,
+		}
+		provider := &agentStatsProvider{agent: a}
+		a.healthServer = health.NewServer(healthCfg, provider)
+	}
+
+	// Initialize control server if enabled
+	if a.cfg.Control.Enabled {
+		controlCfg := control.ServerConfig{
+			SocketPath:   a.cfg.Control.SocketPath,
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+		}
+		a.controlServer = control.NewServer(controlCfg, a)
 	}
 
 	return nil
@@ -198,15 +235,26 @@ func (a *Agent) Start() error {
 
 	a.running.Store(true)
 
+	a.logger.Info("starting agent",
+		logging.KeyAgentID, a.id.ShortString(),
+		logging.KeyComponent, "agent")
+
 	// Set frame callback on peer manager
 	a.peerMgr.SetFrameCallback(a.processFrame)
 
 	// Start listeners
 	for _, listenerCfg := range a.cfg.Listeners {
 		if err := a.startListener(listenerCfg); err != nil {
+			a.logger.Error("failed to start listener",
+				logging.KeyAddress, listenerCfg.Address,
+				logging.KeyTransport, listenerCfg.Transport,
+				logging.KeyError, err)
 			a.running.Store(false)
 			return fmt.Errorf("start listener %s: %w", listenerCfg.Address, err)
 		}
+		a.logger.Info("listener started",
+			logging.KeyAddress, listenerCfg.Address,
+			logging.KeyTransport, listenerCfg.Transport)
 	}
 
 	// Connect to configured peers
@@ -218,20 +266,58 @@ func (a *Agent) Start() error {
 	// Start SOCKS5 server if enabled
 	if a.socks5Srv != nil {
 		if err := a.socks5Srv.Start(); err != nil {
+			a.logger.Error("failed to start SOCKS5 server",
+				logging.KeyAddress, a.cfg.SOCKS5.Address,
+				logging.KeyError, err)
 			a.running.Store(false)
 			return fmt.Errorf("start socks5: %w", err)
 		}
+		a.logger.Info("SOCKS5 server started",
+			logging.KeyAddress, a.cfg.SOCKS5.Address)
 	}
 
 	// Start exit handler if enabled
 	if a.exitHandler != nil {
 		a.exitHandler.Start()
+		a.logger.Info("exit handler started",
+			logging.KeyCount, len(a.cfg.Exit.Routes))
 	}
 
 	// Announce local routes
 	if a.cfg.Exit.Enabled {
 		a.flooder.AnnounceLocalRoutes()
 	}
+
+	// Start health server if enabled
+	if a.healthServer != nil {
+		if err := a.healthServer.Start(); err != nil {
+			a.logger.Error("failed to start health server",
+				logging.KeyAddress, a.cfg.Health.Address,
+				logging.KeyError, err)
+			a.running.Store(false)
+			return fmt.Errorf("start health server: %w", err)
+		}
+		a.logger.Info("health server started",
+			logging.KeyAddress, a.healthServer.Address())
+	}
+
+	// Start control server if enabled
+	if a.controlServer != nil {
+		if err := a.controlServer.Start(); err != nil {
+			a.logger.Error("failed to start control server",
+				"socket_path", a.cfg.Control.SocketPath,
+				logging.KeyError, err)
+			a.running.Store(false)
+			return fmt.Errorf("start control server: %w", err)
+		}
+		a.logger.Info("control server started",
+			"socket_path", a.controlServer.SocketPath())
+	}
+
+	a.logger.Info("agent started",
+		logging.KeyAgentID, a.id.ShortString(),
+		"peers", len(a.cfg.Peers),
+		"listeners", len(a.cfg.Listeners))
 
 	return nil
 }
@@ -308,6 +394,7 @@ func (a *Agent) loadTLSConfig(cfg config.TLSConfig) (*tls.Config, error) {
 // acceptLoop accepts incoming connections from a listener.
 func (a *Agent) acceptLoop(listener transport.Listener) {
 	defer a.wg.Done()
+	defer recovery.RecoverWithLog(a.logger, "acceptLoop")
 
 	for {
 		select {
@@ -326,6 +413,9 @@ func (a *Agent) acceptLoop(listener transport.Listener) {
 				return
 			default:
 				// Log error and continue
+				a.logger.Debug("accept error",
+					logging.KeyLocalAddr, listener.Addr(),
+					logging.KeyError, err)
 				continue
 			}
 		}
@@ -339,15 +429,22 @@ func (a *Agent) acceptLoop(listener transport.Listener) {
 // handleIncomingConnection processes an incoming peer connection.
 func (a *Agent) handleIncomingConnection(peerConn transport.PeerConn) {
 	defer a.wg.Done()
+	defer recovery.RecoverWithLog(a.logger, "handleIncomingConnection")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	conn, err := a.peerMgr.Accept(ctx, peerConn)
 	if err != nil {
+		a.logger.Debug("failed to accept peer connection",
+			logging.KeyError, err)
 		peerConn.Close()
 		return
 	}
+
+	a.logger.Info("peer connected",
+		logging.KeyPeerID, conn.RemoteID.ShortString(),
+		logging.KeyRemoteAddr, conn.RemoteAddr())
 
 	// Send full routing table to new peer
 	a.flooder.SendFullTable(conn.RemoteID)
@@ -356,6 +453,11 @@ func (a *Agent) handleIncomingConnection(peerConn transport.PeerConn) {
 // connectToPeer initiates a connection to a configured peer.
 func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 	defer a.wg.Done()
+	defer recovery.RecoverWithLog(a.logger, "connectToPeer")
+
+	a.logger.Debug("connecting to peer",
+		logging.KeyAddress, cfg.Address,
+		logging.KeyTransport, cfg.Transport)
 
 	// Parse expected peer ID (if specified)
 	var expectedID identity.AgentID
@@ -363,16 +465,27 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		var err error
 		expectedID, err = identity.ParseAgentID(cfg.ID)
 		if err != nil {
+			a.logger.Error("failed to parse peer ID",
+				logging.KeyPeerID, cfg.ID,
+				logging.KeyError, err)
 			return
 		}
 	}
 	// If ID is "auto" or empty, expectedID will be zero and peer manager will accept any ID
 
+	// Build DialOptions from peer config
+	dialOpts := &transport.DialOptions{
+		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
+		Timeout:            a.cfg.Connections.Timeout,
+	}
+	// TODO: Add TLS config loading from cert/key files if specified
+
 	// Add peer info to manager
 	a.peerMgr.AddPeer(peer.PeerInfo{
-		Address:    cfg.Address,
-		ExpectedID: expectedID,
-		Persistent: true,
+		Address:     cfg.Address,
+		ExpectedID:  expectedID,
+		Persistent:  true,
+		DialOptions: dialOpts,
 	})
 
 	// Attempt connection
@@ -395,15 +508,26 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		// Use ConnectWithTransport for other transports
 		tr, ok := a.transports[transportType]
 		if !ok {
+			a.logger.Error("unsupported transport type",
+				logging.KeyTransport, transportType)
 			return
 		}
 		conn, err = a.peerMgr.ConnectWithTransport(ctx, tr, cfg.Address)
 	}
 
 	if err != nil {
+		a.logger.Warn("failed to connect to peer",
+			logging.KeyAddress, cfg.Address,
+			logging.KeyTransport, cfg.Transport,
+			logging.KeyError, err)
 		// Reconnection will be handled by peer manager
 		return
 	}
+
+	a.logger.Info("connected to peer",
+		logging.KeyPeerID, conn.RemoteID.ShortString(),
+		logging.KeyAddress, cfg.Address,
+		logging.KeyTransport, cfg.Transport)
 
 	// Send full routing table to new peer
 	a.flooder.SendFullTable(conn.RemoteID)
@@ -413,6 +537,9 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 func (a *Agent) Stop() error {
 	var err error
 	a.stopOnce.Do(func() {
+		a.logger.Info("stopping agent",
+			logging.KeyAgentID, a.id.ShortString())
+
 		a.running.Store(false)
 		close(a.stopCh)
 
@@ -422,6 +549,14 @@ func (a *Agent) Stop() error {
 		}
 
 		// Stop components in reverse order
+		if a.controlServer != nil {
+			a.controlServer.Stop()
+		}
+
+		if a.healthServer != nil {
+			a.healthServer.Stop()
+		}
+
 		if a.exitHandler != nil {
 			a.exitHandler.Stop()
 		}
@@ -452,6 +587,9 @@ func (a *Agent) Stop() error {
 		}
 
 		a.wg.Wait()
+
+		a.logger.Info("agent stopped",
+			logging.KeyAgentID, a.id.ShortString())
 	})
 
 	return err
@@ -512,6 +650,9 @@ func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
 func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame) {
 	open, err := protocol.DecodeStreamOpen(frame.Payload)
 	if err != nil {
+		a.logger.Debug("failed to decode stream open",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
 		return
 	}
 
@@ -680,8 +821,17 @@ func (a *Agent) handleStreamOpenErr(peerID identity.AgentID, frame *protocol.Fra
 
 	errPayload, err := protocol.DecodeStreamOpenErr(frame.Payload)
 	if err != nil {
+		a.logger.Debug("failed to decode stream open error",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
 		return
 	}
+
+	a.logger.Debug("stream open failed",
+		logging.KeyStreamID, frame.StreamID,
+		logging.KeyRequestID, errPayload.RequestID,
+		"error_code", errPayload.ErrorCode,
+		"message", errPayload.Message)
 
 	a.streamMgr.HandleStreamOpenErr(errPayload.RequestID, errPayload.ErrorCode, errPayload.Message)
 }
@@ -833,8 +983,17 @@ func (a *Agent) handleStreamReset(peerID identity.AgentID, frame *protocol.Frame
 func (a *Agent) handleRouteAdvertise(peerID identity.AgentID, frame *protocol.Frame) {
 	adv, err := protocol.DecodeRouteAdvertise(frame.Payload)
 	if err != nil {
+		a.logger.Debug("failed to decode route advertise",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
 		return
 	}
+
+	a.logger.Debug("received route advertisement",
+		logging.KeyPeerID, peerID.ShortString(),
+		"origin", adv.OriginAgent.ShortString(),
+		logging.KeyCount, len(adv.Routes),
+		logging.KeyHops, len(adv.Path))
 
 	a.flooder.HandleRouteAdvertise(peerID, adv.OriginAgent, adv.Sequence, adv.Routes, adv.Path, adv.SeenBy)
 }
@@ -880,6 +1039,41 @@ func (a *Agent) handleKeepalive(peerID identity.AgentID, frame *protocol.Frame) 
 func (a *Agent) handleKeepaliveAck(peerID identity.AgentID, frame *protocol.Frame) {
 	// RTT tracking is handled by peer.Manager.readLoop which calls
 	// conn.UpdateRTT(ka.Timestamp) for FrameKeepaliveAck frames.
+}
+
+// handlePeerDisconnect is called when a peer connection is closed.
+// It cleans up any relay streams involving the disconnected peer.
+func (a *Agent) handlePeerDisconnect(conn *peer.Connection, err error) {
+	peerID := conn.RemoteID
+
+	a.logger.Info("peer disconnected",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyError, err)
+
+	// Clean up relay streams involving this peer
+	a.cleanupRelaysForPeer(peerID)
+}
+
+// cleanupRelaysForPeer removes all relay entries involving the specified peer.
+func (a *Agent) cleanupRelaysForPeer(peerID identity.AgentID) {
+	a.relayMu.Lock()
+	defer a.relayMu.Unlock()
+
+	var cleaned int
+	for id, relay := range a.relayByUpstream {
+		if relay.UpstreamPeer == peerID || relay.DownstreamPeer == peerID {
+			// Remove from both maps
+			delete(a.relayByUpstream, id)
+			delete(a.relayByDownstream, relay.DownstreamID)
+			cleaned++
+		}
+	}
+
+	if cleaned > 0 {
+		a.logger.Debug("cleaned up relay streams",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyCount, cleaned)
+	}
 }
 
 // Dial implements socks5.Dialer for SOCKS5 connections.
@@ -1141,12 +1335,38 @@ func (c *meshConn) SetWriteDeadline(t time.Time) error {
 // Stats returns agent statistics.
 func (a *Agent) Stats() AgentStats {
 	return AgentStats{
-		PeerCount:       a.peerMgr.PeerCount(),
-		StreamCount:     a.streamMgr.StreamCount(),
-		RouteCount:      a.routeMgr.TotalRoutes(),
-		SOCKS5Running:   a.socks5Srv != nil && a.socks5Srv.IsRunning(),
-		ExitHandlerRun:  a.exitHandler != nil && a.exitHandler.IsRunning(),
+		PeerCount:      a.peerMgr.PeerCount(),
+		StreamCount:    a.streamMgr.StreamCount(),
+		RouteCount:     a.routeMgr.TotalRoutes(),
+		SOCKS5Running:  a.socks5Srv != nil && a.socks5Srv.IsRunning(),
+		ExitHandlerRun: a.exitHandler != nil && a.exitHandler.IsRunning(),
 	}
+}
+
+// HealthStats returns health statistics for the health.StatsProvider interface.
+func (a *Agent) HealthStats() health.Stats {
+	return health.Stats{
+		PeerCount:      a.peerMgr.PeerCount(),
+		StreamCount:    a.streamMgr.StreamCount(),
+		RouteCount:     a.routeMgr.TotalRoutes(),
+		SOCKS5Running:  a.socks5Srv != nil && a.socks5Srv.IsRunning(),
+		ExitHandlerRun: a.exitHandler != nil && a.exitHandler.IsRunning(),
+	}
+}
+
+// agentStatsProvider adapts Agent to health.StatsProvider interface.
+type agentStatsProvider struct {
+	agent *Agent
+}
+
+// IsRunning implements health.StatsProvider.
+func (p *agentStatsProvider) IsRunning() bool {
+	return p.agent.IsRunning()
+}
+
+// Stats implements health.StatsProvider.
+func (p *agentStatsProvider) Stats() health.Stats {
+	return p.agent.HealthStats()
 }
 
 // AgentStats contains agent statistics.
@@ -1166,6 +1386,22 @@ func (a *Agent) GetRoutes() []*routing.Route {
 // GetPeerIDs returns all connected peer IDs for debugging.
 func (a *Agent) GetPeerIDs() []identity.AgentID {
 	return a.peerMgr.GetPeerIDs()
+}
+
+// GetRouteInfo returns route information for the control interface.
+func (a *Agent) GetRouteInfo() []control.RouteInfo {
+	routes := a.routeMgr.Table().GetAllRoutes()
+	info := make([]control.RouteInfo, len(routes))
+	for i, r := range routes {
+		info[i] = control.RouteInfo{
+			Network:  r.Network.String(),
+			NextHop:  r.NextHop.ShortString(),
+			Origin:   r.OriginAgent.ShortString(),
+			Metric:   int(r.Metric),
+			HopCount: len(r.Path),
+		}
+	}
+	return info
 }
 
 // SOCKS5Address returns the SOCKS5 server address, or nil if not running.

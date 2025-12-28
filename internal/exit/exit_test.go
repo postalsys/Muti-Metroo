@@ -270,11 +270,12 @@ func TestHandler_HandleStreamOpen_Success(t *testing.T) {
 		}
 	}()
 
-	// Create handler
+	// Create handler with localhost allowed
 	localID, _ := identity.NewAgentID()
 	remoteID, _ := identity.NewAgentID()
 	writer := &mockStreamWriter{}
 	cfg := DefaultHandlerConfig()
+	cfg.AllowedRoutes, _ = ParseAllowedRoutes([]string{"127.0.0.0/8"}) // Allow localhost
 	h := NewHandler(cfg, localID, writer)
 	h.Start()
 	defer h.Stop()
@@ -482,10 +483,10 @@ func TestHandler_isAllowed(t *testing.T) {
 		allowed bool
 	}{
 		{
-			name:    "no routes allows all",
+			name:    "no routes denies all (security: deny by default)",
 			routes:  nil,
 			ip:      "1.2.3.4",
-			allowed: true,
+			allowed: false,
 		},
 		{
 			name:    "ip in allowed range",

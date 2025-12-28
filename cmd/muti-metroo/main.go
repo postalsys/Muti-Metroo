@@ -14,6 +14,7 @@ import (
 	"github.com/coinstash/muti-metroo/internal/agent"
 	"github.com/coinstash/muti-metroo/internal/certutil"
 	"github.com/coinstash/muti-metroo/internal/config"
+	"github.com/coinstash/muti-metroo/internal/control"
 	"github.com/coinstash/muti-metroo/internal/identity"
 	"github.com/spf13/cobra"
 )
@@ -157,45 +158,124 @@ func runCmd() *cobra.Command {
 }
 
 func statusCmd() *cobra.Command {
-	return &cobra.Command{
+	var socketPath string
+
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show agent status",
 		Long:  "Display the current status of the running agent.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Note: This would require an API/socket to communicate with a running agent
-			fmt.Println("Status command requires a running agent with API enabled.")
-			fmt.Println("This feature is not yet implemented.")
+			client := control.NewClient(socketPath)
+			defer client.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			status, err := client.Status(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get status: %w", err)
+			}
+
+			fmt.Printf("Agent Status\n")
+			fmt.Printf("============\n")
+			fmt.Printf("Agent ID:    %s\n", status.AgentID)
+			fmt.Printf("Running:     %v\n", status.Running)
+			fmt.Printf("Peer Count:  %d\n", status.PeerCount)
+			fmt.Printf("Route Count: %d\n", status.RouteCount)
+
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&socketPath, "socket", "s", "./data/control.sock", "Path to control socket")
+
+	return cmd
 }
 
 func peersCmd() *cobra.Command {
-	return &cobra.Command{
+	var socketPath string
+
+	cmd := &cobra.Command{
 		Use:   "peers",
 		Short: "List connected peers",
 		Long:  "Display all peers currently connected to this agent.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Note: This would require an API/socket to communicate with a running agent
-			fmt.Println("Peers command requires a running agent with API enabled.")
-			fmt.Println("This feature is not yet implemented.")
+			client := control.NewClient(socketPath)
+			defer client.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			peers, err := client.Peers(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get peers: %w", err)
+			}
+
+			fmt.Printf("Connected Peers\n")
+			fmt.Printf("===============\n")
+			if len(peers.Peers) == 0 {
+				fmt.Println("No peers connected.")
+			} else {
+				for i, peerID := range peers.Peers {
+					fmt.Printf("%d. %s\n", i+1, peerID)
+				}
+				fmt.Printf("\nTotal: %d peer(s)\n", len(peers.Peers))
+			}
+
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&socketPath, "socket", "s", "./data/control.sock", "Path to control socket")
+
+	return cmd
 }
 
 func routesCmd() *cobra.Command {
-	return &cobra.Command{
+	var socketPath string
+
+	cmd := &cobra.Command{
 		Use:   "routes",
 		Short: "List route table",
 		Long:  "Display the current routing table.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Note: This would require an API/socket to communicate with a running agent
-			fmt.Println("Routes command requires a running agent with API enabled.")
-			fmt.Println("This feature is not yet implemented.")
+			client := control.NewClient(socketPath)
+			defer client.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			routes, err := client.Routes(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get routes: %w", err)
+			}
+
+			fmt.Printf("Route Table\n")
+			fmt.Printf("===========\n")
+			if len(routes.Routes) == 0 {
+				fmt.Println("No routes in table.")
+			} else {
+				fmt.Printf("%-20s %-12s %-12s %-8s %-6s\n", "NETWORK", "NEXT HOP", "ORIGIN", "METRIC", "HOPS")
+				fmt.Printf("%-20s %-12s %-12s %-8s %-6s\n", "-------", "--------", "------", "------", "----")
+				for _, route := range routes.Routes {
+					fmt.Printf("%-20s %-12s %-12s %-8d %-6d\n",
+						route.Network,
+						route.NextHop,
+						route.Origin,
+						route.Metric,
+						route.HopCount,
+					)
+				}
+				fmt.Printf("\nTotal: %d route(s)\n", len(routes.Routes))
+			}
+
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&socketPath, "socket", "s", "./data/control.sock", "Path to control socket")
+
+	return cmd
 }
 
 func certCmd() *cobra.Command {

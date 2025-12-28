@@ -5,13 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/logging"
 	"github.com/coinstash/muti-metroo/internal/protocol"
+	"github.com/coinstash/muti-metroo/internal/recovery"
 )
 
 // HandlerConfig contains exit handler configuration.
@@ -30,12 +33,15 @@ type HandlerConfig struct {
 
 	// DNS configuration
 	DNS DNSConfig
+
+	// Logger for logging
+	Logger *slog.Logger
 }
 
 // DefaultHandlerConfig returns sensible defaults.
 func DefaultHandlerConfig() HandlerConfig {
 	return HandlerConfig{
-		AllowedRoutes:  nil, // nil means allow all
+		AllowedRoutes:  nil, // nil means deny all (security: deny by default)
 		ConnectTimeout: 30 * time.Second,
 		IdleTimeout:    5 * time.Minute,
 		MaxConnections: 1000,
@@ -93,6 +99,7 @@ type Handler struct {
 	localID  identity.AgentID
 	resolver *Resolver
 	writer   StreamWriter
+	logger   *slog.Logger
 
 	mu          sync.RWMutex
 	connections map[uint64]*ActiveConnection
@@ -105,11 +112,17 @@ type Handler struct {
 
 // NewHandler creates a new exit handler.
 func NewHandler(cfg HandlerConfig, localID identity.AgentID, writer StreamWriter) *Handler {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = logging.NopLogger()
+	}
+
 	return &Handler{
 		cfg:         cfg,
 		localID:     localID,
 		resolver:    NewResolver(cfg.DNS),
 		writer:      writer,
+		logger:      logger,
 		connections: make(map[uint64]*ActiveConnection),
 		stopCh:      make(chan struct{}),
 	}
@@ -254,6 +267,7 @@ func (h *Handler) HandleStreamReset(peerID identity.AgentID, streamID uint64, er
 // readLoop reads data from the destination and forwards to the stream.
 func (h *Handler) readLoop(ac *ActiveConnection) {
 	defer h.closeConnection(ac.StreamID, ac.RemoteID, nil)
+	defer recovery.RecoverWithLog(h.logger, "exit.readLoop")
 
 	buf := make([]byte, 32768)
 	for {
@@ -317,9 +331,10 @@ func (h *Handler) removeConnection(streamID uint64) *ActiveConnection {
 }
 
 // isAllowed checks if an IP is allowed by the configured routes.
+// Security: Returns false (deny) when no routes are configured.
 func (h *Handler) isAllowed(ip net.IP) bool {
 	if len(h.cfg.AllowedRoutes) == 0 {
-		return true // Allow all if no routes configured
+		return false // Deny by default when no routes configured
 	}
 
 	for _, route := range h.cfg.AllowedRoutes {

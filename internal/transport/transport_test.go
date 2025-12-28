@@ -56,6 +56,49 @@ func TestStreamIDAllocator(t *testing.T) {
 			t.Errorf("IDs not sequential: %d, %d, %d", id1, id2, id3)
 		}
 	})
+
+	t.Run("concurrent access produces unique IDs", func(t *testing.T) {
+		alloc := NewStreamIDAllocator(true)
+		const numGoroutines = 100
+		const idsPerGoroutine = 100
+
+		// Channel to collect all allocated IDs
+		idChan := make(chan uint64, numGoroutines*idsPerGoroutine)
+
+		var wg sync.WaitGroup
+		wg.Add(numGoroutines)
+
+		for i := 0; i < numGoroutines; i++ {
+			go func() {
+				defer wg.Done()
+				for j := 0; j < idsPerGoroutine; j++ {
+					idChan <- alloc.Next()
+				}
+			}()
+		}
+
+		wg.Wait()
+		close(idChan)
+
+		// Collect all IDs and check for uniqueness
+		seen := make(map[uint64]bool)
+		for id := range idChan {
+			if seen[id] {
+				t.Errorf("Duplicate ID allocated: %d", id)
+			}
+			seen[id] = true
+
+			// Verify all IDs are odd (dialer)
+			if id%2 != 1 {
+				t.Errorf("ID %d is not odd", id)
+			}
+		}
+
+		expectedCount := numGoroutines * idsPerGoroutine
+		if len(seen) != expectedCount {
+			t.Errorf("Expected %d unique IDs, got %d", expectedCount, len(seen))
+		}
+	})
 }
 
 func TestDefaultOptions(t *testing.T) {
@@ -495,6 +538,29 @@ func TestQUICTransport_Listen_NoTLS(t *testing.T) {
 	_, err := transport.Listen("127.0.0.1:0", ListenOptions{})
 	if err == nil {
 		t.Error("Listen() should fail without TLS config")
+	}
+}
+
+func TestQUICTransport_Dial_RequiresTLS(t *testing.T) {
+	transport := NewQUICTransport()
+	defer transport.Close()
+
+	ctx := context.Background()
+
+	// Dial without TLS config and without InsecureSkipVerify should fail
+	_, err := transport.Dial(ctx, "127.0.0.1:4433", DialOptions{})
+	if err == nil {
+		t.Error("Dial() should fail without TLS config")
+	}
+	if err != nil && err.Error() != "TLS config required; set InsecureSkipVerify=true for development only" {
+		t.Errorf("Expected TLS config required error, got: %v", err)
+	}
+
+	// Dial with InsecureSkipVerify=true should be allowed (though connection will fail)
+	_, err = transport.Dial(ctx, "127.0.0.1:4433", DialOptions{InsecureSkipVerify: true, Timeout: 100 * time.Millisecond})
+	// Connection will fail (no server) but should not fail for TLS config reasons
+	if err != nil && err.Error() == "TLS config required; set InsecureSkipVerify=true for development only" {
+		t.Error("Dial() with InsecureSkipVerify=true should not fail for TLS config")
 	}
 }
 
