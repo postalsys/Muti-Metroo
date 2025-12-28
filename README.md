@@ -16,7 +16,7 @@ A userspace mesh networking agent written in Go that creates virtual TCP tunnels
 
 ### Prerequisites
 
-- Go 1.22 or later
+- Go 1.23 or later
 - Make (optional, for convenience commands)
 
 ### Build
@@ -32,6 +32,30 @@ make build
 # Or without make:
 go build -o build/muti-metroo ./cmd/muti-metroo
 ```
+
+### Interactive Setup (Recommended)
+
+The easiest way to get started is using the interactive setup wizard:
+
+```bash
+./build/muti-metroo setup
+```
+
+The wizard guides you through:
+- **Basic setup**: Data directory and config file location
+- **Agent role**: Ingress (SOCKS5 proxy), Transit (relay), or Exit (external network access)
+- **Network config**: Transport protocol (QUIC/HTTP2/WebSocket) and listen address
+- **TLS certificates**: Generate new, paste existing, or use certificate files
+- **Peer connections**: Connect to other mesh agents
+- **SOCKS5 settings**: Configure proxy authentication (for ingress nodes)
+- **Exit routes**: Define allowed destination networks (for exit nodes)
+- **Advanced options**: Logging, health checks, control socket
+
+The wizard generates a complete `config.yaml` and initializes your agent identity.
+
+### Manual Setup
+
+If you prefer manual configuration:
 
 ### Initialize Agent
 
@@ -198,6 +222,9 @@ An agent can serve multiple roles simultaneously:
 | `socks5` | SOCKS5 server with no-auth and username/password methods |
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
 | `certutil` | TLS certificate generation and management - CA, server, client, peer certificates |
+| `wizard` | Interactive setup wizard with modern terminal UI |
+| `health` | Health check HTTP server with pprof endpoints |
+| `control` | Unix socket control server for CLI commands |
 
 ## Development
 
