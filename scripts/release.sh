@@ -12,14 +12,19 @@
 #   7. Upload binaries to Gitea release
 #
 # Usage:
-#   ./scripts/release.sh [version]
+#   ./scripts/release.sh [options] [version]
+#
+# Options:
+#   -t, --token TOKEN  Gitea API token (alternative to env var)
+#   -h, --help         Show this help
 #
 # Examples:
 #   ./scripts/release.sh           # Auto-increment patch version (1.2.3 -> 1.2.4)
 #   ./scripts/release.sh 2.0.0     # Set explicit version
+#   ./scripts/release.sh -t TOKEN 1.0.0  # Use explicit token
 #
 # Environment:
-#   GITEA_AUTH_TOKEN - Required: Gitea API token
+#   GITEA_AUTH_TOKEN - Gitea API token (can also use --token or ~/.gitea_token file)
 #   GITEA_URL        - Gitea instance URL (default: https://git.aiateibad.ee)
 #   GITEA_OWNER      - Repository owner (default: andris)
 #   GITEA_REPO       - Repository name (default: Muti-Metroo-v4)
@@ -28,6 +33,9 @@
 #   DRY_RUN          - Set to 1 for dry run (no actual changes)
 
 set -euo pipefail
+
+# Token can be passed via CLI
+CLI_TOKEN=""
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,9 +49,33 @@ GITEA_OWNER="${GITEA_OWNER:-andris}"
 GITEA_REPO="${GITEA_REPO:-Muti-Metroo-v4}"
 GITEA_API="$GITEA_URL/api/v1"
 
-# Get token using printenv to work around shell sandboxing
+# Get token from multiple sources (in order of priority):
+# 1. CLI argument (--token)
+# 2. Environment variable GITEA_AUTH_TOKEN
+# 3. Token file ~/.gitea_token
 get_gitea_token() {
-    printenv GITEA_AUTH_TOKEN
+    # Try CLI token first
+    if [[ -n "$CLI_TOKEN" ]]; then
+        echo "$CLI_TOKEN"
+        return 0
+    fi
+
+    # Try environment variable using printenv
+    local env_token
+    env_token=$(printenv GITEA_AUTH_TOKEN 2>/dev/null || true)
+    if [[ -n "$env_token" ]]; then
+        echo "$env_token"
+        return 0
+    fi
+
+    # Try token file
+    local token_file="$HOME/.gitea_token"
+    if [[ -f "$token_file" ]]; then
+        cat "$token_file" | tr -d '\n'
+        return 0
+    fi
+
+    return 1
 }
 
 # Build targets: os/arch
@@ -573,5 +605,37 @@ main() {
     echo ""
 }
 
+# Parse command-line arguments
+VERSION=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -t|--token)
+            CLI_TOKEN="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [options] [version]"
+            echo ""
+            echo "Options:"
+            echo "  -t, --token TOKEN  Gitea API token"
+            echo "  -h, --help         Show this help"
+            echo ""
+            echo "Examples:"
+            echo "  $0              # Auto-increment patch version"
+            echo "  $0 2.0.0        # Set explicit version"
+            echo "  $0 -t TOKEN 1.0.0"
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+        *)
+            VERSION="$1"
+            shift
+            ;;
+    esac
+done
+
 # Run main
-main "$@"
+main "$VERSION"
