@@ -327,7 +327,8 @@ build_binary() {
                 -o "/app/build/release/$output_name" \
                 ./cmd/muti-metroo
     else
-        # Linux/Windows: build and compress with UPX
+        # Linux/Windows: build and try to compress with UPX
+        # Note: UPX doesn't support all targets (e.g., windows/arm64)
         docker run --rm \
             -v "$PROJECT_DIR":/app \
             -w /app \
@@ -337,11 +338,14 @@ build_binary() {
             golang:1.23-alpine \
             sh -c "apk add --no-cache upx >/dev/null 2>&1 && \
                    go build -trimpath -ldflags='-s -w -X main.Version=$version' \
-                       -o '/app/build/release/$output_name.uncompressed' \
+                       -o '/app/build/release/$output_name.tmp' \
                        ./cmd/muti-metroo && \
-                   upx --best --lzma -o '/app/build/release/$output_name' \
-                       '/app/build/release/$output_name.uncompressed' >/dev/null 2>&1 && \
-                   rm '/app/build/release/$output_name.uncompressed'"
+                   if upx --best --lzma -o '/app/build/release/$output_name' \
+                       '/app/build/release/$output_name.tmp' >/dev/null 2>&1; then \
+                       rm '/app/build/release/$output_name.tmp'; \
+                   else \
+                       mv '/app/build/release/$output_name.tmp' '/app/build/release/$output_name'; \
+                   fi"
     fi
 
     # Verify binary was created
