@@ -56,13 +56,78 @@ type PeerConfig struct {
 }
 
 // TLSConfig defines TLS settings.
+// For each certificate/key, you can specify either a file path or inline PEM content.
+// If both are provided, inline PEM takes precedence.
 type TLSConfig struct {
-	Cert        string `yaml:"cert"`        // Certificate file path
-	Key         string `yaml:"key"`         // Private key file path
-	CA          string `yaml:"ca"`          // CA certificate file path
-	ClientCA    string `yaml:"client_ca"`   // Client CA for mTLS
-	Fingerprint string `yaml:"fingerprint"` // Certificate fingerprint for pinning
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify"` // Skip verification (dev only)
+	// File paths
+	Cert     string `yaml:"cert"`      // Certificate file path
+	Key      string `yaml:"key"`       // Private key file path
+	CA       string `yaml:"ca"`        // CA certificate file path
+	ClientCA string `yaml:"client_ca"` // Client CA for mTLS
+
+	// Inline PEM content (takes precedence over file paths)
+	CertPEM     string `yaml:"cert_pem"`      // Certificate PEM content
+	KeyPEM      string `yaml:"key_pem"`       // Private key PEM content
+	CAPEM       string `yaml:"ca_pem"`        // CA certificate PEM content
+	ClientCAPEM string `yaml:"client_ca_pem"` // Client CA PEM content
+
+	// Other options
+	Fingerprint        string `yaml:"fingerprint"`          // Certificate fingerprint for pinning
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"` // Skip verification (dev only)
+}
+
+// GetCertPEM returns the certificate PEM content, reading from file if necessary.
+func (t *TLSConfig) GetCertPEM() ([]byte, error) {
+	if t.CertPEM != "" {
+		return []byte(t.CertPEM), nil
+	}
+	if t.Cert != "" {
+		return os.ReadFile(t.Cert)
+	}
+	return nil, nil
+}
+
+// GetKeyPEM returns the private key PEM content, reading from file if necessary.
+func (t *TLSConfig) GetKeyPEM() ([]byte, error) {
+	if t.KeyPEM != "" {
+		return []byte(t.KeyPEM), nil
+	}
+	if t.Key != "" {
+		return os.ReadFile(t.Key)
+	}
+	return nil, nil
+}
+
+// GetCAPEM returns the CA certificate PEM content, reading from file if necessary.
+func (t *TLSConfig) GetCAPEM() ([]byte, error) {
+	if t.CAPEM != "" {
+		return []byte(t.CAPEM), nil
+	}
+	if t.CA != "" {
+		return os.ReadFile(t.CA)
+	}
+	return nil, nil
+}
+
+// GetClientCAPEM returns the client CA PEM content, reading from file if necessary.
+func (t *TLSConfig) GetClientCAPEM() ([]byte, error) {
+	if t.ClientCAPEM != "" {
+		return []byte(t.ClientCAPEM), nil
+	}
+	if t.ClientCA != "" {
+		return os.ReadFile(t.ClientCA)
+	}
+	return nil, nil
+}
+
+// HasCert returns true if certificate is configured (either file or PEM).
+func (t *TLSConfig) HasCert() bool {
+	return t.Cert != "" || t.CertPEM != ""
+}
+
+// HasKey returns true if private key is configured (either file or PEM).
+func (t *TLSConfig) HasKey() bool {
+	return t.Key != "" || t.KeyPEM != ""
 }
 
 // ProxyAuth defines proxy authentication.
@@ -396,8 +461,8 @@ func validateListener(l ListenerConfig) error {
 	if (l.Transport == "h2" || l.Transport == "ws") && l.Path == "" {
 		return fmt.Errorf("path is required for %s transport", l.Transport)
 	}
-	if l.TLS.Cert == "" || l.TLS.Key == "" {
-		return fmt.Errorf("tls.cert and tls.key are required")
+	if !l.TLS.HasCert() || !l.TLS.HasKey() {
+		return fmt.Errorf("tls certificate and key are required (use cert/key paths or cert_pem/key_pem)")
 	}
 	return nil
 }
@@ -457,9 +522,12 @@ func (c *Config) Redacted() *Config {
 		if redacted.Peers[i].ProxyAuth.Password != "" {
 			redacted.Peers[i].ProxyAuth.Password = redactedValue
 		}
-		// Redact TLS key paths as they point to sensitive files
+		// Redact TLS key paths and PEM content
 		if redacted.Peers[i].TLS.Key != "" {
 			redacted.Peers[i].TLS.Key = redactedValue
+		}
+		if redacted.Peers[i].TLS.KeyPEM != "" {
+			redacted.Peers[i].TLS.KeyPEM = redactedValue
 		}
 	}
 
@@ -467,6 +535,9 @@ func (c *Config) Redacted() *Config {
 	for i := range redacted.Listeners {
 		if redacted.Listeners[i].TLS.Key != "" {
 			redacted.Listeners[i].TLS.Key = redactedValue
+		}
+		if redacted.Listeners[i].TLS.KeyPEM != "" {
+			redacted.Listeners[i].TLS.KeyPEM = redactedValue
 		}
 	}
 

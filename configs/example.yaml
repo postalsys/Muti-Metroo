@@ -29,10 +29,26 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
     tls:
+      # Option 1: File paths
       cert: "./certs/agent.crt"
       key: "./certs/agent.key"
       # Optional: require client certificates (mTLS)
       # client_ca: "./certs/ca.crt"
+
+      # Option 2: Inline PEM (takes precedence over file paths)
+      # Useful for single-file configs or Kubernetes secrets
+      # cert_pem: |
+      #   -----BEGIN CERTIFICATE-----
+      #   MIIBkTCB+wIJAK...
+      #   -----END CERTIFICATE-----
+      # key_pem: |
+      #   -----BEGIN PRIVATE KEY-----
+      #   MIIEvQIBADANBg...
+      #   -----END PRIVATE KEY-----
+      # ca_pem: |
+      #   -----BEGIN CERTIFICATE-----
+      #   ...
+      #   -----END CERTIFICATE-----
 
   # HTTP/2 listener (TCP fallback)
   # - transport: h2

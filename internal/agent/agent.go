@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -406,16 +407,24 @@ func (a *Agent) startListener(cfg config.ListenerConfig) error {
 	return nil
 }
 
-// loadTLSConfig loads TLS configuration from files or generates self-signed.
+// loadTLSConfig loads TLS configuration from files, inline PEM, or generates self-signed.
 func (a *Agent) loadTLSConfig(cfg config.TLSConfig) (*tls.Config, error) {
 	var cert tls.Certificate
 	var err error
 
-	if cfg.Cert != "" && cfg.Key != "" {
-		// Load from files
-		cert, err = tls.LoadX509KeyPair(cfg.Cert, cfg.Key)
+	if cfg.HasCert() && cfg.HasKey() {
+		// Load from inline PEM or files
+		certPEM, err := cfg.GetCertPEM()
 		if err != nil {
 			return nil, fmt.Errorf("load certificate: %w", err)
+		}
+		keyPEM, err := cfg.GetKeyPEM()
+		if err != nil {
+			return nil, fmt.Errorf("load private key: %w", err)
+		}
+		cert, err = tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate: %w", err)
 		}
 	} else {
 		// Generate self-signed for development
@@ -524,7 +533,27 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
 		Timeout:            a.cfg.Connections.Timeout,
 	}
-	// TODO: Add TLS config loading from cert/key files if specified
+
+	// Load CA certificate for peer verification if specified
+	caPEM, err := cfg.TLS.GetCAPEM()
+	if err != nil {
+		a.logger.Error("failed to load peer CA certificate",
+			logging.KeyPeerID, cfg.ID,
+			logging.KeyError, err)
+		return
+	}
+	if caPEM != nil {
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caPEM) {
+			a.logger.Error("failed to parse peer CA certificate",
+				logging.KeyPeerID, cfg.ID)
+			return
+		}
+		dialOpts.TLSConfig = &tls.Config{
+			RootCAs:    certPool,
+			MinVersion: tls.VersionTLS13,
+		}
+	}
 
 	// Add peer info to manager
 	a.peerMgr.AddPeer(peer.PeerInfo{

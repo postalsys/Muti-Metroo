@@ -604,3 +604,160 @@ socks5:
 		t.Errorf("Users[0].Username = %s, want user1", cfg.SOCKS5.Auth.Users[0].Username)
 	}
 }
+
+func TestTLSConfig_InlinePEM(t *testing.T) {
+	// Create a temp directory with cert files for file path testing
+	tmpDir := t.TempDir()
+	certFile := filepath.Join(tmpDir, "cert.pem")
+	keyFile := filepath.Join(tmpDir, "key.pem")
+
+	certContent := "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----\n"
+	keyContent := "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
+
+	os.WriteFile(certFile, []byte(certContent), 0644)
+	os.WriteFile(keyFile, []byte(keyContent), 0600)
+
+	tests := []struct {
+		name     string
+		tls      TLSConfig
+		wantCert string
+		wantKey  string
+	}{
+		{
+			name: "inline PEM takes precedence",
+			tls: TLSConfig{
+				Cert:    certFile,
+				Key:     keyFile,
+				CertPEM: "inline-cert-pem",
+				KeyPEM:  "inline-key-pem",
+			},
+			wantCert: "inline-cert-pem",
+			wantKey:  "inline-key-pem",
+		},
+		{
+			name: "file path fallback",
+			tls: TLSConfig{
+				Cert: certFile,
+				Key:  keyFile,
+			},
+			wantCert: certContent,
+			wantKey:  keyContent,
+		},
+		{
+			name: "inline PEM only",
+			tls: TLSConfig{
+				CertPEM: "cert-only-inline",
+				KeyPEM:  "key-only-inline",
+			},
+			wantCert: "cert-only-inline",
+			wantKey:  "key-only-inline",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			certPEM, err := tt.tls.GetCertPEM()
+			if err != nil {
+				t.Fatalf("GetCertPEM() error = %v", err)
+			}
+			if string(certPEM) != tt.wantCert {
+				t.Errorf("GetCertPEM() = %q, want %q", string(certPEM), tt.wantCert)
+			}
+
+			keyPEM, err := tt.tls.GetKeyPEM()
+			if err != nil {
+				t.Fatalf("GetKeyPEM() error = %v", err)
+			}
+			if string(keyPEM) != tt.wantKey {
+				t.Errorf("GetKeyPEM() = %q, want %q", string(keyPEM), tt.wantKey)
+			}
+		})
+	}
+}
+
+func TestTLSConfig_HasCertAndKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		tls      TLSConfig
+		hasCert  bool
+		hasKey   bool
+	}{
+		{
+			name:    "empty",
+			tls:     TLSConfig{},
+			hasCert: false,
+			hasKey:  false,
+		},
+		{
+			name:    "file paths only",
+			tls:     TLSConfig{Cert: "cert.pem", Key: "key.pem"},
+			hasCert: true,
+			hasKey:  true,
+		},
+		{
+			name:    "inline PEM only",
+			tls:     TLSConfig{CertPEM: "cert", KeyPEM: "key"},
+			hasCert: true,
+			hasKey:  true,
+		},
+		{
+			name:    "mixed",
+			tls:     TLSConfig{Cert: "cert.pem", KeyPEM: "key"},
+			hasCert: true,
+			hasKey:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.tls.HasCert(); got != tt.hasCert {
+				t.Errorf("HasCert() = %v, want %v", got, tt.hasCert)
+			}
+			if got := tt.tls.HasKey(); got != tt.hasKey {
+				t.Errorf("HasKey() = %v, want %v", got, tt.hasKey)
+			}
+		})
+	}
+}
+
+func TestParse_InlinePEM(t *testing.T) {
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+    tls:
+      cert_pem: |
+        -----BEGIN CERTIFICATE-----
+        MIIBtest
+        -----END CERTIFICATE-----
+      key_pem: |
+        -----BEGIN PRIVATE KEY-----
+        MIIEtest
+        -----END PRIVATE KEY-----
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(cfg.Listeners) != 1 {
+		t.Fatalf("len(Listeners) = %d, want 1", len(cfg.Listeners))
+	}
+
+	tls := cfg.Listeners[0].TLS
+	if !tls.HasCert() {
+		t.Error("HasCert() = false, want true")
+	}
+	if !tls.HasKey() {
+		t.Error("HasKey() = false, want true")
+	}
+	if !strings.Contains(tls.CertPEM, "BEGIN CERTIFICATE") {
+		t.Errorf("CertPEM should contain BEGIN CERTIFICATE, got %q", tls.CertPEM)
+	}
+	if !strings.Contains(tls.KeyPEM, "BEGIN PRIVATE KEY") {
+		t.Errorf("KeyPEM should contain BEGIN PRIVATE KEY, got %q", tls.KeyPEM)
+	}
+}
