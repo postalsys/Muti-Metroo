@@ -12,15 +12,16 @@ import (
 )
 
 var (
-	modAdvapi32         = windows.NewLazySystemDLL("advapi32.dll")
-	procOpenSCManager   = modAdvapi32.NewProc("OpenSCManagerW")
-	procCreateService   = modAdvapi32.NewProc("CreateServiceW")
-	procOpenService     = modAdvapi32.NewProc("OpenServiceW")
-	procDeleteService   = modAdvapi32.NewProc("DeleteService")
+	modAdvapi32            = windows.NewLazySystemDLL("advapi32.dll")
+	procOpenSCManager      = modAdvapi32.NewProc("OpenSCManagerW")
+	procCreateService      = modAdvapi32.NewProc("CreateServiceW")
+	procOpenService        = modAdvapi32.NewProc("OpenServiceW")
+	procDeleteService      = modAdvapi32.NewProc("DeleteService")
 	procCloseServiceHandle = modAdvapi32.NewProc("CloseServiceHandle")
-	procStartService    = modAdvapi32.NewProc("StartServiceW")
-	procControlService  = modAdvapi32.NewProc("ControlService")
+	procStartService       = modAdvapi32.NewProc("StartServiceW")
+	procControlService     = modAdvapi32.NewProc("ControlService")
 	procQueryServiceStatus = modAdvapi32.NewProc("QueryServiceStatus")
+	procCheckTokenMembership = modAdvapi32.NewProc("CheckTokenMembership")
 )
 
 const (
@@ -71,9 +72,16 @@ func isRootImpl() bool {
 }
 
 func isTokenMemberOfSid(token windows.Token, sid *windows.SID) (bool, error) {
-	member := false
-	err := windows.CheckTokenMembership(token, sid, &member)
-	return member, err
+	var isMember int32
+	r1, _, err := procCheckTokenMembership.Call(
+		uintptr(token),
+		uintptr(unsafe.Pointer(sid)),
+		uintptr(unsafe.Pointer(&isMember)),
+	)
+	if r1 == 0 {
+		return false, err
+	}
+	return isMember != 0, nil
 }
 
 // installImpl installs the service on Windows.
