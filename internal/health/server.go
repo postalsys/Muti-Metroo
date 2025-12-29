@@ -4,6 +4,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -33,6 +34,9 @@ type RemoteMetricsProvider interface {
 
 	// SendControlRequest sends a control request to a remote agent.
 	SendControlRequest(ctx context.Context, targetID identity.AgentID, controlType uint8) (*protocol.ControlResponse, error)
+
+	// SendControlRequestWithData sends a control request with data payload to a remote agent.
+	SendControlRequestWithData(ctx context.Context, targetID identity.AgentID, controlType uint8, data []byte) (*protocol.ControlResponse, error)
 
 	// GetPeerIDs returns a list of all connected peer IDs.
 	GetPeerIDs() []identity.AgentID
@@ -102,6 +106,9 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	// Agent status endpoints
 	mux.HandleFunc("/agents", s.handleListAgents)
 	mux.HandleFunc("/agents/", s.handleAgentInfo)
+
+	// RPC endpoint: POST /agents/{agent-id}/rpc
+	// Note: The /agents/ handler will also handle RPC by checking for "rpc" suffix
 
 	// pprof debug endpoints
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -333,18 +340,14 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 
 // handleAgentInfo handles fetching status from a specific agent.
 // URL format: /agents/{agent-id} or /agents/{agent-id}/routes or /agents/{agent-id}/peers
+// For RPC: POST /agents/{agent-id}/rpc
 func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if s.remoteProvider == nil {
 		http.Error(w, "remote provider not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Parse path: /agents/{agent-id}[/routes|/peers]
+	// Parse path: /agents/{agent-id}[/routes|/peers|/rpc]
 	path := strings.TrimPrefix(r.URL.Path, "/agents/")
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) == 0 || parts[0] == "" {
@@ -355,6 +358,18 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 	targetID, err := identity.ParseAgentID(parts[0])
 	if err != nil {
 		http.Error(w, "invalid agent ID format", http.StatusBadRequest)
+		return
+	}
+
+	// Check if this is an RPC request
+	if len(parts) > 1 && parts[1] == "rpc" {
+		s.handleRPC(w, r, targetID)
+		return
+	}
+
+	// For non-RPC requests, only allow GET
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -392,6 +407,67 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp.Data)
+}
+
+// handleRPC handles Remote Procedure Call requests.
+// POST /agents/{agent-id}/rpc
+// Request body: JSON with command, args, stdin (base64), timeout, and password
+// Response: JSON with exit_code, stdout (base64), stderr (base64), and error
+func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed - use POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(io.LimitReader(r.Body, 2*1024*1024)) // 2MB limit
+	if err != nil {
+		http.Error(w, "failed to read request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate JSON structure
+	var reqData map[string]interface{}
+	if err := json.Unmarshal(body, &reqData); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Ensure command is specified
+	if _, ok := reqData["command"]; !ok {
+		http.Error(w, "missing required field: command", http.StatusBadRequest)
+		return
+	}
+
+	// Send RPC request to target agent
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second) // 2 minute timeout for RPC
+	defer cancel()
+
+	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, protocol.ControlTypeRPC, body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"exit_code": -1,
+			"error":     "failed to send request: " + err.Error(),
+		})
+		return
+	}
+
+	if !resp.Success {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"exit_code": -1,
+			"error":     string(resp.Data),
+		})
+		return
+	}
+
+	// Return the RPC response
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp.Data)
 }

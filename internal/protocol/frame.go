@@ -762,15 +762,17 @@ func DecodeRouteWithdraw(buf []byte) (*RouteWithdraw, error) {
 // ControlRequest is the payload for CONTROL_REQUEST frames.
 // Used to request metrics, status, or other information from remote agents.
 type ControlRequest struct {
-	RequestID   uint64           // Unique request ID for correlation
-	ControlType uint8            // Type of control request (ControlTypeMetrics, etc.)
-	TargetAgent identity.AgentID // Target agent to forward request to (zero = this agent)
+	RequestID   uint64             // Unique request ID for correlation
+	ControlType uint8              // Type of control request (ControlTypeMetrics, etc.)
+	TargetAgent identity.AgentID   // Target agent to forward request to (zero = this agent)
 	Path        []identity.AgentID // Remaining path to target
+	Data        []byte             // Optional request data (e.g., RPC request payload)
 }
 
 // Encode serializes ControlRequest to bytes.
 func (c *ControlRequest) Encode() []byte {
-	size := 8 + 1 + 16 + 1 + len(c.Path)*16
+	// Format: RequestID(8) + ControlType(1) + TargetAgent(16) + PathLen(1) + Path(N*16) + DataLen(4) + Data
+	size := 8 + 1 + 16 + 1 + len(c.Path)*16 + 4 + len(c.Data)
 	buf := make([]byte, size)
 	offset := 0
 
@@ -791,12 +793,17 @@ func (c *ControlRequest) Encode() []byte {
 		offset += 16
 	}
 
+	binary.BigEndian.PutUint32(buf[offset:], uint32(len(c.Data)))
+	offset += 4
+
+	copy(buf[offset:], c.Data)
+
 	return buf
 }
 
 // DecodeControlRequest deserializes ControlRequest from bytes.
 func DecodeControlRequest(buf []byte) (*ControlRequest, error) {
-	if len(buf) < 26 { // 8 + 1 + 16 + 1
+	if len(buf) < 30 { // 8 + 1 + 16 + 1 + 4 (minimum with empty path and data)
 		return nil, fmt.Errorf("%w: ControlRequest too short", ErrInvalidFrame)
 	}
 
@@ -822,6 +829,20 @@ func DecodeControlRequest(buf []byte) (*ControlRequest, error) {
 		}
 		copy(c.Path[i][:], buf[offset:offset+16])
 		offset += 16
+	}
+
+	if offset+4 > len(buf) {
+		return nil, fmt.Errorf("%w: ControlRequest data length truncated", ErrInvalidFrame)
+	}
+	dataLen := int(binary.BigEndian.Uint32(buf[offset:]))
+	offset += 4
+
+	if offset+dataLen > len(buf) {
+		return nil, fmt.Errorf("%w: ControlRequest data truncated", ErrInvalidFrame)
+	}
+	if dataLen > 0 {
+		c.Data = make([]byte, dataLen)
+		copy(c.Data, buf[offset:offset+dataLen])
 	}
 
 	return c, nil

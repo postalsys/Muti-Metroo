@@ -16,6 +16,7 @@ import (
 	"github.com/coinstash/muti-metroo/internal/certutil"
 	"github.com/coinstash/muti-metroo/internal/config"
 	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/rpc"
 	"github.com/coinstash/muti-metroo/internal/service"
 	"gopkg.in/yaml.v3"
 )
@@ -99,11 +100,17 @@ func (w *Wizard) Run() (*Result, error) {
 		return nil, err
 	}
 
+	// Step 9: RPC configuration
+	rpcConfig, err := w.askRPCConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	// Build configuration
 	cfg := w.buildConfig(
 		dataDir, transport, listenAddr, listenPath,
 		tlsConfig, peers, socks5Config, exitConfig,
-		healthEnabled, controlEnabled, logLevel,
+		healthEnabled, controlEnabled, logLevel, rpcConfig,
 	)
 
 	// Initialize identity
@@ -120,7 +127,7 @@ func (w *Wizard) Run() (*Result, error) {
 	// Print summary
 	w.printSummary(agentID, configPath, cfg)
 
-	// Step 9: Service installation (only if root/admin on supported platforms)
+	// Step 10: Service installation (only if root/admin on supported platforms)
 	var serviceInstalled bool
 	if service.IsRoot() && service.IsSupported() {
 		serviceInstalled, err = w.askServiceInstallation(configPath)
@@ -870,6 +877,139 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled, controlEnabled bool, logLe
 	return
 }
 
+func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
+	cfg := config.RPCConfig{
+		Enabled:   false,
+		Whitelist: []string{},
+		Timeout:   60 * time.Second,
+	}
+	var enableRPC bool
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Remote Procedure Call (RPC)").
+				Description("RPC allows executing shell commands remotely on this agent.\nCommands must be whitelisted for security."),
+
+			huh.NewConfirm().
+				Title("Enable RPC?").
+				Description("Allow remote command execution (requires authentication)").
+				Value(&enableRPC),
+		),
+	).WithTheme(w.theme)
+
+	if err := form.Run(); err != nil {
+		return cfg, err
+	}
+
+	if !enableRPC {
+		return cfg, nil
+	}
+
+	cfg.Enabled = true
+
+	// Ask for password
+	var password, confirmPassword string
+	authForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("RPC Authentication").
+				Description("Set a password to protect RPC access.\nThis password will be hashed and stored securely."),
+
+			huh.NewInput().
+				Title("RPC Password").
+				EchoMode(huh.EchoModePassword).
+				Value(&password).
+				Validate(func(s string) error {
+					if len(s) < 8 {
+						return fmt.Errorf("password must be at least 8 characters")
+					}
+					return nil
+				}),
+
+			huh.NewInput().
+				Title("Confirm Password").
+				EchoMode(huh.EchoModePassword).
+				Value(&confirmPassword).
+				Validate(func(s string) error {
+					if s != password {
+						return fmt.Errorf("passwords do not match")
+					}
+					return nil
+				}),
+		),
+	).WithTheme(w.theme)
+
+	if err := authForm.Run(); err != nil {
+		return cfg, err
+	}
+
+	// Hash the password
+	cfg.PasswordHash = rpc.HashPassword(password)
+
+	// Ask for whitelist
+	var whitelistChoice string
+	whitelistForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Command Whitelist").
+				Description("Only whitelisted commands can be executed.\nFor security, the default is no commands allowed."),
+
+			huh.NewSelect[string]().
+				Title("Whitelist Mode").
+				Options(
+					huh.NewOption("No commands (safest)", "none"),
+					huh.NewOption("Allow all commands (testing only!)", "all"),
+					huh.NewOption("Custom whitelist", "custom"),
+				).
+				Value(&whitelistChoice),
+		),
+	).WithTheme(w.theme)
+
+	if err := whitelistForm.Run(); err != nil {
+		return cfg, err
+	}
+
+	switch whitelistChoice {
+	case "none":
+		cfg.Whitelist = []string{}
+	case "all":
+		cfg.Whitelist = []string{"*"}
+		fmt.Println("\n⚠ WARNING: All commands are allowed! Use only for testing.\n")
+	case "custom":
+		var commandsStr string
+		customForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewText().
+					Title("Allowed Commands").
+					Description("Enter one command per line (e.g., whoami, ip, hostname)").
+					Placeholder("whoami\nhostname\nip").
+					Value(&commandsStr).
+					Validate(func(s string) error {
+						if s == "" {
+							return fmt.Errorf("at least one command is required")
+						}
+						return nil
+					}),
+			),
+		).WithTheme(w.theme)
+
+		if err := customForm.Run(); err != nil {
+			return cfg, err
+		}
+
+		// Parse commands
+		for _, line := range strings.Split(commandsStr, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				cfg.Whitelist = append(cfg.Whitelist, line)
+			}
+		}
+	}
+
+	return cfg, nil
+}
+
 func (w *Wizard) buildConfig(
 	dataDir, transport, listenAddr, listenPath string,
 	tlsConfig config.TLSConfig,
@@ -878,6 +1018,7 @@ func (w *Wizard) buildConfig(
 	exitConfig config.ExitConfig,
 	healthEnabled, controlEnabled bool,
 	logLevel string,
+	rpcConfig config.RPCConfig,
 ) *config.Config {
 	cfg := config.Default()
 
@@ -916,6 +1057,9 @@ func (w *Wizard) buildConfig(
 	if controlEnabled {
 		cfg.Control.SocketPath = filepath.Join(dataDir, "control.sock")
 	}
+
+	// RPC
+	cfg.RPC = rpcConfig
 
 	return cfg
 }
@@ -979,6 +1123,13 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 
 	if cfg.Health.Enabled {
 		fmt.Printf("  Health:       http://%s/health\n", cfg.Health.Address)
+	}
+
+	if cfg.RPC.Enabled {
+		fmt.Printf("  RPC:          enabled (%d commands whitelisted)\n", len(cfg.RPC.Whitelist))
+		if len(cfg.RPC.Whitelist) == 1 && cfg.RPC.Whitelist[0] == "*" {
+			fmt.Println("                ⚠ WARNING: All commands allowed!")
+		}
 	}
 
 	fmt.Println()

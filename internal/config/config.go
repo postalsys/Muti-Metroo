@@ -24,6 +24,7 @@ type Config struct {
 	Limits      LimitsConfig      `yaml:"limits"`
 	Health      HealthConfig      `yaml:"health"`
 	Control     ControlConfig     `yaml:"control"`
+	RPC         RPCConfig         `yaml:"rpc"`
 }
 
 // AgentConfig contains agent identity settings.
@@ -148,6 +149,23 @@ type ControlConfig struct {
 	SocketPath string `yaml:"socket_path"`
 }
 
+// RPCConfig defines remote procedure call settings.
+type RPCConfig struct {
+	// Enabled controls whether RPC is available on this agent.
+	Enabled bool `yaml:"enabled"`
+
+	// Whitelist contains allowed commands. Empty list = no commands allowed.
+	// Use ["*"] to allow all commands (for testing only!).
+	Whitelist []string `yaml:"whitelist"`
+
+	// PasswordHash is the SHA-256 hash of the RPC password (hex encoded).
+	// If set, all RPC requests must include Authorization header.
+	PasswordHash string `yaml:"password_hash"`
+
+	// Timeout is the default command execution timeout.
+	Timeout time.Duration `yaml:"timeout"`
+}
+
 // Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
@@ -204,6 +222,11 @@ func Default() *Config {
 		Control: ControlConfig{
 			Enabled:    false,
 			SocketPath: "./data/control.sock",
+		},
+		RPC: RPCConfig{
+			Enabled:   false,
+			Whitelist: []string{}, // Empty = no commands allowed
+			Timeout:   60 * time.Second,
 		},
 	}
 }
@@ -453,6 +476,11 @@ func (c *Config) Redacted() *Config {
 		}
 	}
 
+	// Redact RPC password hash
+	if redacted.RPC.PasswordHash != "" {
+		redacted.RPC.PasswordHash = redactedValue
+	}
+
 	return redacted
 }
 
@@ -470,6 +498,11 @@ func (c *Config) HasSensitiveData() bool {
 		if u.Password != "" {
 			return true
 		}
+	}
+
+	// Check RPC password hash
+	if c.RPC.PasswordHash != "" {
+		return true
 	}
 
 	return false

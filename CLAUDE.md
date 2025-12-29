@@ -44,6 +44,36 @@ make init-dev                 # Initialize data directory and agent identity
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
 ./build/muti-metroo run -c ./config.yaml     # Run with config file
+
+# Docker (preferred for building and testing)
+docker compose build                          # Build all images
+docker compose up -d agent1 agent2 agent3     # Start 3-agent mesh testbed
+docker compose logs -f agent1                 # Follow logs for agent1
+docker compose down                           # Stop all containers
+docker compose run test                       # Run tests in container
+```
+
+## Development Environment Guidelines
+
+**Always use Docker for building and testing** unless explicitly requested otherwise. This ensures consistent environments and avoids host system dependencies.
+
+```bash
+# Preferred: Docker-based development
+docker compose build                          # Build images
+docker compose up -d agent1 agent2 agent3     # Start testbed
+docker compose run test                       # Run tests
+
+# Test endpoints from host
+curl http://localhost:8081/health             # Agent1 health
+curl http://localhost:8082/health             # Agent2 health
+curl http://localhost:8083/health             # Agent3 health
+```
+
+**Exception: SSH client testing** - Run SSH client on the host machine, not in Docker containers. This tests the actual SOCKS5 proxy path correctly.
+
+```bash
+# SSH via SOCKS5 proxy (run from HOST, not container)
+ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@target-host
 ```
 
 ## Architecture
@@ -70,6 +100,10 @@ An agent can serve multiple roles simultaneously:
 | `socks5` | SOCKS5 server with no-auth and username/password methods |
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
 | `certutil` | TLS certificate generation and management - CA, server, client, peer certs |
+| `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
+| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC |
+| `control` | Unix socket control interface for CLI status commands |
+| `wizard` | Interactive setup wizard with certificate generation |
 
 ### Frame Flow
 1. Client connects to SOCKS5 proxy on ingress agent
@@ -94,6 +128,9 @@ Example config in `configs/example.yaml`. Key sections:
 - `exit`: Exit node routes and DNS settings
 - `routing`: Advertisement intervals, TTL, max hops
 - `limits`: Stream limits and buffer sizes
+- `health`: Health check HTTP server
+- `control`: Unix socket for CLI commands
+- `rpc`: Remote command execution (disabled by default)
 
 ## Key Implementation Details
 
@@ -169,3 +206,81 @@ The flood-based routing supports arbitrary mesh topologies:
 - **Redundant paths**: Multiple paths to same destination (lowest metric wins)
 
 Loop prevention uses `SeenBy` lists in route advertisements - each agent tracks which peers have already seen an advertisement.
+
+## Remote Procedure Call (RPC)
+
+The RPC feature allows executing shell commands on remote agents for maintenance and diagnostics.
+
+### Configuration
+
+```yaml
+rpc:
+  enabled: true                    # Enable/disable RPC
+  whitelist:                       # Allowed commands (empty = none, ["*"] = all)
+    - whoami
+    - hostname
+    - ip
+  password_hash: "sha256..."       # SHA-256 hash of RPC password
+  timeout: 60s                     # Default command timeout
+```
+
+### Security Features
+
+1. **Command Whitelist**: Only commands in the whitelist can be executed
+   - Empty list = no commands allowed (default)
+   - `["*"]` = all commands allowed (testing only!)
+   - Specific commands: `["whoami", "hostname", "ip"]`
+
+2. **Password Authentication**: RPC requests must include the correct password
+   - Password is hashed with SHA-256 and stored in config
+   - Generate hash: `echo -n "password" | sha256sum`
+   - Setup wizard can generate the hash automatically
+
+### HTTP API
+
+**Endpoint**: `POST /agents/{agent-id}/rpc`
+
+**Request**:
+```json
+{
+  "password": "your-rpc-password",
+  "command": "whoami",
+  "args": ["-a"],
+  "stdin": "base64-encoded-input",
+  "timeout": 30
+}
+```
+
+**Response**:
+```json
+{
+  "exit_code": 0,
+  "stdout": "base64-encoded-output",
+  "stderr": "base64-encoded-errors",
+  "error": ""
+}
+```
+
+### Prometheus Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `muti_metroo_rpc_calls_total` | Counter | `result`, `command` | Total RPC calls by result |
+| `muti_metroo_rpc_call_duration_seconds` | Histogram | `command` | RPC call duration |
+| `muti_metroo_rpc_bytes_received_total` | Counter | - | Bytes received in requests |
+| `muti_metroo_rpc_bytes_sent_total` | Counter | - | Bytes sent in responses |
+
+Result labels: `success`, `failed`, `rejected`, `auth_failed`, `error`
+
+### Package Structure
+
+| Package | Purpose |
+|---------|---------|
+| `rpc` | RPC executor, request/response types, metrics, chunking for large payloads |
+
+### Implementation Details
+
+- **Max stdin size**: 1 MB
+- **Max output size**: 4 MB (stdout + stderr each)
+- **Chunking**: Large payloads split into 14 KB chunks with gzip compression
+- **Timeout**: Default 60s, configurable per-request

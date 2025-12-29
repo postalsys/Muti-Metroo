@@ -27,6 +27,7 @@ import (
 	"github.com/coinstash/muti-metroo/internal/protocol"
 	"github.com/coinstash/muti-metroo/internal/recovery"
 	"github.com/coinstash/muti-metroo/internal/routing"
+	"github.com/coinstash/muti-metroo/internal/rpc"
 	"github.com/coinstash/muti-metroo/internal/socks5"
 	"github.com/coinstash/muti-metroo/internal/stream"
 	"github.com/coinstash/muti-metroo/internal/transport"
@@ -74,6 +75,7 @@ type Agent struct {
 	exitHandler   *exit.Handler
 	healthServer  *health.Server
 	controlServer *control.Server
+	rpcExecutor   *rpc.Executor
 
 	// Relay stream tracking
 	relayMu          sync.RWMutex
@@ -233,6 +235,15 @@ func (a *Agent) initComponents() error {
 		}
 		a.controlServer = control.NewServer(controlCfg, a)
 	}
+
+	// Initialize RPC executor
+	rpcCfg := rpc.Config{
+		Enabled:      a.cfg.RPC.Enabled,
+		Whitelist:    a.cfg.RPC.Whitelist,
+		PasswordHash: a.cfg.RPC.PasswordHash,
+		Timeout:      a.cfg.RPC.Timeout,
+	}
+	a.rpcExecutor = rpc.NewExecutor(rpcCfg)
 
 	return nil
 }
@@ -1153,6 +1164,7 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 			ControlType: req.ControlType,
 			TargetAgent: req.TargetAgent,
 			Path:        remainingPath,
+			Data:        req.Data, // Preserve data payload for RPC and other control types
 		}
 
 		fwdFrame := &protocol.Frame{
@@ -1177,6 +1189,8 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.getLocalPeers()
 	case protocol.ControlTypeRoutes:
 		data, success = a.getLocalRoutes()
+	case protocol.ControlTypeRPC:
+		data, success = a.handleRPCRequest(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false
@@ -1351,6 +1365,89 @@ func (a *Agent) SendControlRequest(ctx context.Context, targetID identity.AgentI
 	}
 }
 
+// SendControlRequestWithData sends a control request with data payload to a target agent.
+func (a *Agent) SendControlRequestWithData(ctx context.Context, targetID identity.AgentID, controlType uint8, data []byte) (*protocol.ControlResponse, error) {
+	// Find route to target
+	conn := a.peerMgr.GetPeer(targetID)
+	var nextHop identity.AgentID
+	var path []identity.AgentID
+
+	if conn != nil {
+		nextHop = targetID
+		path = nil
+	} else {
+		routes := a.routeMgr.Table().GetRoutesFromAgent(targetID)
+		if len(routes) == 0 {
+			return nil, fmt.Errorf("no route to agent %s", targetID.ShortString())
+		}
+
+		route := routes[0]
+		nextHop = route.NextHop
+
+		rPath := route.Path
+		for i, id := range rPath {
+			if id == nextHop && i+1 < len(rPath) {
+				path = make([]identity.AgentID, len(rPath)-i-1)
+				copy(path, rPath[i+1:])
+				break
+			}
+		}
+	}
+
+	a.logger.Debug("sending control request with data",
+		"target", targetID.ShortString(),
+		"next_hop", nextHop.ShortString(),
+		"path_len", len(path),
+		"control_type", controlType,
+		"data_len", len(data))
+
+	// Generate request ID
+	a.controlMu.Lock()
+	a.nextControlID++
+	requestID := a.nextControlID
+	pending := &pendingControlRequest{
+		RequestID:   requestID,
+		ControlType: controlType,
+		ResponseCh:  make(chan *protocol.ControlResponse, 1),
+		Timeout:     time.Now().Add(30 * time.Second),
+	}
+	a.pendingControl[requestID] = pending
+	a.controlMu.Unlock()
+
+	// Build and send request
+	req := &protocol.ControlRequest{
+		RequestID:   requestID,
+		ControlType: controlType,
+		TargetAgent: targetID,
+		Path:        path,
+		Data:        data,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameControlRequest,
+		StreamID: protocol.ControlStreamID,
+		Payload:  req.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		a.controlMu.Lock()
+		delete(a.pendingControl, requestID)
+		a.controlMu.Unlock()
+		return nil, fmt.Errorf("send control request: %w", err)
+	}
+
+	// Wait for response
+	select {
+	case resp := <-pending.ResponseCh:
+		return resp, nil
+	case <-ctx.Done():
+		a.controlMu.Lock()
+		delete(a.pendingControl, requestID)
+		a.controlMu.Unlock()
+		return nil, ctx.Err()
+	}
+}
+
 // getLocalMetrics collects Prometheus metrics from this agent.
 func (a *Agent) getLocalMetrics() ([]byte, bool) {
 	// Use prometheus client to gather metrics
@@ -1401,6 +1498,105 @@ func (a *Agent) getLocalRoutes() ([]byte, bool) {
 		return []byte(err.Error()), false
 	}
 	return data, true
+}
+
+// RPCRequestPayload is the JSON payload for RPC requests via control channel.
+type RPCRequestPayload struct {
+	Password string   `json:"password,omitempty"` // RPC password for authentication
+	Command  string   `json:"command"`            // Command to execute
+	Args     []string `json:"args,omitempty"`     // Command arguments
+	Stdin    string   `json:"stdin,omitempty"`    // Base64-encoded stdin data
+	Timeout  int      `json:"timeout,omitempty"`  // Timeout in seconds
+}
+
+// handleRPCRequest handles an RPC request from the control channel.
+func (a *Agent) handleRPCRequest(data []byte) ([]byte, bool) {
+	startTime := time.Now()
+
+	// Decode the request payload
+	var payload RPCRequestPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		rpc.RecordError("")
+		return []byte(fmt.Sprintf("invalid request: %v", err)), false
+	}
+
+	// Record request size
+	rpc.RecordRequestSize(len(data))
+
+	// Validate authentication
+	if err := a.rpcExecutor.ValidateAuth(payload.Password); err != nil {
+		rpc.RecordAuthFailed()
+		a.logger.Warn("RPC authentication failed",
+			"command", payload.Command)
+		return []byte(fmt.Sprintf("authentication failed: %v", err)), false
+	}
+
+	// Check if command is allowed
+	if !a.rpcExecutor.IsCommandAllowed(payload.Command) {
+		rpc.RecordRejected(payload.Command)
+		a.logger.Warn("RPC command rejected",
+			"command", payload.Command)
+		return []byte(fmt.Sprintf("command '%s' not in whitelist", payload.Command)), false
+	}
+
+	// Decode stdin if provided
+	var stdin []byte
+	if payload.Stdin != "" {
+		var err error
+		stdin, err = rpc.DecodeBase64(payload.Stdin)
+		if err != nil {
+			rpc.RecordError(payload.Command)
+			return []byte(fmt.Sprintf("invalid stdin encoding: %v", err)), false
+		}
+	}
+
+	// Build RPC request
+	req := &rpc.Request{
+		Command: payload.Command,
+		Args:    payload.Args,
+		Timeout: payload.Timeout,
+	}
+
+	// Execute the command
+	ctx := context.Background()
+	resp, err := a.rpcExecutor.Execute(ctx, req, stdin)
+	if err != nil {
+		rpc.RecordError(payload.Command)
+		return []byte(fmt.Sprintf("execution error: %v", err)), false
+	}
+
+	// Encode stdout/stderr as base64
+	if resp.Stdout != "" {
+		resp.Stdout = rpc.EncodeBase64([]byte(resp.Stdout))
+	}
+	if resp.Stderr != "" {
+		resp.Stderr = rpc.EncodeBase64([]byte(resp.Stderr))
+	}
+
+	// Marshal response
+	respData, err := json.Marshal(resp)
+	if err != nil {
+		rpc.RecordError(payload.Command)
+		return []byte(fmt.Sprintf("response encoding error: %v", err)), false
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	if resp.ExitCode == 0 && resp.Error == "" {
+		rpc.RecordSuccess(payload.Command, duration, len(respData))
+	} else {
+		rpc.RecordFailed(payload.Command, duration, len(respData))
+	}
+
+	a.logger.Debug("RPC command executed",
+		"command", payload.Command,
+		"exit_code", resp.ExitCode,
+		"duration", duration)
+
+	// Return success=true for valid RPC execution, even if command failed
+	// The exit_code and error in the response JSON capture execution results
+	// Only return success=false for protocol-level errors (auth, whitelist, encoding)
+	return respData, true
 }
 
 // gatherPrometheusMetrics collects metrics in Prometheus text format.
