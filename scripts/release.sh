@@ -1,0 +1,568 @@
+#!/usr/bin/env bash
+#
+# release.sh - Muti Metroo Release Script
+#
+# This script automates the release process:
+#   1. Version management (auto-increment or explicit)
+#   2. Git commit and tag
+#   3. Push to origin
+#   4. Create Gitea release with AI-generated notes
+#   5. Cross-platform Docker builds
+#   6. Mac binary ad-hoc signing
+#   7. Upload binaries to Gitea release
+#
+# Usage:
+#   ./scripts/release.sh [version]
+#
+# Examples:
+#   ./scripts/release.sh           # Auto-increment patch version (1.2.3 -> 1.2.4)
+#   ./scripts/release.sh 2.0.0     # Set explicit version
+#
+# Environment:
+#   GITEA_AUTH_TOKEN - Required: Gitea API token
+#   GITEA_URL        - Gitea instance URL (default: https://git.aiateibad.ee)
+#   GITEA_OWNER      - Repository owner (default: andris)
+#   GITEA_REPO       - Repository name (default: Muti-Metroo-v4)
+#   SKIP_TESTS       - Set to 1 to skip tests
+#   SKIP_PUSH        - Set to 1 to skip git push
+#   DRY_RUN          - Set to 1 for dry run (no actual changes)
+
+set -euo pipefail
+
+# Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="$PROJECT_DIR/build/release"
+BINARY_NAME="muti-metroo"
+
+# Gitea configuration
+GITEA_URL="${GITEA_URL:-https://git.aiateibad.ee}"
+GITEA_OWNER="${GITEA_OWNER:-andris}"
+GITEA_REPO="${GITEA_REPO:-Muti-Metroo-v4}"
+GITEA_API="$GITEA_URL/api/v1"
+
+# Build targets: os/arch
+BUILD_TARGETS=(
+    "darwin/arm64"      # macOS Apple Silicon
+    "linux/amd64"       # Linux x86_64
+    "linux/arm64"       # Linux ARM64
+    "windows/amd64"     # Windows x86_64
+    "windows/arm64"     # Windows ARM64
+)
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Logging functions
+log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+log_step() { echo -e "${CYAN}==>${NC} $*"; }
+
+# Check prerequisites
+check_prerequisites() {
+    log_step "Checking prerequisites..."
+
+    local missing=()
+
+    # Required tools
+    command -v git >/dev/null 2>&1 || missing+=("git")
+    command -v docker >/dev/null 2>&1 || missing+=("docker")
+    command -v curl >/dev/null 2>&1 || missing+=("curl")
+    command -v jq >/dev/null 2>&1 || missing+=("jq")
+
+    # Check if claude CLI is available for release notes
+    if ! command -v claude >/dev/null 2>&1; then
+        log_warn "Claude CLI not found - release notes will be basic"
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_error "Missing required tools: ${missing[*]}"
+        exit 1
+    fi
+
+    # Check Gitea token
+    if [[ -z "${GITEA_AUTH_TOKEN:-}" ]]; then
+        log_error "GITEA_AUTH_TOKEN environment variable is required"
+        exit 1
+    fi
+
+    # Check we're in a git repo
+    if ! git rev-parse --git-dir >/dev/null 2>&1; then
+        log_error "Not in a git repository"
+        exit 1
+    fi
+
+    # Check for uncommitted changes (except this script if it's new)
+    if [[ -n "$(git status --porcelain --ignore-submodules 2>/dev/null)" ]]; then
+        log_warn "Working directory has uncommitted changes"
+        git status --short
+        echo ""
+        read -p "Continue anyway? [y/N] " -n 1 -r
+        echo ""
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+
+    log_success "Prerequisites check passed"
+}
+
+# Get current version from git tags
+get_current_version() {
+    local version
+    version=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+    # Remove 'v' prefix if present
+    echo "${version#v}"
+}
+
+# Parse version into components
+parse_version() {
+    local version="$1"
+    local major minor patch
+
+    if [[ "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        major="${BASH_REMATCH[1]}"
+        minor="${BASH_REMATCH[2]}"
+        patch="${BASH_REMATCH[3]}"
+        echo "$major $minor $patch"
+    else
+        log_error "Invalid version format: $version (expected X.Y.Z)"
+        exit 1
+    fi
+}
+
+# Increment patch version
+increment_patch() {
+    local version="$1"
+    read -r major minor patch <<< "$(parse_version "$version")"
+    echo "$major.$minor.$((patch + 1))"
+}
+
+# Validate version is greater than current
+validate_version() {
+    local new_version="$1"
+    local current_version="$2"
+
+    read -r new_major new_minor new_patch <<< "$(parse_version "$new_version")"
+    read -r cur_major cur_minor cur_patch <<< "$(parse_version "$current_version")"
+
+    # Compare versions
+    if [[ $new_major -gt $cur_major ]]; then
+        return 0
+    elif [[ $new_major -eq $cur_major ]]; then
+        if [[ $new_minor -gt $cur_minor ]]; then
+            return 0
+        elif [[ $new_minor -eq $cur_minor ]]; then
+            if [[ $new_patch -gt $cur_patch ]]; then
+                return 0
+            fi
+        fi
+    fi
+
+    log_error "New version ($new_version) must be greater than current version ($current_version)"
+    exit 1
+}
+
+# Generate release notes using Claude CLI
+generate_release_notes() {
+    local version="$1"
+    local prev_tag="$2"
+
+    log_step "Generating release notes..."
+
+    # Get commit log since last tag
+    local commits
+    if [[ -n "$prev_tag" ]] && git rev-parse "$prev_tag" >/dev/null 2>&1; then
+        commits=$(git log "$prev_tag"..HEAD --oneline --no-decorate 2>/dev/null || echo "Initial release")
+    else
+        commits=$(git log --oneline --no-decorate -20 2>/dev/null || echo "Initial release")
+    fi
+
+    # If claude CLI is available, use it for release notes
+    if command -v claude >/dev/null 2>&1; then
+        log_info "Using Claude to generate release notes..."
+
+        local prompt="Generate release notes for Muti Metroo version $version.
+
+Muti Metroo is a userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers (QUIC, HTTP/2, WebSocket). It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing.
+
+Here are the commits since the last release:
+$commits
+
+Write concise, professional release notes in markdown format with these sections:
+- A brief summary (1-2 sentences)
+- What's New (bullet points of new features)
+- Improvements (bullet points of enhancements)
+- Bug Fixes (if any, bullet points)
+- Breaking Changes (if any)
+
+Be concise. Don't include sections that have no items. Don't include commit hashes."
+
+        local notes
+        notes=$(echo "$prompt" | claude --print 2>/dev/null || echo "")
+
+        if [[ -n "$notes" ]]; then
+            echo "$notes"
+            return 0
+        fi
+    fi
+
+    # Fallback: basic release notes
+    log_warn "Generating basic release notes..."
+    cat <<EOF
+## Muti Metroo v$version
+
+### Changes since last release
+
+$(echo "$commits" | sed 's/^[a-f0-9]* /- /')
+
+### Installation
+
+Download the appropriate binary for your platform from the assets below.
+EOF
+}
+
+# Create git tag and push
+create_tag() {
+    local version="$1"
+    local tag="v$version"
+
+    log_step "Creating git tag $tag..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would create tag: $tag"
+        return 0
+    fi
+
+    # Create annotated tag
+    git tag -a "$tag" -m "Release $version"
+    log_success "Created tag $tag"
+
+    # Push tag
+    if [[ "${SKIP_PUSH:-0}" != "1" ]]; then
+        log_info "Pushing tag to origin..."
+        git push origin "$tag"
+        log_success "Pushed tag $tag"
+    fi
+}
+
+# Build binary for a specific platform using Docker
+build_binary() {
+    local os="$1"
+    local arch="$2"
+    local version="$3"
+    local output_name="$BINARY_NAME-$os-$arch"
+
+    # Add .exe extension for Windows
+    if [[ "$os" == "windows" ]]; then
+        output_name="${output_name}.exe"
+    fi
+
+    local output_path="$BUILD_DIR/$output_name"
+
+    log_info "Building for $os/$arch..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would build: $output_name"
+        return 0
+    fi
+
+    # Build using Docker
+    docker run --rm \
+        -v "$PROJECT_DIR":/app \
+        -w /app \
+        -e CGO_ENABLED=0 \
+        -e GOOS="$os" \
+        -e GOARCH="$arch" \
+        golang:1.23-alpine \
+        go build -ldflags="-s -w -X main.Version=$version" \
+            -o "/app/build/release/$output_name" \
+            ./cmd/muti-metroo
+
+    # Verify binary was created
+    if [[ -f "$output_path" ]]; then
+        local size
+        size=$(du -h "$output_path" | cut -f1)
+        log_success "Built $output_name ($size)"
+    else
+        log_error "Failed to build $output_name"
+        return 1
+    fi
+}
+
+# Sign macOS binary (ad-hoc signing)
+sign_macos_binary() {
+    local binary_path="$1"
+
+    # Only sign on macOS
+    if [[ "$(uname)" != "Darwin" ]]; then
+        log_warn "Skipping macOS signing (not on macOS)"
+        return 0
+    fi
+
+    if [[ ! -f "$binary_path" ]]; then
+        log_warn "Binary not found for signing: $binary_path"
+        return 0
+    fi
+
+    log_step "Signing macOS binary (ad-hoc)..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would sign: $binary_path"
+        return 0
+    fi
+
+    # Ad-hoc sign the binary
+    if codesign --sign - --force --preserve-metadata=entitlements,requirements,flags,runtime "$binary_path" 2>/dev/null; then
+        log_success "Signed $binary_path (ad-hoc)"
+
+        # Verify signature
+        if codesign --verify "$binary_path" 2>/dev/null; then
+            log_info "Signature verified"
+        fi
+    else
+        log_warn "Signing failed - binary will work but may trigger Gatekeeper warnings"
+    fi
+}
+
+# Build all platforms
+build_all() {
+    local version="$1"
+
+    log_step "Building binaries for all platforms..."
+
+    # Create build directory
+    mkdir -p "$BUILD_DIR"
+    rm -f "$BUILD_DIR"/*
+
+    # Build each target
+    for target in "${BUILD_TARGETS[@]}"; do
+        local os="${target%/*}"
+        local arch="${target#*/}"
+        build_binary "$os" "$arch" "$version"
+    done
+
+    # Sign macOS binary
+    sign_macos_binary "$BUILD_DIR/$BINARY_NAME-darwin-arm64"
+
+    # Create checksums
+    log_step "Creating checksums..."
+    if [[ "${DRY_RUN:-0}" != "1" ]]; then
+        (cd "$BUILD_DIR" && shasum -a 256 * > checksums.txt)
+        log_success "Created checksums.txt"
+    fi
+
+    # List built files
+    log_info "Built files:"
+    ls -lh "$BUILD_DIR"
+}
+
+# Create Gitea release
+create_gitea_release() {
+    local version="$1"
+    local release_notes="$2"
+    local tag="v$version"
+
+    log_step "Creating Gitea release..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would create release: $tag"
+        return 0
+    fi
+
+    # Create release via API
+    local response
+    response=$(curl -s -X POST \
+        -H "Authorization: token $GITEA_AUTH_TOKEN" \
+        -H "Content-Type: application/json" \
+        "$GITEA_API/repos/$GITEA_OWNER/$GITEA_REPO/releases" \
+        -d "$(jq -n \
+            --arg tag "$tag" \
+            --arg name "Muti Metroo $tag" \
+            --arg body "$release_notes" \
+            '{
+                tag_name: $tag,
+                name: $name,
+                body: $body,
+                draft: false,
+                prerelease: false
+            }')"
+    )
+
+    # Check for errors
+    local release_id
+    release_id=$(echo "$response" | jq -r '.id // empty')
+
+    if [[ -z "$release_id" ]]; then
+        log_error "Failed to create release"
+        log_error "Response: $response"
+        return 1
+    fi
+
+    log_success "Created release (ID: $release_id)"
+    echo "$release_id"
+}
+
+# Upload asset to Gitea release
+upload_asset() {
+    local release_id="$1"
+    local file_path="$2"
+    local file_name
+    file_name=$(basename "$file_path")
+
+    log_info "Uploading $file_name..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would upload: $file_name"
+        return 0
+    fi
+
+    local response
+    response=$(curl -s -X POST \
+        -H "Authorization: token $GITEA_AUTH_TOKEN" \
+        -H "Content-Type: application/octet-stream" \
+        "$GITEA_API/repos/$GITEA_OWNER/$GITEA_REPO/releases/$release_id/assets?name=$file_name" \
+        --data-binary "@$file_path"
+    )
+
+    local asset_id
+    asset_id=$(echo "$response" | jq -r '.id // empty')
+
+    if [[ -z "$asset_id" ]]; then
+        log_error "Failed to upload $file_name"
+        log_error "Response: $response"
+        return 1
+    fi
+
+    log_success "Uploaded $file_name"
+}
+
+# Upload all assets
+upload_all_assets() {
+    local release_id="$1"
+
+    log_step "Uploading release assets..."
+
+    for file in "$BUILD_DIR"/*; do
+        if [[ -f "$file" ]]; then
+            upload_asset "$release_id" "$file"
+        fi
+    done
+
+    log_success "All assets uploaded"
+}
+
+# Run tests
+run_tests() {
+    if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
+        log_warn "Skipping tests (SKIP_TESTS=1)"
+        return 0
+    fi
+
+    log_step "Running tests..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would run tests"
+        return 0
+    fi
+
+    # Run tests using Docker
+    docker run --rm \
+        -v "$PROJECT_DIR":/app \
+        -w /app \
+        golang:1.23-alpine \
+        sh -c "apk add --no-cache git && go test -short ./..."
+
+    log_success "Tests passed"
+}
+
+# Main release function
+main() {
+    local new_version="${1:-}"
+
+    echo ""
+    echo "=========================================="
+    echo "   Muti Metroo Release Script"
+    echo "=========================================="
+    echo ""
+
+    # Check prerequisites
+    check_prerequisites
+
+    # Get current version
+    local current_version
+    current_version=$(get_current_version)
+    log_info "Current version: $current_version"
+
+    # Determine new version
+    if [[ -z "$new_version" ]]; then
+        new_version=$(increment_patch "$current_version")
+        log_info "Auto-incrementing to: $new_version"
+    else
+        # Remove 'v' prefix if provided
+        new_version="${new_version#v}"
+        validate_version "$new_version" "$current_version"
+        log_info "Using specified version: $new_version"
+    fi
+
+    # Confirm
+    echo ""
+    log_warn "This will release version $new_version"
+    log_warn "Gitea: $GITEA_URL/$GITEA_OWNER/$GITEA_REPO"
+    echo ""
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_warn "DRY RUN MODE - No changes will be made"
+    fi
+
+    read -p "Continue? [y/N] " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Aborted"
+        exit 0
+    fi
+
+    echo ""
+
+    # Run tests
+    run_tests
+
+    # Create tag
+    local prev_tag
+    prev_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+    create_tag "$new_version"
+
+    # Build all platforms
+    build_all "$new_version"
+
+    # Generate release notes
+    local release_notes
+    release_notes=$(generate_release_notes "$new_version" "$prev_tag")
+
+    # Create Gitea release
+    local release_id
+    release_id=$(create_gitea_release "$new_version" "$release_notes")
+
+    # Upload assets
+    if [[ -n "$release_id" ]]; then
+        upload_all_assets "$release_id"
+    fi
+
+    echo ""
+    echo "=========================================="
+    log_success "Release v$new_version complete!"
+    echo "=========================================="
+    echo ""
+    log_info "Release URL: $GITEA_URL/$GITEA_OWNER/$GITEA_REPO/releases/tag/v$new_version"
+    echo ""
+}
+
+# Run main
+main "$@"

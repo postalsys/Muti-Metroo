@@ -1,6 +1,6 @@
 # Mesh Agent Network Architecture
 
-**Version:** 1.0
+**Version:** 2.0
 **Date:** December 2024
 
 ---
@@ -21,9 +21,12 @@
 12. [Data Plane](#12-data-plane)
 13. [Configuration](#13-configuration)
 14. [Security](#14-security)
-15. [Project Structure](#15-project-structure)
-16. [Implementation Notes](#16-implementation-notes)
-17. [Testing Strategy](#17-testing-strategy)
+15. [Observability](#15-observability)
+16. [Operations](#16-operations)
+17. [Certificate Management](#17-certificate-management)
+18. [Project Structure](#18-project-structure)
+19. [Implementation Notes](#19-implementation-notes)
+20. [Testing Strategy](#20-testing-strategy)
 
 ---
 
@@ -44,6 +47,7 @@ This document describes the architecture for a userspace mesh networking agent t
 | **Automatic recovery**    | Reconnect on failure, re-advertise routes                   |
 | **Low latency**           | Suitable for interactive applications (SSH)                 |
 | **High throughput**       | Capable of streaming video                                  |
+| **Production ready**      | Prometheus metrics, health checks, service management       |
 
 ### 1.3 Target Scale
 
@@ -58,7 +62,7 @@ The design prioritizes simplicity and correctness over extreme scalability.
 
 ### 1.4 Implementation Language
 
-The reference implementation will be written in **Go**, leveraging its excellent concurrency primitives and networking libraries.
+The reference implementation is written in **Go**, leveraging its excellent concurrency primitives and networking libraries.
 
 ---
 
@@ -209,6 +213,16 @@ An agent can serve one or more roles simultaneously:
 │  │                                                                        │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
 │                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │                       OBSERVABILITY LAYER                              │ │
+│  │                                                                        │ │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐           │ │
+│  │  │    Metrics     │  │  Health Check  │  │   Control API  │           │ │
+│  │  │  (Prometheus)  │  │    (HTTP)      │  │ (Unix Socket)  │           │ │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘           │ │
+│  │                                                                        │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -226,6 +240,9 @@ An agent can serve one or more roles simultaneously:
 | **HTTP/2 Transport**    | TCP streaming for direct connections                    |
 | **WebSocket Transport** | HTTP/1.1 WebSocket for proxy traversal                  |
 | **SOCKS5 Server**       | Accept client connections, initiate streams             |
+| **Metrics**             | Prometheus metrics for monitoring                       |
+| **Health Check**        | HTTP endpoints for liveness/readiness probes            |
+| **Control API**         | Unix socket API for management commands                 |
 
 ---
 
@@ -373,6 +390,9 @@ type Transport interface {
 
     // Type returns the transport type identifier
     Type() TransportType
+
+    // Close closes the transport
+    Close() error
 }
 
 // Listener accepts incoming peer connections
@@ -420,6 +440,9 @@ type Stream interface {
     SetDeadline(t time.Time) error
     SetReadDeadline(t time.Time) error
     SetWriteDeadline(t time.Time) error
+
+    // StreamID returns the stream identifier
+    StreamID() uint64
 }
 ```
 
@@ -696,18 +719,6 @@ All communication uses a consistent framing protocol:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### PEER_HELLO_ACK (0x21)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            PEER_HELLO_ACK                                   │
-│                                                                             │
-│   Sent by connection acceptor in response to PEER_HELLO.                   │
-│   Same format as PEER_HELLO.                                               │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
 #### STREAM_OPEN (0x01)
 
 ```
@@ -733,54 +744,15 @@ All communication uses a consistent framing protocol:
 │   • IPv6 (0x04):   16 bytes, network order                                 │
 │   • Domain (0x03): 1-byte length + UTF-8 domain name                       │
 │                                                                             │
-│   Path processing:                                                          │
-│   • If RemainingPath is empty, this agent is the exit                      │
-│   • Otherwise, forward to first agent in RemainingPath                     │
-│   • Remove self from path when forwarding                                  │
-│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### STREAM_OPEN_ACK (0x02)
+#### STREAM_OPEN_ERR (0x03) Error Codes
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           STREAM_OPEN_ACK                                   │
+│                           ERROR CODES                                       │
 │                                                                             │
-│   Stream opened successfully.                                              │
-│                                                                             │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ Field           │ Size   │ Description                              │  │
-│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
-│   │ RequestID       │ 8      │ Correlates to STREAM_OPEN               │  │
-│   │ BoundAddrType   │ 1      │ Address type of actual connection       │  │
-│   │ BoundAddr       │ varies │ Actual IP connected to                  │  │
-│   │ BoundPort       │ 2      │ Actual port connected to                │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-│   BoundAddr is useful when domain was resolved at exit.                    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### STREAM_OPEN_ERR (0x03)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           STREAM_OPEN_ERR                                   │
-│                                                                             │
-│   Stream open failed.                                                      │
-│                                                                             │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ Field           │ Size   │ Description                              │  │
-│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
-│   │ RequestID       │ 8      │ Correlates to STREAM_OPEN               │  │
-│   │ ErrorCode       │ 2      │ Error code (see below)                  │  │
-│   │ MessageLen      │ 1      │ Length of error message                 │  │
-│   │ Message         │ varies │ Human-readable error (UTF-8)            │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-│   Error codes:                                                              │
 │   ┌───────┬──────────────────────┬────────────────────────────────────┐   │
 │   │ Code  │ Name                 │ Meaning                            │   │
 │   ├───────┼──────────────────────┼────────────────────────────────────┤   │
@@ -794,144 +766,6 @@ All communication uses a consistent framing protocol:
 │   │ 8     │ EXIT_DISABLED        │ Exit functionality not enabled     │   │
 │   │ 9     │ RESOURCE_LIMIT       │ Too many streams                   │   │
 │   └───────┴──────────────────────┴────────────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### STREAM_DATA (0x04)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             STREAM_DATA                                     │
-│                                                                             │
-│   Payload data for a stream.                                               │
-│                                                                             │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ Field           │ Size   │ Description                              │  │
-│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
-│   │ Data            │ varies │ Raw payload bytes (max 16 KB)           │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-│   StreamID in frame header identifies the stream.                          │
-│   Maximum payload: 16,384 bytes (enforced for fairness).                   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### STREAM_CLOSE (0x05)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            STREAM_CLOSE                                     │
-│                                                                             │
-│   Graceful stream close (supports half-close).                             │
-│                                                                             │
-│   Payload: Empty                                                           │
-│   Behavior determined by Flags byte in frame header.                       │
-│                                                                             │
-│   Flag combinations:                                                        │
-│   ┌───────┬─────────────────────────────────────────────────────────────┐  │
-│   │ Flags │ Meaning                                                     │  │
-│   ├───────┼─────────────────────────────────────────────────────────────┤  │
-│   │ 0x01  │ FIN_WRITE: Sender done sending (half-close write)          │  │
-│   │ 0x02  │ FIN_READ: Sender done receiving (half-close read)          │  │
-│   │ 0x03  │ Both: Full close                                           │  │
-│   └───────┴─────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│   Half-close enables proper TCP FIN semantics for applications like SSH.  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### STREAM_RESET (0x06)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            STREAM_RESET                                     │
-│                                                                             │
-│   Abruptly terminate a stream with an error.                               │
-│                                                                             │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ Field           │ Size   │ Description                              │  │
-│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
-│   │ ErrorCode       │ 2      │ Error code (same as STREAM_OPEN_ERR)    │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-│   Used when stream must be terminated abnormally (e.g., peer disconnect). │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### ROUTE_ADVERTISE (0x10)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          ROUTE_ADVERTISE                                    │
-│                                                                             │
-│   Announce routes that an agent can reach.                                 │
-│                                                                             │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ Field           │ Size   │ Description                              │  │
-│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
-│   │ OriginAgent     │ 16     │ Agent that owns these routes            │  │
-│   │ Sequence        │ 8      │ Monotonic sequence number               │  │
-│   │ RouteCount      │ 1      │ Number of routes                        │  │
-│   │ Routes          │ varies │ Array of Route entries                  │  │
-│   │ PathLength      │ 1      │ Length of path from origin              │  │
-│   │ Path            │ varies │ Array of AgentIDs (origin to here)      │  │
-│   │ SeenByCount     │ 1      │ Number of agents that processed this    │  │
-│   │ SeenBy          │ varies │ Array of AgentIDs for loop prevention   │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-│   Route entry:                                                              │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ AddressFamily   │ 1      │ 0x01=IPv4, 0x02=IPv6                     │  │
-│   │ PrefixLength    │ 1      │ CIDR prefix length (0-32 or 0-128)      │  │
-│   │ Prefix          │ 4 or 16│ Network address bytes                   │  │
-│   │ Metric          │ 2      │ Hop count from origin                   │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### ROUTE_WITHDRAW (0x11)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ROUTE_WITHDRAW                                    │
-│                                                                             │
-│   Remove previously advertised routes.                                     │
-│                                                                             │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ Field           │ Size   │ Description                              │  │
-│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
-│   │ OriginAgent     │ 16     │ Agent withdrawing routes                │  │
-│   │ Sequence        │ 8      │ Must be > last seen sequence            │  │
-│   │ RouteCount      │ 1      │ Number of routes to withdraw            │  │
-│   │ Routes          │ varies │ Array of Route entries (prefix only)    │  │
-│   │ SeenByCount     │ 1      │ Number of agents that processed this    │  │
-│   │ SeenBy          │ varies │ Array of AgentIDs for loop prevention   │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### KEEPALIVE (0x22) and KEEPALIVE_ACK (0x23)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        KEEPALIVE / KEEPALIVE_ACK                            │
-│                                                                             │
-│   Connection liveness probe and response.                                  │
-│                                                                             │
-│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
-│   │ Field           │ Size   │ Description                              │  │
-│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
-│   │ Timestamp       │ 8      │ Sender's Unix timestamp (for RTT calc)  │  │
-│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
-│                                                                             │
-│   Sent on StreamID 0 (control stream).                                     │
-│   KEEPALIVE_ACK echoes the same timestamp.                                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -979,20 +813,24 @@ All communication uses a consistent framing protocol:
 │         (FIN_WRITE)        (FIN_WRITE)        (either side)                 │
 │              │                  │                  │                        │
 │              ▼                  ▼                  │                        │
-│       ┌────────────┐     ┌────────────┐           │                        │
-│       │ HALF_CLOSED│     │ HALF_CLOSED│           │                        │
-│       │  (remote)  │     │  (local)   │           │                        │
-│       └─────┬──────┘     └─────┬──────┘           │                        │
-│             │                  │                  │                        │
+│       ┌─────────────┐   ┌─────────────┐           │                        │
+│       │ HALF_CLOSED │   │ HALF_CLOSED │           │                        │
+│       │  (remote)   │   │   (local)   │           │                        │
+│       └──────┬──────┘   └──────┬──────┘           │                        │
+│              │                  │                  │                        │
 │        Send CLOSE         Recv CLOSE              │                        │
 │        (FIN_WRITE)        (FIN_WRITE)             │                        │
-│             │                  │                  │                        │
-│             └──────────────────┴──────────────────┘                        │
+│              │                  │                  │                        │
+│              └──────────────────┴──────────────────┘                        │
 │                                │                                            │
 │                                ▼                                            │
 │                          ┌──────────┐                                       │
 │                          │  CLOSED  │                                       │
 │                          └──────────┘                                       │
+│                                                                             │
+│  Implementation Note: Half-closed states are tracked directionally as:     │
+│  • StateHalfClosedLocal  - Local side initiated half-close                 │
+│  • StateHalfClosedRemote - Remote side initiated half-close                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1036,98 +874,7 @@ All communication uses a consistent framing protocol:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 7.3 Multi-Hop Stream Setup
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        MULTI-HOP STREAM SETUP                               │
-│                                                                             │
-│  SOCKS5 Client      Agent1         Agent2         Agent3        Target     │
-│       │                │              │              │              │       │
-│       │ CONNECT        │              │              │              │       │
-│       │ 10.5.3.100:22  │              │              │              │       │
-│       │───────────────►│              │              │              │       │
-│       │                │              │              │              │       │
-│       │                │ Route lookup: 10.5.3.100                   │       │
-│       │                │ Result: Path=[Agent2,Agent3]               │       │
-│       │                │              │              │              │       │
-│       │                │ STREAM_OPEN  │              │              │       │
-│       │                │ dst=10.5.3.100:22          │              │       │
-│       │                │ path=[Agent3]│              │              │       │
-│       │                │ ttl=15       │              │              │       │
-│       │                │─────────────►│              │              │       │
-│       │                │              │              │              │       │
-│       │                │              │ STREAM_OPEN  │              │       │
-│       │                │              │ dst=10.5.3.100:22          │       │
-│       │                │              │ path=[]      │              │       │
-│       │                │              │ ttl=14       │              │       │
-│       │                │              │─────────────►│              │       │
-│       │                │              │              │              │       │
-│       │                │              │              │ Path empty,  │       │
-│       │                │              │              │ I am exit    │       │
-│       │                │              │              │              │       │
-│       │                │              │              │ TCP connect  │       │
-│       │                │              │              │─────────────►│       │
-│       │                │              │              │◄─────────────│       │
-│       │                │              │              │              │       │
-│       │                │              │◄─────────────│              │       │
-│       │                │              │ STREAM_OPEN_ACK             │       │
-│       │                │◄─────────────│              │              │       │
-│       │                │ STREAM_OPEN_ACK             │              │       │
-│       │◄───────────────│              │              │              │       │
-│       │ SOCKS5 SUCCESS │              │              │              │       │
-│       │                │              │              │              │       │
-│       │════════════════╪══════════════╪══════════════╪══════════════│       │
-│       │                │  Bidirectional Data Flow    │              │       │
-│       │════════════════╪══════════════╪══════════════╪══════════════│       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 7.4 Forward Table
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            FORWARD TABLE                                    │
-│                                                                             │
-│  Each agent maintains a forward table mapping streams to destinations.     │
-│                                                                             │
-│  Entry structure:                                                           │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  ForwardEntry {                                                     │   │
-│  │      IncomingPeer    AgentID       // Source peer                   │   │
-│  │      IncomingStream  uint64        // Stream ID from source         │   │
-│  │      OutgoingPeer    AgentID       // Destination peer (or empty)   │   │
-│  │      OutgoingStream  uint64        // Stream ID to destination      │   │
-│  │      LocalConn       net.Conn      // If exit: real TCP connection  │   │
-│  │      State           StreamState   // OPEN, HALF_CLOSED, etc.       │   │
-│  │      CreatedAt       time.Time                                      │   │
-│  │      LastActivity    time.Time                                      │   │
-│  │  }                                                                  │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  Example on Agent2 (transit):                                               │
-│  ┌───────────────────┬───────────────────┬─────────────────────────────┐   │
-│  │ Incoming          │ Outgoing          │ Notes                       │   │
-│  ├───────────────────┼───────────────────┼─────────────────────────────┤   │
-│  │ Agent1:Stream5    │ Agent3:Stream12   │ SSH session, OPEN           │   │
-│  │ Agent3:Stream12   │ Agent1:Stream5    │ Reverse mapping             │   │
-│  │ Agent1:Stream7    │ Agent3:Stream14   │ Video stream, OPEN          │   │
-│  │ Agent3:Stream14   │ Agent1:Stream7    │ Reverse mapping             │   │
-│  └───────────────────┴───────────────────┴─────────────────────────────┘   │
-│                                                                             │
-│  Example on Agent3 (exit):                                                  │
-│  ┌───────────────────┬───────────────────┬─────────────────────────────┐   │
-│  │ Incoming          │ Local Connection  │ Notes                       │   │
-│  ├───────────────────┼───────────────────┼─────────────────────────────┤   │
-│  │ Agent2:Stream12   │ TCP 10.5.3.100:22 │ SSH session to server       │   │
-│  │ Agent2:Stream14   │ TCP 10.5.3.50:443 │ Video stream to server      │   │
-│  └───────────────────┴───────────────────┴─────────────────────────────┘   │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 7.5 Resource Limits
+### 7.3 Resource Limits
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1202,28 +949,12 @@ All communication uses a consistent framing protocol:
 │  │ 10.5.0.0/16      │ Agent2   │ Agent4   │ 3      │ [Agent2, Agent3,   │  │
 │  │                  │          │          │        │  Agent4]           │  │
 │  │ 10.0.0.0/8       │ Agent2   │ Agent3   │ 2      │ [Agent2, Agent3]   │  │
-│  │ 192.168.0.0/16   │ Agent2   │ Agent3   │ 2      │ [Agent2, Agent3]   │  │
 │  │ 0.0.0.0/0        │ Agent5   │ Agent5   │ 1      │ [Agent5]           │  │
 │  └──────────────────┴──────────┴──────────┴────────┴────────────────────┘  │
 │                                                                             │
-│  Lookup examples:                                                           │
-│                                                                             │
 │  Lookup(10.5.3.100):                                                        │
 │    Matches: 10.5.3.0/24 (24 bits) ← Selected (longest prefix)             │
-│             10.5.0.0/16 (16 bits)                                          │
-│             10.0.0.0/8 (8 bits)                                            │
-│             0.0.0.0/0 (0 bits)                                             │
 │    Result: Path=[Agent2, Agent3]                                           │
-│                                                                             │
-│  Lookup(10.5.4.50):                                                         │
-│    Matches: 10.5.0.0/16 (16 bits) ← Selected (longest prefix)             │
-│             10.0.0.0/8 (8 bits)                                            │
-│             0.0.0.0/0 (0 bits)                                             │
-│    Result: Path=[Agent2, Agent3, Agent4]                                   │
-│                                                                             │
-│  Lookup(8.8.8.8):                                                           │
-│    Matches: 0.0.0.0/0 (0 bits) ← Selected (only match)                    │
-│    Result: Path=[Agent5]                                                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1244,13 +975,6 @@ All communication uses a consistent framing protocol:
 │  │ Advertise interval          │ 2m       │ How often to re-advertise   │  │
 │  │ Cleanup interval            │ 30s      │ How often to check expiry   │  │
 │  └─────────────────────────────┴──────────┴─────────────────────────────┘  │
-│                                                                             │
-│  Route lifecycle:                                                           │
-│  1. Exit agent advertises routes every 2 minutes                           │
-│  2. Advertisement propagates through mesh                                  │
-│  3. Each agent sets ExpiresAt = now + 5 minutes                           │
-│  4. Cleanup goroutine removes expired routes every 30 seconds             │
-│  5. If route expires before refresh, traffic fails (no route)             │
 │                                                                             │
 │  On peer disconnect:                                                        │
 │  • Immediately remove all routes where NextHop = disconnected peer         │
@@ -1286,24 +1010,17 @@ All communication uses a consistent framing protocol:
 │          │                        │ 10.0.0.0/8             │                │
 │          │                        │ nextHop=Agent3         │                │
 │          │                        │ exit=Agent3            │                │
-│          │                        │ path=[Agent3]          │                │
 │          │                        │ metric=1               │                │
 │          │                        │                        │                │
 │          │                        │ ROUTE_ADVERTISE        │                │
 │          │                        │ origin=Agent3          │                │
 │          │                        │ seq=1                  │                │
-│          │                        │ routes=[10.0.0.0/8]    │                │
 │          │                        │ metric=1               │                │
 │          │                        │ path=[Agent2,Agent3]   │                │
 │          │                        │ seenBy=[Agent3,Agent2] │                │
 │          │                        │───────────────────────►│                │
 │          │                        │                        │                │
-│          │                        │                        │ Store route:   │
-│          │                        │                        │ 10.0.0.0/8     │
-│          │                        │                        │ nextHop=Agent2 │
-│          │                        │                        │ exit=Agent3    │
-│          │                        │                        │ path=[Agent2,  │
-│          │                        │                        │       Agent3]  │
+│          │                        │                        │ Store route    │
 │          │                        │                        │ metric=2       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -1345,46 +1062,9 @@ All communication uses a consistent framing protocol:
 │                                                                             │
 │      // 4. Forward to other peers (split horizon)                          │
 │      msg.SeenBy = append(msg.SeenBy, self.ID)                              │
-│      msg.Path = prepend(self.ID, msg.Path)                                 │
-│      for route in msg.Routes:                                              │
-│          route.Metric++                                                    │
-│                                                                             │
 │      for peer in connectedPeers:                                           │
 │          if peer != fromPeer && peer not in msg.SeenBy:                    │
-│              send(peer, msg)                                               │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 9.3 Local Route Advertisement
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      LOCAL ROUTE ADVERTISEMENT                              │
-│                                                                             │
-│  Exit agents periodically advertise their local routes.                    │
-│                                                                             │
-│  Triggered by:                                                              │
-│  • Startup (after connecting to peers)                                     │
-│  • Timer (every advertise interval)                                        │
-│  • Configuration change (routes added/removed)                             │
-│                                                                             │
-│  func advertiseLocalRoutes():                                               │
-│      if !config.Exit.Enabled || len(config.Exit.Routes) == 0:              │
-│          return                                                            │
-│                                                                             │
-│      localSequence++                                                       │
-│                                                                             │
-│      msg := ROUTE_ADVERTISE{                                               │
-│          OriginAgent: self.ID,                                             │
-│          Sequence:    localSequence,                                       │
-│          Routes:      config.Exit.Routes,  // All with Metric=0           │
-│          Path:        [self.ID],                                           │
-│          SeenBy:      [self.ID],                                           │
-│      }                                                                     │
-│                                                                             │
-│      for peer in connectedPeers:                                           │
-│          send(peer, msg)                                                   │
+│              send(peer, msg)  // Log errors, don't fail                   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1471,15 +1151,9 @@ All communication uses a consistent framing protocol:
 │       │                                   capabilities=["exit"]             │
 │       │◄─────────────────────────────────────────────│                      │
 │       │                                              │                      │
-│       │ Validate:                                    │                      │
-│       │ • Version compatible                         │                      │
-│       │ • AgentID expected?                          │                      │
-│       │                                              │                      │
 │       │              Connection ready                │                      │
-│       │                                              │                      │
 │                                                                             │
 │  Handshake timeout: 10 seconds                                             │
-│  If no PEER_HELLO received within timeout, close connection.               │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1507,16 +1181,8 @@ All communication uses a consistent framing protocol:
 │    Attempt 1:  1s    ± 0.2s  →  0.8s  - 1.2s                              │
 │    Attempt 2:  2s    ± 0.4s  →  1.6s  - 2.4s                              │
 │    Attempt 3:  4s    ± 0.8s  →  3.2s  - 4.8s                              │
-│    Attempt 4:  8s    ± 1.6s  →  6.4s  - 9.6s                              │
-│    Attempt 5:  16s   ± 3.2s  →  12.8s - 19.2s                             │
-│    Attempt 6:  32s   ± 6.4s  →  25.6s - 38.4s                             │
+│    ...                                                                     │
 │    Attempt 7+: 60s   ± 12s   →  48s   - 72s  (capped)                     │
-│                                                                             │
-│  On successful reconnect:                                                   │
-│  • Reset backoff to initial delay                                          │
-│  • Perform handshake                                                       │
-│  • Request fresh route advertisements                                      │
-│  • All previous streams are dead (do not attempt to resume)                │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1536,64 +1202,12 @@ All communication uses a consistent framing protocol:
 │  ┌─────────────────────────────┬──────────┬─────────────────────────────┐  │
 │  │ Parameter                   │ Default  │ Description                 │  │
 │  ├─────────────────────────────┼──────────┼─────────────────────────────┤  │
-│  │ Idle threshold              │ 30s      │ Send keepalive after idle   │  │
+│  │ Idle threshold              │ 5m       │ Send keepalive after idle   │  │
 │  │ Timeout                     │ 90s      │ Declare dead if no response │  │
 │  └─────────────────────────────┴──────────┴─────────────────────────────┘  │
 │                                                                             │
-│  Algorithm:                                                                 │
-│                                                                             │
-│  lastActivity := now()                                                     │
-│                                                                             │
-│  // On any frame sent or received:                                         │
-│  lastActivity = now()                                                      │
-│                                                                             │
-│  // Periodic check (every 10s):                                            │
-│  if now() - lastActivity > idleThreshold:                                  │
-│      send KEEPALIVE                                                        │
-│                                                                             │
-│  if now() - lastActivity > timeout:                                        │
-│      mark connection as dead                                               │
-│      trigger reconnection                                                  │
-│                                                                             │
-│  // On KEEPALIVE received:                                                 │
-│  send KEEPALIVE_ACK (echo timestamp)                                       │
-│  lastActivity = now()                                                      │
-│                                                                             │
-│  // On KEEPALIVE_ACK received:                                             │
-│  rtt = now() - ack.Timestamp                                               │
-│  lastActivity = now()                                                      │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 10.5 Connection Teardown
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         CONNECTION TEARDOWN                                 │
-│                                                                             │
-│  When a peer connection is lost (error, timeout, or graceful close):       │
-│                                                                             │
-│  1. Mark connection as disconnected                                        │
-│                                                                             │
-│  2. Clean up streams:                                                      │
-│     for entry in forwardTable:                                             │
-│         if entry.IncomingPeer == peer || entry.OutgoingPeer == peer:       │
-│             if entry.LocalConn != nil:                                     │
-│                 entry.LocalConn.Close()  // Close exit TCP connection     │
-│             if entry.OtherPeer != nil:                                     │
-│                 send STREAM_RESET to other peer                            │
-│             remove entry from forwardTable                                 │
-│                                                                             │
-│  3. Clean up routes:                                                       │
-│     for route in routeTable:                                               │
-│         if route.NextHop == peer:                                          │
-│             remove route                                                   │
-│                                                                             │
-│  4. Trigger reconnection (if configured)                                   │
-│                                                                             │
-│  Important: Streams do NOT survive reconnection.                           │
-│  Applications must handle reconnection (e.g., SSH session dies).           │
+│  Sent on StreamID 0 (control stream).                                      │
+│  KEEPALIVE_ACK echoes the same timestamp for RTT calculation.              │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1628,51 +1242,7 @@ All communication uses a consistent framing protocol:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 11.2 Connection Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        SOCKS5 CONNECTION FLOW                               │
-│                                                                             │
-│  Client                                SOCKS5 Handler                       │
-│     │                                        │                              │
-│     │ Version: 05                            │                              │
-│     │ NMethods: 01                           │                              │
-│     │ Methods: [00]  (no auth)               │                              │
-│     │───────────────────────────────────────►│                              │
-│     │                                        │                              │
-│     │                         Version: 05    │                              │
-│     │                         Method: 00     │                              │
-│     │◄───────────────────────────────────────│                              │
-│     │                                        │                              │
-│     │ Version: 05                            │                              │
-│     │ Command: 01 (CONNECT)                  │                              │
-│     │ Reserved: 00                           │                              │
-│     │ AddrType: 03 (domain)                  │                              │
-│     │ Address: "server.internal"             │                              │
-│     │ Port: 22                               │                              │
-│     │───────────────────────────────────────►│                              │
-│     │                                        │                              │
-│     │                                        │ 1. Route lookup              │
-│     │                                        │ 2. Open virtual stream       │
-│     │                                        │ 3. Wait for ACK              │
-│     │                                        │                              │
-│     │                         Version: 05    │                              │
-│     │                         Reply: 00 (OK) │                              │
-│     │                         Reserved: 00   │                              │
-│     │                         AddrType: 01   │                              │
-│     │                         BoundAddr: ... │                              │
-│     │                         BoundPort: ... │                              │
-│     │◄───────────────────────────────────────│                              │
-│     │                                        │                              │
-│     │◄═══════════════════════════════════════│                              │
-│     │         Bidirectional data relay       │                              │
-│     │═══════════════════════════════════════►│                              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 11.3 Error Mapping
+### 11.2 Error Mapping
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -1696,54 +1266,6 @@ All communication uses a consistent framing protocol:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 11.4 Handler Implementation
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      SOCKS5 HANDLER PSEUDOCODE                              │
-│                                                                             │
-│  func handleSOCKS5(clientConn net.Conn):                                   │
-│      defer clientConn.Close()                                              │
-│                                                                             │
-│      // 1. Greeting                                                        │
-│      methods := readGreeting(clientConn)                                   │
-│      if !supportsMethod(methods):                                          │
-│          writeNoAcceptableMethods(clientConn)                              │
-│          return                                                            │
-│      writeMethodSelection(clientConn, selectedMethod)                      │
-│                                                                             │
-│      // 2. Authentication (if required)                                    │
-│      if selectedMethod == USERNAME_PASSWORD:                               │
-│          if !authenticate(clientConn):                                     │
-│              return                                                        │
-│                                                                             │
-│      // 3. Request                                                         │
-│      req := readRequest(clientConn)                                        │
-│      if req.Command != CONNECT:                                            │
-│          writeReply(clientConn, COMMAND_NOT_SUPPORTED)                     │
-│          return                                                            │
-│                                                                             │
-│      // 4. Route lookup                                                    │
-│      route := routeTable.Lookup(req.Address)                               │
-│      if route == nil:                                                      │
-│          writeReply(clientConn, HOST_UNREACHABLE)                          │
-│          return                                                            │
-│                                                                             │
-│      // 5. Open virtual stream                                             │
-│      stream, err := openStream(route.Path, req.Address, req.Port)          │
-│      if err != nil:                                                        │
-│          writeReply(clientConn, mapError(err))                             │
-│          return                                                            │
-│                                                                             │
-│      // 6. Success                                                         │
-│      writeReply(clientConn, SUCCESS, stream.BoundAddr, stream.BoundPort)   │
-│                                                                             │
-│      // 7. Bidirectional relay                                             │
-│      relay(clientConn, stream)                                             │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
 ---
 
 ## 12. Data Plane
@@ -1753,8 +1275,6 @@ All communication uses a consistent framing protocol:
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         FRAME PROCESSING                                    │
-│                                                                             │
-│  Incoming frame from peer:                                                  │
 │                                                                             │
 │  func processFrame(peer *PeerConn, frame *Frame):                          │
 │      switch frame.Type:                                                    │
@@ -1771,11 +1291,9 @@ All communication uses a consistent framing protocol:
 │              send STREAM_RESET (unknown stream)                            │
 │              return                                                        │
 │          if entry.LocalConn != nil:                                        │
-│              // Exit: write to real TCP connection                         │
-│              entry.LocalConn.Write(frame.Payload)                          │
+│              entry.LocalConn.Write(frame.Payload)  // Exit                 │
 │          else:                                                             │
-│              // Transit: forward to next peer                              │
-│              forward(entry.OutgoingPeer, entry.OutgoingStreamID, frame)    │
+│              forward(entry.OutgoingPeer, frame)    // Transit              │
 │                                                                             │
 │      case STREAM_CLOSE:                                                    │
 │          handleStreamClose(peer, frame)                                    │
@@ -1809,24 +1327,13 @@ All communication uses a consistent framing protocol:
 │                                                                             │
 │  Solution for HTTP/2 and WebSocket (single transport stream):              │
 │                                                                             │
-│  Writer maintains:                                                          │
-│  • Per-stream outgoing queue                                               │
-│  • Round-robin scheduler                                                   │
-│                                                                             │
-│  Algorithm:                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │  // Maximum data per frame                                          │   │
 │  │  const maxFramePayload = 16384  // 16 KB                           │   │
 │  │                                                                     │   │
-│  │  // Writer loop                                                     │   │
+│  │  // Writer loop with round-robin                                    │   │
 │  │  for {                                                              │   │
-│  │      // Get streams with pending data (round-robin order)          │   │
 │  │      streams := scheduler.GetReadyStreams()                         │   │
-│  │      if len(streams) == 0 {                                         │   │
-│  │          wait for data                                              │   │
-│  │          continue                                                   │   │
-│  │      }                                                              │   │
-│  │                                                                     │   │
 │  │      for _, stream := range streams {                               │   │
 │  │          // Send at most one frame per stream per round            │   │
 │  │          data := stream.queue.Read(maxFramePayload)                 │   │
@@ -1837,44 +1344,6 @@ All communication uses a consistent framing protocol:
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  QUIC transport: Not needed (native per-stream fairness).                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 12.3 Bidirectional Relay
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        BIDIRECTIONAL RELAY                                  │
-│                                                                             │
-│  Used at:                                                                   │
-│  • SOCKS5 handler (client ↔ virtual stream)                                │
-│  • Exit handler (virtual stream ↔ real TCP)                                │
-│                                                                             │
-│  func relay(a, b io.ReadWriteCloser):                                      │
-│      done := make(chan struct{}, 2)                                        │
-│                                                                             │
-│      // a → b                                                              │
-│      go func() {                                                           │
-│          io.Copy(b, a)                                                     │
-│          b.CloseWrite()  // Half-close                                     │
-│          done <- struct{}{}                                                │
-│      }()                                                                   │
-│                                                                             │
-│      // b → a                                                              │
-│      go func() {                                                           │
-│          io.Copy(a, b)                                                     │
-│          a.CloseWrite()  // Half-close                                     │
-│          done <- struct{}{}                                                │
-│      }()                                                                   │
-│                                                                             │
-│      // Wait for both directions to complete                               │
-│      <-done                                                                │
-│      <-done                                                                │
-│                                                                             │
-│      // Full close                                                         │
-│      a.Close()                                                             │
-│      b.Close()                                                             │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1901,8 +1370,8 @@ agent:
   data_dir: "./data"
 
   # Logging
-  log_level: "info" # debug, info, warn, error
-  log_format: "text" # text, json
+  log_level: "info"   # debug, info, warn, error
+  log_format: "text"  # text, json
 
 # ------------------------------------------------------------------------------
 # Transport Listeners
@@ -1914,7 +1383,7 @@ listeners:
     tls:
       cert: "./certs/agent.crt"
       key: "./certs/agent.key"
-      client_ca: "./certs/ca.crt" # Optional: require client certs
+      client_ca: "./certs/ca.crt"  # Optional: require client certs
 
   # HTTP/2 listener (TCP fallback)
   - transport: h2
@@ -1937,20 +1406,13 @@ listeners:
 # ------------------------------------------------------------------------------
 peers:
   # QUIC peer
-  - id: "abc123..." # Expected peer AgentID
+  - id: "abc123..."          # Expected peer AgentID
     transport: quic
     address: "192.168.1.50:4433"
     tls:
       ca: "./certs/peer-ca.crt"
       # Or use pinning:
       # fingerprint: "sha256:ab12cd34..."
-
-  # HTTP/2 peer
-  - id: "def456..."
-    transport: h2
-    address: "https://gateway.example.com:8443/mesh"
-    tls:
-      ca: "./certs/ca.crt"
 
   # WebSocket peer through proxy
   - id: "ghi789..."
@@ -2009,7 +1471,7 @@ routing:
 # ------------------------------------------------------------------------------
 connections:
   # Keepalive
-  idle_threshold: 30s
+  idle_threshold: 5m
   timeout: 90s
 
   # Reconnection
@@ -2018,7 +1480,7 @@ connections:
     max_delay: 60s
     multiplier: 2.0
     jitter: 0.2
-    max_retries: 0 # 0 = infinite
+    max_retries: 0  # 0 = infinite
 
 # ------------------------------------------------------------------------------
 # Resource Limits
@@ -2028,7 +1490,23 @@ limits:
   max_streams_total: 10000
   max_pending_opens: 100
   stream_open_timeout: 30s
-  buffer_size: 262144 # 256 KB
+  buffer_size: 262144  # 256 KB
+
+# ------------------------------------------------------------------------------
+# Health Check Server
+# ------------------------------------------------------------------------------
+health:
+  enabled: true
+  address: ":8080"
+  read_timeout: 10s
+  write_timeout: 10s
+
+# ------------------------------------------------------------------------------
+# Control Socket
+# ------------------------------------------------------------------------------
+control:
+  enabled: true
+  socket_path: "./data/control.sock"
 ```
 
 ### 13.2 Environment Variable Substitution
@@ -2040,34 +1518,42 @@ peers:
   - id: "${PEER_ID}"
     address: "${PEER_ADDRESS}"
     proxy_auth:
-      password: "${PROXY_PASSWORD}"
+      password: "${PROXY_PASSWORD:-default}"
 ```
+
+Syntax:
+- `${VAR}` - Substitute variable value
+- `${VAR:-default}` - Use default if variable not set
 
 ### 13.3 Command-Line Interface
 
 ```bash
+# Interactive setup wizard
+muti-metroo setup
+
 # Initialize new agent
-mesh-agent init --data-dir ./data
+muti-metroo init --data-dir ./data
 
 # Run agent
-mesh-agent run --config ./config.yaml
-
-# Run with overrides
-mesh-agent run --config ./config.yaml \
-    --socks5.address=127.0.0.1:9050 \
-    --log-level=debug
+muti-metroo run --config ./config.yaml
 
 # Show status
-mesh-agent status
+muti-metroo status --socket ./data/control.sock
 
 # List peers
-mesh-agent peers
+muti-metroo peers
 
 # List routes
-mesh-agent routes
+muti-metroo routes
 
-# Test route
-mesh-agent route-lookup 10.5.3.100
+# Certificate management
+muti-metroo cert ca -n "My CA" -o ./certs -d 365
+muti-metroo cert agent -n "agent-1" --ca ./certs/ca.crt
+muti-metroo cert client -n "client-1"
+muti-metroo cert info ./certs/ca.crt
+
+# Service management
+muti-metroo uninstall --name muti-metroo
 ```
 
 ---
@@ -2113,13 +1599,6 @@ mesh-agent route-lookup 10.5.3.100
 │  • These include routes from agents further in the mesh                    │
 │  • No direct verification of distant agents                                │
 │                                                                             │
-│  Implications:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ • A malicious peer can advertise false routes                       │   │
-│  │ • Traffic could be misdirected                                      │   │
-│  │ • Mitigation: Only connect to trusted peers                         │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
 │  What transit agents can see:                                               │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │ Visible:                                                            │   │
@@ -2140,48 +1619,283 @@ mesh-agent route-lookup 10.5.3.100
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 14.3 SOCKS5 Security
+### 14.3 Configuration Security
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         SOCKS5 SECURITY                                     │
-│                                                                             │
-│  Recommendations:                                                           │
-│                                                                             │
-│  1. Bind to localhost only                                                 │
-│     address: "127.0.0.1:1080"                                              │
-│     Prevents remote access to SOCKS5 proxy                                 │
-│                                                                             │
-│  2. Enable authentication                                                  │
-│     auth:                                                                  │
-│       enabled: true                                                        │
-│       users: [...]                                                         │
-│     Prevents unauthorized local use                                        │
-│                                                                             │
-│  3. Use firewall rules                                                     │
-│     Block external access to SOCKS5 port even if misconfigured             │
-│                                                                             │
-│  4. Connection limits                                                      │
-│     max_connections: 1000                                                  │
-│     Prevents resource exhaustion                                           │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+Sensitive configuration values are automatically redacted in logs:
+
+```go
+// Redacted fields:
+// - peers[].proxy_auth.password
+// - peers[].tls.key
+// - listeners[].tls.key
+// - socks5.auth.users[].password
+
+config.String()       // Returns YAML with [REDACTED] for sensitive values
+config.StringUnsafe() // Returns full YAML (use only for debugging)
+config.Redacted()     // Returns copy with redacted values
 ```
 
 ---
 
-## 15. Project Structure
+## 15. Observability
 
-### 15.1 Directory Layout
+### 15.1 Prometheus Metrics
+
+The agent exposes Prometheus metrics at `/metrics` endpoint when health server is enabled.
+
+**Metric Namespace:** `muti_metroo`
+
+**Connection Metrics:**
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `peers_connected` | Gauge | - | Current connected peer count |
+| `peers_total` | Counter | - | Total peer connections established |
+| `peer_connections_total` | Counter | transport, direction | Connections by transport |
+| `peer_disconnects_total` | Counter | reason | Disconnections by reason |
+
+**Stream Metrics:**
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `streams_active` | Gauge | - | Currently active streams |
+| `streams_opened_total` | Counter | - | Total streams opened |
+| `streams_closed_total` | Counter | - | Total streams closed |
+| `stream_open_latency_seconds` | Histogram | - | Stream open latency |
+| `stream_errors_total` | Counter | error_type | Stream errors |
+
+**Data Transfer Metrics:**
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `bytes_sent_total` | Counter | type | Bytes sent |
+| `bytes_received_total` | Counter | type | Bytes received |
+| `frames_sent_total` | Counter | frame_type | Frames sent |
+| `frames_received_total` | Counter | frame_type | Frames received |
+
+**Routing Metrics:**
+| Metric | Type | Description |
+|--------|------|-------------|
+| `routes_total` | Gauge | Routes in table |
+| `route_advertises_total` | Counter | Route advertisements sent |
+| `route_withdrawals_total` | Counter | Route withdrawals sent |
+| `route_flood_latency_seconds` | Histogram | Flood propagation latency |
+
+**SOCKS5 Metrics:**
+| Metric | Type | Description |
+|--------|------|-------------|
+| `socks5_connections_active` | Gauge | Active SOCKS5 connections |
+| `socks5_connections_total` | Counter | Total SOCKS5 connections |
+| `socks5_auth_failures_total` | Counter | Authentication failures |
+| `socks5_connect_latency_seconds` | Histogram | Connection latency |
+
+**Exit Handler Metrics:**
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `exit_connections_active` | Gauge | - | Active exit connections |
+| `exit_dns_queries_total` | Counter | - | DNS queries made |
+| `exit_dns_latency_seconds` | Histogram | - | DNS resolution latency |
+| `exit_errors_total` | Counter | error_type | Exit handler errors |
+
+**Protocol Metrics:**
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `handshake_latency_seconds` | Histogram | - | Peer handshake latency |
+| `handshake_errors_total` | Counter | error_type | Handshake failures |
+| `keepalives_sent_total` | Counter | - | Keepalives sent |
+| `keepalive_rtt_seconds` | Histogram | - | Keepalive RTT |
+
+### 15.2 Health Check Endpoints
+
+HTTP health endpoints are exposed when `health.enabled: true`:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Basic liveness probe (returns "OK") |
+| `/healthz` | GET | Detailed health with JSON stats |
+| `/ready` | GET | Readiness probe (returns "READY") |
+| `/metrics` | GET | Prometheus metrics |
+| `/debug/pprof/*` | GET | Go pprof profiling endpoints |
+
+**Example `/healthz` response:**
+```json
+{
+  "status": "healthy",
+  "running": true,
+  "peer_count": 3,
+  "stream_count": 5,
+  "route_count": 10,
+  "socks5_running": true,
+  "exit_handler_running": false
+}
+```
+
+### 15.3 Structured Logging
+
+Logging uses Go's `slog` package with configurable levels and formats.
+
+**Log Levels:** `debug`, `info`, `warn`, `error`
+
+**Log Formats:** `text`, `json`
+
+**Standard Log Fields:**
+```go
+const (
+    KeyPeerID     = "peer_id"
+    KeyStreamID   = "stream_id"
+    KeyRequestID  = "request_id"
+    KeyAddress    = "address"
+    KeyTransport  = "transport"
+    KeyRoute      = "route"
+    KeyHops       = "hops"
+    KeyError      = "error"
+    KeyComponent  = "component"
+    KeyDuration   = "duration"
+)
+```
+
+---
+
+## 16. Operations
+
+### 16.1 Control Socket API
+
+Unix socket HTTP API for management commands when `control.enabled: true`.
+
+**Socket Path:** Configured via `control.socket_path` (default: `./data/control.sock`)
+
+| Endpoint | Method | Response |
+|----------|--------|----------|
+| `/status` | GET | Agent ID, running state, counts |
+| `/peers` | GET | List of connected peer IDs |
+| `/routes` | GET | Routing table entries |
+
+**Example `/status` response:**
+```json
+{
+  "agent_id": "a3f8c2d1e5b94a7c8d2e1f0a3b5c7d9e",
+  "running": true,
+  "peer_count": 3,
+  "route_count": 10
+}
+```
+
+### 16.2 Service Installation
+
+The agent can be installed as a system service.
+
+**Supported Platforms:**
+- Linux (systemd)
+- Windows (Service Control Manager)
+
+**Linux Installation:**
+```bash
+# Via setup wizard
+sudo muti-metroo setup
+
+# Manual installation handled by wizard
+# Creates /etc/systemd/system/muti-metroo.service
+```
+
+**Systemd Service Features:**
+- Restart on failure (5s delay)
+- Security hardening (NoNewPrivileges, ProtectSystem, PrivateTmp)
+- Journal logging integration
+
+**Service Management:**
+```bash
+# Uninstall
+sudo muti-metroo uninstall --name muti-metroo
+
+# View status
+systemctl status muti-metroo
+
+# View logs
+journalctl -u muti-metroo -f
+```
+
+### 16.3 Setup Wizard
+
+Interactive CLI wizard for initial configuration:
+
+```bash
+muti-metroo setup
+```
+
+**Wizard Steps:**
+1. Basic setup (data directory, config path)
+2. Agent role selection (ingress, transit, exit)
+3. Network configuration (transport, address)
+4. TLS setup (generate, paste, or use existing certs)
+5. Peer connections
+6. SOCKS5 configuration (if ingress)
+7. Exit configuration (if exit)
+8. Advanced options (logging, health, control)
+9. Service installation (on supported platforms)
+
+---
+
+## 17. Certificate Management
+
+### 17.1 Certificate Types
+
+| Type | Usage | Default Validity |
+|------|-------|------------------|
+| CA | Sign other certificates | 365 days |
+| Agent/Peer | Server + client auth for mesh connections | 90 days |
+| Client | Client authentication only | 90 days |
+
+### 17.2 Certificate Generation
+
+```bash
+# Generate CA
+muti-metroo cert ca \
+  --cn "My CA" \
+  --out ./certs \
+  --days 365
+
+# Generate agent certificate (signed by CA)
+muti-metroo cert agent \
+  --cn "agent-1" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
+  --dns "agent-1.local,localhost" \
+  --ip "127.0.0.1,192.168.1.100"
+
+# Generate client certificate
+muti-metroo cert client \
+  --cn "client-1" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key
+
+# View certificate details
+muti-metroo cert info ./certs/agent-1.crt
+```
+
+### 17.3 Certificate Details
+
+**Algorithm:** ECDSA P-256
+
+**Output Files:**
+- `{name}.crt` - PEM-encoded certificate (mode 0644)
+- `{name}.key` - PEM-encoded private key (mode 0600)
+
+**Fingerprint Format:** `sha256:<hex>`
+
+**Key Usages:**
+- CA: Certificate signing, CRL signing
+- Server: Digital signature, key encipherment, server auth
+- Client: Digital signature, client auth
+- Peer: Digital signature, key encipherment, server auth, client auth
+
+---
+
+## 18. Project Structure
+
+### 18.1 Directory Layout
 
 ```
-mesh-agent/
+muti-metroo/
 ├── cmd/
-│   └── mesh-agent/
-│       ├── main.go                 # CLI entrypoint
-│       ├── run.go                  # Run command
-│       ├── init.go                 # Init command
-│       └── status.go               # Status commands
+│   └── muti-metroo/
+│       └── main.go                 # CLI entrypoint and all commands
 │
 ├── internal/
 │   ├── agent/
@@ -2189,8 +1903,8 @@ mesh-agent/
 │   │   └── options.go              # Agent options
 │   │
 │   ├── config/
-│   │   ├── config.go               # Configuration parsing
-│   │   └── validate.go             # Configuration validation
+│   │   ├── config.go               # Configuration parsing and validation
+│   │   └── config_test.go          # Configuration tests
 │   │
 │   ├── identity/
 │   │   └── identity.go             # AgentID generation/storage
@@ -2212,7 +1926,7 @@ mesh-agent/
 │   │   ├── frame.go                # Frame encode/decode
 │   │   ├── types.go                # Message type definitions
 │   │   ├── reader.go               # Frame reader
-│   │   └── writer.go               # Frame writer (with fairness)
+│   │   └── writer.go               # Frame writer
 │   │
 │   ├── stream/
 │   │   ├── manager.go              # Stream lifecycle
@@ -2221,51 +1935,82 @@ mesh-agent/
 │   │
 │   ├── routing/
 │   │   ├── table.go                # Route table
-│   │   └── lookup.go               # Longest prefix match
+│   │   └── manager.go              # Route management
 │   │
 │   ├── flood/
-│   │   ├── flood.go                # Flood protocol
-│   │   ├── advertise.go            # Route advertisement
-│   │   └── withdraw.go             # Route withdrawal
+│   │   └── flood.go                # Flood protocol (advertise/withdraw)
 │   │
 │   ├── socks5/
 │   │   ├── server.go               # SOCKS5 server
-│   │   ├── handler.go              # Connection handler
 │   │   └── auth.go                 # Authentication
 │   │
-│   └── exit/
-│       ├── handler.go              # Exit handler
-│       └── dns.go                  # DNS resolution
-│
-├── pkg/
-│   └── cidr/
-│       └── cidr.go                 # CIDR utilities
+│   ├── exit/
+│   │   ├── handler.go              # Exit handler
+│   │   └── dns.go                  # DNS resolution
+│   │
+│   ├── certutil/
+│   │   └── certutil.go             # Certificate generation and management
+│   │
+│   ├── metrics/
+│   │   ├── metrics.go              # Prometheus metrics definitions
+│   │   └── metrics_test.go         # Metrics tests
+│   │
+│   ├── health/
+│   │   └── server.go               # Health check HTTP server
+│   │
+│   ├── control/
+│   │   ├── server.go               # Control socket server
+│   │   └── client.go               # Control socket client
+│   │
+│   ├── wizard/
+│   │   ├── wizard.go               # Setup wizard implementation
+│   │   └── wizard_test.go          # Wizard tests
+│   │
+│   ├── service/
+│   │   ├── service.go              # Service management interface
+│   │   ├── service_linux.go        # Linux systemd implementation
+│   │   ├── service_windows.go      # Windows service implementation
+│   │   └── service_test.go         # Service tests
+│   │
+│   ├── logging/
+│   │   └── logging.go              # Structured logging utilities
+│   │
+│   └── recovery/
+│       └── recovery.go             # Panic recovery utilities
 │
 ├── configs/
 │   └── example.yaml                # Example configuration
 │
+├── docs/
+│   └── RUNBOOK.md                  # Operational runbook
+│
 ├── go.mod
 ├── go.sum
 ├── Makefile
+├── Dockerfile
+├── Dockerfile.test
 └── README.md
 ```
 
-### 15.2 Dependencies
+### 18.2 Dependencies
 
-| Package                      | Purpose                     |
-| ---------------------------- | --------------------------- |
-| `github.com/quic-go/quic-go` | QUIC transport              |
-| `golang.org/x/net/http2`     | HTTP/2 transport            |
-| `nhooyr.io/websocket`        | WebSocket transport         |
-| `gopkg.in/yaml.v3`           | Configuration parsing       |
-| `github.com/spf13/cobra`     | CLI framework               |
-| `log/slog`                   | Structured logging (stdlib) |
+| Package                             | Purpose                        |
+| ----------------------------------- | ------------------------------ |
+| `github.com/quic-go/quic-go`        | QUIC transport                 |
+| `golang.org/x/net/http2`            | HTTP/2 transport               |
+| `nhooyr.io/websocket`               | WebSocket transport            |
+| `gopkg.in/yaml.v3`                  | Configuration parsing          |
+| `github.com/spf13/cobra`            | CLI framework                  |
+| `log/slog`                          | Structured logging (stdlib)    |
+| `github.com/prometheus/client_golang` | Prometheus metrics           |
+| `github.com/charmbracelet/huh`      | Interactive setup wizard TUI   |
+| `github.com/charmbracelet/lipgloss` | Terminal styling               |
 
 ---
 
-## 16. Implementation Notes
+## 19. Implementation Notes
 
-### 16.1 Critical Settings
+### 19.1 Critical Settings
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -2302,7 +2047,7 @@ mesh-agent/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 16.2 Goroutine Management
+### 19.2 Goroutine Management
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -2321,18 +2066,14 @@ mesh-agent/
 │  │  • Use context.Context for cancellation                             │   │
 │  │  • Set read/write deadlines                                         │   │
 │  │  • Close underlying connections on shutdown                         │   │
+│  │  • Use recovery.RecoverWithLog for panic handling                   │   │
 │  │  • Log goroutine count periodically (debug mode)                    │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  Periodic cleanup (every 5 minutes):                                        │
-│  • Remove expired routes                                                   │
-│  • Remove stale forward table entries                                      │
-│  • Log resource usage                                                      │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 16.3 Error Handling
+### 19.3 Error Handling
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -2350,6 +2091,11 @@ mesh-agent/
 │  • Remove from forward table                                               │
 │  • Close local connections if any                                          │
 │                                                                             │
+│  Flood propagation errors:                                                  │
+│  • Log at debug level (non-fatal)                                          │
+│  • Continue sending to other peers                                         │
+│  • Do not fail the entire flood operation                                  │
+│                                                                             │
 │  Configuration errors:                                                      │
 │  • Validate on startup                                                     │
 │  • Fail fast with clear error message                                      │
@@ -2364,9 +2110,9 @@ mesh-agent/
 
 ---
 
-## 17. Testing Strategy
+## 20. Testing Strategy
 
-### 17.1 Test Levels
+### 20.1 Test Levels
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -2378,7 +2124,12 @@ mesh-agent/
 │  │  • Route table operations (insert, lookup, expire)                  │   │
 │  │  • Stream state machine transitions                                 │   │
 │  │  • CIDR matching                                                    │   │
-│  │  • Configuration parsing                                            │   │
+│  │  • Configuration parsing and validation                             │   │
+│  │  • Certificate generation                                           │   │
+│  │  • Metrics recording                                                │   │
+│  │  • Wizard config building                                           │   │
+│  │  • Service unit generation                                          │   │
+│  │  • Handshake failure scenarios                                      │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  Integration Tests:                                                         │
@@ -2401,100 +2152,30 @@ mesh-agent/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 17.2 Test Environment
+### 20.2 Running Tests
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        TEST ENVIRONMENT                                     │
-│                                                                             │
-│  Docker Compose setup:                                                      │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  services:                                                          │   │
-│  │    agent1:                                                          │   │
-│  │      # Ingress (SOCKS5)                                            │   │
-│  │      image: mesh-agent                                              │   │
-│  │      ports: ["1080:1080"]                                           │   │
-│  │                                                                     │   │
-│  │    agent2:                                                          │   │
-│  │      # Transit                                                      │   │
-│  │      image: mesh-agent                                              │   │
-│  │                                                                     │   │
-│  │    agent3:                                                          │   │
-│  │      # Exit                                                         │   │
-│  │      image: mesh-agent                                              │   │
-│  │                                                                     │   │
-│  │    target:                                                          │   │
-│  │      # Test target (SSH server, HTTP server)                       │   │
-│  │      image: test-target                                             │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  Test scenarios:                                                            │
-│  • Basic connectivity: curl through SOCKS5                                 │
-│  • SSH session: Interactive shell, file transfer                           │
-│  • Reconnection: Kill agent2, verify recovery                              │
-│  • Latency: Measure RTT through chain                                      │
-│  • Throughput: iperf3 through chain                                        │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+```bash
+# Run all tests with race detection
+make test
 
-### 17.3 Manual Testing Checklist
+# Run with coverage report
+make test-coverage
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      MANUAL TESTING CHECKLIST                               │
-│                                                                             │
-│  Basic functionality:                                                       │
-│  □ Agent starts with valid configuration                                   │
-│  □ Agent rejects invalid configuration with clear error                    │
-│  □ Peers connect and complete handshake                                    │
-│  □ Routes propagate through mesh                                           │
-│  □ SOCKS5 proxy accepts connections                                        │
-│  □ HTTP request succeeds through chain                                     │
-│                                                                             │
-│  SSH testing (latency-sensitive):                                           │
-│  □ SSH connection establishes                                              │
-│  □ Interactive shell is responsive (no typing lag)                         │
-│  □ File transfer works (scp)                                               │
-│  □ Session survives idle time                                              │
-│  □ Exit command properly terminates session                                │
-│                                                                             │
-│  Video/bulk testing (bandwidth):                                            │
-│  □ Large file download completes                                           │
-│  □ Throughput is reasonable (measure with iperf3)                          │
-│  □ SSH remains responsive during bulk transfer                             │
-│                                                                             │
-│  Failure testing:                                                           │
-│  □ Agent recovers after network interruption                               │
-│  □ Streams fail gracefully when path breaks                                │
-│  □ Routes expire and are re-advertised                                     │
-│  □ Resource limits are enforced                                            │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+# Run specific package tests
+go test -v ./internal/config/...
+go test -v ./internal/metrics/...
+
+# Run single test
+go test -v -run TestHandshake_Success ./internal/peer/
+
+# Run tests in Docker
+docker build -f Dockerfile.test -t muti-metroo-test .
+docker run --rm muti-metroo-test
 ```
 
 ---
 
-## Appendix A: Glossary
-
-| Term              | Definition                                                     |
-| ----------------- | -------------------------------------------------------------- |
-| **Agent**         | A single instance of the mesh agent software                   |
-| **AgentID**       | Unique 16-byte identifier for an agent                         |
-| **Exit**          | An agent that opens real TCP connections to destinations       |
-| **Forward Table** | Mapping of incoming streams to outgoing destinations           |
-| **Half-close**    | Closing one direction of a stream while keeping the other open |
-| **Ingress**       | An agent that accepts client connections (e.g., SOCKS5)        |
-| **LPM**           | Longest Prefix Match (routing lookup algorithm)                |
-| **Peer**          | Another agent connected via a transport                        |
-| **Stream**        | A bidirectional virtual TCP connection                         |
-| **Transit**       | An agent that forwards streams without local endpoints         |
-| **Transport**     | The underlying protocol (QUIC, HTTP/2, WebSocket)              |
-
----
-
-## Appendix B: Quick Reference
+## Appendix A: Quick Reference
 
 ### Frame Types
 
@@ -2531,7 +2212,7 @@ mesh-agent/
 
 | Parameter                | Default |
 | ------------------------ | ------- |
-| Keepalive idle threshold | 30s     |
+| Keepalive idle threshold | 5m      |
 | Keepalive timeout        | 90s     |
 | Route TTL                | 5m      |
 | Advertise interval       | 2m      |
@@ -2539,6 +2220,22 @@ mesh-agent/
 | Reconnect max delay      | 60s     |
 | Stream open timeout      | 30s     |
 | Handshake timeout        | 10s     |
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `setup` | Interactive configuration wizard |
+| `init` | Initialize agent identity |
+| `run` | Start the agent |
+| `status` | Show agent status |
+| `peers` | List connected peers |
+| `routes` | Show routing table |
+| `cert ca` | Generate CA certificate |
+| `cert agent` | Generate agent certificate |
+| `cert client` | Generate client certificate |
+| `cert info` | Display certificate details |
+| `uninstall` | Remove system service |
 
 ---
 
