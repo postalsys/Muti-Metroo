@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/agent"
-	"github.com/coinstash/muti-metroo/internal/config"
-	"github.com/coinstash/muti-metroo/internal/transport"
+	"github.com/postalsys/muti-metroo/internal/agent"
+	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
 // TestMeshRunner starts the multi-transport mesh with a fixed SOCKS5 port.

@@ -5,7 +5,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
 // RouteChange represents a route update.

@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/logging"
-	"github.com/coinstash/muti-metroo/internal/protocol"
-	"github.com/coinstash/muti-metroo/internal/recovery"
-	"github.com/coinstash/muti-metroo/internal/routing"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/logging"
+	"github.com/postalsys/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/recovery"
+	"github.com/postalsys/muti-metroo/internal/routing"
 )
 
 // AdvertisementKey uniquely identifies a route advertisement for dedup.

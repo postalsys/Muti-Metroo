@@ -7,7 +7,7 @@ import (
 	"io"
 	"net"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
 var (

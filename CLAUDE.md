@@ -89,20 +89,27 @@ An agent can serve multiple roles simultaneously:
 | Package | Purpose |
 |---------|---------|
 | `agent` | Main orchestrator - initializes components, dispatches frames, manages lifecycle |
-| `identity` | 128-bit AgentID generation and persistence |
-| `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
-| `protocol` | Binary frame protocol - 14-byte header, encode/decode for all frame types |
-| `transport` | Transport abstraction with QUIC implementation (TLS helpers, stream allocation) |
-| `peer` | Peer connection lifecycle - handshake, keepalive, reconnection with backoff |
-| `routing` | Route table with longest-prefix match, route manager with subscription system |
-| `flood` | Route propagation via flooding with loop prevention and seen-cache |
-| `stream` | Stream state machine (Opening→Open→HalfClosed→Closed), buffered I/O |
-| `socks5` | SOCKS5 server with no-auth and username/password methods |
-| `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
 | `certutil` | TLS certificate generation and management - CA, server, client, peer certs |
-| `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
-| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC |
+| `chaos` | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing |
+| `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
 | `control` | Unix socket control interface for CLI status commands |
+| `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
+| `flood` | Route propagation via flooding with loop prevention and seen-cache |
+| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC, pprof |
+| `identity` | 128-bit AgentID generation and persistence |
+| `integration` | Integration tests for multi-agent mesh scenarios |
+| `loadtest` | Load testing utilities - stream throughput, route table, connection churn |
+| `logging` | Structured logging with slog - text/JSON formats, standard attribute keys |
+| `metrics` | Prometheus metrics - peers, streams, routing, SOCKS5, exit, protocol stats |
+| `peer` | Peer connection lifecycle - handshake, keepalive, reconnection with backoff |
+| `protocol` | Binary frame protocol - 14-byte header, encode/decode for all frame types |
+| `recovery` | Panic recovery utilities for goroutines with logging and callbacks |
+| `routing` | Route table with longest-prefix match, route manager with subscription system |
+| `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
+| `service` | Cross-platform service management - systemd (Linux), Windows Service |
+| `socks5` | SOCKS5 server with no-auth and username/password methods |
+| `stream` | Stream state machine (Opening→Open→HalfClosed→Closed), buffered I/O |
+| `transport` | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations |
 | `wizard` | Interactive setup wizard with certificate generation |
 
 ### Frame Flow
@@ -149,7 +156,7 @@ Example config in `configs/example.yaml`. Key sections:
 |-----------|------------|---------|-------------|-------------|
 | Max Hops | `routing.max_hops` | 16 | 1-255 | Maximum hops for route advertisements |
 | Route TTL | `routing.route_ttl` | 5m | - | Time before routes expire without refresh |
-| Advertise Interval | `routing.advertise_interval` | 30s | - | Route advertisement frequency |
+| Advertise Interval | `routing.advertise_interval` | 2m | - | Route advertisement frequency |
 | Stream Open Timeout | `limits.stream_open_timeout` | 30s | - | Total round-trip time for STREAM_OPEN |
 | Buffer Size | `limits.buffer_size` | 256 KB | - | Per-stream buffer at each hop |
 | Max Streams/Peer | `limits.max_streams_per_peer` | 1000 | - | Concurrent streams per peer connection |
@@ -207,9 +214,139 @@ The flood-based routing supports arbitrary mesh topologies:
 
 Loop prevention uses `SeenBy` lists in route advertisements - each agent tracks which peers have already seen an advertisement.
 
+### Triggering Immediate Route Advertisement
+
+By default, routes are advertised periodically based on `advertise_interval` (default 2 minutes). For faster route propagation after configuration changes, you can trigger immediate advertisement via the HTTP API:
+
+```bash
+# Trigger immediate route advertisement on local agent
+curl -X POST http://localhost:8080/routes/advertise
+```
+
+Response:
+```json
+{"status": "triggered", "message": "route advertisement triggered"}
+```
+
+**Programmatic access**: The agent exposes `TriggerRouteAdvertise()` method which can be called internally when routes change.
+
+## HTTP API Endpoints
+
+The health server exposes several HTTP endpoints for monitoring, management, and distributed operations.
+
+### Health & Monitoring
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Basic health check, returns "OK" |
+| `/healthz` | GET | Detailed health with JSON stats (peer count, stream count, etc.) |
+| `/ready` | GET | Readiness probe for Kubernetes |
+| `/metrics` | GET | Local Prometheus metrics |
+
+### Distributed Metrics & Status
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/metrics/{agent-id}` | GET | Fetch Prometheus metrics from remote agent via control channel |
+| `/agents` | GET | List all known agents in the mesh |
+| `/agents/{agent-id}` | GET | Get status from specific agent |
+| `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
+| `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
+| `/agents/{agent-id}/rpc` | POST | Execute RPC command on remote agent |
+
+### Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/routes/advertise` | POST | Trigger immediate route advertisement |
+
+### Debugging (pprof)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/debug/pprof/` | GET | pprof index |
+| `/debug/pprof/cmdline` | GET | Running program's command line |
+| `/debug/pprof/profile` | GET | CPU profile |
+| `/debug/pprof/symbol` | GET | Symbol lookup |
+| `/debug/pprof/trace` | GET | Execution trace |
+
+## Service Installation
+
+Muti Metroo can be installed as a system service on Linux (systemd) and Windows.
+
+### Commands
+
+```bash
+# Install as system service
+./build/muti-metroo service install -c /path/to/config.yaml
+
+# Check service status
+./build/muti-metroo service status
+
+# Uninstall service
+./build/muti-metroo service uninstall
+```
+
+### Linux (systemd)
+
+The installer creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`:
+
+```bash
+# After installation
+sudo systemctl start muti-metroo
+sudo systemctl enable muti-metroo
+sudo journalctl -u muti-metroo -f
+```
+
+### Windows
+
+On Windows, the agent registers as a Windows Service and can be managed via:
+
+```powershell
+# Start/stop via Services console or:
+sc start muti-metroo
+sc stop muti-metroo
+```
+
+**Note**: Service installation requires root/administrator privileges.
+
 ## Remote Procedure Call (RPC)
 
 The RPC feature allows executing shell commands on remote agents for maintenance and diagnostics.
+
+### CLI Usage
+
+```bash
+# Execute command on remote agent (via localhost:8080)
+muti-metroo rpc <target-agent-id> <command> [args...]
+
+# Examples:
+muti-metroo rpc abc123def456 whoami
+muti-metroo rpc abc123def456 ls -la /tmp
+muti-metroo rpc abc123def456 ip addr show
+
+# Via a different agent's health server
+muti-metroo rpc -a 192.168.1.10:8080 abc123def456 hostname
+
+# With password authentication
+muti-metroo rpc -p mysecret abc123def456 whoami
+
+# With custom timeout (seconds)
+muti-metroo rpc -t 120 abc123def456 long-running-script.sh
+
+# Pipe stdin to remote command
+echo "hello world" | muti-metroo rpc abc123def456 cat
+cat file.txt | muti-metroo rpc abc123def456 wc -l
+```
+
+**Flags:**
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--agent` | `-a` | `localhost:8080` | Agent health server address |
+| `--password` | `-p` | | RPC password for authentication |
+| `--timeout` | `-t` | `60` | Command timeout in seconds |
+
+The CLI forwards stdout/stderr and exits with the remote command's exit code.
 
 ### Configuration
 
@@ -272,15 +409,79 @@ rpc:
 
 Result labels: `success`, `failed`, `rejected`, `auth_failed`, `error`
 
-### Package Structure
-
-| Package | Purpose |
-|---------|---------|
-| `rpc` | RPC executor, request/response types, metrics, chunking for large payloads |
-
 ### Implementation Details
 
 - **Max stdin size**: 1 MB
 - **Max output size**: 4 MB (stdout + stderr each)
 - **Chunking**: Large payloads split into 14 KB chunks with gzip compression
 - **Timeout**: Default 60s, configurable per-request
+
+## Prometheus Metrics
+
+All metrics are prefixed with `muti_metroo_`. Available at `/metrics` endpoint.
+
+### Connection Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `peers_connected` | Gauge | - | Currently connected peers |
+| `peers_total` | Counter | - | Total peer connections established |
+| `peer_connections_total` | Counter | `transport`, `direction` | Connections by transport type |
+| `peer_disconnects_total` | Counter | `reason` | Disconnections by reason |
+
+### Stream Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `streams_active` | Gauge | - | Currently active streams |
+| `streams_opened_total` | Counter | - | Total streams opened |
+| `streams_closed_total` | Counter | - | Total streams closed |
+| `stream_open_latency_seconds` | Histogram | - | Stream open latency |
+| `stream_errors_total` | Counter | `error_type` | Stream errors by type |
+
+### Data Transfer Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `bytes_sent_total` | Counter | `type` | Bytes sent by type |
+| `bytes_received_total` | Counter | `type` | Bytes received by type |
+| `frames_sent_total` | Counter | `frame_type` | Frames sent by type |
+| `frames_received_total` | Counter | `frame_type` | Frames received by type |
+
+### Routing Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `routes_total` | Gauge | - | Routes in routing table |
+| `route_advertises_total` | Counter | - | Route advertisements processed |
+| `route_withdrawals_total` | Counter | - | Route withdrawals processed |
+| `route_flood_latency_seconds` | Histogram | - | Route flood propagation latency |
+
+### SOCKS5 Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `socks5_connections_active` | Gauge | - | Active SOCKS5 connections |
+| `socks5_connections_total` | Counter | - | Total SOCKS5 connections |
+| `socks5_auth_failures_total` | Counter | - | Authentication failures |
+| `socks5_connect_latency_seconds` | Histogram | - | Connect request latency |
+
+### Exit Handler Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `exit_connections_active` | Gauge | - | Active exit connections |
+| `exit_connections_total` | Counter | - | Total exit connections |
+| `exit_dns_queries_total` | Counter | - | DNS queries performed |
+| `exit_dns_latency_seconds` | Histogram | - | DNS query latency |
+| `exit_errors_total` | Counter | `error_type` | Exit errors by type |
+
+### Protocol Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `handshake_latency_seconds` | Histogram | - | Peer handshake latency |
+| `handshake_errors_total` | Counter | `error_type` | Handshake errors by type |
+| `keepalives_sent_total` | Counter | - | Keepalives sent |
+| `keepalives_received_total` | Counter | - | Keepalives received |
+| `keepalive_rtt_seconds` | Histogram | - | Keepalive round-trip time |

@@ -14,8 +14,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/protocol"
 )
 
 // StatsProvider provides agent statistics.
@@ -32,6 +32,9 @@ type RemoteMetricsProvider interface {
 	// ID returns the local agent's ID.
 	ID() identity.AgentID
 
+	// DisplayName returns the local agent's display name, or falls back to short ID.
+	DisplayName() string
+
 	// SendControlRequest sends a control request to a remote agent.
 	SendControlRequest(ctx context.Context, targetID identity.AgentID, controlType uint8) (*protocol.ControlResponse, error)
 
@@ -43,6 +46,12 @@ type RemoteMetricsProvider interface {
 
 	// GetKnownAgentIDs returns a list of all known agent IDs (including remote via routes).
 	GetKnownAgentIDs() []identity.AgentID
+}
+
+// RouteAdvertiseTrigger provides the ability to trigger immediate route advertisement.
+type RouteAdvertiseTrigger interface {
+	// TriggerRouteAdvertise triggers an immediate route advertisement.
+	TriggerRouteAdvertise()
 }
 
 // Stats contains agent health statistics.
@@ -80,6 +89,7 @@ type Server struct {
 	cfg            ServerConfig
 	provider       StatsProvider
 	remoteProvider RemoteMetricsProvider
+	routeTrigger   RouteAdvertiseTrigger
 	server         *http.Server
 	listener       net.Listener
 	running        atomic.Bool
@@ -110,6 +120,9 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	// RPC endpoint: POST /agents/{agent-id}/rpc
 	// Note: The /agents/ handler will also handle RPC by checking for "rpc" suffix
 
+	// Route advertisement trigger endpoint
+	mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
+
 	// pprof debug endpoints
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
@@ -131,6 +144,12 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 // This is called after the agent is initialized.
 func (s *Server) SetRemoteProvider(provider RemoteMetricsProvider) {
 	s.remoteProvider = provider
+}
+
+// SetRouteAdvertiseTrigger sets the route advertisement trigger.
+// This is called after the agent is initialized.
+func (s *Server) SetRouteAdvertiseTrigger(trigger RouteAdvertiseTrigger) {
+	s.routeTrigger = trigger
 }
 
 // Start starts the health check server.
@@ -317,9 +336,10 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	// Build response with local agent first
 	result := []map[string]interface{}{
 		{
-			"id":    localID.String(),
-			"short": localID.ShortString(),
-			"local": true,
+			"id":           localID.String(),
+			"short":        localID.ShortString(),
+			"display_name": s.remoteProvider.DisplayName(),
+			"local":        true,
 		},
 	}
 
@@ -470,4 +490,26 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request, targetID iden
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp.Data)
+}
+
+// handleTriggerAdvertise handles POST /routes/advertise to trigger immediate route advertisement.
+func (s *Server) handleTriggerAdvertise(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.routeTrigger == nil {
+		http.Error(w, "route trigger not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	s.routeTrigger.TriggerRouteAdvertise()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "triggered",
+		"message": "route advertisement triggered",
+	})
 }

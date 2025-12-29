@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/logging"
-	"github.com/coinstash/muti-metroo/internal/protocol"
-	"github.com/coinstash/muti-metroo/internal/recovery"
-	"github.com/coinstash/muti-metroo/internal/transport"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/logging"
+	"github.com/postalsys/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/recovery"
+	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
 // PeerInfo contains information about a configured peer.
@@ -143,6 +143,9 @@ func (m *Manager) Connect(ctx context.Context, addr string) (*Connection, error)
 		return nil, err
 	}
 
+	// Store the config address for reconnection purposes
+	conn.SetConfigAddr(addr)
+
 	m.registerConnection(conn)
 	return conn, nil
 }
@@ -182,6 +185,9 @@ func (m *Manager) ConnectWithTransport(ctx context.Context, tr transport.Transpo
 		}
 		return nil, err
 	}
+
+	// Store the config address for reconnection purposes
+	conn.SetConfigAddr(addr)
 
 	m.registerConnection(conn)
 	return conn, nil
@@ -236,13 +242,13 @@ func (m *Manager) handleDisconnect(conn *Connection, err error) {
 		delete(m.peers, conn.RemoteID)
 	}
 
-	// Find the peer info by checking remote address
+	// Find the peer info using the config address (original dial address).
+	// This is necessary because RemoteAddr() returns the resolved IP,
+	// but peerInfos is keyed by the config address (which may be a hostname).
 	var peerInfo *PeerInfo
-	for addr, info := range m.peerInfos {
-		if addr == conn.RemoteAddr() {
-			peerInfo = info
-			break
-		}
+	configAddr := conn.ConfigAddr()
+	if configAddr != "" {
+		peerInfo = m.peerInfos[configAddr]
 	}
 	m.mu.Unlock()
 
@@ -251,9 +257,9 @@ func (m *Manager) handleDisconnect(conn *Connection, err error) {
 		m.cfg.OnPeerDisconnect(conn, err)
 	}
 
-	// Schedule reconnect if persistent
-	if peerInfo != nil && peerInfo.Persistent {
-		m.reconnector.Schedule(conn.RemoteAddr())
+	// Schedule reconnect if persistent, using the config address
+	if peerInfo != nil && peerInfo.Persistent && configAddr != "" {
+		m.reconnector.Schedule(configAddr)
 	}
 }
 

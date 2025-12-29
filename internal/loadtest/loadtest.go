@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/routing"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/routing"
 )
 
 // StreamMetrics contains metrics from stream load testing.

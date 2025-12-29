@@ -4,7 +4,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
 // ============================================================================

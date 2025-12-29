@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/protocol"
-	"github.com/coinstash/muti-metroo/internal/transport"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
 // ConnectionState represents the state of a peer connection.
@@ -49,8 +49,9 @@ type Connection struct {
 	RemoteID identity.AgentID
 
 	// Connection
-	conn     transport.PeerConn
-	isDialer bool
+	conn       transport.PeerConn
+	isDialer   bool
+	configAddr string // Original config address used for dialing (for reconnection)
 
 	// State
 	state        atomic.Int32
@@ -305,6 +306,19 @@ func (c *Connection) RemoteAddr() string {
 		}
 	}
 	return ""
+}
+
+// ConfigAddr returns the original config address used for dialing.
+// This is used for reconnection when the peer disconnects.
+// Returns empty string for accepted (incoming) connections.
+func (c *Connection) ConfigAddr() string {
+	return c.configAddr
+}
+
+// SetConfigAddr sets the original config address used for dialing.
+// This should be called after establishing an outbound connection.
+func (c *Connection) SetConfigAddr(addr string) {
+	c.configAddr = addr
 }
 
 // String returns a string representation.

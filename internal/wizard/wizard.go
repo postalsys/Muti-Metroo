@@ -13,11 +13,11 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/coinstash/muti-metroo/internal/certutil"
-	"github.com/coinstash/muti-metroo/internal/config"
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/rpc"
-	"github.com/coinstash/muti-metroo/internal/service"
+	"github.com/postalsys/muti-metroo/internal/certutil"
+	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/rpc"
+	"github.com/postalsys/muti-metroo/internal/service"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,7 +32,8 @@ type Result struct {
 
 // Wizard manages the interactive setup process.
 type Wizard struct {
-	theme *huh.Theme
+	theme      *huh.Theme
+	existingCfg *config.Config // Loaded from existing config file, if any
 }
 
 // New creates a new setup wizard.
@@ -47,7 +48,7 @@ func (w *Wizard) Run() (*Result, error) {
 	w.printBanner()
 
 	// Step 1: Basic setup
-	dataDir, configPath, err := w.askBasicSetup()
+	dataDir, configPath, displayName, err := w.askBasicSetup()
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,7 @@ func (w *Wizard) Run() (*Result, error) {
 
 	// Build configuration
 	cfg := w.buildConfig(
-		dataDir, transport, listenAddr, listenPath,
+		dataDir, displayName, transport, listenAddr, listenPath,
 		tlsConfig, peers, socks5Config, exitConfig,
 		healthEnabled, controlEnabled, logLevel, rpcConfig,
 	)
@@ -165,27 +166,17 @@ func (w *Wizard) printBanner() {
 	fmt.Println(subtitle)
 }
 
-func (w *Wizard) askBasicSetup() (dataDir, configPath string, err error) {
+func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err error) {
 	dataDir = "./data"
 	configPath = "./config.yaml"
+	displayName = ""
 
-	form := huh.NewForm(
+	// First, ask for config path so we can try to load existing config
+	pathForm := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
 				Title("Basic Setup").
 				Description("Configure the essential paths for your agent."),
-
-			huh.NewInput().
-				Title("Data Directory").
-				Description("Where to store agent identity and state").
-				Placeholder("./data").
-				Value(&dataDir).
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("data directory is required")
-					}
-					return nil
-				}),
 
 			huh.NewInput().
 				Title("Config File Path").
@@ -204,12 +195,65 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath string, err error) {
 		),
 	).WithTheme(w.theme)
 
+	if err = pathForm.Run(); err != nil {
+		return
+	}
+
+	// Try to load existing config to use as defaults
+	if existingCfg, loadErr := config.Load(configPath); loadErr == nil {
+		w.existingCfg = existingCfg
+		dataDir = existingCfg.Agent.DataDir
+		displayName = existingCfg.Agent.DisplayName
+		fmt.Println("\n  📄 Found existing configuration, using values as defaults.\n")
+	}
+
+	// Now ask for remaining settings with defaults from existing config
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Data Directory").
+				Description("Where to store agent identity and state").
+				Placeholder("./data").
+				Value(&dataDir).
+				Validate(func(s string) error {
+					if s == "" {
+						return fmt.Errorf("data directory is required")
+					}
+					return nil
+				}),
+
+			huh.NewInput().
+				Title("Display Name").
+				Description("Human-readable name for this agent (Unicode allowed, e.g., \"Tallinn Gateway\")").
+				Placeholder("(press Enter to use Agent ID)").
+				Value(&displayName),
+		),
+	).WithTheme(w.theme)
+
 	err = form.Run()
 	return
 }
 
 func (w *Wizard) askAgentRoles() ([]string, error) {
 	var roles []string
+
+	// Try to infer roles from existing config
+	if w.existingCfg != nil {
+		if w.existingCfg.SOCKS5.Enabled {
+			roles = append(roles, "ingress")
+		}
+		if w.existingCfg.Exit.Enabled {
+			roles = append(roles, "exit")
+		}
+		// If has peers but not ingress/exit, assume transit
+		if len(w.existingCfg.Peers) > 0 && !w.existingCfg.SOCKS5.Enabled && !w.existingCfg.Exit.Enabled {
+			roles = append(roles, "transit")
+		}
+		// Default to transit if nothing else
+		if len(roles) == 0 {
+			roles = append(roles, "transit")
+		}
+	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -245,6 +289,16 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 	transport = "quic"
 	listenAddr = "0.0.0.0:4433"
 	path = "/mesh"
+
+	// Use existing config defaults if available
+	if w.existingCfg != nil && len(w.existingCfg.Listeners) > 0 {
+		l := w.existingCfg.Listeners[0]
+		transport = l.Transport
+		listenAddr = l.Address
+		if l.Path != "" {
+			path = l.Path
+		}
+	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -719,6 +773,13 @@ func (w *Wizard) askSOCKS5Config() (config.SOCKS5Config, error) {
 	}
 	var enableAuth bool
 
+	// Use existing config defaults if available
+	if w.existingCfg != nil && w.existingCfg.SOCKS5.Address != "" {
+		cfg.Address = w.existingCfg.SOCKS5.Address
+		cfg.MaxConnections = w.existingCfg.SOCKS5.MaxConnections
+		enableAuth = w.existingCfg.SOCKS5.Auth.Enabled
+	}
+
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
@@ -796,6 +857,12 @@ func (w *Wizard) askExitConfig() (config.ExitConfig, error) {
 	}
 	var routesStr string
 
+	// Use existing config defaults if available
+	if w.existingCfg != nil && len(w.existingCfg.Exit.Routes) > 0 {
+		routesStr = strings.Join(w.existingCfg.Exit.Routes, "\n")
+		cfg.DNS = w.existingCfg.Exit.DNS
+	}
+
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
@@ -845,6 +912,13 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled, controlEnabled bool, logLe
 	controlEnabled = true
 	logLevel = "info"
 
+	// Use existing config defaults if available
+	if w.existingCfg != nil {
+		healthEnabled = w.existingCfg.Health.Enabled
+		controlEnabled = w.existingCfg.Control.Enabled
+		logLevel = w.existingCfg.Agent.LogLevel
+	}
+
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
@@ -884,6 +958,12 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 		Timeout:   60 * time.Second,
 	}
 	var enableRPC bool
+
+	// Use existing config defaults if available
+	if w.existingCfg != nil {
+		enableRPC = w.existingCfg.RPC.Enabled
+		cfg.Timeout = w.existingCfg.RPC.Timeout
+	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -975,7 +1055,7 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 		cfg.Whitelist = []string{}
 	case "all":
 		cfg.Whitelist = []string{"*"}
-		fmt.Println("\n⚠ WARNING: All commands are allowed! Use only for testing.\n")
+		fmt.Print("\n⚠ WARNING: All commands are allowed! Use only for testing.\n\n")
 	case "custom":
 		var commandsStr string
 		customForm := huh.NewForm(
@@ -1011,7 +1091,7 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 }
 
 func (w *Wizard) buildConfig(
-	dataDir, transport, listenAddr, listenPath string,
+	dataDir, displayName, transport, listenAddr, listenPath string,
 	tlsConfig config.TLSConfig,
 	peers []config.PeerConfig,
 	socks5Config config.SOCKS5Config,
@@ -1023,6 +1103,7 @@ func (w *Wizard) buildConfig(
 	cfg := config.Default()
 
 	cfg.Agent.DataDir = dataDir
+	cfg.Agent.DisplayName = displayName
 	cfg.Agent.LogLevel = logLevel
 	cfg.Agent.LogFormat = "text"
 
@@ -1078,7 +1159,7 @@ func (w *Wizard) writeConfig(cfg *config.Config, path string) error {
 	// Add header comment
 	header := `# Muti Metroo Configuration
 # Generated by setup wizard
-# See https://github.com/coinstash/muti-metroo for documentation
+# See https://github.com/postalsys/muti-metroo for documentation
 
 `
 	if err := os.WriteFile(path, []byte(header+string(data)), 0644); err != nil {
@@ -1103,7 +1184,13 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 	fmt.Println(divider)
 	fmt.Println()
 
-	fmt.Printf("  Agent ID:     %s\n", agentID.String())
+	// Show display name if set, otherwise show agent ID
+	if cfg.Agent.DisplayName != "" {
+		fmt.Printf("  Display Name: %s\n", cfg.Agent.DisplayName)
+		fmt.Printf("  Agent ID:     %s\n", agentID.String())
+	} else {
+		fmt.Printf("  Agent ID:     %s\n", agentID.String())
+	}
 	fmt.Printf("  Config file:  %s\n", configPath)
 	fmt.Printf("  Data dir:     %s\n", cfg.Agent.DataDir)
 	fmt.Println()

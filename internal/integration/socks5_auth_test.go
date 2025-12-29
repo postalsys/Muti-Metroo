@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/agent"
-	"github.com/coinstash/muti-metroo/internal/config"
-	"github.com/coinstash/muti-metroo/internal/socks5"
-	"github.com/coinstash/muti-metroo/internal/transport"
+	"github.com/postalsys/muti-metroo/internal/agent"
+	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/socks5"
+	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
 // TestSOCKS5_Authentication tests SOCKS5 username/password authentication.

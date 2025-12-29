@@ -707,7 +707,7 @@ peers:
 
 ## Support and Resources
 
-- **Repository:** https://github.com/coinstash/muti-metroo
-- **Issues:** https://github.com/coinstash/muti-metroo/issues
+- **Repository:** https://github.com/postalsys/muti-metroo
+- **Issues:** https://github.com/postalsys/muti-metroo/issues
 - **Architecture Documentation:** See `Architecture.md`
 - **Example Configurations:** See `configs/` directory

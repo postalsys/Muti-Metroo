@@ -154,7 +154,7 @@ func generateSystemdUnit(cfg ServiceConfig, execPath string) string {
 
 	return fmt.Sprintf(`[Unit]
 Description=%s
-Documentation=https://github.com/coinstash/muti-metroo
+Documentation=https://github.com/postalsys/muti-metroo
 After=network-online.target
 Wants=network-online.target
 

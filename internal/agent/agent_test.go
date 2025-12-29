@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/config"
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/protocol"
 )
 
 func TestNew(t *testing.T) {

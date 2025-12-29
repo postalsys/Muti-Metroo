@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/config"
 )
 
 func TestNew(t *testing.T) {
@@ -338,6 +338,7 @@ func TestBuildConfig(t *testing.T) {
 				tc.dataDir, tc.transport, tc.listenAddr, tc.listenPath,
 				tc.tlsConfig, tc.peers, tc.socks5Config, tc.exitConfig,
 				tc.healthEnabled, tc.controlEnabled, tc.logLevel,
+				config.RPCConfig{},
 			)
 
 			if cfg == nil {
@@ -470,6 +471,7 @@ func TestBuildConfigLogFormat(t *testing.T) {
 		config.TLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",
+		config.RPCConfig{},
 	)
 
 	// Verify LogFormat is always set to "text"
@@ -486,6 +488,7 @@ func TestBuildConfigDefaults(t *testing.T) {
 		config.TLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",
+		config.RPCConfig{},
 	)
 
 	// Verify default values from config.Default() are preserved

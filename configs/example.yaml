@@ -9,6 +9,10 @@ agent:
   # Agent ID: "auto" generates on first run, or specify hex string
   id: "auto"
 
+  # Human-readable display name (Unicode allowed, e.g., "Tallinn Gateway")
+  # If not set, falls back to agent ID for display
+  display_name: ""
+
   # Directory for persistent state (agent_id, etc.)
   data_dir: "./data"
 

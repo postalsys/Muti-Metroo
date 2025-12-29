@@ -16,21 +16,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
 
-	"github.com/coinstash/muti-metroo/internal/config"
-	"github.com/coinstash/muti-metroo/internal/control"
-	"github.com/coinstash/muti-metroo/internal/exit"
-	"github.com/coinstash/muti-metroo/internal/flood"
-	"github.com/coinstash/muti-metroo/internal/health"
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/logging"
-	"github.com/coinstash/muti-metroo/internal/peer"
-	"github.com/coinstash/muti-metroo/internal/protocol"
-	"github.com/coinstash/muti-metroo/internal/recovery"
-	"github.com/coinstash/muti-metroo/internal/routing"
-	"github.com/coinstash/muti-metroo/internal/rpc"
-	"github.com/coinstash/muti-metroo/internal/socks5"
-	"github.com/coinstash/muti-metroo/internal/stream"
-	"github.com/coinstash/muti-metroo/internal/transport"
+	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/control"
+	"github.com/postalsys/muti-metroo/internal/exit"
+	"github.com/postalsys/muti-metroo/internal/flood"
+	"github.com/postalsys/muti-metroo/internal/health"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/logging"
+	"github.com/postalsys/muti-metroo/internal/peer"
+	"github.com/postalsys/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/recovery"
+	"github.com/postalsys/muti-metroo/internal/routing"
+	"github.com/postalsys/muti-metroo/internal/rpc"
+	"github.com/postalsys/muti-metroo/internal/socks5"
+	"github.com/postalsys/muti-metroo/internal/stream"
+	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
 // relayStream tracks a stream being relayed through this agent.
@@ -89,6 +89,9 @@ type Agent struct {
 	forwardedControl  map[uint64]*forwardedControlRequest // Request ID -> source peer (for requests we forwarded)
 	nextControlID     uint64
 
+	// Route advertisement trigger channel
+	routeAdvertiseCh chan struct{}
+
 	// State
 	running  atomic.Bool
 	stopOnce sync.Once
@@ -113,6 +116,7 @@ func New(cfg *config.Config) (*Agent, error) {
 		dataDir:           cfg.Agent.DataDir,
 		logger:            logger,
 		stopCh:            make(chan struct{}),
+		routeAdvertiseCh:  make(chan struct{}, 1), // Buffered to avoid blocking
 		relayByUpstream:   make(map[uint64]*relayStream),
 		relayByDownstream: make(map[uint64]*relayStream),
 		pendingControl:    make(map[uint64]*pendingControlRequest),
@@ -223,7 +227,8 @@ func (a *Agent) initComponents() error {
 		}
 		provider := &agentStatsProvider{agent: a}
 		a.healthServer = health.NewServer(healthCfg, provider)
-		a.healthServer.SetRemoteProvider(a) // Enable remote metrics via control channel
+		a.healthServer.SetRemoteProvider(a)      // Enable remote metrics via control channel
+		a.healthServer.SetRouteAdvertiseTrigger(a) // Enable route advertisement trigger
 	}
 
 	// Initialize control server if enabled
@@ -322,9 +327,11 @@ func (a *Agent) Start() error {
 			logging.KeyCount, len(a.cfg.Exit.Routes))
 	}
 
-	// Announce local routes
+	// Start route advertisement loop and announce initial routes
+	a.wg.Add(1)
+	go a.routeAdvertiseLoop()
 	if a.cfg.Exit.Enabled {
-		a.flooder.AnnounceLocalRoutes()
+		a.flooder.AnnounceLocalRoutes() // Initial announcement
 	}
 
 	// Start health server if enabled
@@ -657,6 +664,61 @@ func (a *Agent) IsRunning() bool {
 // ID returns the agent's identity.
 func (a *Agent) ID() identity.AgentID {
 	return a.id
+}
+
+// DisplayName returns the agent's display name, or falls back to the short ID.
+func (a *Agent) DisplayName() string {
+	if a.cfg.Agent.DisplayName != "" {
+		return a.cfg.Agent.DisplayName
+	}
+	return a.id.ShortString()
+}
+
+// TriggerRouteAdvertise triggers an immediate route advertisement.
+// This is useful when local routes change and you want faster propagation
+// than waiting for the next scheduled interval.
+func (a *Agent) TriggerRouteAdvertise() {
+	select {
+	case a.routeAdvertiseCh <- struct{}{}:
+		a.logger.Debug("route advertisement triggered")
+	default:
+		// Already pending, skip
+	}
+}
+
+// routeAdvertiseLoop periodically announces local routes to peers.
+// Also responds to manual triggers for immediate advertisement.
+func (a *Agent) routeAdvertiseLoop() {
+	defer a.wg.Done()
+	defer recovery.RecoverWithLog(a.logger, "routeAdvertiseLoop")
+
+	interval := a.cfg.Routing.AdvertiseInterval
+	if interval <= 0 {
+		interval = 2 * time.Minute // Default if not configured
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	a.logger.Debug("route advertise loop started",
+		"interval", interval)
+
+	for {
+		select {
+		case <-a.stopCh:
+			return
+		case <-ticker.C:
+			if a.cfg.Exit.Enabled {
+				a.flooder.AnnounceLocalRoutes()
+				a.logger.Debug("periodic route advertisement sent")
+			}
+		case <-a.routeAdvertiseCh:
+			if a.cfg.Exit.Enabled {
+				a.flooder.AnnounceLocalRoutes()
+				a.logger.Debug("triggered route advertisement sent")
+			}
+		}
+	}
 }
 
 // processFrame dispatches incoming frames to the appropriate handler.

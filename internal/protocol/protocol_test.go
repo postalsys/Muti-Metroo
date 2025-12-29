@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
 func TestFrameTypeName(t *testing.T) {

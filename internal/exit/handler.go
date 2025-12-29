@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
-	"github.com/coinstash/muti-metroo/internal/logging"
-	"github.com/coinstash/muti-metroo/internal/protocol"
-	"github.com/coinstash/muti-metroo/internal/recovery"
+	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/logging"
+	"github.com/postalsys/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/recovery"
 )
 
 // HandlerConfig contains exit handler configuration.

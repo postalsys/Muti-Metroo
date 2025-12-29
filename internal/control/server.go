@@ -10,13 +10,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
 // AgentInfo provides agent information for the control interface.
 type AgentInfo interface {
 	// ID returns the agent's identity.
 	ID() identity.AgentID
+
+	// DisplayName returns the agent's display name, or falls back to short ID.
+	DisplayName() string
 
 	// IsRunning returns true if the agent is running.
 	IsRunning() bool
@@ -40,6 +43,7 @@ type RouteInfo struct {
 // StatusResponse is the response for the status endpoint.
 type StatusResponse struct {
 	AgentID     string `json:"agent_id"`
+	DisplayName string `json:"display_name"`
 	Running     bool   `json:"running"`
 	PeerCount   int    `json:"peer_count"`
 	RouteCount  int    `json:"route_count"`
@@ -165,10 +169,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := StatusResponse{
-		AgentID:    s.agent.ID().ShortString(),
-		Running:    s.agent.IsRunning(),
-		PeerCount:  len(s.agent.GetPeerIDs()),
-		RouteCount: len(s.agent.GetRouteInfo()),
+		AgentID:     s.agent.ID().ShortString(),
+		DisplayName: s.agent.DisplayName(),
+		Running:     s.agent.IsRunning(),
+		PeerCount:   len(s.agent.GetPeerIDs()),
+		RouteCount:  len(s.agent.GetRouteInfo()),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

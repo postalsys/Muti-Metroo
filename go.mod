@@ -1,4 +1,4 @@
-module github.com/coinstash/muti-metroo
+module github.com/postalsys/muti-metroo
 
 go 1.23.0
 
@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/huh v0.8.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/prometheus/client_golang v1.20.5
+	github.com/prometheus/common v0.55.0
 	github.com/quic-go/quic-go v0.48.2
 	github.com/spf13/cobra v1.8.1
 	golang.org/x/net v0.28.0
@@ -48,7 +49,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/onsi/ginkgo/v2 v2.9.5 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect

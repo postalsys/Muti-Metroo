@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/socks5"
+	"github.com/postalsys/muti-metroo/internal/socks5"
 )
 
 // TestHalfClose_StreamBehavior tests half-close stream semantics.

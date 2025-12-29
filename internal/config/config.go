@@ -29,10 +29,11 @@ type Config struct {
 
 // AgentConfig contains agent identity settings.
 type AgentConfig struct {
-	ID        string `yaml:"id"`         // "auto" or hex string
-	DataDir   string `yaml:"data_dir"`   // Directory for persistent state
-	LogLevel  string `yaml:"log_level"`  // debug, info, warn, error
-	LogFormat string `yaml:"log_format"` // text, json
+	ID          string `yaml:"id"`           // "auto" or hex string
+	DisplayName string `yaml:"display_name"` // Human-readable name (Unicode allowed)
+	DataDir     string `yaml:"data_dir"`     // Directory for persistent state
+	LogLevel    string `yaml:"log_level"`    // debug, info, warn, error
+	LogFormat   string `yaml:"log_format"`   // text, json
 }
 
 // ListenerConfig defines a transport listener.

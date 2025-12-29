@@ -7,7 +7,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
 // Route represents a single route entry in the routing table.

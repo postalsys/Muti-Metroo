@@ -7,19 +7,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
 // mockAgent implements AgentInfo for testing.
 type mockAgent struct {
-	id      identity.AgentID
-	running bool
-	peers   []identity.AgentID
-	routes  []RouteInfo
+	id          identity.AgentID
+	displayName string
+	running     bool
+	peers       []identity.AgentID
+	routes      []RouteInfo
 }
 
 func (m *mockAgent) ID() identity.AgentID {
 	return m.id
+}
+
+func (m *mockAgent) DisplayName() string {
+	if m.displayName != "" {
+		return m.displayName
+	}
+	return m.id.ShortString()
 }
 
 func (m *mockAgent) IsRunning() bool {
