@@ -212,7 +212,8 @@ generate_release_notes() {
     local version="$1"
     local prev_tag="$2"
 
-    log_step "Generating release notes..."
+    # Log to stderr so it doesn't pollute the release notes output
+    log_step "Generating release notes..." >&2
 
     # Get commit log since last tag
     local commits
@@ -224,7 +225,7 @@ generate_release_notes() {
 
     # If claude CLI is available, use it for release notes
     if command -v claude >/dev/null 2>&1; then
-        log_info "Using Claude to generate release notes..."
+        log_info "Using Claude to generate release notes..." >&2
 
         local prompt="Generate release notes for Muti Metroo version $version.
 
@@ -252,7 +253,7 @@ Be concise. Don't include sections that have no items. Don't include commit hash
     fi
 
     # Fallback: basic release notes
-    log_warn "Generating basic release notes..."
+    log_warn "Generating basic release notes..." >&2
     cat <<EOF
 ## Muti Metroo v$version
 
