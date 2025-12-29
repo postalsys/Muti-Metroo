@@ -57,8 +57,14 @@ func NewTestAgent(name string) (*TestAgent, error) {
 	// Create transport
 	tr := transport.NewQUICTransport()
 
-	// Create peer manager
+	// Create peer manager with TLS config for outbound connections
 	peerCfg := peer.DefaultManagerConfig(id, tr)
+	peerCfg.DialOptions = transport.DialOptions{
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"muti-metroo/1"},
+		},
+	}
 	peerMgr := peer.NewManager(peerCfg)
 
 	// Create routing manager

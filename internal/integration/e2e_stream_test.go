@@ -69,6 +69,12 @@ func NewMeshAgent(name string) (*MeshAgent, error) {
 	tr := transport.NewQUICTransport()
 
 	peerCfg := peer.DefaultManagerConfig(id, tr)
+	peerCfg.DialOptions = transport.DialOptions{
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"muti-metroo/1"},
+		},
+	}
 	peerMgr := peer.NewManager(peerCfg)
 
 	// Set frame callback
