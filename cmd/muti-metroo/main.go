@@ -148,6 +148,13 @@ func runCmd() *cobra.Command {
 				return fmt.Errorf("failed to create agent: %w", err)
 			}
 
+			// Check if running as Windows service
+			if !service.IsInteractive() {
+				// Running as Windows service - use service handler
+				return service.RunAsService("muti-metroo", a)
+			}
+
+			// Running interactively (console mode)
 			fmt.Printf("Starting Muti Metroo agent...\n")
 			fmt.Printf("Agent ID: %s\n", a.ID().String())
 

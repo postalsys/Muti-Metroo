@@ -28,3 +28,13 @@ func statusImpl(serviceName string) (string, error) {
 func isInstalledImpl(serviceName string) bool {
 	return false
 }
+
+// isInteractiveImpl always returns true on unsupported platforms.
+func isInteractiveImpl() bool {
+	return true
+}
+
+// runAsServiceImpl is not supported on this platform.
+func runAsServiceImpl(name string, runner ServiceRunner) error {
+	return fmt.Errorf("running as service is not supported on this platform")
+}

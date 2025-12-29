@@ -128,6 +128,20 @@ func isInstalledImpl(serviceName string) bool {
 	return err == nil
 }
 
+// isInteractiveImpl always returns true on Linux.
+// Linux uses systemd which manages the process lifecycle externally.
+func isInteractiveImpl() bool {
+	return true
+}
+
+// runAsServiceImpl is a no-op on Linux.
+// Linux uses systemd which manages the process lifecycle externally.
+func runAsServiceImpl(name string, runner ServiceRunner) error {
+	// On Linux, systemd manages the service. The 'run' command just runs normally
+	// and systemd handles start/stop/restart. No special service handler needed.
+	return nil
+}
+
 // generateSystemdUnit generates a systemd unit file.
 func generateSystemdUnit(cfg ServiceConfig, execPath string) string {
 	var user, group string

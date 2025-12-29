@@ -3,12 +3,15 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
 )
 
 var (
@@ -285,4 +288,71 @@ func containsAny(s string, substrs ...string) bool {
 		}
 	}
 	return false
+}
+
+// isInteractiveImpl returns true if the process is running interactively (not as a Windows service).
+func isInteractiveImpl() bool {
+	isService, err := svc.IsWindowsService()
+	if err != nil {
+		// If we can't determine, assume interactive
+		return true
+	}
+	return !isService
+}
+
+// runAsServiceImpl runs the ServiceRunner as a Windows service.
+func runAsServiceImpl(name string, runner ServiceRunner) error {
+	return svc.Run(name, &windowsServiceHandler{runner: runner})
+}
+
+// windowsServiceHandler implements svc.Handler for Windows services.
+type windowsServiceHandler struct {
+	runner ServiceRunner
+}
+
+// Execute implements svc.Handler.Execute.
+func (h *windowsServiceHandler) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
+	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
+
+	// Report that we're starting
+	changes <- svc.Status{State: svc.StartPending}
+
+	// Start the service
+	if err := h.runner.Start(); err != nil {
+		// Log error and return failure
+		return false, 1
+	}
+
+	// Report that we're running
+	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
+
+	// Wait for stop/shutdown signal
+loop:
+	for {
+		select {
+		case c := <-r:
+			switch c.Cmd {
+			case svc.Interrogate:
+				changes <- c.CurrentStatus
+			case svc.Stop, svc.Shutdown:
+				break loop
+			default:
+				// Ignore unknown commands
+			}
+		}
+	}
+
+	// Report that we're stopping
+	changes <- svc.Status{State: svc.StopPending}
+
+	// Stop the service with a timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := h.runner.StopWithContext(ctx); err != nil {
+		// Log error but continue shutdown
+		return false, 2
+	}
+
+	return false, 0
 }

@@ -3,12 +3,22 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 )
+
+// ServiceRunner is the interface that the agent must implement to run as a service.
+type ServiceRunner interface {
+	// Start starts the service. Should return quickly after initializing.
+	Start() error
+
+	// Stop stops the service gracefully.
+	StopWithContext(ctx context.Context) error
+}
 
 // ServiceConfig holds configuration for installing the service.
 type ServiceConfig struct {
@@ -121,4 +131,18 @@ func runCommand(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
+}
+
+// IsInteractive returns true if the process is running interactively (not as a service).
+// On Windows, this detects if running under the Service Control Manager.
+// On Linux/macOS, this always returns true (systemd handles service mode differently).
+func IsInteractive() bool {
+	return isInteractiveImpl()
+}
+
+// RunAsService runs the given ServiceRunner as a Windows service.
+// This should only be called when IsInteractive() returns false.
+// On non-Windows platforms, this is a no-op that returns nil.
+func RunAsService(name string, runner ServiceRunner) error {
+	return runAsServiceImpl(name, runner)
 }
