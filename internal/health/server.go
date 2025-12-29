@@ -7,10 +7,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/coinstash/muti-metroo/internal/identity"
+	"github.com/coinstash/muti-metroo/internal/protocol"
 )
 
 // StatsProvider provides agent statistics.
@@ -20,6 +24,21 @@ type StatsProvider interface {
 
 	// Stats returns agent statistics.
 	Stats() Stats
+}
+
+// RemoteMetricsProvider provides the ability to fetch metrics from remote agents.
+type RemoteMetricsProvider interface {
+	// ID returns the local agent's ID.
+	ID() identity.AgentID
+
+	// SendControlRequest sends a control request to a remote agent.
+	SendControlRequest(ctx context.Context, targetID identity.AgentID, controlType uint8) (*protocol.ControlResponse, error)
+
+	// GetPeerIDs returns a list of all connected peer IDs.
+	GetPeerIDs() []identity.AgentID
+
+	// GetKnownAgentIDs returns a list of all known agent IDs (including remote via routes).
+	GetKnownAgentIDs() []identity.AgentID
 }
 
 // Stats contains agent health statistics.
@@ -54,11 +73,12 @@ func DefaultServerConfig() ServerConfig {
 
 // Server is an HTTP server for health check endpoints.
 type Server struct {
-	cfg      ServerConfig
-	provider StatsProvider
-	server   *http.Server
-	listener net.Listener
-	running  atomic.Bool
+	cfg            ServerConfig
+	provider       StatsProvider
+	remoteProvider RemoteMetricsProvider
+	server         *http.Server
+	listener       net.Listener
+	running        atomic.Bool
 }
 
 // NewServer creates a new health check server.
@@ -73,8 +93,15 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/ready", s.handleReady)
 
-	// Prometheus metrics endpoint
+	// Prometheus metrics endpoint (local)
 	mux.Handle("/metrics", promhttp.Handler())
+
+	// Remote metrics endpoint: /metrics/{agent-id}
+	mux.HandleFunc("/metrics/", s.handleRemoteMetrics)
+
+	// Agent status endpoints
+	mux.HandleFunc("/agents", s.handleListAgents)
+	mux.HandleFunc("/agents/", s.handleAgentInfo)
 
 	// pprof debug endpoints
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -91,6 +118,12 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	}
 
 	return s
+}
+
+// SetRemoteProvider sets the remote metrics provider.
+// This is called after the agent is initialized.
+func (s *Server) SetRemoteProvider(provider RemoteMetricsProvider) {
+	s.remoteProvider = provider
 }
 
 // Start starts the health check server.
@@ -202,4 +235,163 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 // Handler returns the HTTP handler for embedding in other servers.
 func (s *Server) Handler() http.Handler {
 	return s.server.Handler
+}
+
+// handleRemoteMetrics handles fetching metrics from remote agents.
+// URL format: /metrics/{agent-id}
+func (s *Server) handleRemoteMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.remoteProvider == nil {
+		http.Error(w, "remote metrics not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse agent ID from path: /metrics/{agent-id}
+	path := strings.TrimPrefix(r.URL.Path, "/metrics/")
+	if path == "" || path == "/" {
+		http.Error(w, "agent ID required: /metrics/{agent-id}", http.StatusBadRequest)
+		return
+	}
+
+	// Parse the agent ID
+	targetID, err := identity.ParseAgentID(path)
+	if err != nil {
+		http.Error(w, "invalid agent ID format", http.StatusBadRequest)
+		return
+	}
+
+	// Check if target is local agent
+	if targetID == s.remoteProvider.ID() {
+		// Redirect to local metrics
+		promhttp.Handler().ServeHTTP(w, r)
+		return
+	}
+
+	// Fetch metrics from remote agent
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	resp, err := s.remoteProvider.SendControlRequest(ctx, targetID, protocol.ControlTypeMetrics)
+	if err != nil {
+		http.Error(w, "failed to fetch metrics: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	if !resp.Success {
+		http.Error(w, "remote agent error: "+string(resp.Data), http.StatusBadGateway)
+		return
+	}
+
+	// Return the metrics in Prometheus text format
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp.Data)
+}
+
+// handleListAgents lists all known agents in the mesh.
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.remoteProvider == nil {
+		http.Error(w, "remote provider not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	agents := s.remoteProvider.GetKnownAgentIDs()
+	localID := s.remoteProvider.ID()
+
+	// Build response with local agent first
+	result := []map[string]interface{}{
+		{
+			"id":    localID.String(),
+			"short": localID.ShortString(),
+			"local": true,
+		},
+	}
+
+	for _, id := range agents {
+		if id != localID {
+			result = append(result, map[string]interface{}{
+				"id":    id.String(),
+				"short": id.ShortString(),
+				"local": false,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleAgentInfo handles fetching status from a specific agent.
+// URL format: /agents/{agent-id} or /agents/{agent-id}/routes or /agents/{agent-id}/peers
+func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.remoteProvider == nil {
+		http.Error(w, "remote provider not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse path: /agents/{agent-id}[/routes|/peers]
+	path := strings.TrimPrefix(r.URL.Path, "/agents/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		http.Error(w, "agent ID required", http.StatusBadRequest)
+		return
+	}
+
+	targetID, err := identity.ParseAgentID(parts[0])
+	if err != nil {
+		http.Error(w, "invalid agent ID format", http.StatusBadRequest)
+		return
+	}
+
+	// Determine control type
+	controlType := protocol.ControlTypeStatus
+	if len(parts) > 1 {
+		switch parts[1] {
+		case "routes":
+			controlType = protocol.ControlTypeRoutes
+		case "peers":
+			controlType = protocol.ControlTypePeers
+		case "metrics":
+			controlType = protocol.ControlTypeMetrics
+		}
+	}
+
+	// Fetch from remote agent
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	resp, err := s.remoteProvider.SendControlRequest(ctx, targetID, controlType)
+	if err != nil {
+		http.Error(w, "failed to fetch: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	if !resp.Success {
+		http.Error(w, "remote agent error: "+string(resp.Data), http.StatusBadGateway)
+		return
+	}
+
+	// Determine content type based on control type
+	if controlType == protocol.ControlTypeMetrics {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp.Data)
 }

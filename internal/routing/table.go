@@ -298,6 +298,22 @@ func (t *Table) GetAllRoutes() []*Route {
 	return all
 }
 
+// GetRoutesFromAgent returns all routes originating from a specific agent.
+func (t *Table) GetRoutesFromAgent(agentID identity.AgentID) []*Route {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	var matching []*Route
+	for _, routes := range t.routes {
+		for _, r := range routes {
+			if r.OriginAgent == agentID {
+				matching = append(matching, r.Clone())
+			}
+		}
+	}
+	return matching
+}
+
 // Size returns the number of unique prefixes in the table.
 func (t *Table) Size() int {
 	t.mu.RLock()

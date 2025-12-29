@@ -2,14 +2,19 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/expfmt"
 
 	"github.com/coinstash/muti-metroo/internal/config"
 	"github.com/coinstash/muti-metroo/internal/control"
@@ -33,6 +38,20 @@ type relayStream struct {
 	UpstreamID     uint64 // Stream ID from upstream
 	DownstreamPeer identity.AgentID
 	DownstreamID   uint64 // Stream ID to downstream
+}
+
+// pendingControlRequest tracks an outbound control request awaiting response.
+type pendingControlRequest struct {
+	RequestID   uint64
+	ControlType uint8
+	ResponseCh  chan *protocol.ControlResponse
+	Timeout     time.Time
+}
+
+// forwardedControlRequest tracks a request we forwarded so we can route the response back.
+type forwardedControlRequest struct {
+	RequestID  uint64
+	SourcePeer identity.AgentID // Peer who sent us the request
 }
 
 // Agent is the main Muti Metroo agent that orchestrates all components.
@@ -62,6 +81,12 @@ type Agent struct {
 	relayByDownstream map[uint64]*relayStream // Downstream stream ID -> relay
 	nextRelayID      uint64
 
+	// Control request tracking
+	controlMu         sync.RWMutex
+	pendingControl    map[uint64]*pendingControlRequest   // Request ID -> pending request (for requests we initiated)
+	forwardedControl  map[uint64]*forwardedControlRequest // Request ID -> source peer (for requests we forwarded)
+	nextControlID     uint64
+
 	// State
 	running  atomic.Bool
 	stopOnce sync.Once
@@ -88,6 +113,8 @@ func New(cfg *config.Config) (*Agent, error) {
 		stopCh:            make(chan struct{}),
 		relayByUpstream:   make(map[uint64]*relayStream),
 		relayByDownstream: make(map[uint64]*relayStream),
+		pendingControl:    make(map[uint64]*pendingControlRequest),
+		forwardedControl:  make(map[uint64]*forwardedControlRequest),
 	}
 
 	// Initialize components
@@ -194,6 +221,7 @@ func (a *Agent) initComponents() error {
 		}
 		provider := &agentStatsProvider{agent: a}
 		a.healthServer = health.NewServer(healthCfg, provider)
+		a.healthServer.SetRemoteProvider(a) // Enable remote metrics via control channel
 	}
 
 	// Initialize control server if enabled
@@ -643,6 +671,10 @@ func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
 		a.handleKeepalive(peerID, frame)
 	case protocol.FrameKeepaliveAck:
 		a.handleKeepaliveAck(peerID, frame)
+	case protocol.FrameControlRequest:
+		a.handleControlRequest(peerID, frame)
+	case protocol.FrameControlResponse:
+		a.handleControlResponse(peerID, frame)
 	}
 }
 
@@ -1041,6 +1073,355 @@ func (a *Agent) handleKeepaliveAck(peerID identity.AgentID, frame *protocol.Fram
 	// conn.UpdateRTT(ka.Timestamp) for FrameKeepaliveAck frames.
 }
 
+// handleControlRequest processes a CONTROL_REQUEST from a peer.
+func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Frame) {
+	req, err := protocol.DecodeControlRequest(frame.Payload)
+	if err != nil {
+		a.logger.Debug("failed to decode control request",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
+		return
+	}
+
+	a.logger.Debug("received control request",
+		"from", peerID.ShortString(),
+		"request_id", req.RequestID,
+		"type", req.ControlType,
+		"target", req.TargetAgent.ShortString(),
+		"path_len", len(req.Path))
+
+	// Check if this request is for us or needs forwarding
+	var zeroID identity.AgentID
+	if req.TargetAgent != zeroID && req.TargetAgent != a.id {
+		// Need to forward to target agent
+		var nextHop identity.AgentID
+		var remainingPath []identity.AgentID
+
+		if len(req.Path) > 0 {
+			// Use the path provided in the request
+			nextHop = req.Path[0]
+			remainingPath = req.Path[1:]
+		} else {
+			// Path is empty, look up route to target
+			conn := a.peerMgr.GetPeer(req.TargetAgent)
+			if conn != nil {
+				// Target is a direct peer
+				nextHop = req.TargetAgent
+			} else {
+				// Look up route
+				routes := a.routeMgr.Table().GetRoutesFromAgent(req.TargetAgent)
+				if len(routes) == 0 {
+					a.sendControlResponse(peerID, req.RequestID, req.ControlType, false, []byte("no route to target"))
+					return
+				}
+				nextHop = routes[0].NextHop
+				// Calculate remaining path from route
+				// route.Path is [local, ..., origin], we need path from nextHop to target
+				rPath := routes[0].Path
+				for i, id := range rPath {
+					if id == nextHop && i+1 < len(rPath) {
+						remainingPath = rPath[i+1:]
+						break
+					}
+				}
+			}
+		}
+
+		conn := a.peerMgr.GetPeer(nextHop)
+		if conn == nil {
+			a.sendControlResponse(peerID, req.RequestID, req.ControlType, false, []byte("next hop not connected"))
+			return
+		}
+
+		// Track this forwarded request so we can route the response back
+		a.controlMu.Lock()
+		a.forwardedControl[req.RequestID] = &forwardedControlRequest{
+			RequestID:  req.RequestID,
+			SourcePeer: peerID,
+		}
+		a.controlMu.Unlock()
+
+		// Forward the request
+		a.logger.Debug("forwarding control request",
+			"to", nextHop.ShortString(),
+			"target", req.TargetAgent.ShortString(),
+			"remaining_path", len(remainingPath),
+			"source_peer", peerID.ShortString())
+
+		fwdReq := &protocol.ControlRequest{
+			RequestID:   req.RequestID,
+			ControlType: req.ControlType,
+			TargetAgent: req.TargetAgent,
+			Path:        remainingPath,
+		}
+
+		fwdFrame := &protocol.Frame{
+			Type:     protocol.FrameControlRequest,
+			StreamID: protocol.ControlStreamID,
+			Payload:  fwdReq.Encode(),
+		}
+		a.peerMgr.SendToPeer(nextHop, fwdFrame)
+		return
+	}
+
+	// Handle locally
+	var data []byte
+	var success bool
+
+	switch req.ControlType {
+	case protocol.ControlTypeMetrics:
+		data, success = a.getLocalMetrics()
+	case protocol.ControlTypeStatus:
+		data, success = a.getLocalStatus()
+	case protocol.ControlTypePeers:
+		data, success = a.getLocalPeers()
+	case protocol.ControlTypeRoutes:
+		data, success = a.getLocalRoutes()
+	default:
+		data = []byte("unknown control type")
+		success = false
+	}
+
+	a.sendControlResponse(peerID, req.RequestID, req.ControlType, success, data)
+}
+
+// handleControlResponse processes a CONTROL_RESPONSE from a peer.
+func (a *Agent) handleControlResponse(peerID identity.AgentID, frame *protocol.Frame) {
+	resp, err := protocol.DecodeControlResponse(frame.Payload)
+	if err != nil {
+		a.logger.Debug("failed to decode control response",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
+		return
+	}
+
+	a.logger.Debug("received control response",
+		"from", peerID.ShortString(),
+		"request_id", resp.RequestID,
+		"success", resp.Success,
+		"data_len", len(resp.Data))
+
+	// Check if we have a pending request (we initiated) or a forwarded request (we relayed)
+	a.controlMu.Lock()
+	pending, hasPending := a.pendingControl[resp.RequestID]
+	if hasPending {
+		delete(a.pendingControl, resp.RequestID)
+	}
+
+	forwarded, hasForwarded := a.forwardedControl[resp.RequestID]
+	if hasForwarded {
+		delete(a.forwardedControl, resp.RequestID)
+	}
+	a.controlMu.Unlock()
+
+	if hasPending && pending.ResponseCh != nil {
+		// We initiated this request, deliver to the waiting caller
+		select {
+		case pending.ResponseCh <- resp:
+		default:
+			// Channel full or closed, ignore
+		}
+		return
+	}
+
+	if hasForwarded {
+		// We forwarded this request, route response back to source peer
+		a.logger.Debug("forwarding control response",
+			"to", forwarded.SourcePeer.ShortString(),
+			"request_id", resp.RequestID)
+
+		responseFrame := &protocol.Frame{
+			Type:     protocol.FrameControlResponse,
+			StreamID: protocol.ControlStreamID,
+			Payload:  resp.Encode(),
+		}
+		a.peerMgr.SendToPeer(forwarded.SourcePeer, responseFrame)
+	}
+}
+
+// sendControlResponse sends a control response to a peer.
+func (a *Agent) sendControlResponse(peerID identity.AgentID, requestID uint64, controlType uint8, success bool, data []byte) {
+	a.logger.Debug("sending control response",
+		"to", peerID.ShortString(),
+		"request_id", requestID,
+		"success", success,
+		"data_len", len(data))
+
+	resp := &protocol.ControlResponse{
+		RequestID:   requestID,
+		ControlType: controlType,
+		Success:     success,
+		Data:        data,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameControlResponse,
+		StreamID: protocol.ControlStreamID,
+		Payload:  resp.Encode(),
+	}
+
+	a.peerMgr.SendToPeer(peerID, frame)
+}
+
+// SendControlRequest sends a control request to a target agent and waits for response.
+func (a *Agent) SendControlRequest(ctx context.Context, targetID identity.AgentID, controlType uint8) (*protocol.ControlResponse, error) {
+	// Find route to target
+	// First check if target is a direct peer
+	conn := a.peerMgr.GetPeer(targetID)
+	var nextHop identity.AgentID
+	var path []identity.AgentID
+
+	if conn != nil {
+		// Direct peer - no intermediate path needed
+		nextHop = targetID
+		path = nil
+	} else {
+		// Need to find route via routing table - use any route advertised by that agent
+		routes := a.routeMgr.Table().GetRoutesFromAgent(targetID)
+		if len(routes) == 0 {
+			return nil, fmt.Errorf("no route to agent %s", targetID.ShortString())
+		}
+
+		route := routes[0]
+		nextHop = route.NextHop
+
+		// route.Path is [local, hop1, hop2, ..., origin/target]
+		// We need the path from nextHop to target, which the intermediate
+		// nodes will use to forward the request.
+		// Find nextHop in route.Path and get everything after it
+		rPath := route.Path
+		for i, id := range rPath {
+			if id == nextHop && i+1 < len(rPath) {
+				path = make([]identity.AgentID, len(rPath)-i-1)
+				copy(path, rPath[i+1:])
+				break
+			}
+		}
+	}
+
+	a.logger.Debug("sending control request",
+		"target", targetID.ShortString(),
+		"next_hop", nextHop.ShortString(),
+		"path_len", len(path),
+		"control_type", controlType)
+
+	// Generate request ID
+	a.controlMu.Lock()
+	a.nextControlID++
+	requestID := a.nextControlID
+	pending := &pendingControlRequest{
+		RequestID:   requestID,
+		ControlType: controlType,
+		ResponseCh:  make(chan *protocol.ControlResponse, 1),
+		Timeout:     time.Now().Add(30 * time.Second),
+	}
+	a.pendingControl[requestID] = pending
+	a.controlMu.Unlock()
+
+	// Build and send request
+	req := &protocol.ControlRequest{
+		RequestID:   requestID,
+		ControlType: controlType,
+		TargetAgent: targetID,
+		Path:        path,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameControlRequest,
+		StreamID: protocol.ControlStreamID,
+		Payload:  req.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		a.controlMu.Lock()
+		delete(a.pendingControl, requestID)
+		a.controlMu.Unlock()
+		return nil, fmt.Errorf("send control request: %w", err)
+	}
+
+	// Wait for response
+	select {
+	case resp := <-pending.ResponseCh:
+		return resp, nil
+	case <-ctx.Done():
+		a.controlMu.Lock()
+		delete(a.pendingControl, requestID)
+		a.controlMu.Unlock()
+		return nil, ctx.Err()
+	}
+}
+
+// getLocalMetrics collects Prometheus metrics from this agent.
+func (a *Agent) getLocalMetrics() ([]byte, bool) {
+	// Use prometheus client to gather metrics
+	metrics, err := a.gatherPrometheusMetrics()
+	if err != nil {
+		return []byte(err.Error()), false
+	}
+	return metrics, true
+}
+
+// getLocalStatus returns the agent's status as JSON.
+func (a *Agent) getLocalStatus() ([]byte, bool) {
+	stats := a.Stats()
+	data, err := json.Marshal(map[string]interface{}{
+		"agent_id":        a.id.String(),
+		"running":         a.running.Load(),
+		"peer_count":      stats.PeerCount,
+		"stream_count":    stats.StreamCount,
+		"route_count":     stats.RouteCount,
+		"socks5_running":  stats.SOCKS5Running,
+		"exit_running":    stats.ExitHandlerRun,
+	})
+	if err != nil {
+		return []byte(err.Error()), false
+	}
+	return data, true
+}
+
+// getLocalPeers returns the list of connected peers.
+func (a *Agent) getLocalPeers() ([]byte, bool) {
+	peerIDs := a.peerMgr.GetPeerIDs()
+	peers := make([]string, len(peerIDs))
+	for i, id := range peerIDs {
+		peers[i] = id.String()
+	}
+	data, err := json.Marshal(peers)
+	if err != nil {
+		return []byte(err.Error()), false
+	}
+	return data, true
+}
+
+// getLocalRoutes returns the routing table.
+func (a *Agent) getLocalRoutes() ([]byte, bool) {
+	routeInfo := a.GetRouteInfo()
+	data, err := json.Marshal(routeInfo)
+	if err != nil {
+		return []byte(err.Error()), false
+	}
+	return data, true
+}
+
+// gatherPrometheusMetrics collects metrics in Prometheus text format.
+func (a *Agent) gatherPrometheusMetrics() ([]byte, error) {
+	// Import prometheus registry and gather metrics
+	reg := prometheus.DefaultGatherer
+	mfs, err := reg.Gather()
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	enc := expfmt.NewEncoder(&buf, expfmt.NewFormat(expfmt.TypeTextPlain))
+	for _, mf := range mfs {
+		if err := enc.Encode(mf); err != nil {
+			return nil, err
+		}
+	}
+	return buf.Bytes(), nil
+}
+
 // handlePeerDisconnect is called when a peer connection is closed.
 // It cleans up any relay streams involving the disconnected peer.
 func (a *Agent) handlePeerDisconnect(conn *peer.Connection, err error) {
@@ -1386,6 +1767,32 @@ func (a *Agent) GetRoutes() []*routing.Route {
 // GetPeerIDs returns all connected peer IDs for debugging.
 func (a *Agent) GetPeerIDs() []identity.AgentID {
 	return a.peerMgr.GetPeerIDs()
+}
+
+// GetKnownAgentIDs returns all known agent IDs (peers and route origins).
+// This implements health.RemoteMetricsProvider.
+func (a *Agent) GetKnownAgentIDs() []identity.AgentID {
+	seen := make(map[identity.AgentID]struct{})
+	var result []identity.AgentID
+
+	// Add connected peers
+	for _, id := range a.peerMgr.GetPeerIDs() {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			result = append(result, id)
+		}
+	}
+
+	// Add route origins
+	routes := a.routeMgr.Table().GetAllRoutes()
+	for _, r := range routes {
+		if _, ok := seen[r.OriginAgent]; !ok {
+			seen[r.OriginAgent] = struct{}{}
+			result = append(result, r.OriginAgent)
+		}
+	}
+
+	return result
 }
 
 // GetRouteInfo returns route information for the control interface.

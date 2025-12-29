@@ -103,3 +103,69 @@ Example config in `configs/example.yaml`. Key sections:
 - **Keepalive**: Every 30s idle, 90s timeout
 - **Reconnection**: Exponential backoff 1s→60s with 20% jitter
 - **Protocol version**: 0x01 (in PEER_HELLO)
+
+## Limits and Performance Characteristics
+
+### Configurable Limits
+
+| Parameter | Config Key | Default | Valid Range | Description |
+|-----------|------------|---------|-------------|-------------|
+| Max Hops | `routing.max_hops` | 16 | 1-255 | Maximum hops for route advertisements |
+| Route TTL | `routing.route_ttl` | 5m | - | Time before routes expire without refresh |
+| Advertise Interval | `routing.advertise_interval` | 30s | - | Route advertisement frequency |
+| Stream Open Timeout | `limits.stream_open_timeout` | 30s | - | Total round-trip time for STREAM_OPEN |
+| Buffer Size | `limits.buffer_size` | 256 KB | - | Per-stream buffer at each hop |
+| Max Streams/Peer | `limits.max_streams_per_peer` | 1000 | - | Concurrent streams per peer connection |
+| Max Total Streams | `limits.max_streams_total` | 10000 | - | Total concurrent streams across all peers |
+| Max Pending Opens | `limits.max_pending_opens` | 100 | - | Pending stream open requests |
+| Idle Threshold | `connections.idle_threshold` | 5m | - | Keepalive interval for idle connections |
+| Connection Timeout | `connections.timeout` | 90s | - | Disconnect after this keepalive timeout |
+
+### Protocol Constants (Non-configurable)
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| Max Frame Payload | 16 KB | Maximum payload per frame |
+| Max Frame Size | 16 KB + 14 bytes | Payload + header |
+| Header Size | 14 bytes | Frame header (type, flags, stream ID, length) |
+| Protocol Version | 0x01 | Current wire protocol version |
+| Control Stream ID | 0 | Reserved for control channel |
+
+### Proxy Chain Practical Limits
+
+**Important**: `max_hops` only limits route advertisement propagation, NOT stream path length. Stream paths are limited by the 30-second open timeout.
+
+| Use Case | Recommended Max Hops | Limiting Factor |
+|----------|---------------------|-----------------|
+| Interactive SSH | 8-12 hops | Latency (~5-50ms per hop) |
+| Video Streaming | 6-10 hops | Buffering (256KB × hops) |
+| Bulk Transfer | 12-16 hops | Throughput (16KB chunks) |
+| High-latency WAN | 4-6 hops | 30s stream open timeout |
+
+**Per-hop overhead:**
+- Latency: +1-5ms (LAN), +50-200ms (WAN)
+- Memory: +256KB buffer per active stream
+- CPU: Frame decode/encode at each relay
+
+### Route Selection Algorithm
+
+Routes are selected using **longest-prefix-match** with metric tiebreaker:
+
+1. Filter routes where CIDR contains destination IP
+2. Select route with longest prefix length (most specific wins)
+3. If tied, select lowest metric (hop count)
+
+Example with routes from different agents:
+- `1.2.3.4/32` (metric 3) - Most specific, wins for 1.2.3.4
+- `1.2.3.0/24` (metric 2) - Wins for 1.2.3.5-1.2.3.255
+- `0.0.0.0/0` (metric 1) - Default route, wins for everything else
+
+### Topology Support
+
+The flood-based routing supports arbitrary mesh topologies:
+- **Linear chains**: A→B→C→D
+- **Tree structures**: A→B→C and A→B→D (branches from B)
+- **Full mesh**: Any agent can connect to any other
+- **Redundant paths**: Multiple paths to same destination (lowest metric wins)
+
+Loop prevention uses `SeenBy` lists in route advertisements - each agent tracks which peers have already seen an advertisement.

@@ -756,6 +756,150 @@ func DecodeRouteWithdraw(buf []byte) (*RouteWithdraw, error) {
 }
 
 // ============================================================================
+// Control frames (for remote metrics/status)
+// ============================================================================
+
+// ControlRequest is the payload for CONTROL_REQUEST frames.
+// Used to request metrics, status, or other information from remote agents.
+type ControlRequest struct {
+	RequestID   uint64           // Unique request ID for correlation
+	ControlType uint8            // Type of control request (ControlTypeMetrics, etc.)
+	TargetAgent identity.AgentID // Target agent to forward request to (zero = this agent)
+	Path        []identity.AgentID // Remaining path to target
+}
+
+// Encode serializes ControlRequest to bytes.
+func (c *ControlRequest) Encode() []byte {
+	size := 8 + 1 + 16 + 1 + len(c.Path)*16
+	buf := make([]byte, size)
+	offset := 0
+
+	binary.BigEndian.PutUint64(buf[offset:], c.RequestID)
+	offset += 8
+
+	buf[offset] = c.ControlType
+	offset++
+
+	copy(buf[offset:], c.TargetAgent[:])
+	offset += 16
+
+	buf[offset] = uint8(len(c.Path))
+	offset++
+
+	for _, id := range c.Path {
+		copy(buf[offset:], id[:])
+		offset += 16
+	}
+
+	return buf
+}
+
+// DecodeControlRequest deserializes ControlRequest from bytes.
+func DecodeControlRequest(buf []byte) (*ControlRequest, error) {
+	if len(buf) < 26 { // 8 + 1 + 16 + 1
+		return nil, fmt.Errorf("%w: ControlRequest too short", ErrInvalidFrame)
+	}
+
+	c := &ControlRequest{}
+	offset := 0
+
+	c.RequestID = binary.BigEndian.Uint64(buf[offset:])
+	offset += 8
+
+	c.ControlType = buf[offset]
+	offset++
+
+	copy(c.TargetAgent[:], buf[offset:offset+16])
+	offset += 16
+
+	pathLen := int(buf[offset])
+	offset++
+
+	c.Path = make([]identity.AgentID, pathLen)
+	for i := 0; i < pathLen; i++ {
+		if offset+16 > len(buf) {
+			return nil, fmt.Errorf("%w: ControlRequest path truncated", ErrInvalidFrame)
+		}
+		copy(c.Path[i][:], buf[offset:offset+16])
+		offset += 16
+	}
+
+	return c, nil
+}
+
+// ControlResponse is the payload for CONTROL_RESPONSE frames.
+// Contains the response data from a control request.
+type ControlResponse struct {
+	RequestID   uint64 // Matches the request ID
+	ControlType uint8  // Type of control response
+	Success     bool   // Whether the request succeeded
+	Data        []byte // Response data (Prometheus text, JSON status, etc.)
+}
+
+// Encode serializes ControlResponse to bytes.
+func (c *ControlResponse) Encode() []byte {
+	// Limit data size to fit in payload
+	data := c.Data
+	if len(data) > MaxPayloadSize-12 {
+		data = data[:MaxPayloadSize-12]
+	}
+
+	buf := make([]byte, 8+1+1+2+len(data))
+	offset := 0
+
+	binary.BigEndian.PutUint64(buf[offset:], c.RequestID)
+	offset += 8
+
+	buf[offset] = c.ControlType
+	offset++
+
+	if c.Success {
+		buf[offset] = 1
+	} else {
+		buf[offset] = 0
+	}
+	offset++
+
+	binary.BigEndian.PutUint16(buf[offset:], uint16(len(data)))
+	offset += 2
+
+	copy(buf[offset:], data)
+
+	return buf
+}
+
+// DecodeControlResponse deserializes ControlResponse from bytes.
+func DecodeControlResponse(buf []byte) (*ControlResponse, error) {
+	if len(buf) < 12 { // 8 + 1 + 1 + 2
+		return nil, fmt.Errorf("%w: ControlResponse too short", ErrInvalidFrame)
+	}
+
+	c := &ControlResponse{}
+	offset := 0
+
+	c.RequestID = binary.BigEndian.Uint64(buf[offset:])
+	offset += 8
+
+	c.ControlType = buf[offset]
+	offset++
+
+	c.Success = buf[offset] == 1
+	offset++
+
+	dataLen := binary.BigEndian.Uint16(buf[offset:])
+	offset += 2
+
+	if offset+int(dataLen) > len(buf) {
+		return nil, fmt.Errorf("%w: ControlResponse data truncated", ErrInvalidFrame)
+	}
+
+	c.Data = make([]byte, dataLen)
+	copy(c.Data, buf[offset:offset+int(dataLen)])
+
+	return c, nil
+}
+
+// ============================================================================
 // Frame Reader/Writer
 // ============================================================================
 

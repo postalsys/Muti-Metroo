@@ -20,6 +20,18 @@ const (
 	FramePeerHelloAck uint8 = 0x21 // Handshake response
 	FrameKeepalive    uint8 = 0x22 // Liveness probe
 	FrameKeepaliveAck uint8 = 0x23 // Liveness response
+
+	// Mesh control frames (for remote metrics/status)
+	FrameControlRequest  uint8 = 0x24 // Request metrics/status from remote agent
+	FrameControlResponse uint8 = 0x25 // Response with metrics/status data
+)
+
+// Control request types
+const (
+	ControlTypeMetrics uint8 = 0x01 // Request Prometheus metrics
+	ControlTypeStatus  uint8 = 0x02 // Request agent status
+	ControlTypePeers   uint8 = 0x03 // Request peer list
+	ControlTypeRoutes  uint8 = 0x04 // Request route table
 )
 
 // Frame flags
@@ -101,6 +113,10 @@ func FrameTypeName(t uint8) string {
 		return "KEEPALIVE"
 	case FrameKeepaliveAck:
 		return "KEEPALIVE_ACK"
+	case FrameControlRequest:
+		return "CONTROL_REQUEST"
+	case FrameControlResponse:
+		return "CONTROL_RESPONSE"
 	default:
 		return "UNKNOWN"
 	}
@@ -148,5 +164,5 @@ func IsRoutingFrame(t uint8) bool {
 
 // IsControlFrame returns true if the frame type is a control frame.
 func IsControlFrame(t uint8) bool {
-	return t >= FramePeerHello && t <= FrameKeepaliveAck
+	return t >= FramePeerHello && t <= FrameControlResponse
 }
