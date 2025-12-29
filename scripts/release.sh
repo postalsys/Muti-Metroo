@@ -312,17 +312,37 @@ build_binary() {
         return 0
     fi
 
-    # Build using Docker
-    docker run --rm \
-        -v "$PROJECT_DIR":/app \
-        -w /app \
-        -e CGO_ENABLED=0 \
-        -e GOOS="$os" \
-        -e GOARCH="$arch" \
-        golang:1.23-alpine \
-        go build -ldflags="-s -w -X main.Version=$version" \
-            -o "/app/build/release/$output_name" \
-            ./cmd/muti-metroo
+    # Build using Docker with UPX compression for Linux/Windows
+    # Note: macOS binaries are NOT compressed because UPX breaks code signing
+    if [[ "$os" == "darwin" ]]; then
+        # macOS: build without UPX (breaks code signing)
+        docker run --rm \
+            -v "$PROJECT_DIR":/app \
+            -w /app \
+            -e CGO_ENABLED=0 \
+            -e GOOS="$os" \
+            -e GOARCH="$arch" \
+            golang:1.23-alpine \
+            go build -trimpath -ldflags="-s -w -X main.Version=$version" \
+                -o "/app/build/release/$output_name" \
+                ./cmd/muti-metroo
+    else
+        # Linux/Windows: build and compress with UPX
+        docker run --rm \
+            -v "$PROJECT_DIR":/app \
+            -w /app \
+            -e CGO_ENABLED=0 \
+            -e GOOS="$os" \
+            -e GOARCH="$arch" \
+            golang:1.23-alpine \
+            sh -c "apk add --no-cache upx >/dev/null 2>&1 && \
+                   go build -trimpath -ldflags='-s -w -X main.Version=$version' \
+                       -o '/app/build/release/$output_name.uncompressed' \
+                       ./cmd/muti-metroo && \
+                   upx --best --lzma -o '/app/build/release/$output_name' \
+                       '/app/build/release/$output_name.uncompressed' >/dev/null 2>&1 && \
+                   rm '/app/build/release/$output_name.uncompressed'"
+    fi
 
     # Verify binary was created
     if [[ -f "$output_path" ]]; then
