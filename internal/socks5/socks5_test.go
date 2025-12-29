@@ -59,6 +59,71 @@ func TestStaticCredentials_Valid(t *testing.T) {
 	}
 }
 
+func TestHashedCredentials_Valid(t *testing.T) {
+	// Create bcrypt hashes for testing
+	hash1 := MustHashPassword("pass1")
+	hash2 := MustHashPassword("pass2")
+
+	creds := HashedCredentials{
+		"user1": hash1,
+		"user2": hash2,
+	}
+
+	tests := []struct {
+		username string
+		password string
+		want     bool
+	}{
+		{"user1", "pass1", true},
+		{"user2", "pass2", true},
+		{"user1", "wrong", false},
+		{"user2", "pass1", false}, // Wrong user/pass combo
+		{"unknown", "pass1", false},
+		{"", "", false},
+	}
+
+	for _, tt := range tests {
+		got := creds.Valid(tt.username, tt.password)
+		if got != tt.want {
+			t.Errorf("HashedCredentials.Valid(%q, %q) = %v, want %v", tt.username, tt.password, got, tt.want)
+		}
+	}
+}
+
+func TestHashPassword(t *testing.T) {
+	password := "testpassword123"
+
+	hash, err := HashPassword(password)
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+
+	if hash == "" {
+		t.Fatal("HashPassword() returned empty hash")
+	}
+
+	// Verify it's a bcrypt hash (starts with $2)
+	if hash[0] != '$' || hash[1] != '2' {
+		t.Errorf("HashPassword() returned invalid bcrypt hash prefix: %s", hash[:4])
+	}
+
+	// Create credentials and verify
+	creds := HashedCredentials{"testuser": hash}
+	if !creds.Valid("testuser", password) {
+		t.Error("HashedCredentials.Valid() returned false for correct password")
+	}
+	if creds.Valid("testuser", "wrongpassword") {
+		t.Error("HashedCredentials.Valid() returned true for wrong password")
+	}
+}
+
+func TestMustHashPassword(t *testing.T) {
+	hash := MustHashPassword("testpass")
+	if hash == "" {
+		t.Fatal("MustHashPassword() returned empty hash")
+	}
+}
+
 func TestUserPassAuthenticator_GetMethod(t *testing.T) {
 	auth := NewUserPassAuthenticator(StaticCredentials{})
 	if auth.GetMethod() != AuthMethodUserPass {
@@ -143,36 +208,59 @@ func TestUserPassAuthenticator_Authenticate_InvalidVersion(t *testing.T) {
 }
 
 func TestCreateAuthenticators(t *testing.T) {
+	hash := MustHashPassword("hashedpass")
+
 	tests := []struct {
-		name     string
-		cfg      AuthConfig
-		wantLen  int
+		name      string
+		cfg       AuthConfig
+		wantLen   int
 		hasNoAuth bool
 	}{
 		{
-			name:     "no auth only",
-			cfg:      AuthConfig{Enabled: false, Required: false},
-			wantLen:  1,
+			name:      "no auth only",
+			cfg:       AuthConfig{Enabled: false, Required: false},
+			wantLen:   1,
 			hasNoAuth: true,
 		},
 		{
-			name: "user/pass only",
+			name: "user/pass only (plaintext)",
 			cfg: AuthConfig{
 				Enabled:  true,
 				Required: true,
 				Users:    map[string]string{"user": "pass"},
 			},
-			wantLen:  1,
+			wantLen:   1,
 			hasNoAuth: false,
 		},
 		{
-			name: "both methods",
+			name: "user/pass only (hashed)",
 			cfg: AuthConfig{
-				Enabled:  true,
-				Required: false,
-				Users:    map[string]string{"user": "pass"},
+				Enabled:     true,
+				Required:    true,
+				HashedUsers: map[string]string{"user": hash},
 			},
-			wantLen:  2,
+			wantLen:   1,
+			hasNoAuth: false,
+		},
+		{
+			name: "hashed takes precedence over plaintext",
+			cfg: AuthConfig{
+				Enabled:     true,
+				Required:    true,
+				Users:       map[string]string{"user": "plainpass"},
+				HashedUsers: map[string]string{"user": hash},
+			},
+			wantLen:   1,
+			hasNoAuth: false,
+		},
+		{
+			name: "both methods with hashed",
+			cfg: AuthConfig{
+				Enabled:     true,
+				Required:    false,
+				HashedUsers: map[string]string{"user": hash},
+			},
+			wantLen:   2,
 			hasNoAuth: true,
 		},
 	}

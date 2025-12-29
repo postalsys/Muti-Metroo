@@ -76,6 +76,10 @@ curl http://localhost:8083/health             # Agent3 health
 ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@target-host
 ```
 
+## Code Style Guidelines
+
+- **ASCII only**: Do not use emojis or non-ASCII characters in code, comments, documentation, commit messages, or any other text files. Stick with ASCII characters only.
+
 ## Architecture
 
 ### Agent Roles

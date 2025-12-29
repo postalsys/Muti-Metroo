@@ -1,6 +1,6 @@
 # Mesh Agent Network Architecture
 
-**Version:** 2.0
+**Version:** 2.1
 **Date:** December 2024
 
 ---
@@ -666,7 +666,20 @@ All communication uses a consistent framing protocol:
 │  │ 0x21 │ PEER_HELLO_ACK     │ Acceptor    │ Handshake response          │ │
 │  │ 0x22 │ KEEPALIVE          │ Either      │ Liveness probe              │ │
 │  │ 0x23 │ KEEPALIVE_ACK      │ Either      │ Liveness response           │ │
+│  │ 0x24 │ CONTROL_REQUEST    │ Either      │ Request metrics/status/RPC  │ │
+│  │ 0x25 │ CONTROL_RESPONSE   │ Either      │ Response with data          │ │
 │  └──────┴────────────────────┴─────────────┴─────────────────────────────┘ │
+│                                                                             │
+│  Control Request Types (in CONTROL_REQUEST payload):                        │
+│  ┌──────┬────────────────────┬──────────────────────────────────────────┐  │
+│  │ Type │ Name               │ Purpose                                  │  │
+│  ├──────┼────────────────────┼──────────────────────────────────────────┤  │
+│  │ 0x01 │ METRICS            │ Request Prometheus metrics               │  │
+│  │ 0x02 │ STATUS             │ Request agent status                     │  │
+│  │ 0x03 │ PEERS              │ Request peer list                        │  │
+│  │ 0x04 │ ROUTES             │ Request route table                      │  │
+│  │ 0x05 │ RPC                │ Remote procedure call (shell command)    │  │
+│  └──────┴────────────────────┴──────────────────────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -765,6 +778,8 @@ All communication uses a consistent framing protocol:
 │   │ 7     │ DNS_ERROR            │ Domain name resolution failed      │   │
 │   │ 8     │ EXIT_DISABLED        │ Exit functionality not enabled     │   │
 │   │ 9     │ RESOURCE_LIMIT       │ Too many streams                   │   │
+│   │ 10    │ CONNECTION_LIMIT     │ Connection limit exceeded          │   │
+│   │ 11    │ NOT_ALLOWED          │ Operation not permitted            │   │
 │   └───────┴──────────────────────┴────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -1366,6 +1381,10 @@ agent:
   # Agent ID: "auto" generates on first run, or specify hex string
   id: "auto"
 
+  # Human-readable display name (Unicode allowed)
+  # If not set, falls back to agent ID for display
+  display_name: ""
+
   # Directory for persistent state
   data_dir: "./data"
 
@@ -1381,9 +1400,21 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
     tls:
+      # Option 1: File paths
       cert: "./certs/agent.crt"
       key: "./certs/agent.key"
       client_ca: "./certs/ca.crt"  # Optional: require client certs
+
+      # Option 2: Inline PEM content (takes precedence over file paths)
+      # Useful for Kubernetes secrets or single-file configs
+      # cert_pem: |
+      #   -----BEGIN CERTIFICATE-----
+      #   ...
+      #   -----END CERTIFICATE-----
+      # key_pem: |
+      #   -----BEGIN PRIVATE KEY-----
+      #   ...
+      #   -----END PRIVATE KEY-----
 
   # HTTP/2 listener (TCP fallback)
   - transport: h2
@@ -1493,9 +1524,9 @@ limits:
   buffer_size: 262144  # 256 KB
 
 # ------------------------------------------------------------------------------
-# Health Check Server
+# HTTP API Server
 # ------------------------------------------------------------------------------
-health:
+http:
   enabled: true
   address: ":8080"
   read_timeout: 10s
@@ -1507,6 +1538,15 @@ health:
 control:
   enabled: true
   socket_path: "./data/control.sock"
+
+# ------------------------------------------------------------------------------
+# Remote Procedure Call (RPC)
+# ------------------------------------------------------------------------------
+rpc:
+  enabled: false               # Disabled by default for security
+  whitelist: []                # Empty = no commands allowed; ["*"] = all (testing only!)
+  password_hash: ""            # SHA-256 hash of RPC password (hex encoded)
+  timeout: 60s                 # Default command execution timeout
 ```
 
 ### 13.2 Environment Variable Substitution
@@ -1551,6 +1591,12 @@ muti-metroo cert ca -n "My CA" -o ./certs -d 365
 muti-metroo cert agent -n "agent-1" --ca ./certs/ca.crt
 muti-metroo cert client -n "client-1"
 muti-metroo cert info ./certs/ca.crt
+
+# Remote Procedure Call (execute command on remote agent)
+muti-metroo rpc <target-agent-id> <command> [args...]
+muti-metroo rpc -a 192.168.1.10:8080 abc123def456 hostname
+muti-metroo rpc -p secret abc123def456 whoami
+echo "hello" | muti-metroo rpc abc123def456 cat
 
 # Service management
 muti-metroo uninstall --name muti-metroo
@@ -1627,8 +1673,11 @@ Sensitive configuration values are automatically redacted in logs:
 // Redacted fields:
 // - peers[].proxy_auth.password
 // - peers[].tls.key
+// - peers[].tls.key_pem
 // - listeners[].tls.key
+// - listeners[].tls.key_pem
 // - socks5.auth.users[].password
+// - rpc.password_hash
 
 config.String()       // Returns YAML with [REDACTED] for sensitive values
 config.StringUnsafe() // Returns full YAML (use only for debugging)
@@ -1694,6 +1743,14 @@ The agent exposes Prometheus metrics at `/metrics` endpoint when health server i
 | `exit_dns_latency_seconds` | Histogram | - | DNS resolution latency |
 | `exit_errors_total` | Counter | error_type | Exit handler errors |
 
+**RPC Metrics:**
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `rpc_calls_total` | Counter | result, command | Total RPC calls by result |
+| `rpc_call_duration_seconds` | Histogram | command | RPC call duration |
+| `rpc_bytes_received_total` | Counter | - | Bytes received in requests |
+| `rpc_bytes_sent_total` | Counter | - | Bytes sent in responses |
+
 **Protocol Metrics:**
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
@@ -1702,17 +1759,41 @@ The agent exposes Prometheus metrics at `/metrics` endpoint when health server i
 | `keepalives_sent_total` | Counter | - | Keepalives sent |
 | `keepalive_rtt_seconds` | Histogram | - | Keepalive RTT |
 
-### 15.2 Health Check Endpoints
+### 15.2 HTTP API Endpoints
 
-HTTP health endpoints are exposed when `health.enabled: true`:
+HTTP endpoints are exposed when `http.enabled: true`:
 
+**Health & Monitoring:**
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Basic liveness probe (returns "OK") |
 | `/healthz` | GET | Detailed health with JSON stats |
 | `/ready` | GET | Readiness probe (returns "READY") |
-| `/metrics` | GET | Prometheus metrics |
-| `/debug/pprof/*` | GET | Go pprof profiling endpoints |
+| `/metrics` | GET | Local Prometheus metrics |
+
+**Distributed Metrics & Status:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/metrics/{agent-id}` | GET | Fetch Prometheus metrics from remote agent via control channel |
+| `/agents` | GET | List all known agents in the mesh |
+| `/agents/{agent-id}` | GET | Get status from specific agent |
+| `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
+| `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
+| `/agents/{agent-id}/rpc` | POST | Execute RPC command on remote agent |
+
+**Management:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/routes/advertise` | POST | Trigger immediate route advertisement |
+
+**Debugging (pprof):**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/debug/pprof/` | GET | pprof index |
+| `/debug/pprof/cmdline` | GET | Running program's command line |
+| `/debug/pprof/profile` | GET | CPU profile |
+| `/debug/pprof/symbol` | GET | Symbol lookup |
+| `/debug/pprof/trace` | GET | Execution trace |
 
 **Example `/healthz` response:**
 ```json
@@ -1970,13 +2051,30 @@ muti-metroo/
 │   │   ├── service.go              # Service management interface
 │   │   ├── service_linux.go        # Linux systemd implementation
 │   │   ├── service_windows.go      # Windows service implementation
+│   │   ├── service_other.go        # Stub for unsupported platforms
 │   │   └── service_test.go         # Service tests
+│   │
+│   ├── rpc/
+│   │   ├── rpc.go                  # RPC executor with whitelist and auth
+│   │   ├── chunked.go              # Chunked payload for large transfers
+│   │   └── metrics.go              # RPC Prometheus metrics
 │   │
 │   ├── logging/
 │   │   └── logging.go              # Structured logging utilities
 │   │
-│   └── recovery/
-│       └── recovery.go             # Panic recovery utilities
+│   ├── recovery/
+│   │   └── recovery.go             # Panic recovery utilities
+│   │
+│   ├── chaos/
+│   │   └── chaos.go                # Fault injection for testing
+│   │
+│   ├── loadtest/
+│   │   └── loadtest.go             # Load testing utilities
+│   │
+│   └── integration/
+│       ├── chain_test.go           # Multi-agent chain tests
+│       ├── e2e_stream_test.go      # End-to-end stream tests
+│       └── ...                     # Additional integration tests
 │
 ├── configs/
 │   └── example.yaml                # Example configuration
@@ -2189,10 +2287,12 @@ docker run --rm muti-metroo-test
 | 0x06 | STREAM_RESET    | Abort stream        |
 | 0x10 | ROUTE_ADVERTISE | Announce routes     |
 | 0x11 | ROUTE_WITHDRAW  | Remove routes       |
-| 0x20 | PEER_HELLO      | Handshake           |
-| 0x21 | PEER_HELLO_ACK  | Handshake response  |
-| 0x22 | KEEPALIVE       | Liveness probe      |
-| 0x23 | KEEPALIVE_ACK   | Liveness response   |
+| 0x20 | PEER_HELLO        | Handshake               |
+| 0x21 | PEER_HELLO_ACK    | Handshake response      |
+| 0x22 | KEEPALIVE         | Liveness probe          |
+| 0x23 | KEEPALIVE_ACK     | Liveness response       |
+| 0x24 | CONTROL_REQUEST   | Request metrics/status  |
+| 0x25 | CONTROL_RESPONSE  | Response with data      |
 
 ### Error Codes
 
@@ -2207,6 +2307,8 @@ docker run --rm muti-metroo-test
 | 7    | DNS_ERROR           | Domain name resolution failed  |
 | 8    | EXIT_DISABLED       | Exit functionality not enabled |
 | 9    | RESOURCE_LIMIT      | Too many streams               |
+| 10   | CONNECTION_LIMIT    | Connection limit exceeded      |
+| 11   | NOT_ALLOWED         | Operation not permitted        |
 
 ### Default Timing
 
@@ -2235,6 +2337,7 @@ docker run --rm muti-metroo-test
 | `cert agent` | Generate agent certificate |
 | `cert client` | Generate client certificate |
 | `cert info` | Display certificate details |
+| `rpc` | Execute command on remote agent |
 | `uninstall` | Remove system service |
 
 ---

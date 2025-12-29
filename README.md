@@ -144,6 +144,7 @@ See `configs/example.yaml` for a fully commented configuration file. Key section
 ```yaml
 agent:
   id: "auto"           # Auto-generate on first run, or specify hex string
+  display_name: ""     # Human-readable name (Unicode allowed)
   data_dir: "./data"   # Directory for persistent state
   log_level: "info"    # debug, info, warn, error
   log_format: "text"   # text, json
@@ -255,9 +256,16 @@ An agent can serve multiple roles simultaneously:
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
 | `certutil` | TLS certificate generation and management - CA, server, client, peer certificates |
 | `wizard` | Interactive setup wizard with modern terminal UI |
-| `health` | Health check HTTP server with pprof endpoints |
+| `health` | Health check HTTP server, Prometheus metrics, remote agent APIs, pprof |
 | `control` | Unix socket control server for CLI commands |
 | `service` | Cross-platform service management (systemd on Linux, Windows Service) |
+| `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
+| `metrics` | Prometheus metrics definitions and registration |
+| `logging` | Structured logging with slog - text/JSON formats, standard attribute keys |
+| `recovery` | Panic recovery utilities for goroutines with logging and callbacks |
+| `chaos` | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing |
+| `loadtest` | Load testing utilities - stream throughput, route table, connection churn |
+| `integration` | Integration tests for multi-agent mesh scenarios |
 
 ## Development
 
@@ -317,17 +325,20 @@ docker run -v $(pwd)/config.yaml:/app/config.yaml \
 
 | Type | Name | Description |
 |------|------|-------------|
-| 0x01 | PEER_HELLO | Handshake initiation |
-| 0x02 | PEER_HELLO_ACK | Handshake acknowledgment |
-| 0x10 | STREAM_OPEN | Open a new virtual stream |
-| 0x11 | STREAM_OPEN_ACK | Stream opened successfully |
-| 0x12 | STREAM_OPEN_ERR | Stream open failed |
-| 0x20 | STREAM_DATA | Stream data payload |
-| 0x21 | STREAM_CLOSE | Close stream |
-| 0x22 | STREAM_RESET | Reset stream with error |
-| 0x30 | ROUTE_UPDATE | Route advertisement |
-| 0x40 | KEEPALIVE | Connection keepalive |
-| 0x41 | KEEPALIVE_ACK | Keepalive acknowledgment |
+| 0x01 | STREAM_OPEN | Open a new virtual stream |
+| 0x02 | STREAM_OPEN_ACK | Stream opened successfully |
+| 0x03 | STREAM_OPEN_ERR | Stream open failed |
+| 0x04 | STREAM_DATA | Stream data payload |
+| 0x05 | STREAM_CLOSE | Close stream |
+| 0x06 | STREAM_RESET | Reset stream with error |
+| 0x10 | ROUTE_ADVERTISE | Announce CIDR routes |
+| 0x11 | ROUTE_WITHDRAW | Remove CIDR routes |
+| 0x20 | PEER_HELLO | Handshake initiation |
+| 0x21 | PEER_HELLO_ACK | Handshake acknowledgment |
+| 0x22 | KEEPALIVE | Connection keepalive |
+| 0x23 | KEEPALIVE_ACK | Keepalive acknowledgment |
+| 0x24 | CONTROL_REQUEST | Request metrics/status from remote agent |
+| 0x25 | CONTROL_RESPONSE | Response with metrics/status data |
 
 ## License
 

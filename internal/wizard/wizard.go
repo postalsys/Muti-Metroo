@@ -204,7 +204,7 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 		w.existingCfg = existingCfg
 		dataDir = existingCfg.Agent.DataDir
 		displayName = existingCfg.Agent.DisplayName
-		fmt.Println("\n  📄 Found existing configuration, using values as defaults.\n")
+		fmt.Println("\n  [INFO] Found existing configuration, using values as defaults.")
 	}
 
 	// Now ask for remaining settings with defaults from existing config
@@ -482,8 +482,8 @@ func (w *Wizard) generateCertificates(certsDir string) (config.TLSConfig, error)
 		return config.TLSConfig{}, fmt.Errorf("failed to save certificate: %w", err)
 	}
 
-	fmt.Printf("\n✓ Generated CA certificate: %s\n", caPath)
-	fmt.Printf("✓ Generated server certificate: %s\n", certPath)
+	fmt.Printf("\n[OK] Generated CA certificate: %s\n", caPath)
+	fmt.Printf("[OK] Generated server certificate: %s\n", certPath)
 	fmt.Printf("  Fingerprint: %s\n\n", cert.Fingerprint())
 
 	return config.TLSConfig{
@@ -566,8 +566,8 @@ func (w *Wizard) pasteCertificates(certsDir string) (config.TLSConfig, error) {
 		tlsConfig.ClientCA = caPath
 	}
 
-	fmt.Printf("\n✓ Saved certificate to: %s\n", certPath)
-	fmt.Printf("✓ Saved private key to: %s\n\n", keyPath)
+	fmt.Printf("\n[OK] Saved certificate to: %s\n", certPath)
+	fmt.Printf("[OK] Saved private key to: %s\n\n", keyPath)
 
 	return tlsConfig, nil
 }
@@ -1025,7 +1025,7 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 	}
 
 	// Hash the password
-	cfg.PasswordHash = rpc.HashPassword(password)
+	cfg.PasswordHash = rpc.MustHashPassword(password)
 
 	// Ask for whitelist
 	var whitelistChoice string
@@ -1055,7 +1055,7 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 		cfg.Whitelist = []string{}
 	case "all":
 		cfg.Whitelist = []string{"*"}
-		fmt.Print("\n⚠ WARNING: All commands are allowed! Use only for testing.\n\n")
+		fmt.Print("\n[WARNING] All commands are allowed! Use only for testing.\n\n")
 	case "custom":
 		var commandsStr string
 		customForm := huh.NewForm(
@@ -1180,7 +1180,7 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 
 	fmt.Println()
 	fmt.Println(divider)
-	fmt.Println(style.Render("✓ Setup Complete!"))
+	fmt.Println(style.Render("[OK] Setup Complete!"))
 	fmt.Println(divider)
 	fmt.Println()
 
@@ -1215,7 +1215,7 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 	if cfg.RPC.Enabled {
 		fmt.Printf("  RPC:          enabled (%d commands whitelisted)\n", len(cfg.RPC.Whitelist))
 		if len(cfg.RPC.Whitelist) == 1 && cfg.RPC.Whitelist[0] == "*" {
-			fmt.Println("                ⚠ WARNING: All commands allowed!")
+			fmt.Println("                [WARNING] All commands allowed!")
 		}
 	}
 
@@ -1272,7 +1272,7 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 
 	if err := service.Install(cfg); err != nil {
 		// Don't fail the wizard, just warn
-		fmt.Printf("\n⚠ Failed to install service: %v\n", err)
+		fmt.Printf("\n[WARNING] Failed to install service: %v\n", err)
 		fmt.Println("You can install the service manually later.")
 		return false, nil
 	}
@@ -1281,7 +1281,7 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 	successStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("42"))
-	fmt.Println(successStyle.Render(fmt.Sprintf("✓ Installed as %s", platformName)))
+	fmt.Println(successStyle.Render(fmt.Sprintf("[OK] Installed as %s", platformName)))
 
 	switch runtime.GOOS {
 	case "linux":

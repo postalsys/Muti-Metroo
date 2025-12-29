@@ -153,7 +153,11 @@ type SOCKS5AuthConfig struct {
 // SOCKS5UserConfig defines a SOCKS5 user.
 type SOCKS5UserConfig struct {
 	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	// Password is the plaintext password (deprecated, use PasswordHash).
+	Password string `yaml:"password,omitempty"`
+	// PasswordHash is the bcrypt hash of the password (recommended).
+	// Generate with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
+	PasswordHash string `yaml:"password_hash,omitempty"`
 }
 
 // ExitConfig defines exit node settings.
@@ -222,10 +226,12 @@ type RPCConfig struct {
 
 	// Whitelist contains allowed commands. Empty list = no commands allowed.
 	// Use ["*"] to allow all commands (for testing only!).
+	// Commands should be base names only (e.g., "whoami", "ls", "ip").
 	Whitelist []string `yaml:"whitelist"`
 
-	// PasswordHash is the SHA-256 hash of the RPC password (hex encoded).
-	// If set, all RPC requests must include Authorization header.
+	// PasswordHash is the bcrypt hash of the RPC password.
+	// If set, all RPC requests must include the correct password.
+	// Generate with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
 	PasswordHash string `yaml:"password_hash"`
 
 	// Timeout is the default command execution timeout.
@@ -541,10 +547,13 @@ func (c *Config) Redacted() *Config {
 		}
 	}
 
-	// Redact SOCKS5 user passwords
+	// Redact SOCKS5 user passwords and password hashes
 	for i := range redacted.SOCKS5.Auth.Users {
 		if redacted.SOCKS5.Auth.Users[i].Password != "" {
 			redacted.SOCKS5.Auth.Users[i].Password = redactedValue
+		}
+		if redacted.SOCKS5.Auth.Users[i].PasswordHash != "" {
+			redacted.SOCKS5.Auth.Users[i].PasswordHash = redactedValue
 		}
 	}
 
@@ -565,9 +574,9 @@ func (c *Config) HasSensitiveData() bool {
 		}
 	}
 
-	// Check SOCKS5 passwords
+	// Check SOCKS5 passwords and password hashes
 	for _, u := range c.SOCKS5.Auth.Users {
-		if u.Password != "" {
+		if u.Password != "" || u.PasswordHash != "" {
 			return true
 		}
 	}

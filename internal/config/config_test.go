@@ -212,7 +212,7 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
 `,
-			wantError: "tls.cert and tls.key are required",
+			wantError: "tls certificate and key are required",
 		},
 		{
 			name: "h2 listener missing path",

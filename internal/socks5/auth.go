@@ -5,6 +5,8 @@ import (
 	"crypto/subtle"
 	"errors"
 	"io"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Authentication method constants per RFC 1928.
@@ -54,11 +56,34 @@ type CredentialStore interface {
 	Valid(username, password string) bool
 }
 
-// StaticCredentials is a static credential store.
+// HashedCredentials stores username to bcrypt hash mappings.
+// This is the recommended credential store for production use.
+type HashedCredentials map[string]string
+
+// Valid checks if the username/password combination is valid.
+// Uses bcrypt comparison which is inherently constant-time.
+func (h HashedCredentials) Valid(username, password string) bool {
+	storedHash, ok := h[username]
+	if !ok {
+		// Perform a dummy bcrypt comparison to maintain constant time for invalid usernames
+		// This uses a pre-computed hash for timing consistency
+		bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)) == nil
+}
+
+// dummyHash is a pre-computed bcrypt hash used for timing attack prevention.
+// It's compared against when the username doesn't exist.
+var dummyHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+
+// StaticCredentials is a static credential store with plaintext passwords.
+// Deprecated: Use HashedCredentials for production deployments.
 type StaticCredentials map[string]string
 
 // Valid checks if the username/password combination is valid.
 // Uses constant-time comparison to prevent timing attacks.
+// Deprecated: Use HashedCredentials for production deployments.
 func (s StaticCredentials) Valid(username, password string) bool {
 	storedPass, ok := s[username]
 	if !ok {
@@ -67,6 +92,25 @@ func (s StaticCredentials) Valid(username, password string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(storedPass), []byte(password)) == 1
+}
+
+// HashPassword creates a bcrypt hash of the password for SOCKS5 authentication.
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// MustHashPassword creates a bcrypt hash and panics on error.
+// For use in tests and initialization.
+func MustHashPassword(password string) string {
+	hash, err := HashPassword(password)
+	if err != nil {
+		panic(err)
+	}
+	return hash
 }
 
 // UserPassAuthenticator handles username/password authentication (RFC 1929).
@@ -157,16 +201,27 @@ func (a *UserPassAuthenticator) Authenticate(reader io.Reader, writer io.Writer)
 type AuthConfig struct {
 	Enabled  bool
 	Required bool
-	Users    map[string]string
+	// Users maps username to password (plaintext, deprecated).
+	Users map[string]string
+	// HashedUsers maps username to bcrypt password hash (recommended).
+	HashedUsers map[string]string
 }
 
 // CreateAuthenticators creates authenticators based on config.
+// If HashedUsers is provided, it takes precedence over Users.
 func CreateAuthenticators(cfg AuthConfig) []Authenticator {
 	var auths []Authenticator
 
-	if cfg.Enabled && len(cfg.Users) > 0 {
-		creds := StaticCredentials(cfg.Users)
-		auths = append(auths, NewUserPassAuthenticator(creds))
+	if cfg.Enabled {
+		// Prefer hashed credentials if available
+		if len(cfg.HashedUsers) > 0 {
+			creds := HashedCredentials(cfg.HashedUsers)
+			auths = append(auths, NewUserPassAuthenticator(creds))
+		} else if len(cfg.Users) > 0 {
+			// Fall back to plaintext credentials (deprecated)
+			creds := StaticCredentials(cfg.Users)
+			auths = append(auths, NewUserPassAuthenticator(creds))
+		}
 	}
 
 	if !cfg.Required {

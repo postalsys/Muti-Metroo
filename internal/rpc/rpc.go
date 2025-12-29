@@ -4,14 +4,16 @@ package rpc
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // MaxStdinSize is the maximum allowed stdin size (1MB).
@@ -46,10 +48,13 @@ type Config struct {
 
 	// Whitelist contains allowed commands. Empty list = no commands allowed.
 	// Use ["*"] to allow all commands (for testing only!).
+	// Commands should be base names only (e.g., "whoami", "ls", "ip").
 	Whitelist []string `yaml:"whitelist"`
 
-	// PasswordHash is the SHA-256 hash of the RPC password (hex encoded).
-	// If set, all RPC requests must include Authorization header.
+	// PasswordHash is the bcrypt hash of the RPC password.
+	// If set, all RPC requests must include the correct password.
+	// Generate with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
+	// Or use the HashPassword() function.
 	PasswordHash string `yaml:"password_hash"`
 
 	// Timeout is the default command execution timeout.
@@ -78,7 +83,7 @@ func NewExecutor(cfg Config) *Executor {
 	return &Executor{config: cfg}
 }
 
-// ValidateAuth checks if the provided password matches the configured hash.
+// ValidateAuth checks if the provided password matches the configured bcrypt hash.
 // Returns nil if authentication passes, error otherwise.
 func (e *Executor) ValidateAuth(password string) error {
 	if e.config.PasswordHash == "" {
@@ -90,47 +95,72 @@ func (e *Executor) ValidateAuth(password string) error {
 		return fmt.Errorf("authentication required")
 	}
 
-	// Hash the provided password
-	hash := sha256.Sum256([]byte(password))
-	providedHash := hex.EncodeToString(hash[:])
-
-	if providedHash != e.config.PasswordHash {
+	// Compare password against bcrypt hash
+	err := bcrypt.CompareHashAndPassword([]byte(e.config.PasswordHash), []byte(password))
+	if err != nil {
 		return fmt.Errorf("invalid credentials")
 	}
 
 	return nil
 }
 
+// dangerousArgPattern matches shell metacharacters and injection attempts.
+var dangerousArgPattern = regexp.MustCompile(`[;&|$` + "`" + `(){}[\]<>\\!*?~]`)
+
 // IsCommandAllowed checks if the command is in the whitelist.
+// The whitelist supports:
+//   - "*" to allow all commands (for dev/testing only)
+//   - Base command names (e.g., "whoami", "ls", "ip")
+//
+// Path traversal is blocked - only the base name of the command is checked.
 func (e *Executor) IsCommandAllowed(command string) bool {
 	if len(e.config.Whitelist) == 0 {
 		return false
 	}
 
-	// Check for wildcard
+	// Check for wildcard first
 	for _, w := range e.config.Whitelist {
 		if w == "*" {
 			return true
 		}
 	}
 
-	// Normalize command (get base name)
-	cmd := command
-	if idx := strings.LastIndex(command, "/"); idx >= 0 {
-		cmd = command[idx+1:]
-	}
-	if idx := strings.LastIndex(command, "\\"); idx >= 0 {
-		cmd = command[idx+1:]
+	// Only allow base command names - no paths allowed in command
+	// This prevents bypass via "/tmp/evil/whoami" when "whoami" is whitelisted
+	if strings.ContainsAny(command, "/\\") {
+		return false
 	}
 
-	// Check against whitelist
+	// Command must match a whitelist entry exactly (case-sensitive)
 	for _, allowed := range e.config.Whitelist {
-		if allowed == cmd || allowed == command {
+		if allowed == command {
 			return true
 		}
 	}
 
 	return false
+}
+
+// ValidateArgs checks command arguments for dangerous patterns.
+// Returns an error if any argument contains shell metacharacters.
+func (e *Executor) ValidateArgs(args []string) error {
+	// In wildcard mode, skip argument validation (for dev/testing)
+	for _, w := range e.config.Whitelist {
+		if w == "*" {
+			return nil
+		}
+	}
+
+	for i, arg := range args {
+		if dangerousArgPattern.MatchString(arg) {
+			return fmt.Errorf("argument %d contains dangerous characters", i)
+		}
+		// Block arguments that look like paths to prevent accessing arbitrary files
+		if filepath.IsAbs(arg) {
+			return fmt.Errorf("argument %d: absolute paths not allowed", i)
+		}
+	}
+	return nil
 }
 
 // Execute runs the RPC command and returns the result.
@@ -146,6 +176,14 @@ func (e *Executor) Execute(ctx context.Context, req *Request, stdin []byte) (*Re
 		return &Response{
 			ExitCode: -1,
 			Error:    fmt.Sprintf("command '%s' is not in whitelist", req.Command),
+		}, nil
+	}
+
+	// Validate arguments for dangerous patterns
+	if err := e.ValidateArgs(req.Args); err != nil {
+		return &Response{
+			ExitCode: -1,
+			Error:    fmt.Sprintf("invalid arguments: %v", err),
 		}, nil
 	}
 
@@ -218,10 +256,33 @@ func (lw *limitedWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// HashPassword creates a SHA-256 hash of the password.
-func HashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(hash[:])
+// DefaultBcryptCost is the default cost for bcrypt hashing.
+// Cost 10 provides a good balance between security and performance.
+const DefaultBcryptCost = 10
+
+// HashPassword creates a bcrypt hash of the password.
+// Returns the hash string or an error if hashing fails.
+func HashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), DefaultBcryptCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	return string(hash), nil
+}
+
+// MustHashPassword creates a bcrypt hash of the password.
+// Panics if hashing fails (for use in tests and initialization).
+func MustHashPassword(password string) string {
+	hash, err := HashPassword(password)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}
+
+// ValidatePassword checks if the password matches the bcrypt hash.
+func ValidatePassword(hash, password string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 // EncodeRequest serializes an RPC request to JSON.

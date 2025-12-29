@@ -260,15 +260,25 @@ func (a *Agent) buildSOCKS5Auth() []socks5.Authenticator {
 		return []socks5.Authenticator{&socks5.NoAuthAuthenticator{}}
 	}
 
+	// Separate plaintext and hashed credentials
 	users := make(map[string]string)
+	hashedUsers := make(map[string]string)
+
 	for _, u := range a.cfg.SOCKS5.Auth.Users {
-		users[u.Username] = u.Password
+		if u.PasswordHash != "" {
+			// Prefer password hash if available
+			hashedUsers[u.Username] = u.PasswordHash
+		} else if u.Password != "" {
+			// Fall back to plaintext password (deprecated)
+			users[u.Username] = u.Password
+		}
 	}
 
 	return socks5.CreateAuthenticators(socks5.AuthConfig{
-		Enabled:  true,
-		Required: true,
-		Users:    users,
+		Enabled:     true,
+		Required:    true,
+		Users:       users,
+		HashedUsers: hashedUsers,
 	})
 }
 
@@ -410,7 +420,6 @@ func (a *Agent) startListener(cfg config.ListenerConfig) error {
 // loadTLSConfig loads TLS configuration from files, inline PEM, or generates self-signed.
 func (a *Agent) loadTLSConfig(cfg config.TLSConfig) (*tls.Config, error) {
 	var cert tls.Certificate
-	var err error
 
 	if cfg.HasCert() && cfg.HasKey() {
 		// Load from inline PEM or files
@@ -574,7 +583,6 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 	}
 
 	var conn *peer.Connection
-	var err error
 
 	if transportType == transport.TransportQUIC {
 		// Use default Connect for QUIC

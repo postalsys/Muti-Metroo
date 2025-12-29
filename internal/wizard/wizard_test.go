@@ -335,7 +335,7 @@ func TestBuildConfig(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := w.buildConfig(
-				tc.dataDir, tc.transport, tc.listenAddr, tc.listenPath,
+				tc.dataDir, "", tc.transport, tc.listenAddr, tc.listenPath,
 				tc.tlsConfig, tc.peers, tc.socks5Config, tc.exitConfig,
 				tc.healthEnabled, tc.controlEnabled, tc.logLevel,
 				config.RPCConfig{},
@@ -467,7 +467,7 @@ func TestBuildConfigLogFormat(t *testing.T) {
 	w := New()
 
 	cfg := w.buildConfig(
-		"/data", "quic", "0.0.0.0:4433", "",
+		"/data", "", "quic", "0.0.0.0:4433", "",
 		config.TLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",
@@ -484,7 +484,7 @@ func TestBuildConfigDefaults(t *testing.T) {
 	w := New()
 
 	cfg := w.buildConfig(
-		"/data", "quic", "0.0.0.0:4433", "",
+		"/data", "", "quic", "0.0.0.0:4433", "",
 		config.TLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",

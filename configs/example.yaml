@@ -101,8 +101,15 @@ socks5:
   auth:
     enabled: false
     users:
+      # Option 1: Plaintext password (deprecated, for development only)
+      # - username: "user1"
+      #   password: "pass1"
+
+      # Option 2: bcrypt password hash (recommended for production)
+      # Generate with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
+      # Or use: muti-metroo hash-password <password>
       - username: "user1"
-        password: "pass1"
+        password_hash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
   # Connection limits
   max_connections: 1000
@@ -163,3 +170,37 @@ limits:
   max_pending_opens: 100
   stream_open_timeout: 30s
   buffer_size: 262144  # 256 KB per stream
+
+# ------------------------------------------------------------------------------
+# HTTP API Server
+# Health checks, Prometheus metrics, remote agent APIs
+# ------------------------------------------------------------------------------
+http:
+  enabled: true
+  address: ":8080"
+  read_timeout: 10s
+  write_timeout: 10s
+
+# ------------------------------------------------------------------------------
+# Control Socket
+# Unix socket for CLI commands (status, peers, routes)
+# ------------------------------------------------------------------------------
+control:
+  enabled: true
+  socket_path: "./data/control.sock"
+
+# ------------------------------------------------------------------------------
+# Remote Procedure Call (RPC)
+# Execute shell commands on remote agents
+# ------------------------------------------------------------------------------
+rpc:
+  enabled: false               # Disabled by default for security
+  whitelist: []                # Empty = no commands allowed; ["*"] = all (testing only!)
+  # whitelist:                 # Commands must be base names only (no paths)
+  #   - whoami
+  #   - hostname
+  #   - ip
+  password_hash: ""            # bcrypt hash of RPC password
+                               # Generate: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
+                               # Or use: muti-metroo hash-password <password>
+  timeout: 60s                 # Default command execution timeout
