@@ -914,7 +914,7 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled, controlEnabled bool, logLe
 
 	// Use existing config defaults if available
 	if w.existingCfg != nil {
-		healthEnabled = w.existingCfg.Health.Enabled
+		healthEnabled = w.existingCfg.HTTP.Enabled
 		controlEnabled = w.existingCfg.Control.Enabled
 		logLevel = w.existingCfg.Agent.LogLevel
 	}
@@ -1127,10 +1127,10 @@ func (w *Wizard) buildConfig(
 	// Exit
 	cfg.Exit = exitConfig
 
-	// Health
-	cfg.Health.Enabled = healthEnabled
+	// HTTP
+	cfg.HTTP.Enabled = healthEnabled
 	if healthEnabled {
-		cfg.Health.Address = ":8080"
+		cfg.HTTP.Address = ":8080"
 	}
 
 	// Control
@@ -1208,8 +1208,8 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 		fmt.Printf("  Exit routes:  %v\n", cfg.Exit.Routes)
 	}
 
-	if cfg.Health.Enabled {
-		fmt.Printf("  Health:       http://%s/health\n", cfg.Health.Address)
+	if cfg.HTTP.Enabled {
+		fmt.Printf("  HTTP API:     http://%s\n", cfg.HTTP.Address)
 	}
 
 	if cfg.RPC.Enabled {

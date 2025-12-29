@@ -22,7 +22,7 @@ type Config struct {
 	Routing     RoutingConfig     `yaml:"routing"`
 	Connections ConnectionsConfig `yaml:"connections"`
 	Limits      LimitsConfig      `yaml:"limits"`
-	Health      HealthConfig      `yaml:"health"`
+	HTTP        HTTPConfig        `yaml:"http"`
 	Control     ControlConfig     `yaml:"control"`
 	RPC         RPCConfig         `yaml:"rpc"`
 }
@@ -136,8 +136,8 @@ type LimitsConfig struct {
 	BufferSize        int           `yaml:"buffer_size"`
 }
 
-// HealthConfig defines health check server settings.
-type HealthConfig struct {
+// HTTPConfig defines HTTP API server settings.
+type HTTPConfig struct {
 	Enabled      bool          `yaml:"enabled"`
 	Address      string        `yaml:"address"`
 	ReadTimeout  time.Duration `yaml:"read_timeout"`
@@ -214,7 +214,7 @@ func Default() *Config {
 			StreamOpenTimeout: 30 * time.Second,
 			BufferSize:        262144, // 256 KB
 		},
-		Health: HealthConfig{
+		HTTP: HTTPConfig{
 			Enabled:      false,
 			Address:      ":8080",
 			ReadTimeout:  10 * time.Second,

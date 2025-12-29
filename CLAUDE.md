@@ -135,7 +135,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `exit`: Exit node routes and DNS settings
 - `routing`: Advertisement intervals, TTL, max hops
 - `limits`: Stream limits and buffer sizes
-- `health`: Health check HTTP server
+- `http`: HTTP API server (health, metrics, remote agent APIs)
 - `control`: Unix socket for CLI commands
 - `rpc`: Remote command execution (disabled by default)
 

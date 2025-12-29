@@ -218,12 +218,12 @@ func (a *Agent) initComponents() error {
 		a.exitHandler.SetWriter(a)
 	}
 
-	// Initialize health server if enabled
-	if a.cfg.Health.Enabled {
+	// Initialize HTTP server if enabled
+	if a.cfg.HTTP.Enabled {
 		healthCfg := health.ServerConfig{
-			Address:      a.cfg.Health.Address,
-			ReadTimeout:  a.cfg.Health.ReadTimeout,
-			WriteTimeout: a.cfg.Health.WriteTimeout,
+			Address:      a.cfg.HTTP.Address,
+			ReadTimeout:  a.cfg.HTTP.ReadTimeout,
+			WriteTimeout: a.cfg.HTTP.WriteTimeout,
 		}
 		provider := &agentStatsProvider{agent: a}
 		a.healthServer = health.NewServer(healthCfg, provider)
@@ -334,16 +334,16 @@ func (a *Agent) Start() error {
 		a.flooder.AnnounceLocalRoutes() // Initial announcement
 	}
 
-	// Start health server if enabled
+	// Start HTTP server if enabled
 	if a.healthServer != nil {
 		if err := a.healthServer.Start(); err != nil {
-			a.logger.Error("failed to start health server",
-				logging.KeyAddress, a.cfg.Health.Address,
+			a.logger.Error("failed to start HTTP server",
+				logging.KeyAddress, a.cfg.HTTP.Address,
 				logging.KeyError, err)
 			a.running.Store(false)
-			return fmt.Errorf("start health server: %w", err)
+			return fmt.Errorf("start HTTP server: %w", err)
 		}
-		a.logger.Info("health server started",
+		a.logger.Info("HTTP server started",
 			logging.KeyAddress, a.healthServer.Address())
 	}
 

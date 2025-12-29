@@ -134,11 +134,11 @@ func TestBuildConfig(t *testing.T) {
 				if cfg.Listeners[0].Path != "" {
 					t.Errorf("Path = %q, want empty", cfg.Listeners[0].Path)
 				}
-				if !cfg.Health.Enabled {
-					t.Error("Health.Enabled = false, want true")
+				if !cfg.HTTP.Enabled {
+					t.Error("HTTP.Enabled = false, want true")
 				}
-				if cfg.Health.Address != ":8080" {
-					t.Errorf("Health.Address = %q, want %q", cfg.Health.Address, ":8080")
+				if cfg.HTTP.Address != ":8080" {
+					t.Errorf("HTTP.Address = %q, want %q", cfg.HTTP.Address, ":8080")
 				}
 				if !cfg.Control.Enabled {
 					t.Error("Control.Enabled = false, want true")
@@ -174,8 +174,8 @@ func TestBuildConfig(t *testing.T) {
 				if cfg.Agent.LogLevel != "debug" {
 					t.Errorf("LogLevel = %q, want %q", cfg.Agent.LogLevel, "debug")
 				}
-				if cfg.Health.Enabled {
-					t.Error("Health.Enabled = true, want false")
+				if cfg.HTTP.Enabled {
+					t.Error("HTTP.Enabled = true, want false")
 				}
 				if cfg.Control.Enabled {
 					t.Error("Control.Enabled = true, want false")

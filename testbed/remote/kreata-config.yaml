@@ -45,7 +45,7 @@ limits:
   stream_open_timeout: 30s
   buffer_size: 262144
 
-health:
+http:
   enabled: true
   address: "0.0.0.0:8180"
   read_timeout: 30s
