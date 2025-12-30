@@ -686,3 +686,222 @@ func BenchmarkFrame_Decode(b *testing.B) {
 		_, _ = Decode(data)
 	}
 }
+
+func TestNodeInfoAdvertise_EncodeDecode(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	seen1, _ := identity.NewAgentID()
+
+	original := &NodeInfoAdvertise{
+		OriginAgent: origin,
+		Sequence:    42,
+		Info: NodeInfo{
+			DisplayName: "test-agent",
+			Hostname:    "test-host.local",
+			OS:          "linux",
+			Arch:        "amd64",
+			Version:     "1.0.0",
+			StartTime:   1703001234,
+			IPAddresses: []string{"192.168.1.100", "10.0.0.5"},
+		},
+		SeenBy: []identity.AgentID{origin, seen1},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeNodeInfoAdvertise(data)
+	if err != nil {
+		t.Fatalf("DecodeNodeInfoAdvertise() error = %v", err)
+	}
+
+	if !decoded.OriginAgent.Equal(original.OriginAgent) {
+		t.Error("OriginAgent mismatch")
+	}
+	if decoded.Sequence != original.Sequence {
+		t.Errorf("Sequence = %d, want %d", decoded.Sequence, original.Sequence)
+	}
+	if decoded.Info.DisplayName != original.Info.DisplayName {
+		t.Errorf("DisplayName = %s, want %s", decoded.Info.DisplayName, original.Info.DisplayName)
+	}
+	if decoded.Info.Hostname != original.Info.Hostname {
+		t.Errorf("Hostname = %s, want %s", decoded.Info.Hostname, original.Info.Hostname)
+	}
+	if decoded.Info.OS != original.Info.OS {
+		t.Errorf("OS = %s, want %s", decoded.Info.OS, original.Info.OS)
+	}
+	if decoded.Info.Arch != original.Info.Arch {
+		t.Errorf("Arch = %s, want %s", decoded.Info.Arch, original.Info.Arch)
+	}
+	if decoded.Info.Version != original.Info.Version {
+		t.Errorf("Version = %s, want %s", decoded.Info.Version, original.Info.Version)
+	}
+	if decoded.Info.StartTime != original.Info.StartTime {
+		t.Errorf("StartTime = %d, want %d", decoded.Info.StartTime, original.Info.StartTime)
+	}
+	if len(decoded.Info.IPAddresses) != len(original.Info.IPAddresses) {
+		t.Fatalf("IPAddresses length = %d, want %d", len(decoded.Info.IPAddresses), len(original.Info.IPAddresses))
+	}
+	for i, ip := range decoded.Info.IPAddresses {
+		if ip != original.Info.IPAddresses[i] {
+			t.Errorf("IPAddresses[%d] = %s, want %s", i, ip, original.Info.IPAddresses[i])
+		}
+	}
+	if len(decoded.SeenBy) != len(original.SeenBy) {
+		t.Errorf("SeenBy length = %d, want %d", len(decoded.SeenBy), len(original.SeenBy))
+	}
+}
+
+func TestNodeInfoAdvertise_WithPeers(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+	peer2, _ := identity.NewAgentID()
+
+	original := &NodeInfoAdvertise{
+		OriginAgent: origin,
+		Sequence:    100,
+		Info: NodeInfo{
+			DisplayName: "agent-with-peers",
+			Hostname:    "host1",
+			OS:          "darwin",
+			Arch:        "arm64",
+			Version:     "2.0.0",
+			StartTime:   1703001234,
+			IPAddresses: []string{"10.0.0.1"},
+			Peers: []PeerConnectionInfo{
+				{
+					PeerID:    peer1,
+					Transport: "quic",
+					RTTMs:     5,
+					IsDialer:  true,
+				},
+				{
+					PeerID:    peer2,
+					Transport: "ws",
+					RTTMs:     25,
+					IsDialer:  false,
+				},
+			},
+		},
+		SeenBy: []identity.AgentID{origin},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeNodeInfoAdvertise(data)
+	if err != nil {
+		t.Fatalf("DecodeNodeInfoAdvertise() error = %v", err)
+	}
+
+	// Verify peers were decoded correctly
+	if len(decoded.Info.Peers) != 2 {
+		t.Fatalf("Peers length = %d, want 2", len(decoded.Info.Peers))
+	}
+
+	// Check first peer
+	if !bytes.Equal(decoded.Info.Peers[0].PeerID[:], peer1[:]) {
+		t.Error("Peer[0].PeerID mismatch")
+	}
+	if decoded.Info.Peers[0].Transport != "quic" {
+		t.Errorf("Peer[0].Transport = %s, want quic", decoded.Info.Peers[0].Transport)
+	}
+	if decoded.Info.Peers[0].RTTMs != 5 {
+		t.Errorf("Peer[0].RTTMs = %d, want 5", decoded.Info.Peers[0].RTTMs)
+	}
+	if !decoded.Info.Peers[0].IsDialer {
+		t.Error("Peer[0].IsDialer = false, want true")
+	}
+
+	// Check second peer
+	if !bytes.Equal(decoded.Info.Peers[1].PeerID[:], peer2[:]) {
+		t.Error("Peer[1].PeerID mismatch")
+	}
+	if decoded.Info.Peers[1].Transport != "ws" {
+		t.Errorf("Peer[1].Transport = %s, want ws", decoded.Info.Peers[1].Transport)
+	}
+	if decoded.Info.Peers[1].RTTMs != 25 {
+		t.Errorf("Peer[1].RTTMs = %d, want 25", decoded.Info.Peers[1].RTTMs)
+	}
+	if decoded.Info.Peers[1].IsDialer {
+		t.Error("Peer[1].IsDialer = true, want false")
+	}
+}
+
+func TestNodeInfoAdvertise_BackwardCompatibility(t *testing.T) {
+	// Simulate old-format NodeInfo (without peers) by encoding without peers
+	// then decoding - should work and have empty peers slice
+	origin, _ := identity.NewAgentID()
+
+	original := &NodeInfoAdvertise{
+		OriginAgent: origin,
+		Sequence:    1,
+		Info: NodeInfo{
+			DisplayName: "old-agent",
+			Hostname:    "oldhost",
+			OS:          "linux",
+			Arch:        "amd64",
+			Version:     "0.9.0",
+			StartTime:   1700000000,
+			IPAddresses: []string{},
+			Peers:       nil, // No peers (old format)
+		},
+		SeenBy: []identity.AgentID{},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeNodeInfoAdvertise(data)
+	if err != nil {
+		t.Fatalf("DecodeNodeInfoAdvertise() error = %v", err)
+	}
+
+	// Should decode successfully with empty or nil peers
+	if len(decoded.Info.Peers) != 0 {
+		t.Errorf("Peers length = %d, want 0", len(decoded.Info.Peers))
+	}
+}
+
+func TestNodeInfoAdvertise_MaxPeers(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+
+	// Create more than MaxPeersInNodeInfo peers
+	peers := make([]PeerConnectionInfo, MaxPeersInNodeInfo+10)
+	for i := range peers {
+		peerID, _ := identity.NewAgentID()
+		peers[i] = PeerConnectionInfo{
+			PeerID:    peerID,
+			Transport: "quic",
+			RTTMs:     int64(i),
+			IsDialer:  i%2 == 0,
+		}
+	}
+
+	original := &NodeInfoAdvertise{
+		OriginAgent: origin,
+		Sequence:    1,
+		Info: NodeInfo{
+			DisplayName: "many-peers",
+			Hostname:    "host",
+			OS:          "linux",
+			Arch:        "amd64",
+			Version:     "1.0.0",
+			StartTime:   1703001234,
+			IPAddresses: []string{},
+			Peers:       peers,
+		},
+		SeenBy: []identity.AgentID{},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeNodeInfoAdvertise(data)
+	if err != nil {
+		t.Fatalf("DecodeNodeInfoAdvertise() error = %v", err)
+	}
+
+	// Should be limited to MaxPeersInNodeInfo
+	if len(decoded.Info.Peers) != MaxPeersInNodeInfo {
+		t.Errorf("Peers length = %d, want %d", len(decoded.Info.Peers), MaxPeersInNodeInfo)
+	}
+}
+
+func TestDecodeNodeInfoAdvertise_TooShort(t *testing.T) {
+	_, err := DecodeNodeInfoAdvertise(make([]byte, 20))
+	if err == nil {
+		t.Error("DecodeNodeInfoAdvertise() should fail with short data")
+	}
+}
