@@ -216,6 +216,45 @@
     font-weight: 600;
 }
 
+/* Exit Routes Section */
+.station-tooltip .tooltip-exits {
+    padding: 0.5rem 0.8rem;
+    border-top: 1px solid #2a2a4a;
+    background: #16213e;
+}
+
+.station-tooltip .tooltip-exits-header {
+    font-size: 0.65rem;
+    color: #22c55e;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.station-tooltip .tooltip-exits-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.station-tooltip .tooltip-cidr {
+    background: #1a1a2e;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.7rem;
+    color: #22c55e;
+    border: 1px solid #2a2a4a;
+}
+
+.station-tooltip .tooltip-cidr-more {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.65rem;
+    color: #6b7280;
+    font-style: italic;
+}
+
 /* Connection Hover Tooltip */
 .connection-tooltip {
     position: fixed;

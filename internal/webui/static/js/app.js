@@ -30,6 +30,7 @@ class Dashboard {
             this.updateAgentInfo(dashboard.agent);
             this.updateStats(dashboard.stats, dashboard.routes);
             this.updateRoutesTable(dashboard.routes);
+            this.metroMap.setRoutes(dashboard.routes);
             this.metroMap.update(topology);
             this.updateLastRefresh();
         } catch (error) {

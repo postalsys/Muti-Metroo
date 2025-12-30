@@ -7,6 +7,7 @@ class MetroMap {
         this.stationsLayer = document.getElementById('stations-layer');
         this.agents = new Map();
         this.connections = [];
+        this.routes = []; // Route data for showing exit CIDRs
         this.gridSize = 120;
         this.stationRadius = 10;
         this.localStationRadius = 14;
@@ -23,6 +24,18 @@ class MetroMap {
         this.createTooltips();
     }
 
+    // Update route data for showing exit CIDRs in tooltips
+    setRoutes(routes) {
+        this.routes = routes || [];
+    }
+
+    // Get exit CIDRs for a given agent
+    getExitCIDRs(agentShortId) {
+        return this.routes
+            .filter(r => r.origin_id === agentShortId)
+            .map(r => r.network);
+    }
+
     createTooltips() {
         // Station tooltip
         this.stationTooltip = document.createElement('div');
@@ -33,6 +46,7 @@ class MetroMap {
                 <div class="tooltip-name"></div>
             </div>
             <div class="tooltip-info"></div>
+            <div class="tooltip-exits"></div>
             <div class="tooltip-id-section">
                 <div class="tooltip-id-label">Agent ID</div>
                 <div class="tooltip-id"></div>
@@ -526,6 +540,26 @@ class MetroMap {
         }
 
         infoEl.innerHTML = infoHtml;
+
+        // Build exit routes section
+        const exitsEl = this.stationTooltip.querySelector('.tooltip-exits');
+        const exitCIDRs = this.getExitCIDRs(agent.short_id);
+        if (exitCIDRs.length > 0) {
+            let exitsHtml = '<div class="tooltip-exits-header">Exit Routes</div>';
+            exitsHtml += '<div class="tooltip-exits-list">';
+            // Show first 5 CIDRs, with count if more
+            const displayCIDRs = exitCIDRs.slice(0, 5);
+            exitsHtml += displayCIDRs.map(cidr => `<span class="tooltip-cidr">${cidr}</span>`).join('');
+            if (exitCIDRs.length > 5) {
+                exitsHtml += `<span class="tooltip-cidr-more">+${exitCIDRs.length - 5} more</span>`;
+            }
+            exitsHtml += '</div>';
+            exitsEl.innerHTML = exitsHtml;
+            exitsEl.style.display = 'block';
+        } else {
+            exitsEl.innerHTML = '';
+            exitsEl.style.display = 'none';
+        }
 
         // Update ID
         const idEl = this.stationTooltip.querySelector('.tooltip-id');
