@@ -27,6 +27,7 @@ type PeerInfo struct {
 // ManagerConfig contains configuration for the peer manager.
 type ManagerConfig struct {
 	LocalID           identity.AgentID
+	DisplayName       string
 	Capabilities      []string
 	Transport         transport.Transport
 	DialOptions       transport.DialOptions
@@ -80,7 +81,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 
 	m := &Manager{
 		cfg:        cfg,
-		handshaker: NewHandshaker(cfg.LocalID, cfg.Capabilities, cfg.HandshakeTimeout),
+		handshaker: NewHandshaker(cfg.LocalID, cfg.DisplayName, cfg.Capabilities, cfg.HandshakeTimeout),
 		logger:     logger,
 		peers:      make(map[identity.AgentID]*Connection),
 		peerInfos:  make(map[string]*PeerInfo),

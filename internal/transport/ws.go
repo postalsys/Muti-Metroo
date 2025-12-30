@@ -322,6 +322,11 @@ func (c *WebSocketPeerConn) IsDialer() bool {
 	return c.isDialer
 }
 
+// TransportType returns the transport protocol type.
+func (c *WebSocketPeerConn) TransportType() TransportType {
+	return TransportWebSocket
+}
+
 // WebSocketStream implements Stream for WebSocket.
 // It wraps the WebSocket connection as a stream using binary messages.
 type WebSocketStream struct {

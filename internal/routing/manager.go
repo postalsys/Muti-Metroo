@@ -4,8 +4,10 @@ package routing
 import (
 	"net"
 	"sync"
+	"time"
 
 	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/protocol"
 )
 
 // RouteChange represents a route update.
@@ -30,14 +32,23 @@ type LocalRoute struct {
 	Metric  uint16
 }
 
+// NodeInfoEntry stores node info with metadata.
+type NodeInfoEntry struct {
+	Info       *protocol.NodeInfo
+	Sequence   uint64
+	LastUpdate time.Time
+}
+
 // Manager handles route management including local routes and propagation.
 type Manager struct {
 	mu sync.RWMutex
 
-	localID     identity.AgentID
-	table       *Table
-	localRoutes map[string]*LocalRoute
-	sequence    uint64
+	localID      identity.AgentID
+	table        *Table
+	localRoutes  map[string]*LocalRoute
+	displayNames map[identity.AgentID]string // Agent ID -> Display Name mapping
+	nodeInfos    map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
+	sequence     uint64
 
 	// Subscribers for route changes
 	subscribers []chan<- RouteChange
@@ -47,10 +58,108 @@ type Manager struct {
 // NewManager creates a new route manager.
 func NewManager(localID identity.AgentID) *Manager {
 	return &Manager{
-		localID:     localID,
-		table:       NewTable(localID),
-		localRoutes: make(map[string]*LocalRoute),
+		localID:      localID,
+		table:        NewTable(localID),
+		localRoutes:  make(map[string]*LocalRoute),
+		displayNames: make(map[identity.AgentID]string),
+		nodeInfos:    make(map[identity.AgentID]*NodeInfoEntry),
 	}
+}
+
+// SetDisplayName stores a display name for an agent.
+func (m *Manager) SetDisplayName(agentID identity.AgentID, displayName string) {
+	if displayName == "" {
+		return
+	}
+	m.mu.Lock()
+	m.displayNames[agentID] = displayName
+	m.mu.Unlock()
+}
+
+// GetDisplayName returns the display name for an agent, or empty string if not known.
+func (m *Manager) GetDisplayName(agentID identity.AgentID) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.displayNames[agentID]
+}
+
+// GetAllDisplayNames returns a copy of all known agent display names.
+func (m *Manager) GetAllDisplayNames() map[identity.AgentID]string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[identity.AgentID]string, len(m.displayNames))
+	for k, v := range m.displayNames {
+		result[k] = v
+	}
+	return result
+}
+
+// SetNodeInfo stores or updates node info for an agent.
+// Only updates if the sequence is newer than the existing entry.
+func (m *Manager) SetNodeInfo(agentID identity.AgentID, info *protocol.NodeInfo, sequence uint64) bool {
+	if info == nil {
+		return false
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if we already have a newer entry
+	existing, exists := m.nodeInfos[agentID]
+	if exists && existing.Sequence >= sequence {
+		return false // Already have newer or equal info
+	}
+
+	m.nodeInfos[agentID] = &NodeInfoEntry{
+		Info:       info,
+		Sequence:   sequence,
+		LastUpdate: time.Now(),
+	}
+
+	// Also update display name for consistency
+	if info.DisplayName != "" {
+		m.displayNames[agentID] = info.DisplayName
+	}
+
+	return true
+}
+
+// GetNodeInfo returns node info for an agent.
+func (m *Manager) GetNodeInfo(agentID identity.AgentID) *protocol.NodeInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if entry, ok := m.nodeInfos[agentID]; ok {
+		return entry.Info
+	}
+	return nil
+}
+
+// GetAllNodeInfo returns a copy of all known node info.
+func (m *Manager) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[identity.AgentID]*protocol.NodeInfo, len(m.nodeInfos))
+	for k, v := range m.nodeInfos {
+		result[k] = v.Info
+	}
+	return result
+}
+
+// GetNodeInfoEntry returns the full node info entry with metadata.
+func (m *Manager) GetNodeInfoEntry(agentID identity.AgentID) *NodeInfoEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.nodeInfos[agentID]
+}
+
+// GetNodeInfoSequence returns the current sequence for a node's info, or 0 if unknown.
+func (m *Manager) GetNodeInfoSequence(agentID identity.AgentID) uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if entry, ok := m.nodeInfos[agentID]; ok {
+		return entry.Sequence
+	}
+	return 0
 }
 
 // Table returns the underlying routing table.

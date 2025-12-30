@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Muti Metroo Dashboard</title>
+    <link rel="stylesheet" href="/ui/css/style.css">
+    <link rel="stylesheet" href="/ui/css/metro.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Muti Metroo</h1>
+            <div id="agent-info">
+                <span id="agent-name">Loading...</span>
+                <span id="agent-id" class="agent-id"></span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section id="stats-panel">
+            <div class="stat-card">
+                <div class="stat-value" id="peer-count">-</div>
+                <div class="stat-label">Peers</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stream-count">-</div>
+                <div class="stat-label">Streams</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="exit-count">-</div>
+                <div class="stat-label">Exit Nodes</div>
+            </div>
+        </section>
+
+        <section id="metro-section">
+            <h2>Network Topology</h2>
+            <div id="map-container">
+                <svg id="metro-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#666"/>
+                        </marker>
+                    </defs>
+                    <g id="connections-layer"></g>
+                    <g id="stations-layer"></g>
+                </svg>
+            </div>
+            <div id="map-legend">
+                <div class="legend-item">
+                    <span class="legend-color local"></span>
+                    <span>Local Agent</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color connected"></span>
+                    <span>Connected Peer</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-color remote"></span>
+                    <span>Remote Agent</span>
+                </div>
+            </div>
+        </section>
+
+        <section id="routes-section">
+            <h2>Route Table</h2>
+            <div class="table-container">
+                <table id="routes-table">
+                    <thead>
+                        <tr>
+                            <th>Network</th>
+                            <th>Exit Node</th>
+                            <th>Path</th>
+                            <th>Hops</th>
+                        </tr>
+                    </thead>
+                    <tbody id="routes-tbody">
+                        <tr><td colspan="4" class="no-data">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <span id="last-update">Last update: Never</span>
+        <span id="refresh-indicator"></span>
+    </footer>
+
+    <script src="/ui/js/api.js"></script>
+    <script src="/ui/js/metro.js"></script>
+    <script src="/ui/js/app.js"></script>
+</body>
+</html>

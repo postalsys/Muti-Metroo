@@ -486,6 +486,11 @@ func (c *H2PeerConn) IsDialer() bool {
 	return c.isDialer
 }
 
+// TransportType returns the transport protocol type.
+func (c *H2PeerConn) TransportType() TransportType {
+	return TransportHTTP2
+}
+
 // H2Stream implements Stream for HTTP/2.
 type H2Stream struct {
 	reader  io.ReadCloser

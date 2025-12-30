@@ -12,8 +12,9 @@ const (
 	FrameStreamReset   uint8 = 0x06 // Abort stream
 
 	// Routing frames
-	FrameRouteAdvertise uint8 = 0x10 // Announce CIDR routes
-	FrameRouteWithdraw  uint8 = 0x11 // Remove CIDR routes
+	FrameRouteAdvertise    uint8 = 0x10 // Announce CIDR routes
+	FrameRouteWithdraw     uint8 = 0x11 // Remove CIDR routes
+	FrameNodeInfoAdvertise uint8 = 0x12 // Announce node metadata
 
 	// Control frames
 	FramePeerHello    uint8 = 0x20 // Initial handshake
@@ -106,6 +107,8 @@ func FrameTypeName(t uint8) string {
 		return "ROUTE_ADVERTISE"
 	case FrameRouteWithdraw:
 		return "ROUTE_WITHDRAW"
+	case FrameNodeInfoAdvertise:
+		return "NODE_INFO_ADVERTISE"
 	case FramePeerHello:
 		return "PEER_HELLO"
 	case FramePeerHelloAck:
@@ -160,7 +163,7 @@ func IsStreamFrame(t uint8) bool {
 
 // IsRoutingFrame returns true if the frame type is a routing-related frame.
 func IsRoutingFrame(t uint8) bool {
-	return t == FrameRouteAdvertise || t == FrameRouteWithdraw
+	return t == FrameRouteAdvertise || t == FrameRouteWithdraw || t == FrameNodeInfoAdvertise
 }
 
 // IsControlFrame returns true if the frame type is a control frame.

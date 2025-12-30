@@ -1,0 +1,594 @@
+// Metro Map Visualization for Muti Metroo
+
+class MetroMap {
+    constructor(svgElement) {
+        this.svg = svgElement;
+        this.connectionsLayer = document.getElementById('connections-layer');
+        this.stationsLayer = document.getElementById('stations-layer');
+        this.agents = new Map();
+        this.connections = [];
+        this.gridSize = 120;
+        this.stationRadius = 10;
+        this.localStationRadius = 14;
+        this.lastTopologyHash = null;
+        this.positionCache = new Map(); // Cache positions by agent ID
+
+        // Tooltip state
+        this.stationTooltip = null;
+        this.connectionTooltip = null;
+        this.tooltipHovered = false;
+        this.tooltipHideTimeout = null;
+        this.currentHoveredStation = null;
+
+        this.createTooltips();
+    }
+
+    createTooltips() {
+        // Station tooltip
+        this.stationTooltip = document.createElement('div');
+        this.stationTooltip.className = 'station-tooltip';
+        this.stationTooltip.style.display = 'none';
+        this.stationTooltip.innerHTML = `
+            <div class="tooltip-header">
+                <div class="tooltip-name"></div>
+            </div>
+            <div class="tooltip-info"></div>
+            <div class="tooltip-id-section">
+                <div class="tooltip-id-label">Agent ID</div>
+                <div class="tooltip-id"></div>
+                <div class="tooltip-id-hint">Click to copy</div>
+            </div>
+        `;
+        document.body.appendChild(this.stationTooltip);
+
+        // Station tooltip hover events
+        this.stationTooltip.addEventListener('mouseenter', () => {
+            this.tooltipHovered = true;
+            if (this.tooltipHideTimeout) {
+                clearTimeout(this.tooltipHideTimeout);
+                this.tooltipHideTimeout = null;
+            }
+        });
+
+        this.stationTooltip.addEventListener('mouseleave', () => {
+            this.tooltipHovered = false;
+            this.hideStationTooltip();
+        });
+
+        // Click to copy ID
+        const idSection = this.stationTooltip.querySelector('.tooltip-id-section');
+        idSection.addEventListener('click', () => {
+            const idEl = this.stationTooltip.querySelector('.tooltip-id');
+            const id = idEl.textContent;
+            navigator.clipboard.writeText(id).then(() => {
+                const hint = this.stationTooltip.querySelector('.tooltip-id-hint');
+                hint.textContent = 'Copied!';
+                hint.classList.add('tooltip-id-copied');
+                setTimeout(() => {
+                    hint.textContent = 'Click to copy';
+                    hint.classList.remove('tooltip-id-copied');
+                }, 1500);
+            });
+        });
+
+        // Connection tooltip
+        this.connectionTooltip = document.createElement('div');
+        this.connectionTooltip.className = 'connection-tooltip';
+        this.connectionTooltip.style.display = 'none';
+        document.body.appendChild(this.connectionTooltip);
+    }
+
+    // Create a hash of topology to detect changes
+    hashTopology(topology) {
+        const agentIds = topology.agents.map(a => a.short_id).sort().join(',');
+        const connIds = topology.connections.map(c => `${c.from_agent}-${c.to_agent}`).sort().join(',');
+        return `${agentIds}|${connIds}`;
+    }
+
+    update(topology) {
+        // Check if topology actually changed
+        const newHash = this.hashTopology(topology);
+        if (newHash === this.lastTopologyHash) {
+            return; // No changes, skip redraw
+        }
+        this.lastTopologyHash = newHash;
+
+        this.agents.clear();
+        this.connections = [];
+
+        // Parse topology into internal structure
+        for (const agent of topology.agents) {
+            this.agents.set(agent.short_id, {
+                ...agent,
+                x: 0,
+                y: 0
+            });
+        }
+
+        for (const conn of topology.connections) {
+            this.connections.push(conn);
+        }
+
+        // Calculate layout using tree-based approach
+        this.calculateTreeLayout();
+
+        // Render
+        this.render();
+    }
+
+    calculateTreeLayout() {
+        const viewBox = this.svg.viewBox.baseVal;
+        const width = viewBox.width;
+        const height = viewBox.height;
+
+        // Find local agent (root of layout)
+        const localAgent = [...this.agents.values()].find(a => a.is_local);
+        if (!localAgent) return;
+
+        // Build bidirectional adjacency list from connections
+        const adjacency = new Map();
+        for (const agent of this.agents.values()) {
+            adjacency.set(agent.short_id, new Set());
+        }
+        for (const conn of this.connections) {
+            adjacency.get(conn.from_agent)?.add(conn.to_agent);
+            adjacency.get(conn.to_agent)?.add(conn.from_agent);
+        }
+
+        // BFS-based layout with 8-direction subway-style constraints
+        const positioned = new Set();
+        const positions = new Map();
+        const usedPositions = new Set();
+
+        // Preferred directions for subway layout (45 and 90 degree angles)
+        // Order matters: prefer south/east first for tree-like structures
+        const directions = [
+            { dx: 0, dy: 1 },   // South
+            { dx: 1, dy: 1 },   // Southeast
+            { dx: -1, dy: 1 },  // Southwest
+            { dx: 1, dy: 0 },   // East
+            { dx: -1, dy: 0 },  // West
+            { dx: 0, dy: -1 },  // North
+            { dx: 1, dy: -1 },  // Northeast
+            { dx: -1, dy: -1 }, // Northwest
+        ];
+
+        // Start with local agent at center (0,0 in grid coordinates)
+        positions.set(localAgent.short_id, { x: 0, y: 0 });
+        positioned.add(localAgent.short_id);
+        usedPositions.add('0,0');
+
+        const queue = [{ id: localAgent.short_id, x: 0, y: 0 }];
+
+        while (queue.length > 0) {
+            const current = queue.shift();
+            const neighbors = Array.from(adjacency.get(current.id) || []);
+
+            // Sort neighbors by ID for deterministic order
+            neighbors.sort();
+
+            let dirIndex = 0;
+            for (const neighborId of neighbors) {
+                if (!positioned.has(neighborId)) {
+                    // Find a free position
+                    let newX, newY;
+                    let found = false;
+
+                    // Try different directions
+                    for (let attempt = 0; attempt < directions.length; attempt++) {
+                        const dir = directions[(dirIndex + attempt) % directions.length];
+                        newX = current.x + dir.dx;
+                        newY = current.y + dir.dy;
+                        const posKey = `${newX},${newY}`;
+
+                        if (!usedPositions.has(posKey)) {
+                            usedPositions.add(posKey);
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        // Fallback: find any free position at distance 2
+                        for (let dy = 1; dy <= 3; dy++) {
+                            for (let dx = -2; dx <= 2; dx++) {
+                                newX = current.x + dx;
+                                newY = current.y + dy;
+                                const posKey = `${newX},${newY}`;
+                                if (!usedPositions.has(posKey)) {
+                                    usedPositions.add(posKey);
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (found) break;
+                        }
+                    }
+
+                    if (found) {
+                        positions.set(neighborId, { x: newX, y: newY });
+                        positioned.add(neighborId);
+                        queue.push({ id: neighborId, x: newX, y: newY });
+                    }
+
+                    dirIndex++;
+                }
+            }
+        }
+
+        // Calculate bounds in grid coordinates
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        positions.forEach((pos) => {
+            minX = Math.min(minX, pos.x);
+            maxX = Math.max(maxX, pos.x);
+            minY = Math.min(minY, pos.y);
+            maxY = Math.max(maxY, pos.y);
+        });
+
+        // Center the layout in the viewport
+        const gridWidth = maxX - minX + 1;
+        const gridHeight = maxY - minY + 1;
+        const centerOffsetX = (minX + maxX) / 2;
+        const centerOffsetY = (minY + maxY) / 2;
+
+        // Apply positions with grid spacing, centered in viewport
+        const centerX = width / 2;
+        const centerY = height / 2;
+
+        this.agents.forEach((agent) => {
+            const pos = positions.get(agent.short_id);
+            if (pos) {
+                agent.x = centerX + (pos.x - centerOffsetX) * this.gridSize;
+                agent.y = centerY + (pos.y - centerOffsetY) * this.gridSize;
+            } else {
+                // Fallback for unpositioned agents
+                agent.x = centerX;
+                agent.y = centerY;
+            }
+        });
+
+        // Assign label positions based on neighbor positions
+        this.agents.forEach(agent => {
+            const pos = positions.get(agent.short_id);
+            if (!pos) {
+                agent.labelPos = 'below';
+                return;
+            }
+
+            // Check which directions have neighbors
+            const neighbors = adjacency.get(agent.short_id) || new Set();
+            let hasAbove = false, hasBelow = false, hasLeft = false, hasRight = false;
+
+            neighbors.forEach(neighborId => {
+                const neighborPos = positions.get(neighborId);
+                if (neighborPos) {
+                    if (neighborPos.y < pos.y) hasAbove = true;
+                    if (neighborPos.y > pos.y) hasBelow = true;
+                    if (neighborPos.x < pos.x) hasLeft = true;
+                    if (neighborPos.x > pos.x) hasRight = true;
+                }
+            });
+
+            // Choose label position to avoid overlapping connections
+            if (!hasBelow) {
+                agent.labelPos = 'below';
+            } else if (!hasAbove) {
+                agent.labelPos = 'above';
+            } else if (!hasRight) {
+                agent.labelPos = 'right';
+            } else if (!hasLeft) {
+                agent.labelPos = 'left';
+            } else {
+                agent.labelPos = 'below';
+            }
+        });
+    }
+
+    snapToGrid(value) {
+        return Math.round(value / this.gridSize) * this.gridSize;
+    }
+
+    render() {
+        // Clear existing content
+        this.connectionsLayer.innerHTML = '';
+        this.stationsLayer.innerHTML = '';
+
+        // Check for empty state
+        if (this.agents.size === 0) {
+            this.renderEmptyState();
+            return;
+        }
+
+        // Render connections first (behind stations)
+        for (const conn of this.connections) {
+            const from = this.agents.get(conn.from_agent);
+            const to = this.agents.get(conn.to_agent);
+            if (from && to) {
+                this.renderConnection(from, to, conn);
+            }
+        }
+
+        // Render stations
+        // Sort by ID for deterministic render order
+        const sortedAgents = [...this.agents.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+        for (const [id, agent] of sortedAgents) {
+            this.renderStation(agent);
+        }
+    }
+
+    renderEmptyState() {
+        const viewBox = this.svg.viewBox.baseVal;
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('class', 'empty-state');
+        text.setAttribute('x', viewBox.width / 2);
+        text.setAttribute('y', viewBox.height / 2);
+        text.textContent = 'No topology data available';
+        this.stationsLayer.appendChild(text);
+    }
+
+    renderConnection(from, to, conn) {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'connection-group');
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', this.createMetroPath(from.x, from.y, to.x, to.y));
+        path.setAttribute('class', `connection ${conn.is_direct ? 'direct' : 'indirect'}`);
+        g.appendChild(path);
+
+        // Connection hover events
+        g.addEventListener('mouseenter', (e) => this.onConnectionHover(e, from, to, conn));
+        g.addEventListener('mousemove', (e) => this.onConnectionMove(e));
+        g.addEventListener('mouseleave', () => this.onConnectionLeave());
+
+        this.connectionsLayer.appendChild(g);
+    }
+
+    onConnectionHover(event, from, to, conn) {
+        const fromName = from.display_name || from.short_id;
+        const toName = to.display_name || to.short_id;
+
+        let html = `
+            <div class="connection-direction">
+                <span>${fromName}</span>
+                <span class="connection-arrow">-></span>
+                <span>${toName}</span>
+            </div>
+            <div class="connection-role">${fromName} (dialer) connects to ${toName} (listener)</div>
+        `;
+
+        if (conn.transport) {
+            const transportName = {
+                'quic': 'QUIC',
+                'h2': 'HTTP/2',
+                'ws': 'WebSocket'
+            }[conn.transport] || conn.transport.toUpperCase();
+            html += `<div class="connection-transport">Transport: ${transportName}</div>`;
+        }
+
+        if (conn.rtt_ms && conn.rtt_ms > 0) {
+            html += `<div class="connection-rtt">RTT: ${conn.rtt_ms}ms</div>`;
+        }
+
+        this.connectionTooltip.innerHTML = html;
+        this.connectionTooltip.style.display = 'block';
+        this.positionConnectionTooltip(event);
+    }
+
+    onConnectionMove(event) {
+        this.positionConnectionTooltip(event);
+    }
+
+    onConnectionLeave() {
+        this.connectionTooltip.style.display = 'none';
+    }
+
+    positionConnectionTooltip(event) {
+        const tooltip = this.connectionTooltip;
+        const rect = tooltip.getBoundingClientRect();
+        let x = event.clientX + 15;
+        let y = event.clientY + 15;
+
+        // Keep tooltip within viewport
+        if (x + rect.width > window.innerWidth) {
+            x = event.clientX - rect.width - 15;
+        }
+        if (y + rect.height > window.innerHeight) {
+            y = event.clientY - rect.height - 15;
+        }
+
+        tooltip.style.left = `${x}px`;
+        tooltip.style.top = `${y}px`;
+    }
+
+    createMetroPath(x1, y1, x2, y2) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+
+        // If nearly aligned horizontally or vertically, draw straight line
+        if (Math.abs(dx) < 10) {
+            return `M${x1},${y1} L${x2},${y2}`;
+        }
+        if (Math.abs(dy) < 10) {
+            return `M${x1},${y1} L${x2},${y2}`;
+        }
+
+        // Create angular path - vertical first (tree goes down), then diagonal
+        const diagonalLength = Math.min(Math.abs(dx), Math.abs(dy));
+
+        // Go vertical first, then diagonal to destination
+        const midY = y1 + (Math.abs(dy) - diagonalLength) * Math.sign(dy);
+        return `M${x1},${y1} V${midY} L${x2},${y2}`;
+    }
+
+    renderStation(agent) {
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const stationType = agent.is_local ? 'local' : (agent.is_connected ? 'connected' : 'remote');
+        g.setAttribute('class', `station ${stationType}`);
+        g.setAttribute('transform', `translate(${agent.x},${agent.y})`);
+        g.setAttribute('data-agent-id', agent.short_id);
+
+        const radius = agent.is_local ? this.localStationRadius : this.stationRadius;
+
+        // Outer circle (border)
+        const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        outer.setAttribute('class', 'station-outer');
+        outer.setAttribute('r', radius);
+
+        // Inner circle (fill)
+        const inner = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        inner.setAttribute('class', 'station-inner');
+        inner.setAttribute('r', radius - 4);
+
+        g.appendChild(outer);
+        g.appendChild(inner);
+
+        // Label
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('class', `station-label ${agent.labelPos || 'below'}`);
+
+        // Position label based on direction
+        switch (agent.labelPos) {
+            case 'above':
+                label.setAttribute('y', -(radius + 8));
+                break;
+            case 'below':
+                label.setAttribute('y', radius + 18);
+                break;
+            case 'left':
+                label.setAttribute('x', -(radius + 8));
+                label.setAttribute('y', 4);
+                break;
+            case 'right':
+                label.setAttribute('x', radius + 8);
+                label.setAttribute('y', 4);
+                break;
+        }
+
+        label.textContent = agent.display_name || agent.short_id;
+        g.appendChild(label);
+
+        // Add hover event
+        g.addEventListener('mouseenter', (e) => this.onStationHover(agent, g, e));
+        g.addEventListener('mouseleave', () => this.onStationLeave(agent, g));
+
+        this.stationsLayer.appendChild(g);
+    }
+
+    onStationHover(agent, element, event) {
+        element.classList.add('selected');
+        this.currentHoveredStation = agent.short_id;
+
+        // Clear any pending hide timeout
+        if (this.tooltipHideTimeout) {
+            clearTimeout(this.tooltipHideTimeout);
+            this.tooltipHideTimeout = null;
+        }
+
+        // Update tooltip content
+        const nameEl = this.stationTooltip.querySelector('.tooltip-name');
+        nameEl.textContent = agent.display_name || agent.short_id;
+
+        // Build info section
+        const infoEl = this.stationTooltip.querySelector('.tooltip-info');
+        let infoHtml = '';
+
+        if (agent.hostname) {
+            infoHtml += `<div class="tooltip-info-line"><span class="tooltip-info-label">Hostname</span><span class="tooltip-info-value">${agent.hostname}</span></div>`;
+        }
+        if (agent.os || agent.arch) {
+            const platform = [agent.os, agent.arch].filter(Boolean).join('/');
+            infoHtml += `<div class="tooltip-info-line"><span class="tooltip-info-label">Platform</span><span class="tooltip-info-value">${platform}</span></div>`;
+        }
+        if (agent.version) {
+            infoHtml += `<div class="tooltip-info-line"><span class="tooltip-info-label">Version</span><span class="tooltip-info-value">${agent.version}</span></div>`;
+        }
+        if (agent.uptime_hours !== undefined && agent.uptime_hours > 0) {
+            const hours = agent.uptime_hours;
+            let uptimeStr;
+            if (hours < 1) {
+                uptimeStr = `${Math.round(hours * 60)}m`;
+            } else if (hours < 24) {
+                uptimeStr = `${Math.round(hours)}h`;
+            } else {
+                const days = Math.floor(hours / 24);
+                const remainingHours = Math.round(hours % 24);
+                uptimeStr = `${days}d ${remainingHours}h`;
+            }
+            infoHtml += `<div class="tooltip-info-line"><span class="tooltip-info-label">Uptime</span><span class="tooltip-info-value">${uptimeStr}</span></div>`;
+        }
+        if (agent.ip_addresses && agent.ip_addresses.length > 0) {
+            // Show first 2 IPs max
+            const ips = agent.ip_addresses.slice(0, 2).join(', ');
+            const suffix = agent.ip_addresses.length > 2 ? ` (+${agent.ip_addresses.length - 2})` : '';
+            infoHtml += `<div class="tooltip-info-line"><span class="tooltip-info-label">IPs</span><span class="tooltip-info-value">${ips}${suffix}</span></div>`;
+        }
+
+        infoEl.innerHTML = infoHtml;
+
+        // Update ID
+        const idEl = this.stationTooltip.querySelector('.tooltip-id');
+        idEl.textContent = agent.id || agent.short_id;
+
+        // Reset hint
+        const hint = this.stationTooltip.querySelector('.tooltip-id-hint');
+        hint.textContent = 'Click to copy';
+        hint.classList.remove('tooltip-id-copied');
+
+        // Position and show tooltip
+        this.stationTooltip.style.display = 'block';
+        this.positionStationTooltip(element);
+    }
+
+    positionStationTooltip(stationElement) {
+        const tooltip = this.stationTooltip;
+        const svgRect = this.svg.getBoundingClientRect();
+        const stationRect = stationElement.getBoundingClientRect();
+
+        // Position tooltip to the right of the station
+        let x = stationRect.right + 10;
+        let y = stationRect.top;
+
+        // After showing, adjust if it goes off screen
+        setTimeout(() => {
+            const tooltipRect = tooltip.getBoundingClientRect();
+
+            // Keep within viewport
+            if (x + tooltipRect.width > window.innerWidth - 10) {
+                x = stationRect.left - tooltipRect.width - 10;
+            }
+            if (y + tooltipRect.height > window.innerHeight - 10) {
+                y = window.innerHeight - tooltipRect.height - 10;
+            }
+            if (y < 10) {
+                y = 10;
+            }
+
+            tooltip.style.left = `${x}px`;
+            tooltip.style.top = `${y}px`;
+        }, 0);
+
+        tooltip.style.left = `${x}px`;
+        tooltip.style.top = `${y}px`;
+    }
+
+    onStationLeave(agent, element) {
+        element.classList.remove('selected');
+
+        // Delay hiding to allow moving to tooltip
+        this.tooltipHideTimeout = setTimeout(() => {
+            if (!this.tooltipHovered) {
+                this.hideStationTooltip();
+            }
+        }, 150);
+    }
+
+    hideStationTooltip() {
+        this.stationTooltip.style.display = 'none';
+        this.currentHoveredStation = null;
+    }
+}
+
+// Export for use in app.js
+window.MetroMap = MetroMap;

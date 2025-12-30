@@ -232,6 +232,11 @@ func (c *QUICPeerConn) IsDialer() bool {
 	return c.isDialer
 }
 
+// TransportType returns the transport protocol type.
+func (c *QUICPeerConn) TransportType() TransportType {
+	return TransportQUIC
+}
+
 // QUICStream implements Stream for QUIC.
 type QUICStream struct {
 	stream quic.Stream

@@ -111,12 +111,14 @@ type PeerHello struct {
 	AgentID      identity.AgentID
 	Timestamp    uint64
 	Capabilities []string
+	DisplayName  string // Added for topology visualization
 }
 
 // Encode serializes PeerHello to bytes.
 func (p *PeerHello) Encode() []byte {
 	// Calculate size
-	size := 2 + 16 + 8 + 1 // version + agentID + timestamp + capLen
+	// version(2) + agentID(16) + timestamp(8) + displayNameLen(1) + displayName + capLen(1) + caps
+	size := 2 + 16 + 8 + 1 + len(p.DisplayName) + 1
 	for _, cap := range p.Capabilities {
 		size += 1 + len(cap)
 	}
@@ -133,6 +135,12 @@ func (p *PeerHello) Encode() []byte {
 	binary.BigEndian.PutUint64(buf[offset:], p.Timestamp)
 	offset += 8
 
+	// DisplayName (length-prefixed string)
+	buf[offset] = uint8(len(p.DisplayName))
+	offset++
+	copy(buf[offset:], p.DisplayName)
+	offset += len(p.DisplayName)
+
 	buf[offset] = uint8(len(p.Capabilities))
 	offset++
 
@@ -148,7 +156,7 @@ func (p *PeerHello) Encode() []byte {
 
 // DecodePeerHello deserializes PeerHello from bytes.
 func DecodePeerHello(buf []byte) (*PeerHello, error) {
-	if len(buf) < 27 { // 2 + 16 + 8 + 1
+	if len(buf) < 28 { // 2 + 16 + 8 + 1 + 1 (min: empty displayName + capLen)
 		return nil, fmt.Errorf("%w: PeerHello too short", ErrInvalidFrame)
 	}
 
@@ -163,6 +171,19 @@ func DecodePeerHello(buf []byte) (*PeerHello, error) {
 
 	p.Timestamp = binary.BigEndian.Uint64(buf[offset:])
 	offset += 8
+
+	// DisplayName
+	displayNameLen := int(buf[offset])
+	offset++
+	if offset+displayNameLen > len(buf) {
+		return nil, fmt.Errorf("%w: PeerHello displayName truncated", ErrInvalidFrame)
+	}
+	p.DisplayName = string(buf[offset : offset+displayNameLen])
+	offset += displayNameLen
+
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: PeerHello capabilities truncated", ErrInvalidFrame)
+	}
 
 	capLen := int(buf[offset])
 	offset++
@@ -495,17 +516,19 @@ func (r *Route) Encode() []byte {
 
 // RouteAdvertise is the payload for ROUTE_ADVERTISE frames.
 type RouteAdvertise struct {
-	OriginAgent identity.AgentID
-	Sequence    uint64
-	Routes      []Route
-	Path        []identity.AgentID
-	SeenBy      []identity.AgentID
+	OriginAgent       identity.AgentID
+	OriginDisplayName string // Display name of the origin agent for topology visualization
+	Sequence          uint64
+	Routes            []Route
+	Path              []identity.AgentID
+	SeenBy            []identity.AgentID
 }
 
 // Encode serializes RouteAdvertise to bytes.
 func (r *RouteAdvertise) Encode() []byte {
 	// Calculate size
-	size := 16 + 8 + 1 // origin + seq + routeCount
+	// origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes + pathLen(1) + path + seenByLen(1) + seenBy
+	size := 16 + 1 + len(r.OriginDisplayName) + 8 + 1
 	for _, route := range r.Routes {
 		if route.AddressFamily == AddrFamilyIPv4 {
 			size += 2 + 4 + 2 // family + prefix + metric
@@ -521,6 +544,12 @@ func (r *RouteAdvertise) Encode() []byte {
 
 	copy(buf[offset:], r.OriginAgent[:])
 	offset += 16
+
+	// OriginDisplayName (length-prefixed string)
+	buf[offset] = uint8(len(r.OriginDisplayName))
+	offset++
+	copy(buf[offset:], r.OriginDisplayName)
+	offset += len(r.OriginDisplayName)
 
 	binary.BigEndian.PutUint64(buf[offset:], r.Sequence)
 	offset += 8
@@ -562,7 +591,7 @@ func (r *RouteAdvertise) Encode() []byte {
 
 // DecodeRouteAdvertise deserializes RouteAdvertise from bytes.
 func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
-	if len(buf) < 27 { // 16 + 8 + 1 + 1 + 1
+	if len(buf) < 28 { // 16 + 1 + 8 + 1 + 1 + 1 (origin + displayNameLen + seq + routeCount + pathLen + seenByLen)
 		return nil, fmt.Errorf("%w: RouteAdvertise too short", ErrInvalidFrame)
 	}
 
@@ -572,9 +601,24 @@ func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 	copy(r.OriginAgent[:], buf[offset:offset+16])
 	offset += 16
 
+	// OriginDisplayName (length-prefixed string)
+	displayNameLen := int(buf[offset])
+	offset++
+	if offset+displayNameLen > len(buf) {
+		return nil, fmt.Errorf("%w: RouteAdvertise displayName truncated", ErrInvalidFrame)
+	}
+	r.OriginDisplayName = string(buf[offset : offset+displayNameLen])
+	offset += displayNameLen
+
+	if offset+8 > len(buf) {
+		return nil, fmt.Errorf("%w: RouteAdvertise sequence truncated", ErrInvalidFrame)
+	}
 	r.Sequence = binary.BigEndian.Uint64(buf[offset:])
 	offset += 8
 
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: RouteAdvertise routes missing", ErrInvalidFrame)
+	}
 	routeCount := int(buf[offset])
 	offset++
 
@@ -753,6 +797,244 @@ func DecodeRouteWithdraw(buf []byte) (*RouteWithdraw, error) {
 	}
 
 	return r, nil
+}
+
+// ============================================================================
+// Node info frames
+// ============================================================================
+
+// NodeInfo contains metadata about an agent in the mesh.
+type NodeInfo struct {
+	DisplayName string   // Human-readable name (from config)
+	Hostname    string   // System hostname
+	OS          string   // Operating system (runtime.GOOS)
+	Arch        string   // Architecture (runtime.GOARCH)
+	Version     string   // Agent version
+	StartTime   int64    // Agent start time (Unix timestamp)
+	IPAddresses []string // Local IP addresses (non-loopback)
+}
+
+// NodeInfoAdvertise is the payload for NODE_INFO_ADVERTISE frames.
+// Used to announce node metadata to all agents in the mesh.
+type NodeInfoAdvertise struct {
+	OriginAgent identity.AgentID   // Agent advertising its info
+	Sequence    uint64             // Monotonically increasing sequence
+	Info        NodeInfo           // Node metadata
+	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
+}
+
+// Encode serializes NodeInfoAdvertise to bytes.
+func (n *NodeInfoAdvertise) Encode() []byte {
+	// Format:
+	// OriginAgent(16) + Sequence(8) +
+	// DisplayNameLen(1) + DisplayName +
+	// HostnameLen(1) + Hostname +
+	// OSLen(1) + OS +
+	// ArchLen(1) + Arch +
+	// VersionLen(1) + Version +
+	// StartTime(8) +
+	// IPCount(1) + [IPLen(1) + IP]... +
+	// SeenByLen(1) + SeenBy(N*16)
+
+	size := 16 + 8 // OriginAgent + Sequence
+	size += 1 + len(n.Info.DisplayName)
+	size += 1 + len(n.Info.Hostname)
+	size += 1 + len(n.Info.OS)
+	size += 1 + len(n.Info.Arch)
+	size += 1 + len(n.Info.Version)
+	size += 8 // StartTime
+	size += 1 // IPCount
+	for _, ip := range n.Info.IPAddresses {
+		size += 1 + len(ip)
+	}
+	size += 1 + len(n.SeenBy)*16
+
+	buf := make([]byte, size)
+	offset := 0
+
+	// OriginAgent
+	copy(buf[offset:], n.OriginAgent[:])
+	offset += 16
+
+	// Sequence
+	binary.BigEndian.PutUint64(buf[offset:], n.Sequence)
+	offset += 8
+
+	// DisplayName
+	buf[offset] = uint8(len(n.Info.DisplayName))
+	offset++
+	copy(buf[offset:], n.Info.DisplayName)
+	offset += len(n.Info.DisplayName)
+
+	// Hostname
+	buf[offset] = uint8(len(n.Info.Hostname))
+	offset++
+	copy(buf[offset:], n.Info.Hostname)
+	offset += len(n.Info.Hostname)
+
+	// OS
+	buf[offset] = uint8(len(n.Info.OS))
+	offset++
+	copy(buf[offset:], n.Info.OS)
+	offset += len(n.Info.OS)
+
+	// Arch
+	buf[offset] = uint8(len(n.Info.Arch))
+	offset++
+	copy(buf[offset:], n.Info.Arch)
+	offset += len(n.Info.Arch)
+
+	// Version
+	buf[offset] = uint8(len(n.Info.Version))
+	offset++
+	copy(buf[offset:], n.Info.Version)
+	offset += len(n.Info.Version)
+
+	// StartTime
+	binary.BigEndian.PutUint64(buf[offset:], uint64(n.Info.StartTime))
+	offset += 8
+
+	// IPAddresses
+	buf[offset] = uint8(len(n.Info.IPAddresses))
+	offset++
+	for _, ip := range n.Info.IPAddresses {
+		buf[offset] = uint8(len(ip))
+		offset++
+		copy(buf[offset:], ip)
+		offset += len(ip)
+	}
+
+	// SeenBy
+	buf[offset] = uint8(len(n.SeenBy))
+	offset++
+	for _, id := range n.SeenBy {
+		copy(buf[offset:], id[:])
+		offset += 16
+	}
+
+	return buf
+}
+
+// DecodeNodeInfoAdvertise deserializes NodeInfoAdvertise from bytes.
+func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
+	if len(buf) < 30 { // Minimum: 16 + 8 + 1 + 1 + 1 + 1 + 1 + 8 + 1 + 1 = 30
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise too short", ErrInvalidFrame)
+	}
+
+	n := &NodeInfoAdvertise{}
+	offset := 0
+
+	// OriginAgent
+	copy(n.OriginAgent[:], buf[offset:offset+16])
+	offset += 16
+
+	// Sequence
+	n.Sequence = binary.BigEndian.Uint64(buf[offset:])
+	offset += 8
+
+	// DisplayName
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise displayName length missing", ErrInvalidFrame)
+	}
+	displayNameLen := int(buf[offset])
+	offset++
+	if offset+displayNameLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise displayName truncated", ErrInvalidFrame)
+	}
+	n.Info.DisplayName = string(buf[offset : offset+displayNameLen])
+	offset += displayNameLen
+
+	// Hostname
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise hostname length missing", ErrInvalidFrame)
+	}
+	hostnameLen := int(buf[offset])
+	offset++
+	if offset+hostnameLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise hostname truncated", ErrInvalidFrame)
+	}
+	n.Info.Hostname = string(buf[offset : offset+hostnameLen])
+	offset += hostnameLen
+
+	// OS
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise os length missing", ErrInvalidFrame)
+	}
+	osLen := int(buf[offset])
+	offset++
+	if offset+osLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise os truncated", ErrInvalidFrame)
+	}
+	n.Info.OS = string(buf[offset : offset+osLen])
+	offset += osLen
+
+	// Arch
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise arch length missing", ErrInvalidFrame)
+	}
+	archLen := int(buf[offset])
+	offset++
+	if offset+archLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise arch truncated", ErrInvalidFrame)
+	}
+	n.Info.Arch = string(buf[offset : offset+archLen])
+	offset += archLen
+
+	// Version
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise version length missing", ErrInvalidFrame)
+	}
+	versionLen := int(buf[offset])
+	offset++
+	if offset+versionLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise version truncated", ErrInvalidFrame)
+	}
+	n.Info.Version = string(buf[offset : offset+versionLen])
+	offset += versionLen
+
+	// StartTime
+	if offset+8 > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise startTime truncated", ErrInvalidFrame)
+	}
+	n.Info.StartTime = int64(binary.BigEndian.Uint64(buf[offset:]))
+	offset += 8
+
+	// IPAddresses
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise ipCount missing", ErrInvalidFrame)
+	}
+	ipCount := int(buf[offset])
+	offset++
+	n.Info.IPAddresses = make([]string, ipCount)
+	for i := 0; i < ipCount; i++ {
+		if offset >= len(buf) {
+			return nil, fmt.Errorf("%w: NodeInfoAdvertise ip length missing", ErrInvalidFrame)
+		}
+		ipLen := int(buf[offset])
+		offset++
+		if offset+ipLen > len(buf) {
+			return nil, fmt.Errorf("%w: NodeInfoAdvertise ip truncated", ErrInvalidFrame)
+		}
+		n.Info.IPAddresses[i] = string(buf[offset : offset+ipLen])
+		offset += ipLen
+	}
+
+	// SeenBy
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise seenByLen missing", ErrInvalidFrame)
+	}
+	seenByLen := int(buf[offset])
+	offset++
+	n.SeenBy = make([]identity.AgentID, seenByLen)
+	for i := 0; i < seenByLen; i++ {
+		if offset+16 > len(buf) {
+			return nil, fmt.Errorf("%w: NodeInfoAdvertise seenBy truncated", ErrInvalidFrame)
+		}
+		copy(n.SeenBy[i][:], buf[offset:offset+16])
+		offset += 16
+	}
+
+	return n, nil
 }
 
 // ============================================================================

@@ -45,8 +45,9 @@ func (s ConnectionState) String() string {
 // Connection represents a connection to a single peer.
 type Connection struct {
 	// Identity
-	LocalID  identity.AgentID
-	RemoteID identity.AgentID
+	LocalID           identity.AgentID
+	RemoteID          identity.AgentID
+	RemoteDisplayName string // Display name received during handshake
 
 	// Connection
 	conn       transport.PeerConn
@@ -139,6 +140,14 @@ func (c *Connection) SetState(state ConnectionState) {
 // IsDialer returns true if this side initiated the connection.
 func (c *Connection) IsDialer() bool {
 	return c.isDialer
+}
+
+// TransportType returns the transport protocol type for this connection.
+func (c *Connection) TransportType() transport.TransportType {
+	if c.conn == nil {
+		return ""
+	}
+	return c.conn.TransportType()
 }
 
 // Capabilities returns the remote peer's capabilities.

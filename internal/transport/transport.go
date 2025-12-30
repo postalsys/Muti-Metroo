@@ -65,6 +65,9 @@ type PeerConn interface {
 
 	// IsDialer returns true if this side initiated the connection.
 	IsDialer() bool
+
+	// TransportType returns the transport protocol type.
+	TransportType() TransportType
 }
 
 // Stream is a bidirectional byte stream with half-close support.

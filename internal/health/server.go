@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/webui"
 )
 
 // StatsProvider provides agent statistics.
@@ -46,6 +48,41 @@ type RemoteMetricsProvider interface {
 
 	// GetKnownAgentIDs returns a list of all known agent IDs (including remote via routes).
 	GetKnownAgentIDs() []identity.AgentID
+
+	// GetPeerDetails returns detailed information about connected peers for the dashboard.
+	GetPeerDetails() []PeerDetails
+
+	// GetRouteDetails returns detailed route information for the dashboard.
+	GetRouteDetails() []RouteDetails
+
+	// GetAllDisplayNames returns display names for all known agents (from route advertisements).
+	GetAllDisplayNames() map[identity.AgentID]string
+
+	// GetAllNodeInfo returns node info for all known agents.
+	GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo
+
+	// GetLocalNodeInfo returns local node info.
+	GetLocalNodeInfo() *protocol.NodeInfo
+}
+
+// PeerDetails contains detailed information about a connected peer.
+type PeerDetails struct {
+	ID          identity.AgentID
+	DisplayName string
+	State       string
+	RTT         time.Duration
+	IsDialer    bool
+	Transport   string // Transport type: "quic", "h2", "ws"
+}
+
+// RouteDetails contains detailed route information.
+type RouteDetails struct {
+	Network  string
+	NextHop  identity.AgentID
+	Origin   identity.AgentID
+	Metric   int
+	HopCount int
+	Path     []identity.AgentID // Full path from local to origin
 }
 
 // RouteAdvertiseTrigger provides the ability to trigger immediate route advertisement.
@@ -61,6 +98,64 @@ type Stats struct {
 	RouteCount     int  `json:"route_count"`
 	SOCKS5Running  bool `json:"socks5_running"`
 	ExitHandlerRun bool `json:"exit_handler_running"`
+}
+
+// TopologyAgentInfo contains information about an agent for the topology API.
+type TopologyAgentInfo struct {
+	ID          string   `json:"id"`
+	ShortID     string   `json:"short_id"`
+	DisplayName string   `json:"display_name"`
+	IsLocal     bool     `json:"is_local"`
+	IsConnected bool     `json:"is_connected"`
+	Hostname    string   `json:"hostname,omitempty"`
+	OS          string   `json:"os,omitempty"`
+	Arch        string   `json:"arch,omitempty"`
+	Version     string   `json:"version,omitempty"`
+	UptimeHours float64  `json:"uptime_hours,omitempty"`
+	IPAddresses []string `json:"ip_addresses,omitempty"`
+}
+
+// TopologyConnection represents a connection between two agents.
+type TopologyConnection struct {
+	FromAgent string `json:"from_agent"`
+	ToAgent   string `json:"to_agent"`
+	IsDirect  bool   `json:"is_direct"`
+	RTTMs     int64  `json:"rtt_ms,omitempty"`
+	Transport string `json:"transport,omitempty"` // Transport type for direct connections: "quic", "h2", "ws"
+}
+
+// TopologyResponse is the response for the /api/topology endpoint.
+type TopologyResponse struct {
+	LocalAgent  TopologyAgentInfo    `json:"local_agent"`
+	Agents      []TopologyAgentInfo  `json:"agents"`
+	Connections []TopologyConnection `json:"connections"`
+}
+
+// DashboardPeerInfo contains information about a connected peer.
+type DashboardPeerInfo struct {
+	ID          string `json:"id"`
+	ShortID     string `json:"short_id"`
+	DisplayName string `json:"display_name"`
+	State       string `json:"state"`
+	RTTMs       int64  `json:"rtt_ms"`
+	IsDialer    bool   `json:"is_dialer"`
+}
+
+// DashboardRouteInfo contains information about a route.
+type DashboardRouteInfo struct {
+	Network     string   `json:"network"`
+	Origin      string   `json:"origin"`        // Display name of origin
+	OriginID    string   `json:"origin_id"`     // Short ID of origin
+	HopCount    int      `json:"hop_count"`
+	PathDisplay []string `json:"path_display"`  // Display names: [local, peer1, ..., origin]
+}
+
+// DashboardResponse is the response for the /api/dashboard endpoint.
+type DashboardResponse struct {
+	Agent  TopologyAgentInfo   `json:"agent"`
+	Stats  Stats               `json:"stats"`
+	Peers  []DashboardPeerInfo `json:"peers"`
+	Routes []DashboardRouteInfo `json:"routes"`
 }
 
 // ServerConfig contains health server configuration.
@@ -122,6 +217,27 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 
 	// Route advertisement trigger endpoint
 	mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
+
+	// Dashboard API endpoints
+	mux.HandleFunc("/api/topology", s.handleTopology)
+	mux.HandleFunc("/api/dashboard", s.handleDashboard)
+	mux.HandleFunc("/api/nodes", s.handleNodes)
+
+	// Web UI static files
+	uiHandler := webui.Handler()
+	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
+		// Strip /ui prefix
+		path := strings.TrimPrefix(r.URL.Path, "/ui")
+		if path == "" || path == "/" {
+			path = "/index.html"
+		}
+		r.URL.Path = path
+		uiHandler.ServeHTTP(w, r)
+	})
+	// Redirect /ui to /ui/
+	mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
+	})
 
 	// pprof debug endpoints
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -512,4 +628,347 @@ func (s *Server) handleTriggerAdvertise(w http.ResponseWriter, r *http.Request) 
 		"status":  "triggered",
 		"message": "route advertisement triggered",
 	})
+}
+
+// handleTopology handles GET /api/topology for the metro map visualization.
+func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.remoteProvider == nil {
+		http.Error(w, "provider not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	localID := s.remoteProvider.ID()
+	localName := s.remoteProvider.DisplayName()
+
+	// Get all known display names from route advertisements
+	displayNames := s.remoteProvider.GetAllDisplayNames()
+
+	// Get all known node info
+	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
+	localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
+
+	// Build local agent info
+	localAgent := TopologyAgentInfo{
+		ID:          localID.String(),
+		ShortID:     localID.ShortString(),
+		DisplayName: localName,
+		IsLocal:     true,
+		IsConnected: true,
+	}
+	// Populate local node info if available
+	if localNodeInfo != nil {
+		localAgent.Hostname = localNodeInfo.Hostname
+		localAgent.OS = localNodeInfo.OS
+		localAgent.Arch = localNodeInfo.Arch
+		localAgent.Version = localNodeInfo.Version
+		localAgent.IPAddresses = localNodeInfo.IPAddresses
+		if localNodeInfo.StartTime > 0 {
+			localAgent.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
+		}
+	}
+
+	// Track all agents and connections
+	agentMap := make(map[string]TopologyAgentInfo)
+	agentMap[localID.String()] = localAgent
+
+	// Build set of direct peers
+	peerIDs := s.remoteProvider.GetPeerIDs()
+	peerSet := make(map[identity.AgentID]bool)
+	for _, id := range peerIDs {
+		peerSet[id] = true
+	}
+
+	// Track unique connections (from -> to)
+	connectionSet := make(map[string]TopologyConnection)
+
+	// Add direct peer connections
+	peerDetails := s.remoteProvider.GetPeerDetails()
+	for _, peer := range peerDetails {
+		// Add peer to agent map
+		displayName := peer.DisplayName
+		if displayName == "" {
+			displayName = peer.ID.ShortString()
+		}
+		if _, exists := agentMap[peer.ID.String()]; !exists {
+			agentMap[peer.ID.String()] = TopologyAgentInfo{
+				ID:          peer.ID.String(),
+				ShortID:     peer.ID.ShortString(),
+				DisplayName: displayName,
+				IsLocal:     false,
+				IsConnected: true,
+			}
+		}
+		// Add direct connection
+		connKey := localID.ShortString() + "->" + peer.ID.ShortString()
+		connectionSet[connKey] = TopologyConnection{
+			FromAgent: localID.ShortString(),
+			ToAgent:   peer.ID.ShortString(),
+			IsDirect:  true,
+			RTTMs:     peer.RTT.Milliseconds(),
+			Transport: peer.Transport,
+		}
+	}
+
+	// Extract agents and connections from route paths
+	routeDetails := s.remoteProvider.GetRouteDetails()
+	for _, route := range routeDetails {
+		// Add all agents in the path
+		for _, agentID := range route.Path {
+			if _, exists := agentMap[agentID.String()]; !exists {
+				// Look up display name from route advertisements
+				displayName := displayNames[agentID]
+				if displayName == "" {
+					displayName = agentID.ShortString()
+				}
+				agentMap[agentID.String()] = TopologyAgentInfo{
+					ID:          agentID.String(),
+					ShortID:     agentID.ShortString(),
+					DisplayName: displayName,
+					IsLocal:     false,
+					IsConnected: peerSet[agentID],
+				}
+			}
+		}
+
+		// Build connections between consecutive agents in path
+		// Path is ordered from local toward origin
+		for i := 0; i < len(route.Path)-1; i++ {
+			fromID := route.Path[i]
+			toID := route.Path[i+1]
+			connKey := fromID.ShortString() + "->" + toID.ShortString()
+			if _, exists := connectionSet[connKey]; !exists {
+				connectionSet[connKey] = TopologyConnection{
+					FromAgent: fromID.ShortString(),
+					ToAgent:   toID.ShortString(),
+					IsDirect:  false,
+				}
+			}
+		}
+	}
+
+	// Populate node info for all agents in the map
+	for agentID, nodeInfo := range allNodeInfo {
+		if existing, ok := agentMap[agentID.String()]; ok {
+			existing.Hostname = nodeInfo.Hostname
+			existing.OS = nodeInfo.OS
+			existing.Arch = nodeInfo.Arch
+			existing.Version = nodeInfo.Version
+			existing.IPAddresses = nodeInfo.IPAddresses
+			if nodeInfo.StartTime > 0 {
+				existing.UptimeHours = float64(time.Now().Unix()-nodeInfo.StartTime) / 3600.0
+			}
+			// Update display name from node info if not already set
+			if existing.DisplayName == existing.ShortID && nodeInfo.DisplayName != "" {
+				existing.DisplayName = nodeInfo.DisplayName
+			}
+			agentMap[agentID.String()] = existing
+		}
+	}
+
+	// Convert maps to slices
+	agents := make([]TopologyAgentInfo, 0, len(agentMap))
+	for _, agent := range agentMap {
+		agents = append(agents, agent)
+	}
+
+	connections := make([]TopologyConnection, 0, len(connectionSet))
+	for _, conn := range connectionSet {
+		connections = append(connections, conn)
+	}
+
+	response := TopologyResponse{
+		LocalAgent:  localAgent,
+		Agents:      agents,
+		Connections: connections,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleDashboard handles GET /api/dashboard for the dashboard overview.
+func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.remoteProvider == nil || s.provider == nil {
+		http.Error(w, "provider not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	localID := s.remoteProvider.ID()
+	localName := s.remoteProvider.DisplayName()
+	stats := s.provider.Stats()
+
+	// Build peer info
+	peers := []DashboardPeerInfo{}
+	peerDetails := s.remoteProvider.GetPeerDetails()
+	for _, peer := range peerDetails {
+		peers = append(peers, DashboardPeerInfo{
+			ID:          peer.ID.String(),
+			ShortID:     peer.ID.ShortString(),
+			DisplayName: peer.DisplayName,
+			State:       peer.State,
+			RTTMs:       peer.RTT.Milliseconds(),
+			IsDialer:    peer.IsDialer,
+		})
+	}
+
+	// Get display names for building path display
+	displayNames := s.remoteProvider.GetAllDisplayNames()
+
+	// Helper to get display name or fall back to short ID
+	getDisplayName := func(id identity.AgentID) string {
+		if id == localID {
+			return localName
+		}
+		if name, ok := displayNames[id]; ok && name != "" {
+			return name
+		}
+		return id.ShortString()
+	}
+
+	// Build route info
+	routes := []DashboardRouteInfo{}
+	routeDetails := s.remoteProvider.GetRouteDetails()
+	for _, route := range routeDetails {
+		// Build path display: [local, peer1, peer2, ..., origin]
+		pathDisplay := []string{localName} // Start with local
+		for _, agentID := range route.Path {
+			pathDisplay = append(pathDisplay, getDisplayName(agentID))
+		}
+
+		routes = append(routes, DashboardRouteInfo{
+			Network:     route.Network,
+			Origin:      getDisplayName(route.Origin),
+			OriginID:    route.Origin.ShortString(),
+			HopCount:    route.HopCount,
+			PathDisplay: pathDisplay,
+		})
+	}
+
+	// Sort routes deterministically by network, then by origin
+	sort.Slice(routes, func(i, j int) bool {
+		if routes[i].Network != routes[j].Network {
+			return routes[i].Network < routes[j].Network
+		}
+		return routes[i].OriginID < routes[j].OriginID
+	})
+
+	response := DashboardResponse{
+		Agent: TopologyAgentInfo{
+			ID:          localID.String(),
+			ShortID:     localID.ShortString(),
+			DisplayName: localName,
+			IsLocal:     true,
+			IsConnected: true,
+		},
+		Stats:  stats,
+		Peers:  peers,
+		Routes: routes,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// NodesResponse is the response for the /api/nodes endpoint.
+type NodesResponse struct {
+	Nodes []TopologyAgentInfo `json:"nodes"`
+}
+
+// handleNodes handles GET /api/nodes for detailed node info listing.
+func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.remoteProvider == nil {
+		http.Error(w, "provider not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	localID := s.remoteProvider.ID()
+	localName := s.remoteProvider.DisplayName()
+
+	// Get all known node info
+	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
+	localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
+
+	// Build list of all nodes
+	nodes := []TopologyAgentInfo{}
+
+	// Build set of direct peers
+	peerIDs := s.remoteProvider.GetPeerIDs()
+	peerSet := make(map[identity.AgentID]bool)
+	for _, id := range peerIDs {
+		peerSet[id] = true
+	}
+
+	// Add local node
+	localNode := TopologyAgentInfo{
+		ID:          localID.String(),
+		ShortID:     localID.ShortString(),
+		DisplayName: localName,
+		IsLocal:     true,
+		IsConnected: true,
+	}
+	if localNodeInfo != nil {
+		localNode.Hostname = localNodeInfo.Hostname
+		localNode.OS = localNodeInfo.OS
+		localNode.Arch = localNodeInfo.Arch
+		localNode.Version = localNodeInfo.Version
+		localNode.IPAddresses = localNodeInfo.IPAddresses
+		if localNodeInfo.StartTime > 0 {
+			localNode.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
+		}
+	}
+	nodes = append(nodes, localNode)
+
+	// Add all known remote nodes
+	for agentID, nodeInfo := range allNodeInfo {
+		if agentID == localID {
+			continue // Skip local, already added
+		}
+
+		displayName := nodeInfo.DisplayName
+		if displayName == "" {
+			displayName = agentID.ShortString()
+		}
+
+		node := TopologyAgentInfo{
+			ID:          agentID.String(),
+			ShortID:     agentID.ShortString(),
+			DisplayName: displayName,
+			IsLocal:     false,
+			IsConnected: peerSet[agentID],
+			Hostname:    nodeInfo.Hostname,
+			OS:          nodeInfo.OS,
+			Arch:        nodeInfo.Arch,
+			Version:     nodeInfo.Version,
+			IPAddresses: nodeInfo.IPAddresses,
+		}
+		if nodeInfo.StartTime > 0 {
+			node.UptimeHours = float64(time.Now().Unix()-nodeInfo.StartTime) / 3600.0
+		}
+		nodes = append(nodes, node)
+	}
+
+	response := NodesResponse{
+		Nodes: nodes,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }

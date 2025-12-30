@@ -13,25 +13,28 @@ import (
 
 // HandshakeResult contains the outcome of a successful handshake.
 type HandshakeResult struct {
-	RemoteID     identity.AgentID
-	Capabilities []string
-	RTT          time.Duration
+	RemoteID          identity.AgentID
+	RemoteDisplayName string
+	Capabilities      []string
+	RTT               time.Duration
 }
 
 // Handshaker handles the handshake protocol between peers.
 type Handshaker struct {
 	localID      identity.AgentID
+	displayName  string
 	capabilities []string
 	timeout      time.Duration
 }
 
 // NewHandshaker creates a new handshaker.
-func NewHandshaker(localID identity.AgentID, capabilities []string, timeout time.Duration) *Handshaker {
+func NewHandshaker(localID identity.AgentID, displayName string, capabilities []string, timeout time.Duration) *Handshaker {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
 	return &Handshaker{
 		localID:      localID,
+		displayName:  displayName,
 		capabilities: capabilities,
 		timeout:      timeout,
 	}
@@ -84,6 +87,7 @@ func (h *Handshaker) PerformHandshake(ctx context.Context, conn *Connection, exp
 
 	// Update connection state
 	conn.RemoteID = result.RemoteID
+	conn.RemoteDisplayName = result.RemoteDisplayName
 	conn.capabilities = result.Capabilities
 	conn.SetState(StateConnected)
 
@@ -103,6 +107,7 @@ func (h *Handshaker) dialerHandshake(ctx context.Context, conn *Connection, read
 		AgentID:      h.localID,
 		Timestamp:    uint64(time.Now().UnixNano()),
 		Capabilities: h.capabilities,
+		DisplayName:  h.displayName,
 	}
 
 	if err := writer.Write(&protocol.Frame{
@@ -142,9 +147,10 @@ func (h *Handshaker) dialerHandshake(ctx context.Context, conn *Connection, read
 	conn.UpdateRTT(uint64(startTime.UnixNano()))
 
 	return &HandshakeResult{
-		RemoteID:     remoteID,
-		Capabilities: ack.Capabilities,
-		RTT:          rtt,
+		RemoteID:          remoteID,
+		RemoteDisplayName: ack.DisplayName,
+		Capabilities:      ack.Capabilities,
+		RTT:               rtt,
 	}, nil
 }
 
@@ -186,6 +192,7 @@ func (h *Handshaker) listenerHandshake(ctx context.Context, conn *Connection, re
 		AgentID:      h.localID,
 		Timestamp:    hello.Timestamp, // Echo back for RTT calculation
 		Capabilities: h.capabilities,
+		DisplayName:  h.displayName,
 	}
 
 	if err := writer.Write(&protocol.Frame{
@@ -197,9 +204,10 @@ func (h *Handshaker) listenerHandshake(ctx context.Context, conn *Connection, re
 	}
 
 	return &HandshakeResult{
-		RemoteID:     remoteID,
-		Capabilities: hello.Capabilities,
-		RTT:          0, // Listener doesn't measure RTT during handshake
+		RemoteID:          remoteID,
+		RemoteDisplayName: hello.DisplayName,
+		Capabilities:      hello.Capabilities,
+		RTT:               0, // Listener doesn't measure RTT during handshake
 	}, nil
 }
 

@@ -27,6 +27,19 @@ type SeenAdvertisement struct {
 	SeenFrom  identity.AgentID
 }
 
+// NodeInfoKey uniquely identifies a node info advertisement for dedup.
+type NodeInfoKey struct {
+	OriginAgent identity.AgentID
+	Sequence    uint64
+}
+
+// SeenNodeInfo tracks a seen node info advertisement.
+type SeenNodeInfo struct {
+	Key      NodeInfoKey
+	SeenAt   time.Time
+	SeenFrom identity.AgentID
+}
+
 // FloodConfig contains configuration for the flood protocol.
 type FloodConfig struct {
 	// SeenCacheTTL is how long to remember seen advertisements
@@ -37,6 +50,9 @@ type FloodConfig struct {
 
 	// MaxSeenCacheSize limits the seen cache size
 	MaxSeenCacheSize int
+
+	// LocalDisplayName is the display name to include in route advertisements
+	LocalDisplayName string
 
 	// Logger for logging
 	Logger *slog.Logger
@@ -62,14 +78,20 @@ type PeerSender interface {
 
 // Flooder handles route flooding to mesh peers.
 type Flooder struct {
-	cfg       FloodConfig
-	localID   identity.AgentID
-	routeMgr  *routing.Manager
-	sender    PeerSender
-	logger    *slog.Logger
+	cfg              FloodConfig
+	localID          identity.AgentID
+	localDisplayName string
+	routeMgr         *routing.Manager
+	sender           PeerSender
+	logger           *slog.Logger
 
 	mu        sync.RWMutex
 	seenCache map[AdvertisementKey]*SeenAdvertisement
+
+	// Node info seen cache (separate from route advertisements)
+	nodeInfoMu        sync.RWMutex
+	nodeInfoSeenCache map[NodeInfoKey]*SeenNodeInfo
+	nodeInfoSeq       uint64
 
 	wg       sync.WaitGroup
 	stopOnce sync.Once
@@ -84,13 +106,15 @@ func NewFlooder(cfg FloodConfig, localID identity.AgentID, routeMgr *routing.Man
 	}
 
 	f := &Flooder{
-		cfg:       cfg,
-		localID:   localID,
-		routeMgr:  routeMgr,
-		sender:    sender,
-		logger:    logger,
-		seenCache: make(map[AdvertisementKey]*SeenAdvertisement),
-		stopCh:    make(chan struct{}),
+		cfg:               cfg,
+		localID:           localID,
+		localDisplayName:  cfg.LocalDisplayName,
+		routeMgr:          routeMgr,
+		sender:            sender,
+		logger:            logger,
+		seenCache:         make(map[AdvertisementKey]*SeenAdvertisement),
+		nodeInfoSeenCache: make(map[NodeInfoKey]*SeenNodeInfo),
+		stopCh:            make(chan struct{}),
 	}
 
 	// Start cache cleanup goroutine
@@ -105,6 +129,7 @@ func NewFlooder(cfg FloodConfig, localID identity.AgentID, routeMgr *routing.Man
 func (f *Flooder) HandleRouteAdvertise(
 	fromPeer identity.AgentID,
 	originAgent identity.AgentID,
+	originDisplayName string,
 	sequence uint64,
 	routes []protocol.Route,
 	path []identity.AgentID,
@@ -133,6 +158,11 @@ func (f *Flooder) HandleRouteAdvertise(
 		SeenFrom: fromPeer,
 	}
 	f.mu.Unlock()
+
+	// Store display name for origin agent
+	if originDisplayName != "" {
+		f.routeMgr.SetDisplayName(originAgent, originDisplayName)
+	}
 
 	// Check if we're in the seen-by list (loop detection)
 	for _, id := range seenBy {
@@ -174,7 +204,7 @@ func (f *Flooder) HandleRouteAdvertise(
 
 	// Flood to other peers
 	newSeenBy := append(seenBy, f.localID)
-	f.floodAdvertisement(fromPeer, originAgent, sequence, routes, path, newSeenBy)
+	f.floodAdvertisement(fromPeer, originAgent, originDisplayName, sequence, routes, path, newSeenBy)
 
 	return true
 }
@@ -255,6 +285,7 @@ func (f *Flooder) HandleRouteWithdraw(
 func (f *Flooder) floodAdvertisement(
 	fromPeer identity.AgentID,
 	originAgent identity.AgentID,
+	originDisplayName string,
 	sequence uint64,
 	routes []protocol.Route,
 	path []identity.AgentID,
@@ -264,11 +295,12 @@ func (f *Flooder) floodAdvertisement(
 
 	// Build the advertise payload
 	adv := &protocol.RouteAdvertise{
-		OriginAgent: originAgent,
-		Sequence:    sequence,
-		Routes:      routes,
-		Path:        append([]identity.AgentID{f.localID}, path...), // Prepend ourselves
-		SeenBy:      seenBy,
+		OriginAgent:       originAgent,
+		OriginDisplayName: originDisplayName,
+		Sequence:          sequence,
+		Routes:            routes,
+		Path:              append([]identity.AgentID{f.localID}, path...), // Prepend ourselves
+		SeenBy:            seenBy,
 	}
 
 	frame := &protocol.Frame{
@@ -379,11 +411,12 @@ func (f *Flooder) AnnounceLocalRoutes() {
 
 	// Build advertisement
 	adv := &protocol.RouteAdvertise{
-		OriginAgent: f.localID,
-		Sequence:    seq,
-		Routes:      routes,
-		Path:        []identity.AgentID{f.localID},
-		SeenBy:      []identity.AgentID{f.localID},
+		OriginAgent:       f.localID,
+		OriginDisplayName: f.localDisplayName,
+		Sequence:          seq,
+		Routes:            routes,
+		Path:              []identity.AgentID{f.localID},
+		SeenBy:            []identity.AgentID{f.localID},
 	}
 
 	frame := &protocol.Frame{
@@ -492,12 +525,21 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 			path = []identity.AgentID{f.localID}
 		}
 
+		// Get display name for origin agent
+		var originDisplayName string
+		if originAgent == f.localID {
+			originDisplayName = f.localDisplayName
+		} else {
+			originDisplayName = f.routeMgr.GetDisplayName(originAgent)
+		}
+
 		adv := &protocol.RouteAdvertise{
-			OriginAgent: originAgent,
-			Sequence:    seq,
-			Routes:      routes,
-			Path:        path,
-			SeenBy:      []identity.AgentID{f.localID},
+			OriginAgent:       originAgent,
+			OriginDisplayName: originDisplayName,
+			Sequence:          seq,
+			Routes:            routes,
+			Path:              path,
+			SeenBy:            []identity.AgentID{f.localID},
 		}
 
 		frame := &protocol.Frame{
@@ -532,14 +574,13 @@ func (f *Flooder) cleanupLoop() {
 	}
 }
 
-// cleanup removes expired entries from the seen cache.
+// cleanup removes expired entries from the seen caches.
 func (f *Flooder) cleanup() {
 	now := time.Now()
 	expiry := f.cfg.SeenCacheTTL
 
+	// Cleanup route advertisement cache
 	f.mu.Lock()
-	defer f.mu.Unlock()
-
 	for key, entry := range f.seenCache {
 		if now.Sub(entry.SeenAt) > expiry {
 			delete(f.seenCache, key)
@@ -563,6 +604,32 @@ func (f *Flooder) cleanup() {
 			delete(f.seenCache, key)
 		}
 	}
+	f.mu.Unlock()
+
+	// Cleanup node info cache
+	f.nodeInfoMu.Lock()
+	for key, entry := range f.nodeInfoSeenCache {
+		if now.Sub(entry.SeenAt) > expiry {
+			delete(f.nodeInfoSeenCache, key)
+		}
+	}
+
+	// If still too large, remove oldest entries
+	if len(f.nodeInfoSeenCache) > f.cfg.MaxSeenCacheSize {
+		excess := len(f.nodeInfoSeenCache) - f.cfg.MaxSeenCacheSize
+		var oldest []NodeInfoKey
+		for key, entry := range f.nodeInfoSeenCache {
+			oldest = append(oldest, key)
+			if len(oldest) >= excess {
+				break
+			}
+			_ = entry
+		}
+		for _, key := range oldest {
+			delete(f.nodeInfoSeenCache, key)
+		}
+	}
+	f.nodeInfoMu.Unlock()
 }
 
 // SeenCacheSize returns the current size of the seen cache.
@@ -599,4 +666,201 @@ func (f *Flooder) ClearSeenCache() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.seenCache = make(map[AdvertisementKey]*SeenAdvertisement)
+}
+
+// HandleNodeInfoAdvertise processes an incoming NODE_INFO_ADVERTISE frame.
+// Returns true if the node info was new and should be processed.
+func (f *Flooder) HandleNodeInfoAdvertise(
+	fromPeer identity.AgentID,
+	originAgent identity.AgentID,
+	sequence uint64,
+	info *protocol.NodeInfo,
+	seenBy []identity.AgentID,
+) bool {
+	key := NodeInfoKey{
+		OriginAgent: originAgent,
+		Sequence:    sequence,
+	}
+
+	// Check if we've already seen this and mark as seen atomically
+	f.nodeInfoMu.Lock()
+	if existing, ok := f.nodeInfoSeenCache[key]; ok {
+		// Already seen - update seen time if from a new peer
+		if existing.SeenFrom != fromPeer {
+			existing.SeenAt = time.Now()
+		}
+		f.nodeInfoMu.Unlock()
+		return false
+	}
+
+	// Mark as seen
+	f.nodeInfoSeenCache[key] = &SeenNodeInfo{
+		Key:      key,
+		SeenAt:   time.Now(),
+		SeenFrom: fromPeer,
+	}
+	f.nodeInfoMu.Unlock()
+
+	// Check if we're in the seen-by list (loop detection)
+	for _, id := range seenBy {
+		if id == f.localID {
+			return false // We've already processed this
+		}
+	}
+
+	// Store the node info in the routing manager
+	if f.routeMgr.SetNodeInfo(originAgent, info, sequence) {
+		f.logger.Debug("stored node info",
+			"origin", originAgent.ShortString(),
+			"display_name", info.DisplayName,
+			"hostname", info.Hostname)
+	}
+
+	// Flood to other peers
+	newSeenBy := append(seenBy, f.localID)
+	f.floodNodeInfo(fromPeer, originAgent, sequence, info, newSeenBy)
+
+	return true
+}
+
+// floodNodeInfo sends node info advertisement to all peers except the source.
+func (f *Flooder) floodNodeInfo(
+	fromPeer identity.AgentID,
+	originAgent identity.AgentID,
+	sequence uint64,
+	info *protocol.NodeInfo,
+	seenBy []identity.AgentID,
+) {
+	peers := f.sender.GetPeerIDs()
+
+	// Build the node info advertise payload
+	adv := &protocol.NodeInfoAdvertise{
+		OriginAgent: originAgent,
+		Sequence:    sequence,
+		Info:        *info,
+		SeenBy:      seenBy,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameNodeInfoAdvertise,
+		StreamID: protocol.ControlStreamID,
+		Payload:  adv.Encode(),
+	}
+
+	for _, peerID := range peers {
+		// Don't send back to source
+		if peerID == fromPeer {
+			continue
+		}
+
+		// Don't send to peers in the seen-by list
+		skip := false
+		for _, id := range seenBy {
+			if id == peerID {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to send node info advertisement",
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
+	}
+}
+
+// AnnounceLocalNodeInfo floods local node info to all peers.
+func (f *Flooder) AnnounceLocalNodeInfo(info *protocol.NodeInfo) {
+	if info == nil {
+		return
+	}
+
+	// Increment sequence
+	f.nodeInfoMu.Lock()
+	f.nodeInfoSeq++
+	seq := f.nodeInfoSeq
+	f.nodeInfoMu.Unlock()
+
+	// Store our own info in the routing manager
+	f.routeMgr.SetNodeInfo(f.localID, info, seq)
+
+	// Build the advertisement
+	adv := &protocol.NodeInfoAdvertise{
+		OriginAgent: f.localID,
+		Sequence:    seq,
+		Info:        *info,
+		SeenBy:      []identity.AgentID{f.localID},
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameNodeInfoAdvertise,
+		StreamID: protocol.ControlStreamID,
+		Payload:  adv.Encode(),
+	}
+
+	// Send to all peers
+	for _, peerID := range f.sender.GetPeerIDs() {
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to announce local node info",
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
+	}
+
+	f.logger.Debug("announced local node info",
+		"display_name", info.DisplayName,
+		"hostname", info.Hostname,
+		"sequence", seq)
+}
+
+// SendNodeInfoToNewPeer sends all known node info to a newly connected peer.
+func (f *Flooder) SendNodeInfoToNewPeer(peerID identity.AgentID) {
+	allNodeInfo := f.routeMgr.GetAllNodeInfo()
+	if len(allNodeInfo) == 0 {
+		return
+	}
+
+	for agentID, info := range allNodeInfo {
+		if info == nil {
+			continue
+		}
+
+		// Get the sequence number for this node info
+		seq := f.routeMgr.GetNodeInfoSequence(agentID)
+
+		adv := &protocol.NodeInfoAdvertise{
+			OriginAgent: agentID,
+			Sequence:    seq,
+			Info:        *info,
+			SeenBy:      []identity.AgentID{f.localID},
+		}
+
+		frame := &protocol.Frame{
+			Type:     protocol.FrameNodeInfoAdvertise,
+			StreamID: protocol.ControlStreamID,
+			Payload:  adv.Encode(),
+		}
+
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to send node info to new peer",
+				logging.KeyPeerID, peerID.ShortString(),
+				"origin", agentID.ShortString(),
+				logging.KeyError, err)
+		}
+	}
+
+	f.logger.Debug("sent node info table to new peer",
+		logging.KeyPeerID, peerID.ShortString(),
+		"count", len(allNodeInfo))
+}
+
+// NodeInfoSeenCacheSize returns the current size of the node info seen cache.
+func (f *Flooder) NodeInfoSeenCacheSize() int {
+	f.nodeInfoMu.RLock()
+	defer f.nodeInfoMu.RUnlock()
+	return len(f.nodeInfoSeenCache)
 }

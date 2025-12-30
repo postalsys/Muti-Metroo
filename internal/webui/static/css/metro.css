@@ -1,0 +1,320 @@
+/* Metro Map Visualization Styles */
+
+/* Connection Lines */
+.connection {
+    fill: none;
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.connection.direct {
+    stroke: #0ea5e9;
+}
+
+.connection.indirect {
+    stroke: #22c55e;
+}
+
+.connection:hover {
+    stroke-width: 8;
+    filter: drop-shadow(0 0 4px currentColor);
+}
+
+.connection.highlighted {
+    stroke-width: 8;
+    filter: drop-shadow(0 0 6px currentColor);
+}
+
+/* Station Circles */
+.station {
+    cursor: pointer;
+}
+
+.station:hover .station-outer,
+.station.selected .station-outer {
+    stroke-width: 4;
+    filter: drop-shadow(0 0 6px currentColor);
+}
+
+.station-outer {
+    fill: #1a1a2e;
+    stroke-width: 3;
+}
+
+.station-inner {
+    stroke: none;
+}
+
+/* Station types */
+.station.local .station-outer {
+    stroke: #fbbf24;
+    fill: #1a1a2e;
+}
+
+.station.local .station-inner {
+    fill: #fbbf24;
+}
+
+.station.connected .station-outer {
+    stroke: #0ea5e9;
+    fill: #1a1a2e;
+}
+
+.station.connected .station-inner {
+    fill: #0ea5e9;
+}
+
+.station.remote .station-outer {
+    stroke: #6b7280;
+    fill: #1a1a2e;
+}
+
+.station.remote .station-inner {
+    fill: transparent;
+}
+
+/* Station Labels */
+.station-label {
+    font-family: 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    fill: #e8e8e8;
+    text-anchor: middle;
+    pointer-events: none;
+    text-shadow:
+        -1px -1px 0 #1a1a2e,
+        1px -1px 0 #1a1a2e,
+        -1px 1px 0 #1a1a2e,
+        1px 1px 0 #1a1a2e;
+}
+
+.station-label.above {
+    dominant-baseline: auto;
+}
+
+.station-label.below {
+    dominant-baseline: hanging;
+}
+
+.station-label.left {
+    text-anchor: end;
+}
+
+.station-label.right {
+    text-anchor: start;
+}
+
+/* Station ID (smaller, secondary) */
+.station-id {
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    fill: #a0a0a0;
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+/* RTT labels on connections */
+.rtt-label {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    fill: #a0a0a0;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    pointer-events: none;
+}
+
+.rtt-label-bg {
+    fill: #1a1a2e;
+    rx: 3;
+    ry: 3;
+}
+
+/* Station Hover Tooltip */
+.station-tooltip {
+    position: fixed;
+    background: #0f3460;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    padding: 0;
+    font-size: 0.8rem;
+    color: #e8e8e8;
+    pointer-events: auto;
+    z-index: 1000;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    min-width: 200px;
+    max-width: 320px;
+    overflow: hidden;
+}
+
+.station-tooltip .tooltip-header {
+    background: #16213e;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid #2a2a4a;
+}
+
+.station-tooltip .tooltip-name {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #fbbf24;
+}
+
+.station-tooltip .tooltip-info {
+    padding: 0.6rem 0.8rem;
+}
+
+.station-tooltip .tooltip-info-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.15rem 0;
+    font-size: 0.75rem;
+}
+
+.station-tooltip .tooltip-info-label {
+    color: #a0a0a0;
+}
+
+.station-tooltip .tooltip-info-value {
+    color: #e8e8e8;
+    font-family: 'Courier New', monospace;
+}
+
+.station-tooltip .tooltip-id-section {
+    background: #1a1a2e;
+    padding: 0.5rem 0.8rem;
+    border-top: 1px solid #2a2a4a;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.station-tooltip .tooltip-id-section:hover {
+    background: #2a2a4a;
+}
+
+.station-tooltip .tooltip-id-label {
+    font-size: 0.65rem;
+    color: #6b7280;
+    margin-bottom: 0.2rem;
+}
+
+.station-tooltip .tooltip-id {
+    font-family: 'Courier New', monospace;
+    font-size: 0.7rem;
+    color: #0ea5e9;
+    word-break: break-all;
+}
+
+.station-tooltip .tooltip-id-hint {
+    font-size: 0.6rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
+.station-tooltip .tooltip-id-copied {
+    color: #22c55e;
+    font-weight: 600;
+}
+
+/* Connection Hover Tooltip */
+.connection-tooltip {
+    position: fixed;
+    background: #0f3460;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.8rem;
+    color: #e8e8e8;
+    pointer-events: none;
+    z-index: 1000;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+}
+
+.connection-tooltip .connection-direction {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+.connection-tooltip .connection-arrow {
+    color: #0ea5e9;
+}
+
+.connection-tooltip .connection-role {
+    font-size: 0.7rem;
+    color: #a0a0a0;
+    margin-top: 0.3rem;
+}
+
+.connection-tooltip .connection-transport {
+    font-size: 0.75rem;
+    color: #0ea5e9;
+    margin-top: 0.3rem;
+}
+
+.connection-tooltip .connection-rtt {
+    font-size: 0.75rem;
+    color: #22c55e;
+    margin-top: 0.3rem;
+    font-family: 'Courier New', monospace;
+}
+
+/* Connection group hover effect */
+.connection-group {
+    cursor: pointer;
+}
+
+.connection-group:hover .connection {
+    stroke-width: 8;
+    filter: drop-shadow(0 0 6px currentColor);
+}
+
+/* Animation for new connections */
+@keyframes connection-appear {
+    from {
+        stroke-dashoffset: 100;
+        opacity: 0;
+    }
+    to {
+        stroke-dashoffset: 0;
+        opacity: 1;
+    }
+}
+
+.connection.new {
+    animation: connection-appear 0.5s ease-out;
+}
+
+/* Animation for station pulse */
+@keyframes station-pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.15);
+    }
+}
+
+.station.pulse {
+    animation: station-pulse 1s ease-in-out infinite;
+}
+
+/* Selected state - combined with hover above */
+
+/* Grid lines (optional background) */
+.grid-line {
+    stroke: #2a2a4a;
+    stroke-width: 1;
+    opacity: 0.3;
+}
+
+/* Empty state message */
+.empty-state {
+    font-family: 'Segoe UI', 'Roboto', sans-serif;
+    font-size: 14px;
+    fill: #6b7280;
+    text-anchor: middle;
+    dominant-baseline: middle;
+}

@@ -1,0 +1,195 @@
+# 8-Agent Tree Topology Testbed
+#
+# Topology:
+#                [agent1] Central Station (SOCKS5:1080, HTTP:8080)
+#                    |
+#                [agent2] North Junction
+#               /        \
+#          [agent3]    [agent4] East Branch
+#          /    \      /    \
+#      [agent5] [agent6] [agent7] [agent8-exit]
+#
+# Only agent1 exposes SOCKS5 and HTTP to the host.
+
+services:
+  # Entry point - SOCKS5 ingress and dashboard
+  agent1:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent1
+    hostname: agent1
+    volumes:
+      - ./agent1/data:/app/data
+      - ./agent1/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    ports:
+      - "11080:1080"   # SOCKS5 (remapped to avoid OrbStack conflict)
+      - "18080:8080"   # HTTP/Dashboard
+    networks:
+      - tree8
+    depends_on:
+      - agent2
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Level 1 - North Junction
+  agent2:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent2
+    hostname: agent2
+    volumes:
+      - ./agent2/data:/app/data
+      - ./agent2/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    networks:
+      - tree8
+    depends_on:
+      - agent3
+      - agent4
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Level 2 - West Branch
+  agent3:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent3
+    hostname: agent3
+    volumes:
+      - ./agent3/data:/app/data
+      - ./agent3/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    networks:
+      - tree8
+    depends_on:
+      - agent5
+      - agent6
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Level 2 - East Branch
+  agent4:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent4
+    hostname: agent4
+    volumes:
+      - ./agent4/data:/app/data
+      - ./agent4/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    networks:
+      - tree8
+    depends_on:
+      - agent7
+      - agent8
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Level 3 - West Terminal A
+  agent5:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent5
+    hostname: agent5
+    volumes:
+      - ./agent5/data:/app/data
+      - ./agent5/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    networks:
+      - tree8
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Level 3 - West Terminal B
+  agent6:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent6
+    hostname: agent6
+    volumes:
+      - ./agent6/data:/app/data
+      - ./agent6/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    networks:
+      - tree8
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Level 3 - East Terminal A
+  agent7:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent7
+    hostname: agent7
+    volumes:
+      - ./agent7/data:/app/data
+      - ./agent7/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    networks:
+      - tree8
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Level 3 - East Terminal B (Exit)
+  agent8:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: tree8-agent8
+    hostname: agent8
+    volumes:
+      - ./agent8/data:/app/data
+      - ./agent8/config.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    networks:
+      - tree8
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Target server for testing
+  target:
+    image: nginx:alpine
+    container_name: tree8-target
+    hostname: target
+    networks:
+      tree8:
+        ipv4_address: 172.29.0.100
+
+networks:
+  tree8:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.29.0.0/16

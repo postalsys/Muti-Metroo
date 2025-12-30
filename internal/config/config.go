@@ -175,9 +175,10 @@ type DNSConfig struct {
 
 // RoutingConfig defines routing parameters.
 type RoutingConfig struct {
-	AdvertiseInterval time.Duration `yaml:"advertise_interval"`
-	RouteTTL          time.Duration `yaml:"route_ttl"`
-	MaxHops           int           `yaml:"max_hops"`
+	AdvertiseInterval  time.Duration `yaml:"advertise_interval"`
+	NodeInfoInterval   time.Duration `yaml:"node_info_interval"` // Defaults to AdvertiseInterval if not set
+	RouteTTL           time.Duration `yaml:"route_ttl"`
+	MaxHops            int           `yaml:"max_hops"`
 }
 
 // ConnectionsConfig defines connection tuning parameters.

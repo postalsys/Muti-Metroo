@@ -30,6 +30,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/routing"
 	"github.com/postalsys/muti-metroo/internal/rpc"
 	"github.com/postalsys/muti-metroo/internal/socks5"
+	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/stream"
 	"github.com/postalsys/muti-metroo/internal/transport"
 )
@@ -155,6 +156,7 @@ func (a *Agent) initComponents() error {
 	// Initialize peer manager with default QUIC transport
 	// Other transports are used via ConnectWithTransport()
 	peerCfg := peer.DefaultManagerConfig(a.id, a.transports[transport.TransportQUIC])
+	peerCfg.DisplayName = a.cfg.Agent.DisplayName
 	peerCfg.KeepaliveInterval = a.cfg.Connections.IdleThreshold
 	peerCfg.KeepaliveTimeout = a.cfg.Connections.Timeout
 	peerCfg.Logger = a.logger
@@ -170,6 +172,7 @@ func (a *Agent) initComponents() error {
 
 	// Initialize flooder (needs peer manager for sending)
 	floodCfg := flood.DefaultFloodConfig()
+	floodCfg.LocalDisplayName = a.cfg.Agent.DisplayName
 	floodCfg.Logger = a.logger
 	a.flooder = flood.NewFlooder(floodCfg, a.id, a.routeMgr, a.peerMgr)
 
@@ -345,6 +348,20 @@ func (a *Agent) Start() error {
 		a.flooder.AnnounceLocalRoutes() // Initial announcement
 	}
 
+	// Start node info advertisement loop and announce initial node info
+	// All nodes advertise their info (not just exit nodes)
+	a.wg.Add(1)
+	go a.nodeInfoAdvertiseLoop()
+	// Initial node info announcement (with small delay for peer connections)
+	go func() {
+		time.Sleep(2 * time.Second) // Wait for initial peer connections
+		info := sysinfo.Collect(a.cfg.Agent.DisplayName)
+		a.flooder.AnnounceLocalNodeInfo(info)
+		a.logger.Debug("initial node info advertisement sent",
+			"display_name", info.DisplayName,
+			"hostname", info.Hostname)
+	}()
+
 	// Start HTTP server if enabled
 	if a.healthServer != nil {
 		if err := a.healthServer.Start(); err != nil {
@@ -512,6 +529,9 @@ func (a *Agent) handleIncomingConnection(peerConn transport.PeerConn) {
 
 	// Send full routing table to new peer
 	a.flooder.SendFullTable(conn.RemoteID)
+
+	// Send all known node info to new peer
+	a.flooder.SendNodeInfoToNewPeer(conn.RemoteID)
 }
 
 // connectToPeer initiates a connection to a configured peer.
@@ -614,6 +634,9 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 
 	// Send full routing table to new peer
 	a.flooder.SendFullTable(conn.RemoteID)
+
+	// Send all known node info to new peer
+	a.flooder.SendNodeInfoToNewPeer(conn.RemoteID)
 }
 
 // Stop gracefully stops the agent.
@@ -758,6 +781,42 @@ func (a *Agent) routeAdvertiseLoop() {
 	}
 }
 
+// nodeInfoAdvertiseLoop periodically announces local node info to peers.
+// All nodes advertise their info, not just exit nodes.
+func (a *Agent) nodeInfoAdvertiseLoop() {
+	defer a.wg.Done()
+	defer recovery.RecoverWithLog(a.logger, "nodeInfoAdvertiseLoop")
+
+	// Use NodeInfoInterval if set, otherwise fall back to AdvertiseInterval
+	interval := a.cfg.Routing.NodeInfoInterval
+	if interval <= 0 {
+		interval = a.cfg.Routing.AdvertiseInterval
+	}
+	if interval <= 0 {
+		interval = 2 * time.Minute // Default if not configured
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	a.logger.Debug("node info advertise loop started",
+		"interval", interval)
+
+	for {
+		select {
+		case <-a.stopCh:
+			return
+		case <-ticker.C:
+			// Collect and announce local node info
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName)
+			a.flooder.AnnounceLocalNodeInfo(info)
+			a.logger.Debug("periodic node info advertisement sent",
+				"display_name", info.DisplayName,
+				"hostname", info.Hostname)
+		}
+	}
+}
+
 // processFrame dispatches incoming frames to the appropriate handler.
 func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
 	switch frame.Type {
@@ -777,6 +836,8 @@ func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
 		a.handleRouteAdvertise(peerID, frame)
 	case protocol.FrameRouteWithdraw:
 		a.handleRouteWithdraw(peerID, frame)
+	case protocol.FrameNodeInfoAdvertise:
+		a.handleNodeInfoAdvertise(peerID, frame)
 	case protocol.FrameKeepalive:
 		a.handleKeepalive(peerID, frame)
 	case protocol.FrameKeepaliveAck:
@@ -1137,7 +1198,7 @@ func (a *Agent) handleRouteAdvertise(peerID identity.AgentID, frame *protocol.Fr
 		logging.KeyCount, len(adv.Routes),
 		logging.KeyHops, len(adv.Path))
 
-	a.flooder.HandleRouteAdvertise(peerID, adv.OriginAgent, adv.Sequence, adv.Routes, adv.Path, adv.SeenBy)
+	a.flooder.HandleRouteAdvertise(peerID, adv.OriginAgent, adv.OriginDisplayName, adv.Sequence, adv.Routes, adv.Path, adv.SeenBy)
 }
 
 // handleRouteWithdraw processes a route withdrawal.
@@ -1148,6 +1209,25 @@ func (a *Agent) handleRouteWithdraw(peerID identity.AgentID, frame *protocol.Fra
 	}
 
 	a.flooder.HandleRouteWithdraw(peerID, withdraw.OriginAgent, withdraw.Sequence, withdraw.Routes, withdraw.SeenBy)
+}
+
+// handleNodeInfoAdvertise processes a node info advertisement.
+func (a *Agent) handleNodeInfoAdvertise(peerID identity.AgentID, frame *protocol.Frame) {
+	adv, err := protocol.DecodeNodeInfoAdvertise(frame.Payload)
+	if err != nil {
+		a.logger.Debug("failed to decode node info advertise",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
+		return
+	}
+
+	a.logger.Debug("received node info advertisement",
+		logging.KeyPeerID, peerID.ShortString(),
+		"origin", adv.OriginAgent.ShortString(),
+		"display_name", adv.Info.DisplayName,
+		"hostname", adv.Info.Hostname)
+
+	a.flooder.HandleNodeInfoAdvertise(peerID, adv.OriginAgent, adv.Sequence, &adv.Info, adv.SeenBy)
 }
 
 // handleKeepalive processes a keepalive.
@@ -2104,6 +2184,65 @@ func (a *Agent) GetRouteInfo() []control.RouteInfo {
 		}
 	}
 	return info
+}
+
+// GetPeerDetails returns detailed information about connected peers.
+// This implements health.RemoteMetricsProvider.
+func (a *Agent) GetPeerDetails() []health.PeerDetails {
+	peers := a.peerMgr.GetAllPeers()
+	details := make([]health.PeerDetails, len(peers))
+	for i, p := range peers {
+		displayName := p.RemoteDisplayName
+		if displayName == "" {
+			displayName = p.RemoteID.ShortString()
+		}
+		details[i] = health.PeerDetails{
+			ID:          p.RemoteID,
+			DisplayName: displayName,
+			State:       p.State().String(),
+			RTT:         p.RTT(),
+			IsDialer:    p.IsDialer(),
+			Transport:   string(p.TransportType()),
+		}
+	}
+	return details
+}
+
+// GetRouteDetails returns detailed route information for the dashboard.
+// This implements health.RemoteMetricsProvider.
+func (a *Agent) GetRouteDetails() []health.RouteDetails {
+	routes := a.routeMgr.Table().GetAllRoutes()
+	details := make([]health.RouteDetails, len(routes))
+	for i, r := range routes {
+		// Copy the path slice to avoid sharing underlying array
+		pathCopy := make([]identity.AgentID, len(r.Path))
+		copy(pathCopy, r.Path)
+		details[i] = health.RouteDetails{
+			Network:  r.Network.String(),
+			NextHop:  r.NextHop,
+			Origin:   r.OriginAgent,
+			Metric:   int(r.Metric),
+			HopCount: len(r.Path),
+			Path:     pathCopy,
+		}
+	}
+	return details
+}
+
+// GetAllDisplayNames returns display names for all known agents.
+// This implements health.RemoteMetricsProvider.
+func (a *Agent) GetAllDisplayNames() map[identity.AgentID]string {
+	return a.routeMgr.GetAllDisplayNames()
+}
+
+// GetAllNodeInfo returns node info for all known agents.
+func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
+	return a.routeMgr.GetAllNodeInfo()
+}
+
+// GetLocalNodeInfo returns local node info.
+func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
+	return sysinfo.Collect(a.cfg.Agent.DisplayName)
 }
 
 // SOCKS5Address returns the SOCKS5 server address, or nil if not running.
