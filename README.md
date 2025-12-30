@@ -256,10 +256,13 @@ An agent can serve multiple roles simultaneously:
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
 | `certutil` | TLS certificate generation and management - CA, server, client, peer certificates |
 | `wizard` | Interactive setup wizard with modern terminal UI |
-| `health` | Health check HTTP server, Prometheus metrics, remote agent APIs, pprof |
+| `health` | Health check HTTP server, Prometheus metrics, remote agent APIs, pprof, dashboard |
 | `control` | Unix socket control server for CLI commands |
 | `service` | Cross-platform service management (systemd on Linux, Windows Service) |
 | `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
+| `filetransfer` | File upload and download capabilities for agents with compression |
+| `sysinfo` | System information collection for node info advertisements |
+| `webui` | Embedded web dashboard with metro map visualization |
 | `metrics` | Prometheus metrics definitions and registration |
 | `logging` | Structured logging with slog - text/JSON formats, standard attribute keys |
 | `recovery` | Panic recovery utilities for goroutines with logging and callbacks |
@@ -333,6 +336,7 @@ docker run -v $(pwd)/config.yaml:/app/config.yaml \
 | 0x06 | STREAM_RESET | Reset stream with error |
 | 0x10 | ROUTE_ADVERTISE | Announce CIDR routes |
 | 0x11 | ROUTE_WITHDRAW | Remove CIDR routes |
+| 0x12 | NODE_INFO_ADVERTISE | Announce node metadata |
 | 0x20 | PEER_HELLO | Handshake initiation |
 | 0x21 | PEER_HELLO_ACK | Handshake acknowledgment |
 | 0x22 | KEEPALIVE | Connection keepalive |

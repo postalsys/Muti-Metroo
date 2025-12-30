@@ -656,6 +656,7 @@ All communication uses a consistent framing protocol:
 │  ├──────┼────────────────────┼─────────────┼─────────────────────────────┤ │
 │  │ 0x10 │ ROUTE_ADVERTISE    │ Flood       │ Announce CIDR routes        │ │
 │  │ 0x11 │ ROUTE_WITHDRAW     │ Flood       │ Remove CIDR routes          │ │
+│  │ 0x12 │ NODE_INFO_ADVERTISE│ Flood       │ Announce node metadata      │ │
 │  └──────┴────────────────────┴─────────────┴─────────────────────────────┘ │
 │                                                                             │
 │  Control Frames:                                                            │
@@ -679,6 +680,8 @@ All communication uses a consistent framing protocol:
 │  │ 0x03 │ PEERS              │ Request peer list                        │  │
 │  │ 0x04 │ ROUTES             │ Request route table                      │  │
 │  │ 0x05 │ RPC                │ Remote procedure call (shell command)    │  │
+│  │ 0x06 │ FILE_UPLOAD        │ Upload file to agent                     │  │
+│  │ 0x07 │ FILE_DOWNLOAD      │ Download file from agent                 │  │
 │  └──────┴────────────────────┴──────────────────────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -1494,6 +1497,7 @@ exit:
 # ------------------------------------------------------------------------------
 routing:
   advertise_interval: 2m
+  node_info_interval: 2m       # Node info advertisement (defaults to advertise_interval)
   route_ttl: 5m
   max_hops: 16
 
@@ -1545,8 +1549,17 @@ control:
 rpc:
   enabled: false               # Disabled by default for security
   whitelist: []                # Empty = no commands allowed; ["*"] = all (testing only!)
-  password_hash: ""            # SHA-256 hash of RPC password (hex encoded)
+  password_hash: ""            # bcrypt hash of RPC password
   timeout: 60s                 # Default command execution timeout
+
+# ------------------------------------------------------------------------------
+# File Transfer
+# ------------------------------------------------------------------------------
+file_transfer:
+  enabled: false                # Disabled by default for security
+  max_file_size: 524288000      # Maximum file size in bytes (500 MB)
+  allowed_paths: []             # Allowed path prefixes (empty = all absolute paths)
+  password_hash: ""             # bcrypt hash of file transfer password
 ```
 
 ### 13.2 Environment Variable Substitution
@@ -1771,6 +1784,14 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/ready` | GET | Readiness probe (returns "READY") |
 | `/metrics` | GET | Local Prometheus metrics |
 
+**Web Dashboard:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/ui/` | GET | Embedded web dashboard with metro map visualization |
+| `/api/topology` | GET | Topology data for metro map (agents and connections) |
+| `/api/dashboard` | GET | Dashboard overview (agent info, stats, peers, routes) |
+| `/api/nodes` | GET | Detailed node info listing for all known agents |
+
 **Distributed Metrics & Status:**
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -1780,6 +1801,8 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
 | `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
 | `/agents/{agent-id}/rpc` | POST | Execute RPC command on remote agent |
+| `/agents/{agent-id}/file/upload` | POST | Upload file to remote agent |
+| `/agents/{agent-id}/file/download` | POST | Download file from remote agent |
 
 **Management:**
 | Endpoint | Method | Description |
@@ -2059,6 +2082,18 @@ muti-metroo/
 │   │   ├── chunked.go              # Chunked payload for large transfers
 │   │   └── metrics.go              # RPC Prometheus metrics
 │   │
+│   ├── filetransfer/
+│   │   ├── transfer.go             # File upload/download with compression
+│   │   └── transfer_test.go        # File transfer tests
+│   │
+│   ├── sysinfo/
+│   │   └── sysinfo.go              # System info for node advertisements
+│   │
+│   ├── webui/
+│   │   ├── webui.go                # Web dashboard handler
+│   │   ├── embed.go                # Embedded static files
+│   │   └── static/                 # Dashboard HTML/CSS/JS
+│   │
 │   ├── logging/
 │   │   └── logging.go              # Structured logging utilities
 │   │
@@ -2287,6 +2322,7 @@ docker run --rm muti-metroo-test
 | 0x06 | STREAM_RESET    | Abort stream        |
 | 0x10 | ROUTE_ADVERTISE | Announce routes     |
 | 0x11 | ROUTE_WITHDRAW  | Remove routes       |
+| 0x12 | NODE_INFO_ADVERTISE | Announce node metadata |
 | 0x20 | PEER_HELLO        | Handshake               |
 | 0x21 | PEER_HELLO_ACK    | Handshake response      |
 | 0x22 | KEEPALIVE         | Liveness probe          |

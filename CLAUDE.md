@@ -98,8 +98,9 @@ An agent can serve multiple roles simultaneously:
 | `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
 | `control` | Unix socket control interface for CLI status commands |
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
+| `filetransfer` | File upload and download capabilities for agents with compression |
 | `flood` | Route propagation via flooding with loop prevention and seen-cache |
-| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC, pprof |
+| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC, pprof, dashboard |
 | `identity` | 128-bit AgentID generation and persistence |
 | `integration` | Integration tests for multi-agent mesh scenarios |
 | `loadtest` | Load testing utilities - stream throughput, route table, connection churn |
@@ -112,8 +113,10 @@ An agent can serve multiple roles simultaneously:
 | `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
 | `service` | Cross-platform service management - systemd (Linux), Windows Service |
 | `socks5` | SOCKS5 server with no-auth and username/password methods |
-| `stream` | Stream state machine (Opening→Open→HalfClosed→Closed), buffered I/O |
+| `stream` | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O |
+| `sysinfo` | System information collection for node info advertisements |
 | `transport` | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations |
+| `webui` | Embedded web dashboard with metro map visualization |
 | `wizard` | Interactive setup wizard with certificate generation |
 
 ### Frame Flow
@@ -132,16 +135,17 @@ An agent can serve multiple roles simultaneously:
 ## Configuration
 
 Example config in `configs/example.yaml`. Key sections:
-- `agent`: ID, data_dir, logging
+- `agent`: ID, data_dir, display_name, logging
 - `listeners`: Transport listeners (QUIC on :4433)
 - `peers`: Outbound peer connections with TLS config
 - `socks5`: Ingress proxy settings
 - `exit`: Exit node routes and DNS settings
-- `routing`: Advertisement intervals, TTL, max hops
+- `routing`: Advertisement intervals, node info interval, TTL, max hops
 - `limits`: Stream limits and buffer sizes
-- `http`: HTTP API server (health, metrics, remote agent APIs)
+- `http`: HTTP API server (health, metrics, dashboard, remote agent APIs)
 - `control`: Unix socket for CLI commands
 - `rpc`: Remote command execution (disabled by default)
+- `file_transfer`: File upload/download (disabled by default)
 
 ## Key Implementation Details
 
@@ -161,6 +165,7 @@ Example config in `configs/example.yaml`. Key sections:
 | Max Hops | `routing.max_hops` | 16 | 1-255 | Maximum hops for route advertisements |
 | Route TTL | `routing.route_ttl` | 5m | - | Time before routes expire without refresh |
 | Advertise Interval | `routing.advertise_interval` | 2m | - | Route advertisement frequency |
+| Node Info Interval | `routing.node_info_interval` | 2m | - | Node info advertisement frequency |
 | Stream Open Timeout | `limits.stream_open_timeout` | 30s | - | Total round-trip time for STREAM_OPEN |
 | Buffer Size | `limits.buffer_size` | 256 KB | - | Per-stream buffer at each hop |
 | Max Streams/Peer | `limits.max_streams_per_peer` | 1000 | - | Concurrent streams per peer connection |
@@ -247,6 +252,15 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/ready` | GET | Readiness probe for Kubernetes |
 | `/metrics` | GET | Local Prometheus metrics |
 
+### Web Dashboard
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/ui/` | GET | Embedded web dashboard with metro map visualization |
+| `/api/topology` | GET | Topology data for metro map (agents and connections) |
+| `/api/dashboard` | GET | Dashboard overview (agent info, stats, peers, routes) |
+| `/api/nodes` | GET | Detailed node info listing for all known agents |
+
 ### Distributed Metrics & Status
 
 | Endpoint | Method | Description |
@@ -257,6 +271,8 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
 | `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
 | `/agents/{agent-id}/rpc` | POST | Execute RPC command on remote agent |
+| `/agents/{agent-id}/file/upload` | POST | Upload file to remote agent |
+| `/agents/{agent-id}/file/download` | POST | Download file from remote agent |
 
 ### Management
 
@@ -419,6 +435,65 @@ Result labels: `success`, `failed`, `rejected`, `auth_failed`, `error`
 - **Max output size**: 4 MB (stdout + stderr each)
 - **Chunking**: Large payloads split into 14 KB chunks with gzip compression
 - **Timeout**: Default 60s, configurable per-request
+
+## File Transfer
+
+The file transfer feature allows uploading and downloading files to/from remote agents.
+
+### Configuration
+
+```yaml
+file_transfer:
+  enabled: true                    # Enable/disable file transfer
+  max_file_size: 524288000         # Max file size in bytes (500 MB)
+  allowed_paths:                   # Allowed path prefixes (empty = all absolute paths)
+    - /tmp
+    - /home/user/uploads
+  password_hash: "bcrypt..."       # bcrypt hash of password (optional)
+```
+
+### HTTP API
+
+**Upload**: `POST /agents/{agent-id}/file/upload`
+
+Request:
+```json
+{
+  "password": "your-password",
+  "path": "/tmp/myfile.txt",
+  "mode": 420,
+  "size": 1024,
+  "compressed": false,
+  "data": "base64-encoded-content"
+}
+```
+
+**Download**: `POST /agents/{agent-id}/file/download`
+
+Request:
+```json
+{
+  "password": "your-password",
+  "path": "/tmp/myfile.txt"
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "size": 1024,
+  "mode": 420,
+  "compressed": false,
+  "data": "base64-encoded-content"
+}
+```
+
+### Implementation Details
+
+- **Max file size**: 500 MB (configurable)
+- **Compression**: Files > 1 KB are automatically gzip compressed
+- **Encoding**: File content is base64 encoded for JSON transport
 
 ## Prometheus Metrics
 
