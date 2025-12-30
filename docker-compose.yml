@@ -31,7 +31,7 @@ services:
       - ./testbed/agent1/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "1080:1080"   # SOCKS5
+      - "31080:1080"   # SOCKS5 (mapped to 31080 to avoid conflicts)
       - "8081:8080"   # Health/Metrics
     networks:
       - mesh

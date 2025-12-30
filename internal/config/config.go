@@ -14,17 +14,18 @@ import (
 
 // Config represents the complete agent configuration.
 type Config struct {
-	Agent       AgentConfig       `yaml:"agent"`
-	Listeners   []ListenerConfig  `yaml:"listeners"`
-	Peers       []PeerConfig      `yaml:"peers"`
-	SOCKS5      SOCKS5Config      `yaml:"socks5"`
-	Exit        ExitConfig        `yaml:"exit"`
-	Routing     RoutingConfig     `yaml:"routing"`
-	Connections ConnectionsConfig `yaml:"connections"`
-	Limits      LimitsConfig      `yaml:"limits"`
-	HTTP        HTTPConfig        `yaml:"http"`
-	Control     ControlConfig     `yaml:"control"`
-	RPC         RPCConfig         `yaml:"rpc"`
+	Agent        AgentConfig        `yaml:"agent"`
+	Listeners    []ListenerConfig   `yaml:"listeners"`
+	Peers        []PeerConfig       `yaml:"peers"`
+	SOCKS5       SOCKS5Config       `yaml:"socks5"`
+	Exit         ExitConfig         `yaml:"exit"`
+	Routing      RoutingConfig      `yaml:"routing"`
+	Connections  ConnectionsConfig  `yaml:"connections"`
+	Limits       LimitsConfig       `yaml:"limits"`
+	HTTP         HTTPConfig         `yaml:"http"`
+	Control      ControlConfig      `yaml:"control"`
+	RPC          RPCConfig          `yaml:"rpc"`
+	FileTransfer FileTransferConfig `yaml:"file_transfer"`
 }
 
 // AgentConfig contains agent identity settings.
@@ -239,6 +240,26 @@ type RPCConfig struct {
 	Timeout time.Duration `yaml:"timeout"`
 }
 
+// FileTransferConfig defines file transfer settings.
+type FileTransferConfig struct {
+	// Enabled controls whether file transfer is available on this agent.
+	Enabled bool `yaml:"enabled"`
+
+	// MaxFileSize is the maximum allowed file size in bytes.
+	// Default is 500MB (500 * 1024 * 1024).
+	MaxFileSize int64 `yaml:"max_file_size"`
+
+	// AllowedPaths contains path prefixes that are allowed for file operations.
+	// Empty list means all absolute paths are allowed.
+	// Example: ["/tmp", "/home/user/uploads"]
+	AllowedPaths []string `yaml:"allowed_paths"`
+
+	// PasswordHash is the bcrypt hash of the file transfer password.
+	// If set, all file transfer requests must include the correct password.
+	// Generate with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
+	PasswordHash string `yaml:"password_hash"`
+}
+
 // Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
@@ -300,6 +321,11 @@ func Default() *Config {
 			Enabled:   false,
 			Whitelist: []string{}, // Empty = no commands allowed
 			Timeout:   60 * time.Second,
+		},
+		FileTransfer: FileTransferConfig{
+			Enabled:      false,
+			MaxFileSize:  500 * 1024 * 1024, // 500 MB
+			AllowedPaths: []string{},        // Empty = all absolute paths allowed
 		},
 	}
 }
@@ -563,6 +589,11 @@ func (c *Config) Redacted() *Config {
 		redacted.RPC.PasswordHash = redactedValue
 	}
 
+	// Redact FileTransfer password hash
+	if redacted.FileTransfer.PasswordHash != "" {
+		redacted.FileTransfer.PasswordHash = redactedValue
+	}
+
 	return redacted
 }
 
@@ -584,6 +615,11 @@ func (c *Config) HasSensitiveData() bool {
 
 	// Check RPC password hash
 	if c.RPC.PasswordHash != "" {
+		return true
+	}
+
+	// Check FileTransfer password hash
+	if c.FileTransfer.PasswordHash != "" {
 		return true
 	}
 

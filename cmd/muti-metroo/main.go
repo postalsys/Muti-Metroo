@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/control"
+	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/rpc"
 	"github.com/postalsys/muti-metroo/internal/service"
@@ -55,6 +57,8 @@ root privileges.`,
 	rootCmd.AddCommand(routesCmd())
 	rootCmd.AddCommand(uninstallCmd())
 	rootCmd.AddCommand(rpcCmd())
+	rootCmd.AddCommand(uploadCmd())
+	rootCmd.AddCommand(downloadCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -818,6 +822,275 @@ Examples:
 	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "RPC password for authentication")
 	cmd.Flags().IntVarP(&timeout, "timeout", "t", 60, "Command timeout in seconds")
+
+	return cmd
+}
+
+func uploadCmd() *cobra.Command {
+	var (
+		agentAddr string
+		password  string
+		timeout   int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "upload [flags] <target-agent-id> <local-path> <remote-path>",
+		Short: "Upload a file to a remote agent",
+		Long: `Upload a local file to a remote agent via the file transfer interface.
+
+The file is uploaded through a local or remote agent's health HTTP server
+to the target agent identified by its agent ID.
+
+File permissions (mode) are preserved. The remote path must be absolute.
+
+Examples:
+  # Upload a file to a remote agent
+  muti-metroo upload abc123def456 ./local/file.txt /tmp/remote-file.txt
+
+  # Via a different agent
+  muti-metroo upload -a 192.168.1.10:8080 abc123def456 config.yaml /etc/app/config.yaml
+
+  # With password authentication
+  muti-metroo upload -p secret abc123def456 ./data.bin /home/user/data.bin`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetID := args[0]
+			localPath := args[1]
+			remotePath := args[2]
+
+			// Validate target agent ID
+			if _, err := identity.ParseAgentID(targetID); err != nil {
+				return fmt.Errorf("invalid agent ID '%s': %w", targetID, err)
+			}
+
+			// Validate remote path is absolute
+			if !filepath.IsAbs(remotePath) {
+				return fmt.Errorf("remote path must be absolute: %s", remotePath)
+			}
+
+			// Resolve local path
+			absLocalPath, err := filepath.Abs(localPath)
+			if err != nil {
+				return fmt.Errorf("failed to resolve local path: %w", err)
+			}
+
+			// Check if local file exists
+			info, err := os.Stat(absLocalPath)
+			if err != nil {
+				return fmt.Errorf("cannot access local file: %w", err)
+			}
+			if info.IsDir() {
+				return fmt.Errorf("local path is a directory: %s", localPath)
+			}
+
+			fileSize := info.Size()
+			fileName := filepath.Base(localPath)
+
+			fmt.Printf("Uploading %s (%d bytes) to %s:%s\n", fileName, fileSize, targetID[:12], remotePath)
+
+			// Read and encode file
+			data, mode, size, compressed, err := filetransfer.ReadFileForTransfer(absLocalPath)
+			if err != nil {
+				return fmt.Errorf("failed to read file: %w", err)
+			}
+
+			// Build request
+			reqBody := filetransfer.FileUploadRequest{
+				Password:   password,
+				Path:       remotePath,
+				Mode:       mode,
+				Size:       size,
+				Compressed: compressed,
+				Data:       data,
+			}
+
+			reqJSON, err := json.Marshal(reqBody)
+			if err != nil {
+				return fmt.Errorf("failed to encode request: %w", err)
+			}
+
+			// Build URL
+			url := fmt.Sprintf("http://%s/agents/%s/file/upload", agentAddr, targetID)
+
+			// Create HTTP request
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqJSON))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			// Show progress indicator
+			fmt.Print("Uploading... ")
+
+			// Send request
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to send request: %w", err)
+			}
+			defer resp.Body.Close()
+
+			// Read response
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to read response: %w", err)
+			}
+
+			// Parse response
+			var uploadResp filetransfer.FileUploadResponse
+			if err := json.Unmarshal(respBody, &uploadResp); err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
+			}
+
+			if !uploadResp.Success {
+				fmt.Println("FAILED")
+				return fmt.Errorf("upload failed: %s", uploadResp.Error)
+			}
+
+			fmt.Println("OK")
+			fmt.Printf("Uploaded %d bytes to %s\n", uploadResp.Written, remotePath)
+			fmt.Printf("Mode: %04o\n", mode)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
+	cmd.Flags().StringVarP(&password, "password", "p", "", "File transfer password for authentication")
+	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
+
+	return cmd
+}
+
+func downloadCmd() *cobra.Command {
+	var (
+		agentAddr string
+		password  string
+		timeout   int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "download [flags] <target-agent-id> <remote-path> <local-path>",
+		Short: "Download a file from a remote agent",
+		Long: `Download a file from a remote agent via the file transfer interface.
+
+The file is downloaded through a local or remote agent's health HTTP server
+from the target agent identified by its agent ID.
+
+File permissions (mode) are preserved. The remote path must be absolute.
+
+Examples:
+  # Download a file from a remote agent
+  muti-metroo download abc123def456 /tmp/remote-file.txt ./local/file.txt
+
+  # Via a different agent
+  muti-metroo download -a 192.168.1.10:8080 abc123def456 /etc/app/config.yaml config.yaml
+
+  # With password authentication
+  muti-metroo download -p secret abc123def456 /home/user/data.bin ./data.bin`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetID := args[0]
+			remotePath := args[1]
+			localPath := args[2]
+
+			// Validate target agent ID
+			if _, err := identity.ParseAgentID(targetID); err != nil {
+				return fmt.Errorf("invalid agent ID '%s': %w", targetID, err)
+			}
+
+			// Validate remote path is absolute
+			if !filepath.IsAbs(remotePath) {
+				return fmt.Errorf("remote path must be absolute: %s", remotePath)
+			}
+
+			// Resolve local path
+			absLocalPath, err := filepath.Abs(localPath)
+			if err != nil {
+				return fmt.Errorf("failed to resolve local path: %w", err)
+			}
+
+			fmt.Printf("Downloading %s:%s to %s\n", targetID[:12], remotePath, localPath)
+
+			// Build request
+			reqBody := filetransfer.FileDownloadRequest{
+				Password: password,
+				Path:     remotePath,
+			}
+
+			reqJSON, err := json.Marshal(reqBody)
+			if err != nil {
+				return fmt.Errorf("failed to encode request: %w", err)
+			}
+
+			// Build URL
+			url := fmt.Sprintf("http://%s/agents/%s/file/download", agentAddr, targetID)
+
+			// Create HTTP request
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqJSON))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			// Show progress indicator
+			fmt.Print("Downloading... ")
+
+			// Send request
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to send request: %w", err)
+			}
+			defer resp.Body.Close()
+
+			// Read response
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to read response: %w", err)
+			}
+
+			// Parse response
+			var downloadResp filetransfer.FileDownloadResponse
+			if err := json.Unmarshal(respBody, &downloadResp); err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
+			}
+
+			if !downloadResp.Success {
+				fmt.Println("FAILED")
+				return fmt.Errorf("download failed: %s", downloadResp.Error)
+			}
+
+			fmt.Println("OK")
+
+			// Write file
+			written, err := filetransfer.WriteFileFromTransfer(absLocalPath, downloadResp.Data, downloadResp.Mode, downloadResp.Compressed)
+			if err != nil {
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+
+			fmt.Printf("Downloaded %d bytes to %s\n", written, localPath)
+			fmt.Printf("Mode: %04o\n", downloadResp.Mode)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
+	cmd.Flags().StringVarP(&password, "password", "p", "", "File transfer password for authentication")
+	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
 
 	return cmd
 }

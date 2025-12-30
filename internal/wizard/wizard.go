@@ -107,11 +107,17 @@ func (w *Wizard) Run() (*Result, error) {
 		return nil, err
 	}
 
+	// Step 10: File transfer configuration
+	fileTransferConfig, err := w.askFileTransferConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	// Build configuration
 	cfg := w.buildConfig(
 		dataDir, displayName, transport, listenAddr, listenPath,
 		tlsConfig, peers, socks5Config, exitConfig,
-		healthEnabled, controlEnabled, logLevel, rpcConfig,
+		healthEnabled, controlEnabled, logLevel, rpcConfig, fileTransferConfig,
 	)
 
 	// Initialize identity
@@ -128,7 +134,7 @@ func (w *Wizard) Run() (*Result, error) {
 	// Print summary
 	w.printSummary(agentID, configPath, cfg)
 
-	// Step 10: Service installation (only if root/admin on supported platforms)
+	// Step 11: Service installation (only if root/admin on supported platforms)
 	var serviceInstalled bool
 	if service.IsRoot() && service.IsSupported() {
 		serviceInstalled, err = w.askServiceInstallation(configPath)
@@ -1090,6 +1096,171 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 	return cfg, nil
 }
 
+func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
+	cfg := config.FileTransferConfig{
+		Enabled:      false,
+		MaxFileSize:  500 * 1024 * 1024, // 500MB
+		AllowedPaths: []string{},
+	}
+	var enableFileTransfer bool
+
+	// Use existing config defaults if available
+	if w.existingCfg != nil {
+		enableFileTransfer = w.existingCfg.FileTransfer.Enabled
+		if w.existingCfg.FileTransfer.MaxFileSize > 0 {
+			cfg.MaxFileSize = w.existingCfg.FileTransfer.MaxFileSize
+		}
+		cfg.AllowedPaths = w.existingCfg.FileTransfer.AllowedPaths
+	}
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("File Transfer").
+				Description("File transfer allows uploading and downloading files to/from this agent.\nFiles are transferred via the control channel."),
+
+			huh.NewConfirm().
+				Title("Enable file transfer?").
+				Description("Allow remote file upload/download (requires authentication)").
+				Value(&enableFileTransfer),
+		),
+	).WithTheme(w.theme)
+
+	if err := form.Run(); err != nil {
+		return cfg, err
+	}
+
+	if !enableFileTransfer {
+		return cfg, nil
+	}
+
+	cfg.Enabled = true
+
+	// Ask for password
+	var password, confirmPassword string
+	authForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("File Transfer Authentication").
+				Description("Set a password to protect file transfer access.\nThis password will be hashed and stored securely."),
+
+			huh.NewInput().
+				Title("File Transfer Password").
+				EchoMode(huh.EchoModePassword).
+				Value(&password).
+				Validate(func(s string) error {
+					if len(s) < 8 {
+						return fmt.Errorf("password must be at least 8 characters")
+					}
+					return nil
+				}),
+
+			huh.NewInput().
+				Title("Confirm Password").
+				EchoMode(huh.EchoModePassword).
+				Value(&confirmPassword).
+				Validate(func(s string) error {
+					if s != password {
+						return fmt.Errorf("passwords do not match")
+					}
+					return nil
+				}),
+		),
+	).WithTheme(w.theme)
+
+	if err := authForm.Run(); err != nil {
+		return cfg, err
+	}
+
+	// Hash the password using bcrypt (same as RPC)
+	cfg.PasswordHash = rpc.MustHashPassword(password)
+
+	// Ask for max file size
+	var maxSizeMB string = "500"
+	sizeForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Max File Size (MB)").
+				Description("Maximum allowed file size in megabytes").
+				Placeholder("500").
+				Value(&maxSizeMB).
+				Validate(func(s string) error {
+					if s == "" {
+						return nil
+					}
+					size, err := strconv.Atoi(s)
+					if err != nil || size < 1 {
+						return fmt.Errorf("must be a positive number")
+					}
+					return nil
+				}),
+		),
+	).WithTheme(w.theme)
+
+	if err := sizeForm.Run(); err != nil {
+		return cfg, err
+	}
+
+	if size, err := strconv.Atoi(maxSizeMB); err == nil && size > 0 {
+		cfg.MaxFileSize = int64(size) * 1024 * 1024
+	}
+
+	// Ask for path restrictions
+	var pathRestriction string
+	pathForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Path Restrictions").
+				Description("You can restrict file operations to specific directories.\nLeave empty to allow all absolute paths."),
+
+			huh.NewSelect[string]().
+				Title("Path Access").
+				Options(
+					huh.NewOption("Allow all paths (no restrictions)", "all"),
+					huh.NewOption("Restrict to specific directories", "restricted"),
+				).
+				Value(&pathRestriction),
+		),
+	).WithTheme(w.theme)
+
+	if err := pathForm.Run(); err != nil {
+		return cfg, err
+	}
+
+	if pathRestriction == "restricted" {
+		var pathsStr string
+		customPathForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewText().
+					Title("Allowed Paths").
+					Description("Enter one path prefix per line (e.g., /tmp, /home/user/uploads)").
+					Placeholder("/tmp\n/var/uploads").
+					Value(&pathsStr).
+					Validate(func(s string) error {
+						if s == "" {
+							return fmt.Errorf("at least one path is required")
+						}
+						return nil
+					}),
+			),
+		).WithTheme(w.theme)
+
+		if err := customPathForm.Run(); err != nil {
+			return cfg, err
+		}
+
+		// Parse paths
+		for _, line := range strings.Split(pathsStr, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				cfg.AllowedPaths = append(cfg.AllowedPaths, line)
+			}
+		}
+	}
+
+	return cfg, nil
+}
+
 func (w *Wizard) buildConfig(
 	dataDir, displayName, transport, listenAddr, listenPath string,
 	tlsConfig config.TLSConfig,
@@ -1099,6 +1270,7 @@ func (w *Wizard) buildConfig(
 	healthEnabled, controlEnabled bool,
 	logLevel string,
 	rpcConfig config.RPCConfig,
+	fileTransferConfig config.FileTransferConfig,
 ) *config.Config {
 	cfg := config.Default()
 
@@ -1141,6 +1313,9 @@ func (w *Wizard) buildConfig(
 
 	// RPC
 	cfg.RPC = rpcConfig
+
+	// File Transfer
+	cfg.FileTransfer = fileTransferConfig
 
 	return cfg
 }
@@ -1216,6 +1391,16 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 		fmt.Printf("  RPC:          enabled (%d commands whitelisted)\n", len(cfg.RPC.Whitelist))
 		if len(cfg.RPC.Whitelist) == 1 && cfg.RPC.Whitelist[0] == "*" {
 			fmt.Println("                [WARNING] All commands allowed!")
+		}
+	}
+
+	if cfg.FileTransfer.Enabled {
+		maxSizeMB := cfg.FileTransfer.MaxFileSize / (1024 * 1024)
+		fmt.Printf("  File Transfer: enabled (max %d MB)\n", maxSizeMB)
+		if len(cfg.FileTransfer.AllowedPaths) > 0 {
+			fmt.Printf("                 restricted to: %v\n", cfg.FileTransfer.AllowedPaths)
+		} else {
+			fmt.Println("                 [WARNING] All paths allowed!")
 		}
 	}
 
