@@ -2,12 +2,18 @@
 package health
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -28,6 +34,9 @@ type StatsProvider interface {
 	// Stats returns agent statistics.
 	Stats() Stats
 }
+
+// FileTransferProgress is a callback for reporting file transfer progress.
+type FileTransferProgress func(bytesTransferred, totalBytes int64)
 
 // RemoteMetricsProvider provides the ability to fetch metrics from remote agents.
 type RemoteMetricsProvider interface {
@@ -63,6 +72,14 @@ type RemoteMetricsProvider interface {
 
 	// GetLocalNodeInfo returns local node info.
 	GetLocalNodeInfo() *protocol.NodeInfo
+
+	// UploadFile uploads a file or directory to a remote agent via stream-based transfer.
+	// localPath is the local file/directory path, remotePath is the destination on the remote agent.
+	UploadFile(ctx context.Context, targetID identity.AgentID, localPath, remotePath string, password string, progress FileTransferProgress) error
+
+	// DownloadFile downloads a file or directory from a remote agent via stream-based transfer.
+	// remotePath is the path on the remote agent, localPath is the local destination.
+	DownloadFile(ctx context.Context, targetID identity.AgentID, remotePath, localPath string, password string, progress FileTransferProgress) error
 }
 
 // PeerDetails contains detailed information about a connected peer.
@@ -621,71 +638,120 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request, targetID iden
 	w.Write(resp.Data)
 }
 
-// handleFileUpload handles file upload requests.
+// handleFileUpload handles file upload requests for files and directories.
 // POST /agents/{agent-id}/file/upload
-// Request body: JSON with path, mode, size, compressed, data (base64), and optional password
-// Response: JSON with success, error, written
+// Content-Type: multipart/form-data
+// Form fields:
+//   - file: the file to upload (can be a tar archive for directories)
+//   - path: remote destination path (required)
+//   - password: authentication password (optional)
+//   - directory: "true" if uploading a directory tar (optional)
+//
+// Response: JSON with success, error, bytes_written
 func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed - use POST", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Read request body (limit to 600MB to handle 500MB files with base64 overhead)
-	body, err := io.ReadAll(io.LimitReader(r.Body, 600*1024*1024))
-	if err != nil {
-		http.Error(w, "failed to read request body: "+err.Error(), http.StatusBadRequest)
+	// Parse multipart form (max 32MB in memory, rest goes to temp files)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "failed to parse multipart form: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Validate JSON structure
-	var reqData map[string]interface{}
-	if err := json.Unmarshal(body, &reqData); err != nil {
-		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Ensure path is specified
-	if _, ok := reqData["path"]; !ok {
+	// Get remote path
+	remotePath := r.FormValue("path")
+	if remotePath == "" {
 		http.Error(w, "missing required field: path", http.StatusBadRequest)
 		return
 	}
 
-	// Send file upload request to target agent
-	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second) // 5 minute timeout
+	password := r.FormValue("password")
+	isDirectory := r.FormValue("directory") == "true"
+
+	// Get uploaded file
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "failed to get uploaded file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Create temp file to store upload
+	tmpFile, err := os.CreateTemp("", "upload-*")
+	if err != nil {
+		http.Error(w, "failed to create temp file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath) // Clean up temp file
+
+	// Copy uploaded file to temp
+	bytesReceived, err := io.Copy(tmpFile, file)
+	tmpFile.Close()
+	if err != nil {
+		http.Error(w, "failed to save uploaded file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// For directories, extract the tar first
+	localPath := tmpPath
+	if isDirectory {
+		// Create temp directory for extraction
+		tmpDir, err := os.MkdirTemp("", "upload-dir-*")
+		if err != nil {
+			http.Error(w, "failed to create temp directory: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer os.RemoveAll(tmpDir)
+
+		// Open the tar file
+		tarFile, err := os.Open(tmpPath)
+		if err != nil {
+			http.Error(w, "failed to open tar file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Try to extract (handles gzip internally)
+		if err := extractTarWithFallback(tarFile, tmpDir); err != nil {
+			tarFile.Close()
+			http.Error(w, "failed to extract tar: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		tarFile.Close()
+		localPath = tmpDir
+	}
+
+	// Perform stream-based upload
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute) // 30 minute timeout for large files
 	defer cancel()
 
-	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, protocol.ControlTypeFileUpload, body)
+	err = s.remoteProvider.UploadFile(ctx, targetID, localPath, remotePath, password, nil)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"error":   "failed to send request: " + err.Error(),
+			"error":   err.Error(),
 		})
 		return
 	}
 
-	if !resp.Success {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   string(resp.Data),
-		})
-		return
-	}
-
-	// Return the file upload response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp.Data)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"bytes_written": bytesReceived,
+		"filename":      header.Filename,
+		"remote_path":   remotePath,
+	})
 }
 
-// handleFileDownload handles file download requests.
+// handleFileDownload handles file download requests for files and directories.
 // POST /agents/{agent-id}/file/download
 // Request body: JSON with path and optional password
-// Response: JSON with success, error, size, mode, compressed, data (base64)
+// Response: Binary file data with Content-Disposition header, or tar.gz for directories
 func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed - use POST", http.StatusMethodNotAllowed)
@@ -699,48 +765,211 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 		return
 	}
 
-	// Validate JSON structure
-	var reqData map[string]interface{}
-	if err := json.Unmarshal(body, &reqData); err != nil {
+	// Parse request
+	var req struct {
+		Path     string `json:"path"`
+		Password string `json:"password,omitempty"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Ensure path is specified
-	if _, ok := reqData["path"]; !ok {
+	if req.Path == "" {
 		http.Error(w, "missing required field: path", http.StatusBadRequest)
 		return
 	}
 
-	// Send file download request to target agent
-	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second) // 5 minute timeout
+	// Create temp file/directory for download
+	tmpDir, err := os.MkdirTemp("", "download-*")
+	if err != nil {
+		http.Error(w, "failed to create temp directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Use the basename of the remote path as local filename
+	localName := filepath.Base(req.Path)
+	if localName == "" || localName == "." || localName == "/" {
+		localName = "download"
+	}
+	localPath := filepath.Join(tmpDir, localName)
+
+	// Perform stream-based download
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute) // 30 minute timeout
 	defer cancel()
 
-	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, protocol.ControlTypeFileDownload, body)
+	err = s.remoteProvider.DownloadFile(ctx, targetID, req.Path, localPath, req.Password, nil)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"error":   "failed to send request: " + err.Error(),
+			"error":   err.Error(),
 		})
 		return
 	}
 
-	if !resp.Success {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"error":   string(resp.Data),
-		})
+	// Check if it's a file or directory
+	info, err := os.Stat(localPath)
+	if err != nil {
+		http.Error(w, "failed to stat downloaded file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Return the file download response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(resp.Data)
+	if info.IsDir() {
+		// For directories, create tar.gz and stream back
+		w.Header().Set("Content-Type", "application/gzip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", localName+".tar.gz"))
+
+		// Stream tar.gz directly to response
+		gzw := gzip.NewWriter(w)
+		defer gzw.Close()
+
+		tw := tar.NewWriter(gzw)
+		defer tw.Close()
+
+		// Walk the directory and add files to tar
+		filepath.Walk(localPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// Get relative path
+			relPath, err := filepath.Rel(localPath, path)
+			if err != nil {
+				return err
+			}
+			if relPath == "." {
+				return nil
+			}
+
+			// Create tar header
+			header, err := tar.FileInfoHeader(info, "")
+			if err != nil {
+				return err
+			}
+			header.Name = filepath.ToSlash(relPath)
+
+			// Handle symlinks
+			if info.Mode()&os.ModeSymlink != 0 {
+				link, err := os.Readlink(path)
+				if err != nil {
+					return err
+				}
+				header.Linkname = link
+			}
+
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+
+			// Write file content
+			if info.Mode().IsRegular() {
+				f, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				io.Copy(tw, f)
+			}
+
+			return nil
+		})
+	} else {
+		// For files, stream directly
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", localName))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+		w.Header().Set("X-File-Mode", fmt.Sprintf("%04o", info.Mode().Perm()))
+
+		f, err := os.Open(localPath)
+		if err != nil {
+			http.Error(w, "failed to open downloaded file: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer f.Close()
+
+		io.Copy(w, f)
+	}
+}
+
+// extractTarWithFallback tries to extract a tar archive, handling both plain tar and gzip.
+func extractTarWithFallback(r io.Reader, destDir string) error {
+	// Try reading first few bytes to detect gzip
+	buf := make([]byte, 2)
+	n, err := r.Read(buf)
+	if err != nil && err != io.EOF {
+		return err
+	}
+
+	// Create a reader that includes the bytes we already read
+	var reader io.Reader
+	if n > 0 {
+		reader = io.MultiReader(bytes.NewReader(buf[:n]), r)
+	} else {
+		reader = r
+	}
+
+	// Check for gzip magic number
+	if n >= 2 && buf[0] == 0x1f && buf[1] == 0x8b {
+		gzr, err := gzip.NewReader(reader)
+		if err != nil {
+			return fmt.Errorf("failed to create gzip reader: %w", err)
+		}
+		defer gzr.Close()
+		reader = gzr
+	}
+
+	// Create tar reader
+	tr := tar.NewReader(reader)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		targetPath := filepath.Join(destDir, header.Name)
+
+		// Security check
+		if !strings.HasPrefix(filepath.Clean(targetPath), filepath.Clean(destDir)) {
+			return fmt.Errorf("tar entry attempts path traversal: %s", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return err
+			}
+			f, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				return err
+			}
+			f.Close()
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return err
+			}
+			os.Remove(targetPath)
+			if err := os.Symlink(header.Linkname, targetPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // handleTriggerAdvertise handles POST /routes/advertise to trigger immediate route advertisement.

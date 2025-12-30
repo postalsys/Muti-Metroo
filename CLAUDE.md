@@ -98,7 +98,7 @@ An agent can serve multiple roles simultaneously:
 | `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
 | `control` | Unix socket control interface for CLI status commands |
 | `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
-| `filetransfer` | File upload and download capabilities for agents with compression |
+| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
 | `flood` | Route propagation via flooding with loop prevention and seen-cache |
 | `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC, pprof, dashboard |
 | `identity` | 128-bit AgentID generation and persistence |
@@ -438,14 +438,43 @@ Result labels: `success`, `failed`, `rejected`, `auth_failed`, `error`
 
 ## File Transfer
 
-The file transfer feature allows uploading and downloading files to/from remote agents.
+The file transfer feature allows uploading and downloading files and directories to/from remote agents using streaming transfers.
+
+### CLI Usage
+
+```bash
+# Upload a file
+muti-metroo upload <target-agent-id> <local-path> <remote-path>
+
+# Upload a directory (auto-detected)
+muti-metroo upload abc123def456 ./my-folder /tmp/my-folder
+
+# Download a file
+muti-metroo download <target-agent-id> <remote-path> <local-path>
+
+# Download a directory
+muti-metroo download abc123def456 /etc/myapp ./myapp-config
+
+# With password authentication
+muti-metroo upload -p secret abc123def456 ./data.bin /tmp/data.bin
+
+# Via a different agent's health server
+muti-metroo upload -a 192.168.1.10:8080 abc123def456 ./file.txt /tmp/file.txt
+```
+
+**Flags:**
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--agent` | `-a` | `localhost:8080` | Agent health server address |
+| `--password` | `-p` | | File transfer password |
+| `--timeout` | `-t` | `300` | Transfer timeout in seconds |
 
 ### Configuration
 
 ```yaml
 file_transfer:
   enabled: true                    # Enable/disable file transfer
-  max_file_size: 524288000         # Max file size in bytes (500 MB)
+  max_file_size: 0                 # Max file size in bytes (0 = unlimited)
   allowed_paths:                   # Allowed path prefixes (empty = all absolute paths)
     - /tmp
     - /home/user/uploads
@@ -456,15 +485,20 @@ file_transfer:
 
 **Upload**: `POST /agents/{agent-id}/file/upload`
 
-Request:
+Content-Type: `multipart/form-data`
+
+Form fields:
+- `file`: The file to upload (can be tar archive for directories)
+- `path`: Remote destination path (required)
+- `password`: Authentication password (optional)
+- `directory`: "true" if uploading a directory tar (optional)
+
+Response:
 ```json
 {
-  "password": "your-password",
-  "path": "/tmp/myfile.txt",
-  "mode": 420,
-  "size": 1024,
-  "compressed": false,
-  "data": "base64-encoded-content"
+  "success": true,
+  "bytes_written": 1024,
+  "remote_path": "/tmp/myfile.txt"
 }
 ```
 
@@ -478,22 +512,18 @@ Request:
 }
 ```
 
-Response:
-```json
-{
-  "success": true,
-  "size": 1024,
-  "mode": 420,
-  "compressed": false,
-  "data": "base64-encoded-content"
-}
-```
+Response: Binary file data with headers:
+- `Content-Type`: `application/octet-stream` (file) or `application/gzip` (directory)
+- `Content-Disposition`: Filename
+- `X-File-Mode`: File permissions (octal, e.g., "0644")
 
 ### Implementation Details
 
-- **Max file size**: 500 MB (configurable)
-- **Compression**: Files > 1 KB are automatically gzip compressed
-- **Encoding**: File content is base64 encoded for JSON transport
+- **Streaming**: Files are streamed in 16KB chunks (no memory limits)
+- **Unlimited size**: No inherent file size limit
+- **Directories**: Automatically tar/untar with gzip compression
+- **Permissions**: File mode is preserved during transfer
+- **Authentication**: bcrypt password hashing
 
 ## Prometheus Metrics
 

@@ -3,6 +3,7 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -11,6 +12,8 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -89,12 +92,11 @@ type Agent struct {
 	flooder             *flood.Flooder
 	socks5Srv           *socks5.Server
 	exitHandler         *exit.Handler
-	healthServer        *health.Server
-	controlServer       *control.Server
-	rpcExecutor         *rpc.Executor
-	fileTransferHandler *filetransfer.Handler
+	healthServer  *health.Server
+	controlServer *control.Server
+	rpcExecutor   *rpc.Executor
 
-	// Stream-based file transfer
+	// File transfer (stream-based)
 	fileStreamHandler  *filetransfer.StreamHandler
 	fileStreamsMu      sync.RWMutex
 	fileStreams        map[uint64]*fileTransferStream // StreamID -> active transfer
@@ -275,16 +277,7 @@ func (a *Agent) initComponents() error {
 	}
 	a.rpcExecutor = rpc.NewExecutor(rpcCfg)
 
-	// Initialize file transfer handler (control channel based - legacy)
-	ftCfg := filetransfer.Config{
-		Enabled:      a.cfg.FileTransfer.Enabled,
-		MaxFileSize:  a.cfg.FileTransfer.MaxFileSize,
-		AllowedPaths: a.cfg.FileTransfer.AllowedPaths,
-		PasswordHash: a.cfg.FileTransfer.PasswordHash,
-	}
-	a.fileTransferHandler = filetransfer.NewHandler(ftCfg)
-
-	// Initialize stream-based file transfer handler
+	// Initialize file transfer handler (stream-based)
 	ftStreamCfg := filetransfer.StreamConfig{
 		Enabled:      a.cfg.FileTransfer.Enabled,
 		MaxFileSize:  a.cfg.FileTransfer.MaxFileSize,
@@ -1446,10 +1439,6 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.getLocalRoutes()
 	case protocol.ControlTypeRPC:
 		data, success = a.handleRPCRequest(req.Data)
-	case protocol.ControlTypeFileUpload:
-		data, success = a.handleFileUpload(req.Data)
-	case protocol.ControlTypeFileDownload:
-		data, success = a.handleFileDownload(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false
@@ -1855,44 +1844,6 @@ func (a *Agent) handleRPCRequest(data []byte) ([]byte, bool) {
 	// Return success=true for valid RPC execution, even if command failed
 	// The exit_code and error in the response JSON capture execution results
 	// Only return success=false for protocol-level errors (auth, whitelist, encoding)
-	return respData, true
-}
-
-// handleFileUpload handles a file upload request from the control channel.
-func (a *Agent) handleFileUpload(data []byte) ([]byte, bool) {
-	respData, err := a.fileTransferHandler.HandleUpload(data)
-	if err != nil {
-		a.logger.Error("file upload handler error", logging.KeyError, err)
-		return []byte(err.Error()), false
-	}
-
-	// Check if the response indicates success
-	var resp filetransfer.FileUploadResponse
-	if err := json.Unmarshal(respData, &resp); err == nil && resp.Success {
-		a.logger.Debug("file upload completed",
-			"path", resp.Written)
-		return respData, true
-	}
-
-	return respData, true
-}
-
-// handleFileDownload handles a file download request from the control channel.
-func (a *Agent) handleFileDownload(data []byte) ([]byte, bool) {
-	respData, err := a.fileTransferHandler.HandleDownload(data)
-	if err != nil {
-		a.logger.Error("file download handler error", logging.KeyError, err)
-		return []byte(err.Error()), false
-	}
-
-	// Check if the response indicates success
-	var resp filetransfer.FileDownloadResponse
-	if err := json.Unmarshal(respData, &resp); err == nil && resp.Success {
-		a.logger.Debug("file download completed",
-			"size", resp.Size)
-		return respData, true
-	}
-
 	return respData, true
 }
 
@@ -2749,4 +2700,499 @@ func (a *Agent) getFileTransferStream(streamID uint64) *fileTransferStream {
 	a.fileStreamsMu.RLock()
 	defer a.fileStreamsMu.RUnlock()
 	return a.fileStreams[streamID]
+}
+
+// ============================================================================
+// File Transfer Client Methods (initiating transfers to remote agents)
+// ============================================================================
+
+// UploadFile uploads a local file or directory to a remote agent via stream-based transfer.
+// The transfer uses the mesh network to reach the target agent.
+func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, localPath, remotePath string, password string, progress health.FileTransferProgress) error {
+	// Check if file transfer is enabled locally (for validation config)
+	if a.fileStreamHandler == nil {
+		return fmt.Errorf("file transfer is disabled")
+	}
+
+	// Get file info
+	info, err := os.Stat(localPath)
+	if err != nil {
+		return fmt.Errorf("cannot access local path: %w", err)
+	}
+
+	// Find path to target agent
+	nextHop, remainingPath, conn, err := a.findPathToAgent(targetID)
+	if err != nil {
+		return fmt.Errorf("no route to agent %s: %w", targetID.ShortString(), err)
+	}
+
+	// Allocate stream ID
+	streamID := conn.NextStreamID()
+
+	// Create pending stream (5 min timeout for large files)
+	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferUpload, 0, 5*time.Minute)
+
+	// Build and send STREAM_OPEN
+	openPayload := &protocol.StreamOpen{
+		RequestID:     pending.RequestID,
+		AddressType:   protocol.AddrTypeDomain,
+		Address:       []byte(protocol.FileTransferUpload),
+		Port:          0,
+		RemainingPath: remainingPath,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		return fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for STREAM_OPEN_ACK
+	select {
+	case result := <-pending.ResultCh:
+		if result.Error != nil {
+			return fmt.Errorf("stream open failed: %w", result.Error)
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// Build metadata
+	var fileSize int64 = -1
+	isDirectory := info.IsDir()
+	var fileMode uint32 = uint32(info.Mode().Perm())
+	if !isDirectory {
+		fileSize = info.Size()
+	}
+
+	meta := &filetransfer.TransferMetadata{
+		Path:        remotePath,
+		Mode:        fileMode,
+		Size:        fileSize,
+		IsDirectory: isDirectory,
+		Password:    password,
+		Compress:    true,
+	}
+
+	// Send metadata as first data frame
+	metaData, err := filetransfer.EncodeMetadata(meta)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return fmt.Errorf("encode metadata: %w", err)
+	}
+
+	if err := a.WriteStreamData(nextHop, streamID, metaData, 0); err != nil {
+		return fmt.Errorf("send metadata: %w", err)
+	}
+
+	// Stream file/directory content
+	var written int64
+	if isDirectory {
+		// Tar and stream directory
+		pr, pw := io.Pipe()
+
+		// Start tar in goroutine
+		go func() {
+			err := filetransfer.TarDirectory(localPath, pw)
+			if err != nil {
+				pw.CloseWithError(err)
+			} else {
+				pw.Close()
+			}
+		}()
+
+		// Stream tar data in chunks
+		written, err = a.streamFileContent(ctx, nextHop, streamID, pr, -1, progress)
+		if err != nil {
+			pr.Close()
+			return fmt.Errorf("stream directory: %w", err)
+		}
+	} else {
+		// Open file and optionally compress
+		f, err := os.Open(localPath)
+		if err != nil {
+			a.WriteStreamClose(nextHop, streamID)
+			return fmt.Errorf("open file: %w", err)
+		}
+		defer f.Close()
+
+		// Compress with gzip if requested
+		if meta.Compress {
+			pr, pw := io.Pipe()
+			go func() {
+				gzw := gzip.NewWriter(pw)
+				_, copyErr := io.Copy(gzw, f)
+				gzw.Close()
+				if copyErr != nil {
+					pw.CloseWithError(copyErr)
+				} else {
+					pw.Close()
+				}
+			}()
+			written, err = a.streamFileContent(ctx, nextHop, streamID, pr, -1, progress)
+			if err != nil {
+				pr.Close()
+				return fmt.Errorf("stream file: %w", err)
+			}
+		} else {
+			written, err = a.streamFileContent(ctx, nextHop, streamID, f, fileSize, progress)
+			if err != nil {
+				return fmt.Errorf("stream file: %w", err)
+			}
+		}
+	}
+
+	a.logger.Info("file upload completed",
+		"target", targetID.ShortString(),
+		"local_path", localPath,
+		"remote_path", remotePath,
+		"bytes_sent", written)
+
+	// Wait for STREAM_CLOSE from remote
+	stream := a.streamMgr.GetStream(streamID)
+	if stream != nil {
+		select {
+		case <-stream.Done():
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(30 * time.Second):
+			// Timeout waiting for close acknowledgement
+		}
+	}
+
+	return nil
+}
+
+// DownloadFile downloads a file or directory from a remote agent via stream-based transfer.
+func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, remotePath, localPath string, password string, progress health.FileTransferProgress) error {
+	// Check if file transfer is enabled locally
+	if a.fileStreamHandler == nil {
+		return fmt.Errorf("file transfer is disabled")
+	}
+
+	// Find path to target agent
+	nextHop, remainingPath, conn, err := a.findPathToAgent(targetID)
+	if err != nil {
+		return fmt.Errorf("no route to agent %s: %w", targetID.ShortString(), err)
+	}
+
+	// Allocate stream ID
+	streamID := conn.NextStreamID()
+
+	// Create pending stream (5 min timeout for large files)
+	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferDownload, 0, 5*time.Minute)
+
+	// Build and send STREAM_OPEN
+	openPayload := &protocol.StreamOpen{
+		RequestID:     pending.RequestID,
+		AddressType:   protocol.AddrTypeDomain,
+		Address:       []byte(protocol.FileTransferDownload),
+		Port:          0,
+		RemainingPath: remainingPath,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		return fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for STREAM_OPEN_ACK
+	var openResult *stream.StreamOpenResult
+	select {
+	case result := <-pending.ResultCh:
+		if result.Error != nil {
+			return fmt.Errorf("stream open failed: %w", result.Error)
+		}
+		openResult = result
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// Send request metadata (path to download)
+	meta := &filetransfer.TransferMetadata{
+		Path:     remotePath,
+		Password: password,
+		Compress: true,
+	}
+
+	metaData, err := filetransfer.EncodeMetadata(meta)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return fmt.Errorf("encode metadata: %w", err)
+	}
+
+	if err := a.WriteStreamData(nextHop, streamID, metaData, 0); err != nil {
+		return fmt.Errorf("send metadata: %w", err)
+	}
+
+	// Wait for response metadata (first data frame)
+	stream := openResult.Stream
+	responseData, err := stream.ReadWithTimeout(30 * time.Second)
+	if err != nil {
+		return fmt.Errorf("read response metadata: %w", err)
+	}
+
+	responseMeta, err := filetransfer.ParseMetadata(responseData)
+	if err != nil {
+		return fmt.Errorf("parse response metadata: %w", err)
+	}
+
+	a.logger.Info("file download started",
+		"target", targetID.ShortString(),
+		"remote_path", remotePath,
+		"local_path", localPath,
+		"size", responseMeta.Size,
+		"is_directory", responseMeta.IsDirectory)
+
+	// Receive file data and write to local path
+	var written int64
+	if responseMeta.IsDirectory {
+		// Receive tar stream and extract
+		written, err = a.receiveAndExtractDirectory(ctx, stream, localPath, responseMeta.Size, progress)
+		if err != nil {
+			return fmt.Errorf("receive directory: %w", err)
+		}
+	} else {
+		// Receive file data
+		written, err = a.receiveAndWriteFile(ctx, stream, localPath, responseMeta.Mode, responseMeta.Size, responseMeta.Compress, progress)
+		if err != nil {
+			return fmt.Errorf("receive file: %w", err)
+		}
+	}
+
+	a.logger.Info("file download completed",
+		"target", targetID.ShortString(),
+		"remote_path", remotePath,
+		"local_path", localPath,
+		"bytes_received", written)
+
+	// Send STREAM_CLOSE to acknowledge completion
+	a.WriteStreamClose(nextHop, streamID)
+
+	return nil
+}
+
+// findPathToAgent finds the next hop and remaining path to reach a specific agent by ID.
+// Returns: nextHop ID, remaining path (for STREAM_OPEN), peer connection, error.
+func (a *Agent) findPathToAgent(targetID identity.AgentID) (identity.AgentID, []identity.AgentID, *peer.Connection, error) {
+	// Check if target is a direct peer
+	conn := a.peerMgr.GetPeer(targetID)
+	if conn != nil {
+		// Direct connection, no path needed
+		return targetID, nil, conn, nil
+	}
+
+	// Look up in routing table - find a route where OriginAgent matches targetID
+	allRoutes := a.routeMgr.GetFullRoutesForAdvertise(identity.AgentID{}) // Get all routes
+	var bestRoute *routing.Route
+	for _, route := range allRoutes {
+		if route.OriginAgent == targetID {
+			if bestRoute == nil || route.Metric < bestRoute.Metric {
+				bestRoute = route
+			}
+		}
+	}
+
+	if bestRoute == nil {
+		return identity.AgentID{}, nil, nil, fmt.Errorf("agent %s not found in routing table", targetID.ShortString())
+	}
+
+	// Get connection to next hop
+	conn = a.peerMgr.GetPeer(bestRoute.NextHop)
+	if conn == nil {
+		return identity.AgentID{}, nil, nil, fmt.Errorf("next hop %s not connected", bestRoute.NextHop.ShortString())
+	}
+
+	// Build remaining path (skip first entry which is next hop)
+	var remainingPath []identity.AgentID
+	if len(bestRoute.Path) > 1 {
+		remainingPath = make([]identity.AgentID, len(bestRoute.Path)-1)
+		copy(remainingPath, bestRoute.Path[1:])
+	}
+
+	return bestRoute.NextHop, remainingPath, conn, nil
+}
+
+// streamFileContent streams data from a reader to the peer in chunks.
+func (a *Agent) streamFileContent(ctx context.Context, peerID identity.AgentID, streamID uint64, r io.Reader, totalSize int64, progress health.FileTransferProgress) (int64, error) {
+	buf := make([]byte, protocol.MaxPayloadSize-100) // Leave room for frame overhead
+	var totalWritten int64
+
+	for {
+		select {
+		case <-ctx.Done():
+			return totalWritten, ctx.Err()
+		default:
+		}
+
+		n, readErr := r.Read(buf)
+		if n > 0 {
+			flags := uint8(0)
+			if readErr == io.EOF {
+				flags = protocol.FlagFinWrite
+			}
+
+			if err := a.WriteStreamData(peerID, streamID, buf[:n], flags); err != nil {
+				return totalWritten, fmt.Errorf("write data: %w", err)
+			}
+			totalWritten += int64(n)
+
+			if progress != nil {
+				progress(totalWritten, totalSize)
+			}
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				// Ensure FIN_WRITE is sent even if last read was empty
+				if n == 0 {
+					if err := a.WriteStreamData(peerID, streamID, nil, protocol.FlagFinWrite); err != nil {
+						return totalWritten, fmt.Errorf("write fin: %w", err)
+					}
+				}
+				break
+			}
+			return totalWritten, fmt.Errorf("read error: %w", readErr)
+		}
+	}
+
+	return totalWritten, nil
+}
+
+// receiveAndWriteFile receives file data from a stream and writes to disk.
+func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, localPath string, mode uint32, totalSize int64, compressed bool, progress health.FileTransferProgress) (int64, error) {
+	// Create parent directories
+	dir := filepath.Dir(localPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return 0, fmt.Errorf("create directory: %w", err)
+	}
+
+	// Create the file
+	f, err := os.OpenFile(localPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(mode))
+	if err != nil {
+		return 0, fmt.Errorf("create file: %w", err)
+	}
+	defer f.Close()
+
+	// Receive data from stream
+	var totalReceived int64
+	var dataBuf bytes.Buffer
+
+	for {
+		select {
+		case <-ctx.Done():
+			return totalReceived, ctx.Err()
+		case <-s.Done():
+			// Stream closed
+			break
+		default:
+		}
+
+		data, err := s.ReadWithTimeout(30 * time.Second)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			// Check if stream is half-closed
+			if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
+				break
+			}
+			return totalReceived, fmt.Errorf("read stream: %w", err)
+		}
+
+		if len(data) == 0 {
+			continue
+		}
+
+		dataBuf.Write(data)
+		totalReceived += int64(len(data))
+
+		if progress != nil {
+			progress(totalReceived, totalSize)
+		}
+
+		// Check if remote finished writing
+		if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
+			break
+		}
+	}
+
+	// Decompress if needed and write to file
+	var reader io.Reader = &dataBuf
+	if compressed {
+		gzr, err := gzip.NewReader(&dataBuf)
+		if err != nil {
+			return 0, fmt.Errorf("create gzip reader: %w", err)
+		}
+		defer gzr.Close()
+		reader = gzr
+	}
+
+	written, err := io.Copy(f, reader)
+	if err != nil {
+		return totalReceived, fmt.Errorf("write file: %w", err)
+	}
+
+	return written, nil
+}
+
+// receiveAndExtractDirectory receives tar stream data and extracts to a directory.
+func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream, localPath string, totalSize int64, progress health.FileTransferProgress) (int64, error) {
+	// Receive all data first
+	var dataBuf bytes.Buffer
+	var totalReceived int64
+
+	for {
+		select {
+		case <-ctx.Done():
+			return totalReceived, ctx.Err()
+		case <-s.Done():
+			break
+		default:
+		}
+
+		data, err := s.ReadWithTimeout(30 * time.Second)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
+				break
+			}
+			return totalReceived, fmt.Errorf("read stream: %w", err)
+		}
+
+		if len(data) == 0 {
+			continue
+		}
+
+		dataBuf.Write(data)
+		totalReceived += int64(len(data))
+
+		if progress != nil {
+			progress(totalReceived, totalSize)
+		}
+
+		if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
+			break
+		}
+	}
+
+	// Extract tar.gz to directory
+	if err := filetransfer.UntarDirectory(&dataBuf, localPath); err != nil {
+		return totalReceived, fmt.Errorf("extract directory: %w", err)
+	}
+
+	// Calculate extracted size
+	size, _ := filetransfer.CalculateDirectorySize(localPath)
+	return size, nil
 }

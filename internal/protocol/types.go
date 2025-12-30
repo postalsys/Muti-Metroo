@@ -29,13 +29,12 @@ const (
 
 // Control request types
 const (
-	ControlTypeMetrics      uint8 = 0x01 // Request Prometheus metrics
-	ControlTypeStatus       uint8 = 0x02 // Request agent status
-	ControlTypePeers        uint8 = 0x03 // Request peer list
-	ControlTypeRoutes       uint8 = 0x04 // Request route table
-	ControlTypeRPC          uint8 = 0x05 // Remote procedure call (shell command)
-	ControlTypeFileUpload   uint8 = 0x06 // Upload file to agent
-	ControlTypeFileDownload uint8 = 0x07 // Download file from agent
+	ControlTypeMetrics uint8 = 0x01 // Request Prometheus metrics
+	ControlTypeStatus  uint8 = 0x02 // Request agent status
+	ControlTypePeers   uint8 = 0x03 // Request peer list
+	ControlTypeRoutes  uint8 = 0x04 // Request route table
+	ControlTypeRPC     uint8 = 0x05 // Remote procedure call (shell command)
+	// 0x06 and 0x07 reserved (previously used for legacy file transfer)
 )
 
 // Frame flags

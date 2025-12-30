@@ -260,7 +260,7 @@ An agent can serve multiple roles simultaneously:
 | `control` | Unix socket control server for CLI commands |
 | `service` | Cross-platform service management (systemd on Linux, Windows Service) |
 | `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
-| `filetransfer` | File upload and download capabilities for agents with compression |
+| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
 | `sysinfo` | System information collection for node info advertisements |
 | `webui` | Embedded web dashboard with metro map visualization |
 | `metrics` | Prometheus metrics definitions and registration |

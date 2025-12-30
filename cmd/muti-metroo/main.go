@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"os"
@@ -835,17 +836,24 @@ func uploadCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "upload [flags] <target-agent-id> <local-path> <remote-path>",
-		Short: "Upload a file to a remote agent",
-		Long: `Upload a local file to a remote agent via the file transfer interface.
+		Short: "Upload a file or directory to a remote agent",
+		Long: `Upload a local file or directory to a remote agent via the file transfer interface.
 
 The file is uploaded through a local or remote agent's health HTTP server
 to the target agent identified by its agent ID.
 
 File permissions (mode) are preserved. The remote path must be absolute.
+Directories are automatically detected and uploaded as tar archives.
 
 Examples:
   # Upload a file to a remote agent
   muti-metroo upload abc123def456 ./local/file.txt /tmp/remote-file.txt
+
+  # Upload a large file (streaming, supports any size)
+  muti-metroo upload abc123def456 ./large-iso.iso /tmp/large-iso.iso
+
+  # Upload a directory (auto-detected)
+  muti-metroo upload abc123def456 ./my-folder /tmp/my-folder
 
   # Via a different agent
   muti-metroo upload -a 192.168.1.10:8080 abc123def456 config.yaml /etc/app/config.yaml
@@ -874,90 +882,14 @@ Examples:
 				return fmt.Errorf("failed to resolve local path: %w", err)
 			}
 
-			// Check if local file exists
+			// Check if local file/directory exists
 			info, err := os.Stat(absLocalPath)
 			if err != nil {
-				return fmt.Errorf("cannot access local file: %w", err)
-			}
-			if info.IsDir() {
-				return fmt.Errorf("local path is a directory: %s", localPath)
+				return fmt.Errorf("cannot access local path: %w", err)
 			}
 
-			fileSize := info.Size()
-			fileName := filepath.Base(localPath)
-
-			fmt.Printf("Uploading %s (%d bytes) to %s:%s\n", fileName, fileSize, targetID[:12], remotePath)
-
-			// Read and encode file
-			data, mode, size, compressed, err := filetransfer.ReadFileForTransfer(absLocalPath)
-			if err != nil {
-				return fmt.Errorf("failed to read file: %w", err)
-			}
-
-			// Build request
-			reqBody := filetransfer.FileUploadRequest{
-				Password:   password,
-				Path:       remotePath,
-				Mode:       mode,
-				Size:       size,
-				Compressed: compressed,
-				Data:       data,
-			}
-
-			reqJSON, err := json.Marshal(reqBody)
-			if err != nil {
-				return fmt.Errorf("failed to encode request: %w", err)
-			}
-
-			// Build URL
-			url := fmt.Sprintf("http://%s/agents/%s/file/upload", agentAddr, targetID)
-
-			// Create HTTP request
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
-			defer cancel()
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqJSON))
-			if err != nil {
-				return fmt.Errorf("failed to create request: %w", err)
-			}
-			req.Header.Set("Content-Type", "application/json")
-
-			// Show progress indicator
-			fmt.Print("Uploading... ")
-
-			// Send request
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				fmt.Println("FAILED")
-				return fmt.Errorf("failed to send request: %w", err)
-			}
-			defer resp.Body.Close()
-
-			// Read response
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Println("FAILED")
-				return fmt.Errorf("failed to read response: %w", err)
-			}
-
-			// Parse response
-			var uploadResp filetransfer.FileUploadResponse
-			if err := json.Unmarshal(respBody, &uploadResp); err != nil {
-				fmt.Println("FAILED")
-				return fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
-			}
-
-			if !uploadResp.Success {
-				fmt.Println("FAILED")
-				return fmt.Errorf("upload failed: %s", uploadResp.Error)
-			}
-
-			fmt.Println("OK")
-			fmt.Printf("Uploaded %d bytes to %s\n", uploadResp.Written, remotePath)
-			fmt.Printf("Mode: %04o\n", mode)
-
-			return nil
+			isDirectory := info.IsDir()
+			return uploadFile(agentAddr, targetID, absLocalPath, remotePath, password, timeout, isDirectory)
 		},
 	}
 
@@ -966,6 +898,130 @@ Examples:
 	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
 
 	return cmd
+}
+
+// uploadFile uploads a file or directory via multipart form streaming.
+func uploadFile(agentAddr, targetID, localPath, remotePath, password string, timeout int, isDirectory bool) error {
+	info, err := os.Stat(localPath)
+	if err != nil {
+		return fmt.Errorf("cannot access local path: %w", err)
+	}
+
+	// Create a pipe for the multipart form
+	pr, pw := io.Pipe()
+
+	// Create multipart writer
+	writer := multipart.NewWriter(pw)
+
+	// Start goroutine to write form data
+	errCh := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		defer writer.Close()
+
+		// Add form fields
+		writer.WriteField("path", remotePath)
+		if password != "" {
+			writer.WriteField("password", password)
+		}
+		if isDirectory {
+			writer.WriteField("directory", "true")
+		}
+
+		// Create file part
+		part, err := writer.CreateFormFile("file", filepath.Base(localPath))
+		if err != nil {
+			errCh <- fmt.Errorf("failed to create form file: %w", err)
+			return
+		}
+
+		if isDirectory {
+			// Tar and stream directory
+			fmt.Printf("Uploading directory %s to %s:%s\n", localPath, targetID[:12], remotePath)
+			if err := filetransfer.TarDirectory(localPath, part); err != nil {
+				errCh <- fmt.Errorf("failed to tar directory: %w", err)
+				return
+			}
+		} else {
+			// Stream file
+			fmt.Printf("Uploading %s (%d bytes) to %s:%s\n",
+				filepath.Base(localPath), info.Size(), targetID[:12], remotePath)
+			f, err := os.Open(localPath)
+			if err != nil {
+				errCh <- fmt.Errorf("failed to open file: %w", err)
+				return
+			}
+			defer f.Close()
+			if _, err := io.Copy(part, f); err != nil {
+				errCh <- fmt.Errorf("failed to stream file: %w", err)
+				return
+			}
+		}
+		errCh <- nil
+	}()
+
+	// Build URL
+	url := fmt.Sprintf("http://%s/agents/%s/file/upload", agentAddr, targetID)
+
+	// Create HTTP request
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	fmt.Print("Uploading... ")
+
+	// Send request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("FAILED")
+		// Check if there was an error in the goroutine
+		if writeErr := <-errCh; writeErr != nil {
+			return fmt.Errorf("upload error: %w (form write: %v)", err, writeErr)
+		}
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Wait for goroutine
+	if writeErr := <-errCh; writeErr != nil {
+		fmt.Println("FAILED")
+		return writeErr
+	}
+
+	// Read response
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("FAILED")
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Parse response
+	var uploadResp struct {
+		Success      bool   `json:"success"`
+		Error        string `json:"error,omitempty"`
+		BytesWritten int64  `json:"bytes_written"`
+		RemotePath   string `json:"remote_path"`
+	}
+	if err := json.Unmarshal(respBody, &uploadResp); err != nil {
+		fmt.Println("FAILED")
+		return fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
+	}
+
+	if !uploadResp.Success {
+		fmt.Println("FAILED")
+		return fmt.Errorf("upload failed: %s", uploadResp.Error)
+	}
+
+	fmt.Println("OK")
+	fmt.Printf("Uploaded %d bytes to %s\n", uploadResp.BytesWritten, remotePath)
+
+	return nil
 }
 
 func downloadCmd() *cobra.Command {
@@ -977,17 +1033,24 @@ func downloadCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "download [flags] <target-agent-id> <remote-path> <local-path>",
-		Short: "Download a file from a remote agent",
-		Long: `Download a file from a remote agent via the file transfer interface.
+		Short: "Download a file or directory from a remote agent",
+		Long: `Download a file or directory from a remote agent via the file transfer interface.
 
 The file is downloaded through a local or remote agent's health HTTP server
 from the target agent identified by its agent ID.
 
 File permissions (mode) are preserved. The remote path must be absolute.
+Directories are automatically detected and downloaded as tar archives.
 
 Examples:
   # Download a file from a remote agent
   muti-metroo download abc123def456 /tmp/remote-file.txt ./local/file.txt
+
+  # Download a large file (streaming, supports any size)
+  muti-metroo download abc123def456 /var/backup/large.iso ./large.iso
+
+  # Download a directory (auto-detected)
+  muti-metroo download abc123def456 /etc/myapp ./myapp-config
 
   # Via a different agent
   muti-metroo download -a 192.168.1.10:8080 abc123def456 /etc/app/config.yaml config.yaml
@@ -1016,75 +1079,7 @@ Examples:
 				return fmt.Errorf("failed to resolve local path: %w", err)
 			}
 
-			fmt.Printf("Downloading %s:%s to %s\n", targetID[:12], remotePath, localPath)
-
-			// Build request
-			reqBody := filetransfer.FileDownloadRequest{
-				Password: password,
-				Path:     remotePath,
-			}
-
-			reqJSON, err := json.Marshal(reqBody)
-			if err != nil {
-				return fmt.Errorf("failed to encode request: %w", err)
-			}
-
-			// Build URL
-			url := fmt.Sprintf("http://%s/agents/%s/file/download", agentAddr, targetID)
-
-			// Create HTTP request
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
-			defer cancel()
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqJSON))
-			if err != nil {
-				return fmt.Errorf("failed to create request: %w", err)
-			}
-			req.Header.Set("Content-Type", "application/json")
-
-			// Show progress indicator
-			fmt.Print("Downloading... ")
-
-			// Send request
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				fmt.Println("FAILED")
-				return fmt.Errorf("failed to send request: %w", err)
-			}
-			defer resp.Body.Close()
-
-			// Read response
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				fmt.Println("FAILED")
-				return fmt.Errorf("failed to read response: %w", err)
-			}
-
-			// Parse response
-			var downloadResp filetransfer.FileDownloadResponse
-			if err := json.Unmarshal(respBody, &downloadResp); err != nil {
-				fmt.Println("FAILED")
-				return fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
-			}
-
-			if !downloadResp.Success {
-				fmt.Println("FAILED")
-				return fmt.Errorf("download failed: %s", downloadResp.Error)
-			}
-
-			fmt.Println("OK")
-
-			// Write file
-			written, err := filetransfer.WriteFileFromTransfer(absLocalPath, downloadResp.Data, downloadResp.Mode, downloadResp.Compressed)
-			if err != nil {
-				return fmt.Errorf("failed to write file: %w", err)
-			}
-
-			fmt.Printf("Downloaded %d bytes to %s\n", written, localPath)
-			fmt.Printf("Mode: %04o\n", downloadResp.Mode)
-
-			return nil
+			return downloadFile(agentAddr, targetID, remotePath, absLocalPath, password, timeout)
 		},
 	}
 
@@ -1093,4 +1088,124 @@ Examples:
 	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
 
 	return cmd
+}
+
+// downloadFile downloads a file or directory via streaming.
+func downloadFile(agentAddr, targetID, remotePath, localPath, password string, timeout int) error {
+	fmt.Printf("Downloading %s:%s to %s\n", targetID[:12], remotePath, localPath)
+
+	// Build request
+	reqBody := map[string]string{
+		"path": remotePath,
+	}
+	if password != "" {
+		reqBody["password"] = password
+	}
+
+	reqJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	// Build URL
+	url := fmt.Sprintf("http://%s/agents/%s/file/download", agentAddr, targetID)
+
+	// Create HTTP request
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqJSON))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	fmt.Print("Downloading... ")
+
+	// Send request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("FAILED")
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check for error response (JSON)
+	contentType := resp.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "application/json") {
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to read response: %w", err)
+		}
+		var errResp struct {
+			Success bool   `json:"success"`
+			Error   string `json:"error"`
+		}
+		if err := json.Unmarshal(respBody, &errResp); err == nil && !errResp.Success {
+			fmt.Println("FAILED")
+			return fmt.Errorf("download failed: %s", errResp.Error)
+		}
+		fmt.Println("FAILED")
+		return fmt.Errorf("unexpected JSON response: %s", string(respBody))
+	}
+
+	// Check if it's a tar.gz (directory download)
+	isTarGz := strings.HasPrefix(contentType, "application/gzip") ||
+		strings.HasSuffix(resp.Header.Get("Content-Disposition"), ".tar.gz\"")
+
+	if isTarGz {
+		// Extract tar.gz to directory
+		if err := os.MkdirAll(localPath, 0755); err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+
+		if err := filetransfer.UntarDirectory(resp.Body, localPath); err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to extract directory: %w", err)
+		}
+
+		fmt.Println("OK")
+		fmt.Printf("Extracted directory to %s\n", localPath)
+	} else {
+		// Write file directly
+		dir := filepath.Dir(localPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to create parent directory: %w", err)
+		}
+
+		f, err := os.Create(localPath)
+		if err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+
+		written, err := io.Copy(f, resp.Body)
+		f.Close()
+		if err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+
+		// Restore file mode from header
+		var mode os.FileMode = 0644 // default
+		if modeStr := resp.Header.Get("X-File-Mode"); modeStr != "" {
+			var modeVal uint32
+			if _, err := fmt.Sscanf(modeStr, "%o", &modeVal); err == nil {
+				mode = os.FileMode(modeVal)
+			}
+		}
+		if err := os.Chmod(localPath, mode); err != nil {
+			// Non-fatal, just log
+			fmt.Printf("Warning: failed to set file mode: %v\n", err)
+		}
+
+		fmt.Println("OK")
+		fmt.Printf("Downloaded %d bytes to %s (mode: %04o)\n", written, localPath, mode)
+	}
+
+	return nil
 }
