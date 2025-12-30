@@ -803,15 +803,28 @@ func DecodeRouteWithdraw(buf []byte) (*RouteWithdraw, error) {
 // Node info frames
 // ============================================================================
 
+// PeerConnectionInfo describes a peer connection for an agent.
+// Used in NodeInfo to advertise connected peers to the mesh.
+type PeerConnectionInfo struct {
+	PeerID    [16]byte // Remote peer AgentID
+	Transport string   // Transport type: "quic", "h2", "ws"
+	RTTMs     int64    // Round-trip time in milliseconds (0 if unknown)
+	IsDialer  bool     // True if this agent initiated the connection
+}
+
+// MaxPeersInNodeInfo is the maximum number of peers to include in NodeInfo.
+const MaxPeersInNodeInfo = 50
+
 // NodeInfo contains metadata about an agent in the mesh.
 type NodeInfo struct {
-	DisplayName string   // Human-readable name (from config)
-	Hostname    string   // System hostname
-	OS          string   // Operating system (runtime.GOOS)
-	Arch        string   // Architecture (runtime.GOARCH)
-	Version     string   // Agent version
-	StartTime   int64    // Agent start time (Unix timestamp)
-	IPAddresses []string // Local IP addresses (non-loopback)
+	DisplayName string               // Human-readable name (from config)
+	Hostname    string               // System hostname
+	OS          string               // Operating system (runtime.GOOS)
+	Arch        string               // Architecture (runtime.GOARCH)
+	Version     string               // Agent version
+	StartTime   int64                // Agent start time (Unix timestamp)
+	IPAddresses []string             // Local IP addresses (non-loopback)
+	Peers       []PeerConnectionInfo // Connected peers (max 50)
 }
 
 // NodeInfoAdvertise is the payload for NODE_INFO_ADVERTISE frames.
@@ -834,7 +847,14 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 	// VersionLen(1) + Version +
 	// StartTime(8) +
 	// IPCount(1) + [IPLen(1) + IP]... +
-	// SeenByLen(1) + SeenBy(N*16)
+	// SeenByLen(1) + SeenBy(N*16) +
+	// PeerCount(1) + [PeerID(16) + TransportLen(1) + Transport + RTTMs(8) + IsDialer(1)]...
+
+	// Limit peers to max
+	peers := n.Info.Peers
+	if len(peers) > MaxPeersInNodeInfo {
+		peers = peers[:MaxPeersInNodeInfo]
+	}
 
 	size := 16 + 8 // OriginAgent + Sequence
 	size += 1 + len(n.Info.DisplayName)
@@ -848,6 +868,14 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 		size += 1 + len(ip)
 	}
 	size += 1 + len(n.SeenBy)*16
+	// Peers (appended after SeenBy for backward compatibility)
+	size += 1 // PeerCount
+	for _, peer := range peers {
+		size += 16                     // PeerID
+		size += 1 + len(peer.Transport) // TransportLen + Transport
+		size += 8                       // RTTMs
+		size += 1                       // IsDialer
+	}
 
 	buf := make([]byte, size)
 	offset := 0
@@ -910,6 +938,30 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 	for _, id := range n.SeenBy {
 		copy(buf[offset:], id[:])
 		offset += 16
+	}
+
+	// Peers (appended after SeenBy for backward compatibility)
+	buf[offset] = uint8(len(peers))
+	offset++
+	for _, peer := range peers {
+		// PeerID
+		copy(buf[offset:], peer.PeerID[:])
+		offset += 16
+		// Transport
+		buf[offset] = uint8(len(peer.Transport))
+		offset++
+		copy(buf[offset:], peer.Transport)
+		offset += len(peer.Transport)
+		// RTTMs
+		binary.BigEndian.PutUint64(buf[offset:], uint64(peer.RTTMs))
+		offset += 8
+		// IsDialer
+		if peer.IsDialer {
+			buf[offset] = 1
+		} else {
+			buf[offset] = 0
+		}
+		offset++
 	}
 
 	return buf
@@ -1032,6 +1084,54 @@ func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
 		}
 		copy(n.SeenBy[i][:], buf[offset:offset+16])
 		offset += 16
+	}
+
+	// Peers (optional, for backward compatibility with older agents)
+	// Check if there's remaining data after SeenBy
+	if offset < len(buf) {
+		peerCount := int(buf[offset])
+		offset++
+		if peerCount > MaxPeersInNodeInfo {
+			peerCount = MaxPeersInNodeInfo
+		}
+		n.Info.Peers = make([]PeerConnectionInfo, 0, peerCount)
+		for i := 0; i < peerCount; i++ {
+			// PeerID (16 bytes)
+			if offset+16 > len(buf) {
+				break // Truncated, stop parsing peers
+			}
+			var peer PeerConnectionInfo
+			copy(peer.PeerID[:], buf[offset:offset+16])
+			offset += 16
+
+			// Transport (1 byte len + string)
+			if offset >= len(buf) {
+				break
+			}
+			transportLen := int(buf[offset])
+			offset++
+			if offset+transportLen > len(buf) {
+				break
+			}
+			peer.Transport = string(buf[offset : offset+transportLen])
+			offset += transportLen
+
+			// RTTMs (8 bytes)
+			if offset+8 > len(buf) {
+				break
+			}
+			peer.RTTMs = int64(binary.BigEndian.Uint64(buf[offset:]))
+			offset += 8
+
+			// IsDialer (1 byte)
+			if offset >= len(buf) {
+				break
+			}
+			peer.IsDialer = buf[offset] != 0
+			offset++
+
+			n.Info.Peers = append(n.Info.Peers, peer)
+		}
 	}
 
 	return n, nil

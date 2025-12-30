@@ -20,6 +20,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/control"
 	"github.com/postalsys/muti-metroo/internal/exit"
+	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/flood"
 	"github.com/postalsys/muti-metroo/internal/health"
 	"github.com/postalsys/muti-metroo/internal/identity"
@@ -30,8 +31,8 @@ import (
 	"github.com/postalsys/muti-metroo/internal/routing"
 	"github.com/postalsys/muti-metroo/internal/rpc"
 	"github.com/postalsys/muti-metroo/internal/socks5"
-	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/stream"
+	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
@@ -69,15 +70,16 @@ type Agent struct {
 	listeners  []transport.Listener
 
 	// Core components
-	peerMgr       *peer.Manager
-	routeMgr      *routing.Manager
-	streamMgr     *stream.Manager
-	flooder       *flood.Flooder
-	socks5Srv     *socks5.Server
-	exitHandler   *exit.Handler
-	healthServer  *health.Server
-	controlServer *control.Server
-	rpcExecutor   *rpc.Executor
+	peerMgr             *peer.Manager
+	routeMgr            *routing.Manager
+	streamMgr           *stream.Manager
+	flooder             *flood.Flooder
+	socks5Srv           *socks5.Server
+	exitHandler         *exit.Handler
+	healthServer        *health.Server
+	controlServer       *control.Server
+	rpcExecutor         *rpc.Executor
+	fileTransferHandler *filetransfer.Handler
 
 	// Relay stream tracking
 	relayMu          sync.RWMutex
@@ -254,6 +256,15 @@ func (a *Agent) initComponents() error {
 	}
 	a.rpcExecutor = rpc.NewExecutor(rpcCfg)
 
+	// Initialize file transfer handler
+	ftCfg := filetransfer.Config{
+		Enabled:      a.cfg.FileTransfer.Enabled,
+		MaxFileSize:  a.cfg.FileTransfer.MaxFileSize,
+		AllowedPaths: a.cfg.FileTransfer.AllowedPaths,
+		PasswordHash: a.cfg.FileTransfer.PasswordHash,
+	}
+	a.fileTransferHandler = filetransfer.NewHandler(ftCfg)
+
 	return nil
 }
 
@@ -355,11 +366,12 @@ func (a *Agent) Start() error {
 	// Initial node info announcement (with small delay for peer connections)
 	go func() {
 		time.Sleep(2 * time.Second) // Wait for initial peer connections
-		info := sysinfo.Collect(a.cfg.Agent.DisplayName)
+		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
-			"hostname", info.Hostname)
+			"hostname", info.Hostname,
+			"peers", len(info.Peers))
 	}()
 
 	// Start HTTP server if enabled
@@ -807,12 +819,13 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 		case <-a.stopCh:
 			return
 		case <-ticker.C:
-			// Collect and announce local node info
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName)
+			// Collect and announce local node info with current peer connections
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
-				"hostname", info.Hostname)
+				"hostname", info.Hostname,
+				"peers", len(info.Peers))
 		}
 	}
 }
@@ -1370,6 +1383,10 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.getLocalRoutes()
 	case protocol.ControlTypeRPC:
 		data, success = a.handleRPCRequest(req.Data)
+	case protocol.ControlTypeFileUpload:
+		data, success = a.handleFileUpload(req.Data)
+	case protocol.ControlTypeFileDownload:
+		data, success = a.handleFileDownload(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false
@@ -1775,6 +1792,44 @@ func (a *Agent) handleRPCRequest(data []byte) ([]byte, bool) {
 	// Return success=true for valid RPC execution, even if command failed
 	// The exit_code and error in the response JSON capture execution results
 	// Only return success=false for protocol-level errors (auth, whitelist, encoding)
+	return respData, true
+}
+
+// handleFileUpload handles a file upload request from the control channel.
+func (a *Agent) handleFileUpload(data []byte) ([]byte, bool) {
+	respData, err := a.fileTransferHandler.HandleUpload(data)
+	if err != nil {
+		a.logger.Error("file upload handler error", logging.KeyError, err)
+		return []byte(err.Error()), false
+	}
+
+	// Check if the response indicates success
+	var resp filetransfer.FileUploadResponse
+	if err := json.Unmarshal(respData, &resp); err == nil && resp.Success {
+		a.logger.Debug("file upload completed",
+			"path", resp.Written)
+		return respData, true
+	}
+
+	return respData, true
+}
+
+// handleFileDownload handles a file download request from the control channel.
+func (a *Agent) handleFileDownload(data []byte) ([]byte, bool) {
+	respData, err := a.fileTransferHandler.HandleDownload(data)
+	if err != nil {
+		a.logger.Error("file download handler error", logging.KeyError, err)
+		return []byte(err.Error()), false
+	}
+
+	// Check if the response indicates success
+	var resp filetransfer.FileDownloadResponse
+	if err := json.Unmarshal(respData, &resp); err == nil && resp.Success {
+		a.logger.Debug("file download completed",
+			"size", resp.Size)
+		return respData, true
+	}
+
 	return respData, true
 }
 
@@ -2242,7 +2297,22 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.cfg.Agent.DisplayName)
+	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo())
+}
+
+// getPeerConnectionInfo returns peer connection info for NodeInfo advertisement.
+func (a *Agent) getPeerConnectionInfo() []protocol.PeerConnectionInfo {
+	peers := a.peerMgr.GetAllPeers()
+	info := make([]protocol.PeerConnectionInfo, 0, len(peers))
+	for _, p := range peers {
+		var peerInfo protocol.PeerConnectionInfo
+		copy(peerInfo.PeerID[:], p.RemoteID[:])
+		peerInfo.Transport = string(p.TransportType())
+		peerInfo.RTTMs = p.RTT().Milliseconds()
+		peerInfo.IsDialer = p.IsDialer()
+		info = append(info, peerInfo)
+	}
+	return info
 }
 
 // SOCKS5Address returns the SOCKS5 server address, or nil if not running.

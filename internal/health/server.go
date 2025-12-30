@@ -503,6 +503,19 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if this is a file transfer request
+	if len(parts) > 1 && strings.HasPrefix(parts[1], "file/") {
+		filePath := strings.TrimPrefix(parts[1], "file/")
+		switch filePath {
+		case "upload":
+			s.handleFileUpload(w, r, targetID)
+			return
+		case "download":
+			s.handleFileDownload(w, r, targetID)
+			return
+		}
+	}
+
 	// For non-RPC requests, only allow GET
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -603,6 +616,128 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request, targetID iden
 	}
 
 	// Return the RPC response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp.Data)
+}
+
+// handleFileUpload handles file upload requests.
+// POST /agents/{agent-id}/file/upload
+// Request body: JSON with path, mode, size, compressed, data (base64), and optional password
+// Response: JSON with success, error, written
+func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed - use POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body (limit to 600MB to handle 500MB files with base64 overhead)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 600*1024*1024))
+	if err != nil {
+		http.Error(w, "failed to read request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate JSON structure
+	var reqData map[string]interface{}
+	if err := json.Unmarshal(body, &reqData); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Ensure path is specified
+	if _, ok := reqData["path"]; !ok {
+		http.Error(w, "missing required field: path", http.StatusBadRequest)
+		return
+	}
+
+	// Send file upload request to target agent
+	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second) // 5 minute timeout
+	defer cancel()
+
+	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, protocol.ControlTypeFileUpload, body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "failed to send request: " + err.Error(),
+		})
+		return
+	}
+
+	if !resp.Success {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   string(resp.Data),
+		})
+		return
+	}
+
+	// Return the file upload response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp.Data)
+}
+
+// handleFileDownload handles file download requests.
+// POST /agents/{agent-id}/file/download
+// Request body: JSON with path and optional password
+// Response: JSON with success, error, size, mode, compressed, data (base64)
+func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed - use POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read request body
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1*1024*1024)) // 1MB limit for request
+	if err != nil {
+		http.Error(w, "failed to read request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate JSON structure
+	var reqData map[string]interface{}
+	if err := json.Unmarshal(body, &reqData); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Ensure path is specified
+	if _, ok := reqData["path"]; !ok {
+		http.Error(w, "missing required field: path", http.StatusBadRequest)
+		return
+	}
+
+	// Send file download request to target agent
+	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Second) // 5 minute timeout
+	defer cancel()
+
+	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, protocol.ControlTypeFileDownload, body)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "failed to send request: " + err.Error(),
+		})
+		return
+	}
+
+	if !resp.Success {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   string(resp.Data),
+		})
+		return
+	}
+
+	// Return the file download response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp.Data)
@@ -742,11 +877,24 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			toID := route.Path[i+1]
 			connKey := fromID.ShortString() + "->" + toID.ShortString()
 			if _, exists := connectionSet[connKey]; !exists {
-				connectionSet[connKey] = TopologyConnection{
+				conn := TopologyConnection{
 					FromAgent: fromID.ShortString(),
 					ToAgent:   toID.ShortString(),
 					IsDirect:  false,
 				}
+				// Try to find transport/RTT from the "from" agent's peer info
+				if fromNodeInfo, ok := allNodeInfo[fromID]; ok {
+					for _, peer := range fromNodeInfo.Peers {
+						var peerAgentID identity.AgentID
+						copy(peerAgentID[:], peer.PeerID[:])
+						if peerAgentID == toID {
+							conn.Transport = peer.Transport
+							conn.RTTMs = peer.RTTMs
+							break
+						}
+					}
+				}
+				connectionSet[connKey] = conn
 			}
 		}
 	}

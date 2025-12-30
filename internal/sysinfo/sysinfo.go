@@ -28,7 +28,8 @@ func init() {
 }
 
 // Collect gathers local system information and returns a NodeInfo struct.
-func Collect(displayName string) *protocol.NodeInfo {
+// The peers parameter contains current peer connection details to include in the advertisement.
+func Collect(displayName string, peers []protocol.PeerConnectionInfo) *protocol.NodeInfo {
 	hostname, _ := os.Hostname()
 
 	return &protocol.NodeInfo{
@@ -39,6 +40,7 @@ func Collect(displayName string) *protocol.NodeInfo {
 		Version:     Version,
 		StartTime:   startTime.Unix(),
 		IPAddresses: GetLocalIPs(),
+		Peers:       peers,
 	}
 }
 
