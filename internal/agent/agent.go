@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"sync"
@@ -42,6 +43,18 @@ type relayStream struct {
 	UpstreamID     uint64 // Stream ID from upstream
 	DownstreamPeer identity.AgentID
 	DownstreamID   uint64 // Stream ID to downstream
+}
+
+// fileTransferStream tracks an active file transfer stream.
+type fileTransferStream struct {
+	StreamID    uint64
+	PeerID      identity.AgentID
+	RequestID   uint64
+	IsUpload    bool   // true for upload (receiving data), false for download (sending data)
+	Meta        *filetransfer.TransferMetadata
+	DataBuf     *bytes.Buffer // Buffer for received data (upload)
+	MetaReceived bool         // true after metadata frame received
+	Closed      bool
 }
 
 // pendingControlRequest tracks an outbound control request awaiting response.
@@ -80,6 +93,11 @@ type Agent struct {
 	controlServer       *control.Server
 	rpcExecutor         *rpc.Executor
 	fileTransferHandler *filetransfer.Handler
+
+	// Stream-based file transfer
+	fileStreamHandler  *filetransfer.StreamHandler
+	fileStreamsMu      sync.RWMutex
+	fileStreams        map[uint64]*fileTransferStream // StreamID -> active transfer
 
 	// Relay stream tracking
 	relayMu          sync.RWMutex
@@ -125,6 +143,7 @@ func New(cfg *config.Config) (*Agent, error) {
 		relayByDownstream: make(map[uint64]*relayStream),
 		pendingControl:    make(map[uint64]*pendingControlRequest),
 		forwardedControl:  make(map[uint64]*forwardedControlRequest),
+		fileStreams:       make(map[uint64]*fileTransferStream),
 	}
 
 	// Initialize components
@@ -256,7 +275,7 @@ func (a *Agent) initComponents() error {
 	}
 	a.rpcExecutor = rpc.NewExecutor(rpcCfg)
 
-	// Initialize file transfer handler
+	// Initialize file transfer handler (control channel based - legacy)
 	ftCfg := filetransfer.Config{
 		Enabled:      a.cfg.FileTransfer.Enabled,
 		MaxFileSize:  a.cfg.FileTransfer.MaxFileSize,
@@ -264,6 +283,16 @@ func (a *Agent) initComponents() error {
 		PasswordHash: a.cfg.FileTransfer.PasswordHash,
 	}
 	a.fileTransferHandler = filetransfer.NewHandler(ftCfg)
+
+	// Initialize stream-based file transfer handler
+	ftStreamCfg := filetransfer.StreamConfig{
+		Enabled:      a.cfg.FileTransfer.Enabled,
+		MaxFileSize:  a.cfg.FileTransfer.MaxFileSize,
+		AllowedPaths: a.cfg.FileTransfer.AllowedPaths,
+		PasswordHash: a.cfg.FileTransfer.PasswordHash,
+		Compression:  true, // Default to compression
+	}
+	a.fileStreamHandler = filetransfer.NewStreamHandler(ftStreamCfg)
 
 	return nil
 }
@@ -874,7 +903,20 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 
 	// Check if we are the exit node (path is empty or we're the target)
 	if len(open.RemainingPath) == 0 || (len(open.RemainingPath) == 1 && open.RemainingPath[0] == a.id) {
-		// We are the exit node
+		// Check if this is a file transfer stream
+		if open.AddressType == protocol.AddrTypeDomain {
+			destAddr := addressToString(open.AddressType, open.Address)
+			if destAddr == protocol.FileTransferUpload {
+				a.handleFileUploadStreamOpen(peerID, frame.StreamID, open.RequestID)
+				return
+			}
+			if destAddr == protocol.FileTransferDownload {
+				a.handleFileDownloadStreamOpen(peerID, frame.StreamID, open.RequestID)
+				return
+			}
+		}
+
+		// We are the exit node for TCP traffic
 		if a.exitHandler != nil {
 			ctx := context.Background()
 			// Convert address bytes to string based on address type
@@ -1093,6 +1135,13 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 		a.exitHandler.HandleStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags)
 		return
 	}
+
+	// Check if this is a file transfer stream
+	if a.getFileTransferStream(frame.StreamID) != nil {
+		a.handleFileTransferStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags)
+		return
+	}
+
 	a.streamMgr.HandleStreamData(frame.StreamID, frame.Flags, frame.Payload)
 }
 
@@ -1139,6 +1188,13 @@ func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame
 		a.exitHandler.HandleStreamClose(peerID, frame.StreamID)
 		return
 	}
+
+	// Check if this is a file transfer stream
+	if a.getFileTransferStream(frame.StreamID) != nil {
+		a.cleanupFileTransferStream(frame.StreamID)
+		return
+	}
+
 	a.streamMgr.HandleStreamClose(frame.StreamID)
 }
 
@@ -1192,6 +1248,13 @@ func (a *Agent) handleStreamReset(peerID identity.AgentID, frame *protocol.Frame
 		a.exitHandler.HandleStreamReset(peerID, frame.StreamID, reset.ErrorCode)
 		return
 	}
+
+	// Check if this is a file transfer stream
+	if a.getFileTransferStream(frame.StreamID) != nil {
+		a.cleanupFileTransferStream(frame.StreamID)
+		return
+	}
+
 	a.streamMgr.HandleStreamReset(frame.StreamID, reset.ErrorCode)
 }
 
@@ -2421,4 +2484,269 @@ func (a *Agent) WriteStreamClose(peerID identity.AgentID, streamID uint64) error
 		StreamID: streamID,
 	}
 	return a.peerMgr.SendToPeer(peerID, frame)
+}
+
+// handleFileUploadStreamOpen handles a file upload stream open request.
+func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64) {
+	a.logger.Debug("file upload stream open",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, streamID,
+		logging.KeyRequestID, requestID)
+
+	// Check if file transfer is enabled
+	if a.fileStreamHandler == nil {
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrFileTransferDenied, "file transfer disabled")
+		return
+	}
+
+	// Create file transfer stream entry
+	fts := &fileTransferStream{
+		StreamID:     streamID,
+		PeerID:       peerID,
+		RequestID:    requestID,
+		IsUpload:     true,
+		DataBuf:      bytes.NewBuffer(nil),
+		MetaReceived: false,
+	}
+
+	a.fileStreamsMu.Lock()
+	a.fileStreams[streamID] = fts
+	a.fileStreamsMu.Unlock()
+
+	// Send ACK to accept the stream (metadata will come in first data frame)
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0)
+}
+
+// handleFileDownloadStreamOpen handles a file download stream open request.
+func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64) {
+	a.logger.Debug("file download stream open",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, streamID,
+		logging.KeyRequestID, requestID)
+
+	// Check if file transfer is enabled
+	if a.fileStreamHandler == nil {
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrFileTransferDenied, "file transfer disabled")
+		return
+	}
+
+	// Create file transfer stream entry
+	fts := &fileTransferStream{
+		StreamID:     streamID,
+		PeerID:       peerID,
+		RequestID:    requestID,
+		IsUpload:     false,
+		DataBuf:      bytes.NewBuffer(nil),
+		MetaReceived: false,
+	}
+
+	a.fileStreamsMu.Lock()
+	a.fileStreams[streamID] = fts
+	a.fileStreamsMu.Unlock()
+
+	// Send ACK to accept the stream (metadata will come in first data frame)
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0)
+}
+
+// handleFileTransferStreamData processes data for a file transfer stream.
+func (a *Agent) handleFileTransferStreamData(peerID identity.AgentID, streamID uint64, data []byte, flags uint8) {
+	a.fileStreamsMu.RLock()
+	fts := a.fileStreams[streamID]
+	a.fileStreamsMu.RUnlock()
+
+	if fts == nil || fts.Closed {
+		return
+	}
+
+	// First data frame contains metadata
+	if !fts.MetaReceived {
+		meta, err := filetransfer.ParseMetadata(data)
+		if err != nil {
+			a.logger.Error("invalid file transfer metadata",
+				logging.KeyStreamID, streamID,
+				logging.KeyError, err)
+			a.closeFileTransferStream(streamID, protocol.ErrConnectionRefused, "invalid metadata")
+			return
+		}
+		fts.Meta = meta
+		fts.MetaReceived = true
+
+		if fts.IsUpload {
+			// Validate upload metadata
+			if err := a.fileStreamHandler.ValidateUploadMetadata(meta); err != nil {
+				a.logger.Error("file upload validation failed",
+					logging.KeyStreamID, streamID,
+					logging.KeyError, err)
+				a.closeFileTransferStream(streamID, protocol.ErrNotAllowed, err.Error())
+				return
+			}
+			a.logger.Info("file upload started",
+				"path", meta.Path,
+				"size", meta.Size,
+				"is_directory", meta.IsDirectory)
+		} else {
+			// Validate download metadata and start sending file
+			if err := a.fileStreamHandler.ValidateDownloadMetadata(meta); err != nil {
+				a.logger.Error("file download validation failed",
+					logging.KeyStreamID, streamID,
+					logging.KeyError, err)
+				a.closeFileTransferStream(streamID, protocol.ErrNotAllowed, err.Error())
+				return
+			}
+			// Start goroutine to send file data
+			go a.sendFileDownload(fts)
+		}
+		return
+	}
+
+	// Subsequent data frames contain file content (only for uploads)
+	if fts.IsUpload {
+		fts.DataBuf.Write(data)
+
+		// Check for FIN flag (end of upload)
+		if flags&protocol.FlagFinWrite != 0 {
+			go a.completeFileUpload(fts)
+		}
+	}
+}
+
+// completeFileUpload writes the uploaded data to disk.
+func (a *Agent) completeFileUpload(fts *fileTransferStream) {
+	defer a.cleanupFileTransferStream(fts.StreamID)
+
+	if fts.Meta == nil {
+		a.logger.Error("file upload missing metadata", logging.KeyStreamID, fts.StreamID)
+		return
+	}
+
+	// Write file to disk
+	written, err := a.fileStreamHandler.WriteUploadedFile(
+		fts.Meta.Path,
+		fts.DataBuf,
+		fts.Meta.Mode,
+		fts.Meta.IsDirectory,
+		fts.Meta.Compress,
+	)
+
+	if err != nil {
+		a.logger.Error("file upload write failed",
+			logging.KeyStreamID, fts.StreamID,
+			logging.KeyError, err)
+		a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrWriteFailed, err.Error())
+		return
+	}
+
+	a.logger.Info("file upload completed",
+		"path", fts.Meta.Path,
+		"written", written)
+
+	// Send close to signal completion
+	a.WriteStreamClose(fts.PeerID, fts.StreamID)
+}
+
+// sendFileDownload sends file data to the requester.
+func (a *Agent) sendFileDownload(fts *fileTransferStream) {
+	defer a.cleanupFileTransferStream(fts.StreamID)
+
+	if fts.Meta == nil {
+		a.logger.Error("file download missing metadata", logging.KeyStreamID, fts.StreamID)
+		return
+	}
+
+	// Read file from disk
+	reader, size, mode, isDir, err := a.fileStreamHandler.ReadFileForDownload(fts.Meta.Path, fts.Meta.Compress)
+	if err != nil {
+		a.logger.Error("file download read failed",
+			logging.KeyStreamID, fts.StreamID,
+			logging.KeyError, err)
+		a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrFileNotFound, err.Error())
+		return
+	}
+
+	// Send response metadata as first data frame
+	respMeta := &filetransfer.TransferMetadata{
+		Path:        fts.Meta.Path,
+		Mode:        mode,
+		Size:        size,
+		IsDirectory: isDir,
+		Compress:    fts.Meta.Compress,
+	}
+	metaData, err := filetransfer.EncodeMetadata(respMeta)
+	if err != nil {
+		a.logger.Error("failed to encode response metadata",
+			logging.KeyStreamID, fts.StreamID,
+			logging.KeyError, err)
+		return
+	}
+	a.WriteStreamData(fts.PeerID, fts.StreamID, metaData, 0)
+
+	a.logger.Info("file download started",
+		"path", fts.Meta.Path,
+		"size", size,
+		"is_directory", isDir)
+
+	// Stream file data in chunks
+	buf := make([]byte, protocol.MaxPayloadSize-100) // Leave room for overhead
+	for {
+		n, readErr := reader.Read(buf)
+		if n > 0 {
+			flags := uint8(0)
+			if readErr == io.EOF {
+				flags = protocol.FlagFinWrite
+			}
+			if err := a.WriteStreamData(fts.PeerID, fts.StreamID, buf[:n], flags); err != nil {
+				a.logger.Error("failed to send file data",
+					logging.KeyStreamID, fts.StreamID,
+					logging.KeyError, err)
+				return
+			}
+		}
+		if readErr != nil {
+			if readErr != io.EOF {
+				a.logger.Error("file read error",
+					logging.KeyStreamID, fts.StreamID,
+					logging.KeyError, readErr)
+			}
+			break
+		}
+	}
+
+	// Close any readers that implement io.Closer
+	if closer, ok := reader.(io.Closer); ok {
+		closer.Close()
+	}
+
+	a.logger.Info("file download completed", "path", fts.Meta.Path)
+
+	// Send close to signal completion
+	a.WriteStreamClose(fts.PeerID, fts.StreamID)
+}
+
+// closeFileTransferStream sends an error and cleans up.
+func (a *Agent) closeFileTransferStream(streamID uint64, errCode uint16, message string) {
+	a.fileStreamsMu.RLock()
+	fts := a.fileStreams[streamID]
+	a.fileStreamsMu.RUnlock()
+
+	if fts != nil {
+		a.WriteStreamOpenErr(fts.PeerID, streamID, fts.RequestID, errCode, message)
+		a.cleanupFileTransferStream(streamID)
+	}
+}
+
+// cleanupFileTransferStream removes a file transfer stream from tracking.
+func (a *Agent) cleanupFileTransferStream(streamID uint64) {
+	a.fileStreamsMu.Lock()
+	if fts, ok := a.fileStreams[streamID]; ok {
+		fts.Closed = true
+		delete(a.fileStreams, streamID)
+	}
+	a.fileStreamsMu.Unlock()
+}
+
+// getFileTransferStream returns a file transfer stream by ID.
+func (a *Agent) getFileTransferStream(streamID uint64) *fileTransferStream {
+	a.fileStreamsMu.RLock()
+	defer a.fileStreamsMu.RUnlock()
+	return a.fileStreams[streamID]
 }

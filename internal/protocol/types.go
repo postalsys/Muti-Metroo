@@ -70,6 +70,12 @@ const (
 	ErrResourceLimit      uint16 = 9
 	ErrConnectionLimit    uint16 = 10
 	ErrNotAllowed         uint16 = 11
+	ErrFileTransferDenied uint16 = 12
+	ErrAuthRequired       uint16 = 13
+	ErrPathNotAllowed     uint16 = 14
+	ErrFileTooLarge       uint16 = 15
+	ErrFileNotFound       uint16 = 16
+	ErrWriteFailed        uint16 = 17
 )
 
 // Protocol constants
@@ -88,6 +94,15 @@ const (
 
 	// ControlStreamID is reserved for control messages
 	ControlStreamID uint64 = 0
+)
+
+// File transfer stream addresses (used with AddrTypeDomain)
+const (
+	// FileTransferUpload is the domain address for file upload streams
+	FileTransferUpload = "file:upload"
+
+	// FileTransferDownload is the domain address for file download streams
+	FileTransferDownload = "file:download"
 )
 
 // FrameTypeName returns a human-readable name for a frame type.
@@ -153,6 +168,18 @@ func ErrorCodeName(code uint16) string {
 		return "CONNECTION_LIMIT"
 	case ErrNotAllowed:
 		return "NOT_ALLOWED"
+	case ErrFileTransferDenied:
+		return "FILE_TRANSFER_DENIED"
+	case ErrAuthRequired:
+		return "AUTH_REQUIRED"
+	case ErrPathNotAllowed:
+		return "PATH_NOT_ALLOWED"
+	case ErrFileTooLarge:
+		return "FILE_TOO_LARGE"
+	case ErrFileNotFound:
+		return "FILE_NOT_FOUND"
+	case ErrWriteFailed:
+		return "WRITE_FAILED"
 	default:
 		return "UNKNOWN"
 	}
