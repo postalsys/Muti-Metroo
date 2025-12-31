@@ -13,6 +13,27 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 - Multi-hop path routing via flood-based route propagation
 - Stream multiplexing with half-close support
 
+## Documentation
+
+The project documentation is built with Docusaurus and lives in the `docs/` folder. The documentation is deployed at https://muti-metroo.postalsys.com.
+
+**Important:** When adding or modifying features, the documentation must be updated accordingly:
+
+1. **New features**: Add documentation pages under `docs/docs/` in the appropriate category
+2. **CLI changes**: Update the CLI reference in `docs/docs/cli/`
+3. **API changes**: Update the HTTP API reference in `docs/docs/api/`
+4. **Configuration changes**: Update `docs/docs/getting-started/configuration.md`
+5. **Protocol changes**: Update `docs/docs/protocol/`
+
+To work with documentation locally:
+
+```bash
+cd docs
+npm install        # Install dependencies (first time only)
+npm start          # Start dev server at http://localhost:3000
+npm run build      # Build for production
+```
+
 ## Build & Development Commands
 
 ```bash
