@@ -26,21 +26,25 @@ Multiple transit paths between ingress and exit.
 
 ### Architecture
 
-```
-                    +-------------+
-                    |   Transit   |
-          +-------> |   Primary   | --------+
-          |         +-------------+         |
-          |                                 v
-+-------------+                        +-------------+
-|   Ingress   |                        |    Exit     |
-|    Agent    |                        |    Agent    |
-+-------------+                        +-------------+
-          |                                 ^
-          |         +-------------+         |
-          +-------> |   Transit   | --------+
-                    |   Backup    |
-                    +-------------+
+```mermaid
+flowchart LR
+    subgraph Ingress
+        I[Ingress Agent]
+    end
+
+    subgraph Transit
+        TP[Transit Primary]
+        TB[Transit Backup]
+    end
+
+    subgraph Exit
+        E[Exit Agent]
+    end
+
+    I --> TP
+    I --> TB
+    TP --> E
+    TB --> E
 ```
 
 ### Configuration
@@ -98,16 +102,20 @@ Multiple exit points for the same routes.
 
 ### Architecture
 
-```
-+-------------+         +-------------+
-|   Ingress   |         |   Exit A    |  10.0.0.0/8
-|    Agent    | ------> |   (DC East) |
-+-------------+         +-------------+
-        |
-        |               +-------------+
-        +-------------> |   Exit B    |  10.0.0.0/8
-                        |   (DC West) |
-                        +-------------+
+```mermaid
+flowchart LR
+    I[Ingress Agent]
+
+    subgraph DC East
+        EA["Exit A<br/>10.0.0.0/8"]
+    end
+
+    subgraph DC West
+        EB["Exit B<br/>10.0.0.0/8"]
+    end
+
+    I --> EA
+    I --> EB
 ```
 
 ### Configuration
@@ -150,18 +158,25 @@ Agents in multiple regions for disaster recovery.
 
 ### Architecture
 
-```
-              Region A                           Region B
-         +--------------+                   +--------------+
-         |   Agent A1   |                   |   Agent B1   |
-         |   (Primary)  | <---------------> |   (Backup)   |
-         +--------------+                   +--------------+
-              |    |                             |    |
-         +----+    +----+                   +----+    +----+
-         |              |                   |              |
-    +--------+    +--------+           +--------+    +--------+
-    | Exit A |    | Exit A'|           | Exit B |    | Exit B'|
-    +--------+    +--------+           +--------+    +--------+
+```mermaid
+flowchart TB
+    subgraph Region A
+        A1["Agent A1<br/>(Primary)"]
+        EA[Exit A]
+        EA2[Exit A']
+        A1 --> EA
+        A1 --> EA2
+    end
+
+    subgraph Region B
+        B1["Agent B1<br/>(Backup)"]
+        EB[Exit B]
+        EB2[Exit B']
+        B1 --> EB
+        B1 --> EB2
+    end
+
+    A1 <--> B1
 ```
 
 ### Cross-Region Peering
@@ -189,25 +204,21 @@ Multiple ingress points behind a load balancer.
 
 ### Architecture
 
-```
-                    +---------------+
-                    | Load Balancer |
-                    | (DNS/L4)      |
-                    +-------+-------+
-                            |
-            +---------------+---------------+
-            |                               |
-      +-----+-----+                   +-----+-----+
-      |  Ingress  |                   |  Ingress  |
-      |  Agent 1  |                   |  Agent 2  |
-      +-----+-----+                   +-----+-----+
-            |                               |
-            +---------------+---------------+
-                            |
-                      +-----+-----+
-                      |   Exit    |
-                      |   Agent   |
-                      +-----------+
+```mermaid
+flowchart TB
+    LB["Load Balancer<br/>(DNS/L4)"]
+
+    subgraph Ingress Layer
+        I1[Ingress Agent 1]
+        I2[Ingress Agent 2]
+    end
+
+    E[Exit Agent]
+
+    LB --> I1
+    LB --> I2
+    I1 --> E
+    I2 --> E
 ```
 
 ### DNS Round-Robin
