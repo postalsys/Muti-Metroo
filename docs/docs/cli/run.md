@@ -2,6 +2,10 @@
 title: run
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole running commands" style={{maxWidth: '180px'}} />
+</div>
+
 # muti-metroo run
 
 Run the agent with a configuration file.

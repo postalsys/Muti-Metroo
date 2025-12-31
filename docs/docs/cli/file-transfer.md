@@ -2,6 +2,10 @@
 title: File Transfer (upload/download)
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole transferring files" style={{maxWidth: '180px'}} />
+</div>
+
 # File Transfer Commands
 
 Upload and download files to/from remote agents.

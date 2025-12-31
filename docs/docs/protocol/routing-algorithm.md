@@ -3,6 +3,10 @@ title: Routing Algorithm
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-thinking.png" alt="Mole planning routes" style={{maxWidth: '180px'}} />
+</div>
+
 # Routing Algorithm
 
 How Muti Metroo discovers and selects routes through the mesh.

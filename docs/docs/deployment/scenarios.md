@@ -3,6 +3,10 @@ title: Deployment Scenarios
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-climbing.png" alt="Mole deploying" style={{maxWidth: '180px'}} />
+</div>
+
 # Deployment Scenarios
 
 This guide covers common deployment patterns for Muti Metroo.

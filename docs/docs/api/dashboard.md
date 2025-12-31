@@ -2,6 +2,10 @@
 title: Dashboard Endpoints
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole presenting dashboard" style={{maxWidth: '180px'}} />
+</div>
+
 # Dashboard Endpoints
 
 Web dashboard and topology data APIs.

@@ -5,14 +5,16 @@ import styles from './styles.module.css';
 
 type FeatureItem = {
   title: string;
-  icon: string;
+  image: string;
+  imageAlt: string;
   description: ReactNode;
 };
 
 const FeatureList: FeatureItem[] = [
   {
     title: 'Multi-Transport Support',
-    icon: '[ QUIC | H2 | WS ]',
+    image: '/img/mole-wiring.png',
+    imageAlt: 'Mole connecting wires',
     description: (
       <>
         Choose the right transport for your environment: QUIC for performance,
@@ -23,7 +25,8 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'Userspace Operation',
-    icon: '[ NO ROOT ]',
+    image: '/img/mole-drilling.png',
+    imageAlt: 'Mole drilling through layers',
     description: (
       <>
         Runs entirely in userspace without kernel modules or root privileges.
@@ -33,7 +36,8 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'Mesh Networking',
-    icon: '[ A -- B -- C ]',
+    image: '/img/mole-plumbing.png',
+    imageAlt: 'Mole connecting pipes',
     description: (
       <>
         Automatic multi-hop routing with flood-based route propagation.
@@ -43,7 +47,8 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'SOCKS5 Proxy',
-    icon: '[ :1080 ]',
+    image: '/img/mole-escalator.png',
+    imageAlt: 'Mole on escalator',
     description: (
       <>
         Standard SOCKS5 proxy interface for transparent application integration.
@@ -53,7 +58,8 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'TLS/mTLS Security',
-    icon: '[ TLS 1.3 ]',
+    image: '/img/mole-inspecting.png',
+    imageAlt: 'Mole inspecting with magnifying glass',
     description: (
       <>
         All connections secured with TLS 1.3 and perfect forward secrecy.
@@ -63,7 +69,8 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'Production Ready',
-    icon: '[ METRICS ]',
+    image: '/img/mole-presenting.png',
+    imageAlt: 'Mole presenting',
     description: (
       <>
         Built-in Prometheus metrics, health endpoints, web dashboard,
@@ -73,11 +80,11 @@ const FeatureList: FeatureItem[] = [
   },
 ];
 
-function Feature({title, icon, description}: FeatureItem) {
+function Feature({title, image, imageAlt, description}: FeatureItem) {
   return (
     <div className={clsx('col col--4')}>
       <div className="text--center padding-vert--md">
-        <div className={styles.featureIcon}>{icon}</div>
+        <img src={image} alt={imageAlt} className={styles.featureImage} />
       </div>
       <div className="text--center padding-horiz--md">
         <Heading as="h3">{title}</Heading>

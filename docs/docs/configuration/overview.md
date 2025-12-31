@@ -3,6 +3,10 @@ title: Configuration Overview
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole inspecting configuration" style={{maxWidth: '180px'}} />
+</div>
+
 # Configuration Reference
 
 This section provides a complete reference for all Muti Metroo configuration options.

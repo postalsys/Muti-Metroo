@@ -3,6 +3,10 @@ title: Transports
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-wiring.png" alt="Mole connecting transports" style={{maxWidth: '180px'}} />
+</div>
+
 # Transport Protocols
 
 Muti Metroo supports three transport protocols, each with different characteristics. You can mix transports within the same mesh.

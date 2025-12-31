@@ -3,6 +3,10 @@ title: Environment Variables
 sidebar_position: 8
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole reading environment" style={{maxWidth: '180px'}} />
+</div>
+
 # Environment Variable Substitution
 
 Muti Metroo configuration files support environment variable substitution, allowing you to externalize secrets and deployment-specific values.

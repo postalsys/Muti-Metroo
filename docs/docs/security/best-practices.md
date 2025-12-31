@@ -3,6 +3,10 @@ title: Best Practices
 sidebar_position: 5
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole recommending best practices" style={{maxWidth: '180px'}} />
+</div>
+
 # Security Best Practices
 
 Production hardening guide for Muti Metroo deployments.

@@ -2,6 +2,10 @@
 title: service
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole managing services" style={{maxWidth: '180px'}} />
+</div>
+
 # muti-metroo service
 
 Service management commands for system integration.

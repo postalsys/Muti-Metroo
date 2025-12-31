@@ -3,6 +3,10 @@ title: Exit
 sidebar_position: 6
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole configuring exit" style={{maxWidth: '180px'}} />
+</div>
+
 # Exit Configuration
 
 The exit section configures the agent as an exit node that opens connections to external destinations.

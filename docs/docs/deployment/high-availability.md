@@ -3,6 +3,10 @@ title: High Availability
 sidebar_position: 5
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-climbing.png" alt="Mole setting up high availability" style={{maxWidth: '180px'}} />
+</div>
+
 # High Availability
 
 Design patterns for fault-tolerant Muti Metroo deployments.

@@ -3,6 +3,10 @@ title: Performance
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-drilling.png" alt="Mole optimizing performance" style={{maxWidth: '180px'}} />
+</div>
+
 # Performance Troubleshooting
 
 Diagnose and optimize performance issues.

@@ -3,6 +3,10 @@ title: Remote Procedure Call (RPC)
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole presenting RPC" style={{maxWidth: '180px'}} />
+</div>
+
 # Remote Procedure Call (RPC)
 
 Execute shell commands on remote agents for maintenance and diagnostics.

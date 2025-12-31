@@ -3,6 +3,10 @@ title: Connectivity
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-drilling.png" alt="Mole troubleshooting connectivity" style={{maxWidth: '180px'}} />
+</div>
+
 # Connectivity Troubleshooting
 
 Diagnose and fix network connectivity issues.

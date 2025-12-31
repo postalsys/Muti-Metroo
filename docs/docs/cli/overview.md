@@ -2,6 +2,10 @@
 title: CLI Overview
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole reading CLI docs" style={{maxWidth: '180px'}} />
+</div>
+
 # CLI Reference
 
 Complete command-line interface reference for Muti Metroo.

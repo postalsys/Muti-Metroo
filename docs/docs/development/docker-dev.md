@@ -3,6 +3,10 @@ title: Docker Development
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-hammering.png" alt="Mole developing with Docker" style={{maxWidth: '180px'}} />
+</div>
+
 # Docker Development
 
 Using Docker for development and testing.

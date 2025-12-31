@@ -2,6 +2,10 @@
 title: Metrics Endpoints
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-wiring.png" alt="Mole exposing metrics" style={{maxWidth: '180px'}} />
+</div>
+
 # Metrics Endpoints
 
 Prometheus metrics exposure.

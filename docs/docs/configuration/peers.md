@@ -3,6 +3,10 @@ title: Peers
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole configuring peers" style={{maxWidth: '180px'}} />
+</div>
+
 # Peer Configuration
 
 Peers define outbound connections to other agents in the mesh.

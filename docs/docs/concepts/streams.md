@@ -3,6 +3,10 @@ title: Streams
 sidebar_position: 5
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-escalator.png" alt="Mole on data flow" style={{maxWidth: '180px'}} />
+</div>
+
 # Stream Multiplexing
 
 Muti Metroo uses virtual streams to multiplex multiple connections over a single peer connection. This document explains how streams work.

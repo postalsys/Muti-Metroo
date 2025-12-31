@@ -3,6 +3,10 @@ title: Agent Roles
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole explaining roles" style={{maxWidth: '180px'}} />
+</div>
+
 # Agent Roles
 
 Every Muti Metroo agent can serve one or more roles simultaneously. Understanding these roles is essential for designing your mesh topology.

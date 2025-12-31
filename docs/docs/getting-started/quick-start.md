@@ -3,6 +3,10 @@ title: Quick Start
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-escalator.png" alt="Mole on the move" style={{maxWidth: '180px'}} />
+</div>
+
 # Quick Start
 
 This guide walks you through manually setting up a Muti Metroo agent with full control over the configuration.

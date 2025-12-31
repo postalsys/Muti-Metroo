@@ -2,6 +2,10 @@
 title: rpc
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole executing RPC" style={{maxWidth: '180px'}} />
+</div>
+
 # muti-metroo rpc
 
 Execute remote procedure call on a remote agent.

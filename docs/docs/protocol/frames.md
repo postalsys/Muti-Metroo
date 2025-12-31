@@ -2,6 +2,10 @@
 title: Frame Types
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-thinking.png" alt="Mole analyzing frames" style={{maxWidth: '180px'}} />
+</div>
+
 # Frame Types
 
 Complete reference of all frame types in the Muti Metroo protocol.

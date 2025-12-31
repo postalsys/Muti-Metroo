@@ -3,6 +3,10 @@ title: Authentication
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole checking authentication" style={{maxWidth: '180px'}} />
+</div>
+
 # Authentication
 
 Muti Metroo supports multiple authentication mechanisms for different components.

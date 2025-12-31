@@ -2,6 +2,10 @@
 title: Agent Endpoints
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-wiring.png" alt="Mole managing agents" style={{maxWidth: '180px'}} />
+</div>
+
 # Agent Endpoints
 
 Remote agent status and management.

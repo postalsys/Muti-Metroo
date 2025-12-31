@@ -3,6 +3,10 @@ title: Kubernetes Deployment
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-climbing.png" alt="Mole deploying to Kubernetes" style={{maxWidth: '180px'}} />
+</div>
+
 # Kubernetes Deployment
 
 Deploy Muti Metroo on Kubernetes.

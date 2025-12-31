@@ -3,6 +3,10 @@ title: Debugging (pprof)
 sidebar_position: 9
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-drilling.png" alt="Mole debugging" style={{maxWidth: '180px'}} />
+</div>
+
 # Debugging Endpoints
 
 Muti Metroo exposes Go pprof endpoints for profiling and debugging.

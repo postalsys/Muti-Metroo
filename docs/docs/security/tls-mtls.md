@@ -3,6 +3,10 @@ title: TLS and mTLS
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole securing connections" style={{maxWidth: '180px'}} />
+</div>
+
 # TLS and Mutual TLS
 
 Secure your mesh with TLS encryption and mutual authentication.

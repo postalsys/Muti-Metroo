@@ -3,6 +3,10 @@ title: Agent Configuration
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole configuring agent" style={{maxWidth: '180px'}} />
+</div>
+
 # Agent Configuration
 
 The `agent` section configures agent identity and logging.

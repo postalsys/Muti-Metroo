@@ -2,6 +2,10 @@
 title: setup
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-idea.png" alt="Mole setup wizard" style={{maxWidth: '180px'}} />
+</div>
+
 # muti-metroo setup
 
 Interactive setup wizard for configuring Muti Metroo.

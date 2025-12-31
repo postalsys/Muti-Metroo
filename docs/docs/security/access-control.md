@@ -3,6 +3,10 @@ title: Access Control
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole controlling access" style={{maxWidth: '180px'}} />
+</div>
+
 # Access Control
 
 Control what destinations, commands, and paths are accessible.

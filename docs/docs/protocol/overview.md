@@ -2,6 +2,10 @@
 title: Protocol Overview
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-thinking.png" alt="Mole designing protocol" style={{maxWidth: '180px'}} />
+</div>
+
 # Protocol Overview
 
 Muti Metroo uses a binary frame-based protocol for all peer communication.

@@ -2,6 +2,10 @@
 title: Limits and Performance
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-thinking.png" alt="Mole measuring limits" style={{maxWidth: '180px'}} />
+</div>
+
 # Limits and Performance Characteristics
 
 ## Configurable Limits

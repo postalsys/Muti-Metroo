@@ -3,6 +3,10 @@ title: Interactive Setup
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-idea.png" alt="Mole with bright idea" style={{maxWidth: '180px'}} />
+</div>
+
 # Interactive Setup Wizard
 
 The easiest way to get started with Muti Metroo is using the interactive setup wizard. It guides you through all configuration steps with sensible defaults.

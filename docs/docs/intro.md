@@ -4,6 +4,10 @@ title: Introduction
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-surfacing.png" alt="Muti Metroo Mole" style={{maxWidth: '200px'}} />
+</div>
+
 # Muti Metroo
 
 **Muti Metroo** is a userspace mesh networking agent that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.

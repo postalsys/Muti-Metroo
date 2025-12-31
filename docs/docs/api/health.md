@@ -2,6 +2,10 @@
 title: Health Endpoints
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-wiring.png" alt="Mole checking health" style={{maxWidth: '180px'}} />
+</div>
+
 # Health Endpoints
 
 Health check and readiness endpoints.

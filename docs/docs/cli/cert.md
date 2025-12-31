@@ -2,6 +2,10 @@
 title: cert
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole managing certificates" style={{maxWidth: '180px'}} />
+</div>
+
 # muti-metroo cert
 
 Certificate management commands.

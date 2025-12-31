@@ -13,22 +13,29 @@ function HomepageHeader() {
   return (
     <header className={clsx('hero hero--primary', styles.heroBanner)}>
       <div className="container">
-        <Heading as="h1" className="hero__title">
-          {siteConfig.title}
-        </Heading>
-        <p className="hero__subtitle">{siteConfig.tagline}</p>
-        <div className={styles.buttons}>
-          <Link
-            className="button button--secondary button--lg"
-            to="/docs/getting-started/quick-start">
-            Get Started
-          </Link>
-          <Link
-            className="button button--outline button--secondary button--lg"
-            style={{marginLeft: '1rem'}}
-            to="/docs/intro">
-            Learn More
-          </Link>
+        <div className={styles.heroContent}>
+          <div className={styles.heroText}>
+            <Heading as="h1" className="hero__title">
+              {siteConfig.title}
+            </Heading>
+            <p className="hero__subtitle">{siteConfig.tagline}</p>
+            <div className={styles.buttons}>
+              <Link
+                className="button button--secondary button--lg"
+                to="/docs/getting-started/quick-start">
+                Get Started
+              </Link>
+              <Link
+                className="button button--outline button--secondary button--lg"
+                style={{marginLeft: '1rem'}}
+                to="/docs/intro">
+                Learn More
+              </Link>
+            </div>
+          </div>
+          <div className={styles.heroImage}>
+            <img src="/img/mole-surfacing.png" alt="Muti Metroo Mole" />
+          </div>
         </div>
       </div>
     </header>

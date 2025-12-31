@@ -3,6 +3,10 @@ title: Listeners
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole configuring listeners" style={{maxWidth: '180px'}} />
+</div>
+
 # Listener Configuration
 
 Listeners accept incoming peer connections. Each listener binds to an address and transport protocol.

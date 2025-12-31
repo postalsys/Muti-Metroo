@@ -3,6 +3,10 @@ title: Routing
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-plumbing.png" alt="Mole routing pipes" style={{maxWidth: '180px'}} />
+</div>
+
 # Routing in Muti Metroo
 
 Muti Metroo uses flood-based route propagation with longest-prefix match selection. This document explains how routes are advertised, propagated, and selected.

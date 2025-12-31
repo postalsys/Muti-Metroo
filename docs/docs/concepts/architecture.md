@@ -3,6 +3,10 @@ title: Architecture
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-thinking.png" alt="Mole thinking about architecture" style={{maxWidth: '180px'}} />
+</div>
+
 # Architecture Overview
 
 Muti Metroo is designed as a modular, userspace mesh networking agent. This document explains the high-level architecture and how components interact.

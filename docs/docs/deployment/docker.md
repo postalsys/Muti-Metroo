@@ -3,6 +3,10 @@ title: Docker Deployment
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-climbing.png" alt="Mole deploying to Docker" style={{maxWidth: '180px'}} />
+</div>
+
 # Docker Deployment
 
 Deploy Muti Metroo using Docker and Docker Compose.

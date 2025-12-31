@@ -3,6 +3,10 @@ title: File Transfer
 sidebar_position: 3
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole presenting file transfer" style={{maxWidth: '180px'}} />
+</div>
+
 # File Transfer
 
 Upload and download files and directories to/from remote agents.

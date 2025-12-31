@@ -3,6 +3,10 @@ title: System Service
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-climbing.png" alt="Mole installing service" style={{maxWidth: '180px'}} />
+</div>
+
 # System Service Installation
 
 Install Muti Metroo as a system service for automatic startup and management.

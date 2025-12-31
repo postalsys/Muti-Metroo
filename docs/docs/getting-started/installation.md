@@ -3,6 +3,10 @@ title: Installation
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-hammering.png" alt="Mole building" style={{maxWidth: '180px'}} />
+</div>
+
 # Installation
 
 This guide covers all methods for installing Muti Metroo.

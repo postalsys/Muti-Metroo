@@ -3,6 +3,10 @@ title: Exit Routing
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole presenting exit routing" style={{maxWidth: '180px'}} />
+</div>
+
 # Exit Routing
 
 Exit nodes advertise CIDR routes and open TCP connections to external destinations.

@@ -3,6 +3,10 @@ title: TLS Certificates
 sidebar_position: 7
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole checking certificates" style={{maxWidth: '180px'}} />
+</div>
+
 # TLS Certificate Configuration
 
 All peer connections in Muti Metroo use TLS for encryption and authentication. This guide covers certificate generation and configuration.

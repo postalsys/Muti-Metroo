@@ -3,6 +3,10 @@ title: Security Overview
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole inspecting security" style={{maxWidth: '180px'}} />
+</div>
+
 # Security Overview
 
 Muti Metroo is designed with security as a core principle. This guide covers the security model and best practices.

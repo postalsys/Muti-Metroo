@@ -3,6 +3,10 @@ title: Metrics and Monitoring
 sidebar_position: 6
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole presenting metrics" style={{maxWidth: '180px'}} />
+</div>
+
 # Metrics and Monitoring
 
 Muti Metroo exposes Prometheus metrics and provides comprehensive monitoring capabilities for production deployments.

@@ -3,6 +3,10 @@ title: SOCKS5
 sidebar_position: 5
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole configuring SOCKS5" style={{maxWidth: '180px'}} />
+</div>
+
 # SOCKS5 Configuration
 
 The SOCKS5 section configures the ingress proxy server.

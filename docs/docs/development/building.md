@@ -2,6 +2,10 @@
 title: Building
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-hammering.png" alt="Mole building" style={{maxWidth: '180px'}} />
+</div>
+
 # Building Muti Metroo
 
 How to build Muti Metroo from source.

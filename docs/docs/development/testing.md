@@ -2,6 +2,10 @@
 title: Testing
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-hammering.png" alt="Mole testing" style={{maxWidth: '180px'}} />
+</div>
+
 # Testing
 
 How to run tests for Muti Metroo.

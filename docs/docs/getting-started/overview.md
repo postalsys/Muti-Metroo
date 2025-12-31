@@ -3,6 +3,10 @@ title: Getting Started Overview
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole presenting" style={{maxWidth: '180px'}} />
+</div>
+
 # Getting Started
 
 Welcome to Muti Metroo! This guide will help you get up and running with your first mesh network.

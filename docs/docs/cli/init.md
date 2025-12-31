@@ -2,6 +2,10 @@
 title: init
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole initializing" style={{maxWidth: '180px'}} />
+</div>
+
 # muti-metroo init
 
 Initialize agent identity (generates AgentID).

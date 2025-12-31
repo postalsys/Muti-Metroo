@@ -3,6 +3,10 @@ title: Contributing
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-hammering.png" alt="Mole contributing" style={{maxWidth: '180px'}} />
+</div>
+
 # Contributing
 
 Guidelines for contributing to Muti Metroo.

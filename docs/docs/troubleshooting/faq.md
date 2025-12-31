@@ -3,6 +3,10 @@ title: FAQ
 sidebar_position: 4
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-reading.png" alt="Mole reading FAQ" style={{maxWidth: '180px'}} />
+</div>
+
 # Frequently Asked Questions
 
 ## General

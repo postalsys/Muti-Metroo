@@ -22,6 +22,40 @@
   justify-content: center;
 }
 
+.heroContent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3rem;
+  flex-wrap: wrap;
+}
+
+.heroText {
+  flex: 1;
+  min-width: 300px;
+}
+
+.heroImage {
+  flex: 0 0 auto;
+}
+
+.heroImage img {
+  max-width: 280px;
+  height: auto;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+}
+
+@media screen and (max-width: 768px) {
+  .heroContent {
+    flex-direction: column-reverse;
+    gap: 1.5rem;
+  }
+
+  .heroImage img {
+    max-width: 200px;
+  }
+}
+
 .useCases {
   padding: 3rem 0;
   background-color: var(--ifm-color-emphasis-100);

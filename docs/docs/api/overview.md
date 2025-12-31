@@ -2,6 +2,10 @@
 title: HTTP API Overview
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-wiring.png" alt="Mole connecting APIs" style={{maxWidth: '180px'}} />
+</div>
+
 # HTTP API Reference
 
 Complete HTTP API reference for Muti Metroo.

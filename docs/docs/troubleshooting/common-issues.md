@@ -3,6 +3,10 @@ title: Common Issues
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-drilling.png" alt="Mole fixing issues" style={{maxWidth: '180px'}} />
+</div>
+
 # Common Issues
 
 Quick solutions for frequently encountered problems.

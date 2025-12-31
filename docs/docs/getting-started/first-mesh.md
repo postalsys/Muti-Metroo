@@ -3,6 +3,10 @@ title: Your First Mesh
 sidebar_position: 5
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-wiring.png" alt="Mole wiring connections" style={{maxWidth: '180px'}} />
+</div>
+
 # Your First Mesh Network
 
 This guide walks you through creating your first multi-agent mesh network. By the end, you will have:

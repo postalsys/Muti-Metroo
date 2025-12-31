@@ -3,6 +3,10 @@ title: SOCKS5 Proxy
 sidebar_position: 1
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole presenting SOCKS5" style={{maxWidth: '180px'}} />
+</div>
+
 # SOCKS5 Proxy
 
 Muti Metroo provides SOCKS5 proxy ingress for client connections.
