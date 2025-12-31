@@ -19,11 +19,16 @@ This guide walks you through creating your first multi-agent mesh network. By th
 
 We will create this simple topology:
 
-```
-+-------------+                      +-------------+                      +-----------+
-|   Client    |     SOCKS5           |   Agent A   |     QUIC/TLS         |  Agent B  |     TCP
-|  (Browser)  | ------------------> |  (Ingress)  | ------------------> |  (Exit)   | --------> Internet
-+-------------+   localhost:1080     +-------------+   192.168.1.10:4433  +-------------+
+```mermaid
+flowchart LR
+    C["Client<br/>(Browser)"]
+    A["Agent A<br/>(Ingress)"]
+    B["Agent B<br/>(Exit)"]
+    I((Internet))
+
+    C -->|"SOCKS5<br/>localhost:1080"| A
+    A -->|"QUIC/TLS<br/>192.168.1.20:4433"| B
+    B -->|TCP| I
 ```
 
 - **Agent A**: Accepts SOCKS5 connections, forwards to mesh
@@ -288,8 +293,9 @@ The metro map shows both agents and their connection.
 
 To add a transit node between A and B:
 
-```
-Agent A <---> Agent C (Transit) <---> Agent B
+```mermaid
+flowchart LR
+    A[Agent A] <--> C["Agent C<br/>(Transit)"] <--> B[Agent B]
 ```
 
 Agent C configuration:
