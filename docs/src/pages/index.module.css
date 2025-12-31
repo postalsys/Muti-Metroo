@@ -21,3 +21,41 @@
   align-items: center;
   justify-content: center;
 }
+
+.useCases {
+  padding: 3rem 0;
+  background-color: var(--ifm-color-emphasis-100);
+}
+
+.useCase {
+  padding: 1.5rem;
+  height: 100%;
+}
+
+.useCase h3 {
+  margin-bottom: 0.5rem;
+}
+
+.example {
+  padding: 3rem 0;
+}
+
+.codeBlock {
+  background-color: var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+@media screen and (max-width: 996px) {
+  .useCases,
+  .example {
+    padding: 2rem 0;
+  }
+
+  .codeBlock {
+    font-size: 0.8rem;
+  }
+}

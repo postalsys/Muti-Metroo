@@ -1,5 +1,6 @@
 ---
 title: Exit Routing
+sidebar_position: 2
 ---
 
 # Exit Routing
@@ -76,3 +77,10 @@ Connections to other IPs will be rejected with STREAM_OPEN_ERR.
 - `muti_metroo_exit_dns_queries_total`: DNS queries
 - `muti_metroo_exit_dns_latency_seconds`: DNS latency
 - `muti_metroo_exit_errors_total`: Exit errors
+
+## Related
+
+- [Configuration - Exit](../configuration/exit) - Full configuration reference
+- [Concepts - Agent Roles](../concepts/agent-roles) - Understanding exit role
+- [Concepts - Routing](../concepts/routing) - How routes propagate
+- [Security - Access Control](../security/access-control) - Route-based access control

@@ -1,5 +1,6 @@
 ---
 title: Remote Procedure Call (RPC)
+sidebar_position: 4
 ---
 
 # Remote Procedure Call (RPC)
@@ -93,3 +94,10 @@ Response:
 - `muti_metroo_rpc_bytes_sent_total`: Response bytes
 
 Result labels: `success`, `failed`, `rejected`, `auth_failed`, `error`
+
+## Related
+
+- [CLI - RPC](../cli/rpc) - CLI reference
+- [API - RPC](../api/rpc) - HTTP API reference
+- [Security - Access Control](../security/access-control) - Whitelist configuration
+- [Troubleshooting - Common Issues](../troubleshooting/common-issues) - RPC issues

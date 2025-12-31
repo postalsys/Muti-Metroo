@@ -1,5 +1,6 @@
 ---
 title: Routing Algorithm
+sidebar_position: 3
 ---
 
 # Routing Algorithm
@@ -102,3 +103,10 @@ Agents also advertise node metadata via NODE_INFO_ADVERTISE:
 - Uptime
 
 This enables the web dashboard to show mesh topology.
+
+## Related
+
+- [Concepts - Routing](../concepts/routing) - High-level routing concepts
+- [Features - Exit Routing](../features/exit-routing) - Exit node configuration
+- [Configuration - Exit](../configuration/exit) - Exit configuration reference
+- [API - Routes](../api/routes) - Route API endpoints

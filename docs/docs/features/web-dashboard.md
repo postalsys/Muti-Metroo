@@ -1,5 +1,6 @@
 ---
 title: Web Dashboard
+sidebar_position: 5
 ---
 
 # Web Dashboard
@@ -105,3 +106,10 @@ http:
 ```
 
 No additional configuration required.
+
+## Related
+
+- [API - Dashboard](../api/dashboard) - Dashboard API reference
+- [API - Health](../api/health) - Health endpoints
+- [Features - Metrics](metrics-monitoring) - Prometheus metrics
+- [Deployment - Docker](../deployment/docker) - Running with monitoring

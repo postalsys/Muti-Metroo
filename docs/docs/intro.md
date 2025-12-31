@@ -6,45 +6,85 @@ sidebar_position: 1
 
 # Muti Metroo
 
-A userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
+**Muti Metroo** is a userspace mesh networking agent that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
+
+## What is Muti Metroo?
+
+Muti Metroo allows you to build flexible, resilient mesh networks where traffic can flow through multiple intermediate nodes to reach its destination. Think of it as building your own private network overlay that works across different network segments, firewalls, and transport protocols.
+
+```
+                                 +------------------+
+                                 |   Internet       |
+                                 +--------+---------+
+                                          |
++-------------+     +-------------+     +-+----------+
+|   Client    |     |   Agent A   |     |  Agent C   |
+|  (Browser)  +---->+  (Ingress)  +---->+  (Exit)    |
++-------------+     +------+------+     +------------+
+   SOCKS5                  |
+   Proxy                   |
+                     +-----v------+
+                     |  Agent B   |
+                     | (Transit)  |
+                     +------------+
+```
 
 ## Key Features
 
-- **Multiple Transport Layers**: QUIC/TLS 1.3, HTTP/2, and WebSocket transports
-- **SOCKS5 Proxy Ingress**: Accept client connections with optional username/password authentication
-- **CIDR-Based Exit Routing**: Advertise routes and handle DNS resolution at exit nodes
-- **Multi-Hop Mesh Routing**: Flood-based route propagation with longest-prefix match
-- **Stream Multiplexing**: Multiple virtual streams over a single peer connection with half-close support
-- **File Transfer**: Upload and download files and directories to/from remote agents
-- **Remote Procedure Call (RPC)**: Execute shell commands on remote agents for maintenance and diagnostics
-- **Web Dashboard**: Embedded web interface with metro map visualization
-- **Automatic Reconnection**: Exponential backoff with jitter for resilient peer connections
-- **No Root Required**: Runs entirely in userspace
-
-## Why Muti Metroo?
-
-Muti Metroo solves the problem of creating resilient, multi-hop TCP tunnels across diverse network environments:
-
-- **Heterogeneous Transports**: Mix QUIC, HTTP/2, and WebSocket in the same mesh to work through firewalls and restrictive networks
-- **Multi-Hop Routing**: Route traffic through multiple intermediate nodes without configuring each hop manually
-- **Dynamic Route Discovery**: Automatically propagate and discover routes through the mesh using flood-based routing
-- **Flexible Agent Roles**: Each agent can simultaneously act as ingress (SOCKS5 proxy), transit (relay), and exit (external connections)
+| Feature | Description |
+|---------|-------------|
+| **Multiple Transports** | QUIC/TLS 1.3, HTTP/2, and WebSocket - mix protocols in a single mesh |
+| **SOCKS5 Proxy** | Accept client connections with optional authentication |
+| **CIDR-Based Routing** | Advertise network routes and handle DNS at exit nodes |
+| **Multi-Hop Paths** | Traffic automatically finds its way through the mesh |
+| **Stream Multiplexing** | Multiple virtual streams over single connections |
+| **File Transfer** | Upload/download files and directories across the mesh |
+| **Remote Execution** | Execute commands on remote agents (RPC) |
+| **Web Dashboard** | Visual topology with metro map visualization |
+| **No Root Required** | Runs entirely in userspace |
 
 ## Use Cases
 
-- **Corporate Network Access**: Provide secure access to internal resources through multi-hop SOCKS5 proxy chains
-- **Network Segmentation Bypass**: Route traffic through multiple network segments without VPN infrastructure
-- **Resilient Remote Access**: Maintain connectivity through redundant paths and automatic reconnection
-- **Development and Testing**: Create complex network topologies for testing distributed applications
-- **File Transfer**: Securely transfer files to/from remote systems through the mesh
-- **Remote Management**: Execute commands on remote agents for diagnostics and maintenance
+### Corporate Network Access
+
+Provide secure access to internal resources through multi-hop SOCKS5 proxy chains, bypassing network segmentation without VPN infrastructure.
+
+```
+Employee Laptop --[SOCKS5]--> Cloud Agent --[QUIC]--> Office Agent --[TCP]--> Internal Server
+```
+
+### Multi-Site Connectivity
+
+Connect multiple office locations through a mesh of agents, enabling seamless access to resources across sites.
+
+```
+Site A Agent <--[HTTP/2]--> Cloud Relay <--[WebSocket]--> Site B Agent
+     |                                                          |
+Private Network A                                     Private Network B
+```
+
+### Resilient Remote Access
+
+Maintain connectivity through redundant paths with automatic failover and reconnection.
+
+### Development and Testing
+
+Create complex network topologies for testing distributed applications without physical infrastructure.
+
+## How It Works
+
+1. **Agents** connect to form a mesh network, each potentially serving as ingress, transit, or exit
+2. **Routes** are advertised through the mesh using flood-based propagation
+3. **Clients** connect via SOCKS5 proxy on an ingress agent
+4. **Traffic** flows through the mesh following the best route to the exit agent
+5. **Exit agents** open real TCP connections to destination servers
 
 ## Quick Start
 
 Get up and running in minutes:
 
 ```bash
-# Download and build
+# Clone and build
 git clone ssh://git@git.aiateibad.ee:3346/andris/Muti-Metroo-v4.git
 cd Muti-Metroo-v4
 make build
@@ -53,12 +93,26 @@ make build
 ./build/muti-metroo setup
 ```
 
-The wizard will guide you through configuring your first agent, generating TLS certificates, and starting the mesh.
+The wizard guides you through configuring your first agent, generating TLS certificates, and starting the mesh.
+
+## Documentation Overview
+
+| Section | Description |
+|---------|-------------|
+| [Getting Started](getting-started/overview) | Installation, setup, and your first mesh |
+| [Core Concepts](concepts/architecture) | Architecture, roles, transports, and routing |
+| [Configuration](configuration/overview) | Complete configuration reference |
+| [Features](features/socks5-proxy) | SOCKS5, exit routing, file transfer, RPC |
+| [Deployment](deployment/scenarios) | Docker, Kubernetes, and production deployment |
+| [Security](security/overview) | TLS, authentication, and best practices |
+| [CLI Reference](cli/overview) | Command-line interface documentation |
+| [HTTP API](api/overview) | REST API for monitoring and management |
+| [Protocol](protocol/overview) | Wire protocol and internals |
+| [Troubleshooting](troubleshooting/common-issues) | Common issues and FAQ |
 
 ## Next Steps
 
-- [Installation](installation) - Build from source or use Docker
-- [Quick Start](quick-start) - Manual setup and configuration
-- [Interactive Setup](interactive-setup) - Use the setup wizard
-- [Configuration](configuration) - Complete configuration reference
-- [Architecture](architecture/overview) - Understand how it works
+- **New to Muti Metroo?** Start with [Getting Started](getting-started/overview)
+- **Want to understand the architecture?** Read [Core Concepts](concepts/architecture)
+- **Ready to deploy?** Check out [Deployment Scenarios](deployment/scenarios)
+- **Need help?** Visit [Troubleshooting](troubleshooting/common-issues)

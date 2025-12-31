@@ -1,0 +1,354 @@
+---
+title: Connectivity
+sidebar_position: 2
+---
+
+# Connectivity Troubleshooting
+
+Diagnose and fix network connectivity issues.
+
+## Diagnostic Tools
+
+### Check Agent Health
+
+```bash
+# Basic health
+curl http://localhost:8080/health
+
+# Detailed status
+curl http://localhost:8080/healthz | jq
+
+# Expected output:
+{
+  "status": "healthy",
+  "agent_id": "abc123...",
+  "peers": 2,
+  "routes": 5,
+  "streams": 10
+}
+```
+
+### Check Peer Connections
+
+```bash
+# List connected peers
+curl http://localhost:8080/agents | jq
+```
+
+### Check Routes
+
+```bash
+# View routing table
+curl http://localhost:8080/healthz | jq '.routes'
+
+# Trigger route refresh
+curl -X POST http://localhost:8080/routes/advertise
+```
+
+## Peer Connection Issues
+
+### Can't Connect to Peer
+
+**Step 1: Check network reachability**
+
+```bash
+# TCP (for HTTP/2, WebSocket)
+nc -zv peer-address 4433
+telnet peer-address 4433
+
+# UDP (for QUIC)
+nc -zvu peer-address 4433
+```
+
+**Step 2: Check DNS resolution**
+
+```bash
+dig peer-hostname
+nslookup peer-hostname
+```
+
+**Step 3: Check firewall**
+
+```bash
+# On peer host
+sudo iptables -L -n | grep 4433
+sudo ufw status
+
+# Try from another host on same network
+curl http://peer-address:8080/health
+```
+
+**Step 4: Check TLS**
+
+```bash
+# Test TLS connection
+openssl s_client -connect peer-address:4433 -CAfile ca.crt
+
+# Verify certificate
+./build/muti-metroo cert info ./certs/agent.crt
+```
+
+### Peer Disconnects Frequently
+
+**Check keepalive settings:**
+
+```yaml
+connections:
+  idle_threshold: 30s    # Send keepalive after 30s idle
+  timeout: 90s           # Disconnect after 90s no response
+```
+
+If network is slow, increase timeout:
+
+```yaml
+connections:
+  idle_threshold: 60s
+  timeout: 180s
+```
+
+**Check logs for disconnect reasons:**
+
+```bash
+journalctl -u muti-metroo | grep -i "disconnect\|timeout"
+```
+
+### Slow Reconnection
+
+Tune reconnection backoff:
+
+```yaml
+connections:
+  reconnect:
+    initial_delay: 500ms  # Start faster
+    max_delay: 30s        # Cap sooner
+    multiplier: 1.5       # Slower backoff
+    jitter: 0.3           # More randomization
+```
+
+## Transport-Specific Issues
+
+### QUIC Not Working
+
+QUIC uses UDP, which may be blocked or throttled.
+
+**Test UDP connectivity:**
+
+```bash
+# From client
+echo "test" | nc -u peer-address 4433
+
+# On server, check if receiving
+tcpdump -i any udp port 4433
+```
+
+**Common issues:**
+- Corporate firewalls block UDP
+- NAT devices timeout UDP quickly
+- Some ISPs throttle UDP
+
+**Solution:** Fall back to HTTP/2 or WebSocket:
+
+```yaml
+peers:
+  - id: "..."
+    transport: h2    # Instead of quic
+    address: "peer-address:443"
+```
+
+### HTTP/2 Not Working
+
+**Test HTTP/2:**
+
+```bash
+curl -v --http2 https://peer-address:8443/mesh
+```
+
+**Check TLS:**
+
+```bash
+openssl s_client -connect peer-address:8443 -alpn h2
+```
+
+### WebSocket Through Proxy
+
+**Test proxy connectivity:**
+
+```bash
+# Test CONNECT through proxy
+curl -v --proxy http://proxy:8080 https://peer-address:443/
+
+# Check if proxy allows WebSocket upgrade
+curl -v --proxy http://proxy:8080 \
+  -H "Upgrade: websocket" \
+  -H "Connection: Upgrade" \
+  https://peer-address:443/mesh
+```
+
+**Configure proxy authentication:**
+
+```yaml
+peers:
+  - transport: ws
+    address: "wss://peer-address:443/mesh"
+    proxy: "http://proxy:8080"
+    proxy_auth:
+      username: "${PROXY_USER}"
+      password: "${PROXY_PASS}"
+```
+
+## Routing Issues
+
+### No Route Found
+
+```
+Error: no route to 10.0.0.5
+```
+
+**Step 1: Check if route should exist**
+
+```bash
+# On exit agent
+grep -A5 "exit:" /etc/muti-metroo/config.yaml
+```
+
+**Step 2: Check route propagation**
+
+```bash
+# On ingress agent
+curl http://localhost:8080/healthz | jq '.routes'
+```
+
+**Step 3: Check peer connectivity**
+
+Routes propagate through peers. If peer is disconnected, routes are lost.
+
+```bash
+curl http://localhost:8080/healthz | jq '.peers'
+```
+
+**Step 4: Trigger route advertisement**
+
+```bash
+curl -X POST http://exit-agent:8080/routes/advertise
+```
+
+**Step 5: Wait for propagation**
+
+Routes take time to propagate (up to `advertise_interval`).
+
+### Route Expired
+
+Routes expire after `route_ttl` without refresh.
+
+```bash
+# Check route TTL
+grep route_ttl config.yaml
+
+# If exit disconnected for too long, routes expire
+# Reconnect exit and trigger advertisement
+```
+
+### Wrong Route Selected
+
+Routes are selected by:
+1. Longest prefix match
+2. Lowest metric (hop count) if tied
+
+**Debug route selection:**
+
+```bash
+# Enable debug logging
+./build/muti-metroo run --log-level debug
+
+# Look for route lookup logs
+grep "route lookup" logs
+```
+
+## Stream Issues
+
+### Streams Not Opening
+
+```
+Error: stream open timeout
+```
+
+**Causes:**
+- Network latency too high
+- Too many hops
+- Exit agent overloaded
+
+**Solutions:**
+
+1. Increase timeout:
+   ```yaml
+   limits:
+     stream_open_timeout: 60s
+   ```
+
+2. Check each hop is responsive
+
+3. Reduce hop count if possible
+
+### Streams Dying
+
+**Check stream metrics:**
+
+```bash
+curl http://localhost:8080/metrics | grep stream
+```
+
+**Common causes:**
+- Idle timeout
+- Buffer exhaustion
+- Network issues
+
+## Network Diagnostics
+
+### Capture Traffic
+
+```bash
+# QUIC (UDP)
+tcpdump -i any udp port 4433 -w capture.pcap
+
+# HTTP/2, WebSocket (TCP)
+tcpdump -i any tcp port 443 -w capture.pcap
+```
+
+### Monitor Connections
+
+```bash
+# Watch connection states
+watch -n 1 'netstat -an | grep 4433'
+
+# Count connections
+netstat -an | grep 4433 | wc -l
+```
+
+### Latency Testing
+
+```bash
+# Measure round-trip time
+ping peer-address
+
+# Measure TCP latency
+hping3 -S -p 443 peer-address
+
+# Time a stream open
+time curl -x socks5://localhost:1080 https://example.com -o /dev/null
+```
+
+## Checklist
+
+- [ ] Network reachable (ping, nc, telnet)
+- [ ] Firewall allows traffic
+- [ ] DNS resolves correctly
+- [ ] TLS certificates valid
+- [ ] Peer ID matches
+- [ ] Routes advertised
+- [ ] Logs show no errors
+
+## Next Steps
+
+- [Performance Troubleshooting](performance)
+- [Common Issues](common-issues)
+- [Protocol Limits](../protocol/limits)

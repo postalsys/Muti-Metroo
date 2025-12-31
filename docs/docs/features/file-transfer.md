@@ -1,5 +1,6 @@
 ---
 title: File Transfer
+sidebar_position: 3
 ---
 
 # File Transfer
@@ -98,3 +99,10 @@ Access control via:
 - `muti_metroo_file_transfer_downloads_total`: Download count
 - `muti_metroo_file_transfer_bytes_sent`: Bytes sent
 - `muti_metroo_file_transfer_bytes_received`: Bytes received
+
+## Related
+
+- [CLI - File Transfer](../cli/file-transfer) - CLI reference
+- [API - File Transfer](../api/file-transfer) - HTTP API reference
+- [Security - Access Control](../security/access-control) - Path restrictions
+- [Troubleshooting - Common Issues](../troubleshooting/common-issues) - File transfer issues

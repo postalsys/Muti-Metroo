@@ -5,48 +5,79 @@ import styles from './styles.module.css';
 
 type FeatureItem = {
   title: string;
-  Svg: React.ComponentType<React.ComponentProps<'svg'>>;
+  icon: string;
   description: ReactNode;
 };
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Easy to Use',
-    Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
+    title: 'Multi-Transport Support',
+    icon: '[ QUIC | H2 | WS ]',
     description: (
       <>
-        Docusaurus was designed from the ground up to be easily installed and
-        used to get your website up and running quickly.
+        Choose the right transport for your environment: QUIC for performance,
+        HTTP/2 for compatibility, or WebSocket for traversing restrictive firewalls
+        and HTTP proxies.
       </>
     ),
   },
   {
-    title: 'Focus on What Matters',
-    Svg: require('@site/static/img/undraw_docusaurus_tree.svg').default,
+    title: 'Userspace Operation',
+    icon: '[ NO ROOT ]',
     description: (
       <>
-        Docusaurus lets you focus on your docs, and we&apos;ll do the chores. Go
-        ahead and move your docs into the <code>docs</code> directory.
+        Runs entirely in userspace without kernel modules or root privileges.
+        Deploy anywhere - containers, VMs, or bare metal - with a single binary.
       </>
     ),
   },
   {
-    title: 'Powered by React',
-    Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
+    title: 'Mesh Networking',
+    icon: '[ A -- B -- C ]',
     description: (
       <>
-        Extend or customize your website layout by reusing React. Docusaurus can
-        be extended while reusing the same header and footer.
+        Automatic multi-hop routing with flood-based route propagation.
+        Build arbitrary topologies: chains, trees, or full mesh networks.
+      </>
+    ),
+  },
+  {
+    title: 'SOCKS5 Proxy',
+    icon: '[ :1080 ]',
+    description: (
+      <>
+        Standard SOCKS5 proxy interface for transparent application integration.
+        Works with browsers, SSH, curl, and any SOCKS5-aware application.
+      </>
+    ),
+  },
+  {
+    title: 'TLS/mTLS Security',
+    icon: '[ TLS 1.3 ]',
+    description: (
+      <>
+        All connections secured with TLS 1.3 and perfect forward secrecy.
+        Mutual TLS ensures only authorized agents can join the mesh.
+      </>
+    ),
+  },
+  {
+    title: 'Production Ready',
+    icon: '[ METRICS ]',
+    description: (
+      <>
+        Built-in Prometheus metrics, health endpoints, web dashboard,
+        and systemd/Windows service support for production deployments.
       </>
     ),
   },
 ];
 
-function Feature({title, Svg, description}: FeatureItem) {
+function Feature({title, icon, description}: FeatureItem) {
   return (
     <div className={clsx('col col--4')}>
-      <div className="text--center">
-        <Svg className={styles.featureSvg} role="img" />
+      <div className="text--center padding-vert--md">
+        <div className={styles.featureIcon}>{icon}</div>
       </div>
       <div className="text--center padding-horiz--md">
         <Heading as="h3">{title}</Heading>

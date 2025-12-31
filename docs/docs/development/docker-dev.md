@@ -1,5 +1,6 @@
 ---
 title: Docker Development
+sidebar_position: 3
 ---
 
 # Docker Development
@@ -202,3 +203,10 @@ See Kubernetes manifests in `k8s/` directory.
 4. **Use health checks** for orchestration
 5. **Tag images** with version numbers
 6. **Multi-stage builds** for smaller images
+
+## Related
+
+- [Deployment - Docker](../deployment/docker) - Production Docker deployment
+- [Deployment - Kubernetes](../deployment/kubernetes) - Kubernetes deployment
+- [Development - Testing](testing) - Running tests
+- [Development - Building](building) - Build from source
