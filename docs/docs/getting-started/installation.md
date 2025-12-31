@@ -33,13 +33,13 @@ make build
 go build -o build/muti-metroo ./cmd/muti-metroo
 ```
 
-The compiled binary will be at `./build/muti-metroo`.
+The compiled binary will be at `muti-metroo`.
 
 ### Verify Installation
 
 ```bash
-./build/muti-metroo --version
-./build/muti-metroo --help
+muti-metroo --version
+muti-metroo --help
 ```
 
 ### Install to PATH (Optional)
@@ -49,7 +49,7 @@ The compiled binary will be at `./build/muti-metroo`.
 make install
 
 # Or manually copy
-sudo cp ./build/muti-metroo /usr/local/bin/
+sudo cp muti-metroo /usr/local/bin/
 ```
 
 ## Cross-Compilation
@@ -118,7 +118,7 @@ Install Muti Metroo as a system service for automatic startup.
 
 ```bash
 # Install as service (requires root)
-sudo ./build/muti-metroo service install -c /etc/muti-metroo/config.yaml
+sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
 
 # Enable and start
 sudo systemctl enable muti-metroo
@@ -186,17 +186,17 @@ After installation, verify everything works:
 
 ```bash
 # Initialize agent identity
-./build/muti-metroo init -d ./data
+muti-metroo init -d ./data
 
 # Check the generated agent ID
 cat ./data/agent_id
 
 # Generate test certificates
-./build/muti-metroo cert ca -n "Test CA"
-./build/muti-metroo cert agent -n "test-agent"
+muti-metroo cert ca -n "Test CA"
+muti-metroo cert agent -n "test-agent"
 
 # Verify certificates
-./build/muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/agent.crt
 ```
 
 ## Next Steps

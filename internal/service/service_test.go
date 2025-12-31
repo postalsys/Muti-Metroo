@@ -98,6 +98,10 @@ func TestPlatform(t *testing.T) {
 		if platform != "windows" {
 			t.Errorf("Platform() = %q, want %q on Windows", platform, "windows")
 		}
+	case "darwin":
+		if platform != "darwin" {
+			t.Errorf("Platform() = %q, want %q on macOS", platform, "darwin")
+		}
 	default:
 		if platform != "unsupported" {
 			t.Errorf("Platform() = %q, want %q on unsupported OS", platform, "unsupported")
@@ -109,7 +113,7 @@ func TestIsSupported(t *testing.T) {
 	supported := IsSupported()
 
 	switch runtime.GOOS {
-	case "linux", "windows":
+	case "linux", "windows", "darwin":
 		if !supported {
 			t.Errorf("IsSupported() = false, want true on %s", runtime.GOOS)
 		}
@@ -152,6 +156,13 @@ func TestStatusNonExistent(t *testing.T) {
 		if err == nil {
 			if status != "inactive" && status != "unknown" {
 				t.Errorf("Status() = %q, expected 'inactive' or 'unknown'", status)
+			}
+		}
+	case "darwin":
+		// On macOS, should return "not installed" or "unknown" without error
+		if err == nil {
+			if status != "not installed" && status != "unknown" {
+				t.Errorf("Status() = %q, expected 'not installed' or 'unknown'", status)
 			}
 		}
 	default:

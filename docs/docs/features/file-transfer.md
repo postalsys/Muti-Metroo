@@ -20,8 +20,14 @@ file_transfer:
   allowed_paths:
     - /tmp
     - /home/user/uploads
-  password_hash: ""           # bcrypt hash (optional)
+  password_hash: ""           # bcrypt hash (generate with: muti-metroo hash)
 ```
+
+:::tip Generate Password Hash
+Use the built-in CLI to generate bcrypt hashes: `muti-metroo hash --cost 12`
+
+See [CLI - hash](/cli/hash) for details.
+:::
 
 ## CLI Usage
 

@@ -276,8 +276,8 @@ docker compose exec agent1 wget -q -O - http://localhost:8080/health
 
 ```bash
 # Generate certs on host, mount to container
-./build/muti-metroo cert ca -n "Docker Mesh CA" -o ./certs
-./build/muti-metroo cert agent -n "agent1" -o ./certs
+muti-metroo cert ca -n "Docker Mesh CA" -o ./certs
+muti-metroo cert agent -n "agent1" -o ./certs
 ```
 
 ## Production Considerations

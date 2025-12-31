@@ -47,24 +47,22 @@ Each route includes:
 
 Routes propagate through the mesh using flooding:
 
-```
-                  1. Agent A advertises 10.0.0.0/8 (metric 0)
-                                    |
-                                    v
-+------------+              +------------+              +------------+
-|  Agent A   |  Advertise   |  Agent B   |  Advertise   |  Agent C   |
-|   (Exit)   | -----------> |  (Transit) | -----------> |  (Ingress) |
-|            |  metric=0    |            |  metric=1    |            |
-+------------+              +------------+              +------------+
-     |                           |                           |
-     |                           v                           v
-     |                    Route Table:               Route Table:
-     |                    10.0.0.0/8 via A          10.0.0.0/8 via B
-     |                    (metric 1)                (metric 2)
-     v
-Route Table:
-10.0.0.0/8 (local)
-(metric 0)
+```mermaid
+flowchart LR
+    subgraph AgentA[Agent A - Exit]
+        RA[Route Table:<br/>10.0.0.0/8 local<br/>metric=0]
+    end
+
+    subgraph AgentB[Agent B - Transit]
+        RB[Route Table:<br/>10.0.0.0/8 via A<br/>metric=1]
+    end
+
+    subgraph AgentC[Agent C - Ingress]
+        RC[Route Table:<br/>10.0.0.0/8 via B<br/>metric=2]
+    end
+
+    AgentA -->|Advertise<br/>metric=0| AgentB
+    AgentB -->|Advertise<br/>metric=1| AgentC
 ```
 
 ### Flooding Algorithm
@@ -130,12 +128,19 @@ routing:
 ```
 
 Timeline:
-```
-0m    - Route advertised (TTL = 5m)
-2m    - Re-advertised (TTL reset to 5m)
-4m    - Re-advertised (TTL reset to 5m)
-6m    - Agent goes offline
-9m    - Route expires (no re-advertisement for 5m)
+
+```mermaid
+gantt
+    title Route Lifecycle
+    dateFormat X
+    axisFormat %s min
+
+    section Route TTL
+    Initial advertisement (TTL=5m)    :0, 2
+    Re-advertise (TTL reset)          :2, 4
+    Re-advertise (TTL reset)          :4, 6
+    Agent offline                     :crit, 6, 9
+    Route expires                     :done, 9, 10
 ```
 
 ### Manual Route Trigger
@@ -155,20 +160,10 @@ Use after:
 
 Multiple agents can advertise the same route:
 
-```
-+------------+
-|  Agent A   |  10.0.0.0/8 (metric 1)
-|   (Exit)   | ----------------------------+
-+------------+                              |
-                                           v
-                                    +------------+
-                                    |  Agent C   |
-                                    |  (Ingress) |
-                                    +------------+
-+------------+                              ^
-|  Agent B   |  10.0.0.0/8 (metric 2)      |
-|   (Exit)   | ----------------------------+
-+------------+
+```mermaid
+flowchart LR
+    A[Agent A<br/>Exit] -->|10.0.0.0/8<br/>metric=1| C[Agent C<br/>Ingress]
+    B[Agent B<br/>Exit] -->|10.0.0.0/8<br/>metric=2| C
 ```
 
 Behavior:
@@ -249,7 +244,7 @@ Common causes:
 Debug:
 ```bash
 # Enable debug logging
-./build/muti-metroo run -c config.yaml --log-level debug
+muti-metroo run -c config.yaml --log-level debug
 
 # Look for routing logs
 grep -i "route" agent.log

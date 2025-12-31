@@ -17,7 +17,7 @@ Install Muti Metroo as a system service for automatic startup and management.
 
 ```bash
 # Install as service (requires root)
-sudo ./build/muti-metroo service install -c /etc/muti-metroo/config.yaml
+sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
 ```
 
 This creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`.
@@ -104,7 +104,7 @@ sudo mkdir -p /var/lib/muti-metroo
 sudo chown muti-metroo:muti-metroo /var/lib/muti-metroo
 
 # Copy binary
-sudo cp ./build/muti-metroo /usr/local/bin/
+sudo cp muti-metroo /usr/local/bin/
 
 # Copy config
 sudo cp ./config.yaml /etc/muti-metroo/
@@ -247,8 +247,82 @@ http:
 ### Installation
 
 ```bash
+# Install as service (requires root)
+sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
+```
+
+This creates a launchd plist at `/Library/LaunchDaemons/com.muti-metroo.plist`.
+
+### Service Management
+
+```bash
+# Check status
+muti-metroo service status
+
+# Stop service
+sudo launchctl stop com.muti-metroo
+
+# Start service
+sudo launchctl start com.muti-metroo
+
+# View logs
+tail -f /var/log/muti-metroo.out.log
+tail -f /var/log/muti-metroo.err.log
+```
+
+### Uninstall
+
+```bash
+# Uninstall service
+sudo muti-metroo service uninstall
+
+# Clean up files (optional)
+sudo rm -rf /etc/muti-metroo
+sudo rm -rf /var/lib/muti-metroo
+```
+
+### Launchd Plist
+
+The installer creates:
+
+```xml
+<!-- /Library/LaunchDaemons/com.muti-metroo.plist -->
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.muti-metroo</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/muti-metroo</string>
+        <string>run</string>
+        <string>-c</string>
+        <string>/etc/muti-metroo/config.yaml</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/etc/muti-metroo</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+    <key>StandardOutPath</key>
+    <string>/var/log/muti-metroo.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/muti-metroo.err.log</string>
+</dict>
+</plist>
+```
+
+### Custom Installation
+
+For manual setup:
+
+```bash
 # Copy binary
-sudo cp ./build/muti-metroo /usr/local/bin/
+sudo cp muti-metroo /usr/local/bin/
 
 # Create directories
 sudo mkdir -p /etc/muti-metroo
@@ -258,52 +332,42 @@ sudo mkdir -p /var/lib/muti-metroo
 sudo cp ./config.yaml /etc/muti-metroo/
 sudo cp -r ./certs /etc/muti-metroo/
 
-# Create launchd plist
-sudo nano /Library/LaunchDaemons/com.muti-metroo.agent.plist
-```
+# Create plist manually (use template above)
+sudo nano /Library/LaunchDaemons/com.muti-metroo.plist
 
-### Launchd Plist
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.muti-metroo.agent</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/muti-metroo</string>
-        <string>run</string>
-        <string>-c</string>
-        <string>/etc/muti-metroo/config.yaml</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardErrorPath</key>
-    <string>/var/log/muti-metroo.log</string>
-    <key>StandardOutPath</key>
-    <string>/var/log/muti-metroo.log</string>
-</dict>
-</plist>
-```
-
-### Service Management
-
-```bash
 # Load and start
-sudo launchctl load /Library/LaunchDaemons/com.muti-metroo.agent.plist
+sudo launchctl load -w /Library/LaunchDaemons/com.muti-metroo.plist
+```
 
-# Stop
-sudo launchctl stop com.muti-metroo.agent
+### Configuration for macOS
 
-# Unload
-sudo launchctl unload /Library/LaunchDaemons/com.muti-metroo.agent.plist
+```yaml
+# /etc/muti-metroo/config.yaml
+agent:
+  id: "auto"
+  display_name: "${HOSTNAME}"
+  data_dir: "/var/lib/muti-metroo"
+  log_level: "info"
+  log_format: "json"
 
-# View logs
-tail -f /var/log/muti-metroo.log
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+    tls:
+      cert: "/etc/muti-metroo/certs/agent.crt"
+      key: "/etc/muti-metroo/certs/agent.key"
+
+socks5:
+  enabled: true
+  address: "127.0.0.1:1080"
+
+http:
+  enabled: true
+  address: "127.0.0.1:8080"
+
+control:
+  enabled: true
+  socket_path: "/var/lib/muti-metroo/control.sock"
 ```
 
 ## Security Considerations

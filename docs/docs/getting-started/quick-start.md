@@ -16,7 +16,7 @@ This guide walks you through manually setting up a Muti Metroo agent with full c
 Each agent needs a unique identity. Create one:
 
 ```bash
-./build/muti-metroo init -d ./data
+muti-metroo init -d ./data
 ```
 
 This generates a 128-bit Agent ID stored in `./data/agent_id`:
@@ -35,16 +35,16 @@ All peer connections require TLS. Generate a Certificate Authority and agent cer
 
 ```bash
 # Create Certificate Authority
-./build/muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert ca -n "My Mesh CA" -o ./certs
 
 # Generate agent certificate
-./build/muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent -n "agent-1" \
   --dns "agent1.example.com" \
   --ip "192.168.1.10" \
   -o ./certs
 
 # Verify the certificate
-./build/muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/agent.crt
 ```
 
 Output files:
@@ -99,7 +99,7 @@ control:
 Start your agent:
 
 ```bash
-./build/muti-metroo run -c ./config.yaml
+muti-metroo run -c ./config.yaml
 ```
 
 You should see output like:
@@ -166,7 +166,7 @@ Restart the agent:
 
 ```bash
 # Stop with Ctrl+C, then restart
-./build/muti-metroo run -c ./config.yaml
+muti-metroo run -c ./config.yaml
 ```
 
 Now test the proxy:
@@ -241,14 +241,14 @@ ls -la ./data/
 ls -la ./certs/
 
 # Run with debug logging
-./build/muti-metroo run -c ./config.yaml --log-level debug
+muti-metroo run -c ./config.yaml --log-level debug
 ```
 
 ### Certificate errors
 
 ```bash
 # Verify certificate
-./build/muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/agent.crt
 
 # Check certificate expiration
 openssl x509 -in ./certs/agent.crt -text -noout | grep -A2 "Validity"

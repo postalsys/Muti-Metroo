@@ -17,20 +17,20 @@ Provide remote access to internal resources without VPN infrastructure.
 
 ### Architecture
 
-```
-                          +------------------+
-                          |    Internet      |
-                          +--------+---------+
-                                   |
-+-------------+   SOCKS5   +-------+------+   QUIC    +-------------+
-|   Remote    | ---------> |    Cloud     | --------> |   Office    |
-|   Laptop    |            |    Relay     |           |   Gateway   |
-+-------------+            +--------------+           +------+------+
-                                                             |
-                                                     +-------+------+
-                                                     |   Internal   |
-                                                     |   Network    |
-                                                     +--------------+
+```mermaid
+flowchart LR
+    subgraph Internet
+        Cloud[Cloud Relay]
+    end
+
+    subgraph Office[Office Network]
+        Gateway[Office Gateway]
+        Internal[Internal Network]
+    end
+
+    Laptop[Remote Laptop] -->|SOCKS5| Cloud
+    Cloud -->|QUIC| Gateway
+    Gateway --> Internal
 ```
 
 ### Configuration
@@ -110,25 +110,25 @@ Connect multiple office locations through a cloud relay.
 
 ### Architecture
 
-```
-+-------------+                           +-------------+
-|   Site A    |                           |   Site B    |
-|  10.1.0.0/16|                           |  10.2.0.0/16|
-+------+------+                           +------+------+
-       |                                         |
-       |  QUIC                           QUIC    |
-       |                                         |
-       +----------> +-------------+ <------------+
-                    |    Cloud    |
-                    |    Relay    |
-                    +-------------+
-                          |
-                    QUIC  |
-                          v
-                    +-------------+
-                    |   Site C    |
-                    |  10.3.0.0/16|
-                    +-------------+
+```mermaid
+flowchart TB
+    subgraph SiteA[Site A - 10.1.0.0/16]
+        A[Site A Agent]
+    end
+
+    subgraph SiteB[Site B - 10.2.0.0/16]
+        B[Site B Agent]
+    end
+
+    subgraph SiteC[Site C - 10.3.0.0/16]
+        C[Site C Agent]
+    end
+
+    Cloud[Cloud Relay]
+
+    A <-->|QUIC| Cloud
+    B <-->|QUIC| Cloud
+    C <-->|QUIC| Cloud
 ```
 
 ### Configuration
@@ -217,11 +217,10 @@ Route all internet traffic through a secure exit point.
 
 ### Architecture
 
-```
-+-------------+                    +-------------+
-|   User      |   SOCKS5           |   Gateway   |    Internet
-|   Device    | -----------------> |   Agent     | -------------->
-+-------------+   localhost:1080   +-------------+
+```mermaid
+flowchart LR
+    User[User Device] -->|SOCKS5<br/>localhost:1080| Gateway[Gateway Agent]
+    Gateway -->|Internet| Web[Internet]
 ```
 
 ### Configuration
@@ -277,26 +276,19 @@ Connect agents through restrictive corporate firewalls.
 
 ### Architecture
 
-```
-+---------------+                           +---------------+
-|   Corporate   |                           |   Cloud       |
-|   Network     |                           |   Server      |
-+-------+-------+                           +-------+-------+
-        |                                           |
-        |  WebSocket via HTTP Proxy                 |
-        |                                           |
-        v                                           v
-+-------+-------+                           +-------+-------+
-|   Corporate   |      HTTPS (443)          |    Cloud      |
-|   Agent       | ----------------------->  |    Agent      |
-+---------------+                           +---------------+
-        |
-        | (Via corporate HTTP proxy)
-        v
-+---------------+
-|   Corporate   |
-|   HTTP Proxy  |
-+---------------+
+```mermaid
+flowchart LR
+    subgraph Corp[Corporate Network]
+        Agent[Corporate Agent]
+        Proxy[HTTP Proxy]
+    end
+
+    subgraph Cloud[Cloud]
+        CloudAgent[Cloud Agent]
+    end
+
+    Agent -->|Via Proxy| Proxy
+    Proxy -->|WebSocket<br/>HTTPS:443| CloudAgent
 ```
 
 ### Configuration
@@ -354,20 +346,12 @@ Multiple paths for fault tolerance.
 
 ### Architecture
 
-```
-                        +-------------+
-                        |   Primary   |
-              +-------> |   Relay     |
-              |         +-------------+
-+-------------+                |
-|   Ingress   |                |
-|   Agent     | <--------------+
-+------+------+                |
-       |                       |
-       |         +-------------+
-       +-------> |   Backup    |
-                 |   Relay     |
-                 +-------------+
+```mermaid
+flowchart LR
+    Ingress[Ingress Agent] <-->|Primary Path| Primary[Primary Relay]
+    Ingress <-->|Backup Path| Backup[Backup Relay]
+    Primary --> Exit[Exit Agent]
+    Backup --> Exit
 ```
 
 ### Configuration

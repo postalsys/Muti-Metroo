@@ -31,7 +31,7 @@ Want to quickly try Muti Metroo? Use the **Interactive Setup Wizard**:
 ```bash
 # Build and run the wizard
 make build
-./build/muti-metroo setup
+muti-metroo setup
 ```
 
 The wizard guides you through all configuration steps with sensible defaults.
@@ -46,9 +46,9 @@ Need full control over your configuration? Follow the **Quick Start Guide**:
 
 ```bash
 # Initialize agent and create config manually
-./build/muti-metroo init -d ./data
+muti-metroo init -d ./data
 # Edit config.yaml
-./build/muti-metroo run -c ./config.yaml
+muti-metroo run -c ./config.yaml
 ```
 
 **Time: 15-30 minutes**

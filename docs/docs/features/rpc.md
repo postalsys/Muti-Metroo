@@ -20,9 +20,15 @@ rpc:
     - whoami
     - hostname
     - ip
-  password_hash: "$2a$10$..."  # bcrypt hash
+  password_hash: "$2a$10$..."  # bcrypt hash (generate with: muti-metroo hash)
   timeout: 60s
 ```
+
+:::tip Generate Password Hash
+Use the built-in CLI to generate bcrypt hashes: `muti-metroo hash --cost 12`
+
+See [CLI - hash](/cli/hash) for details.
+:::
 
 ## Security Model
 

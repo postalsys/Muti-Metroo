@@ -22,13 +22,13 @@ function HomepageHeader() {
             <div className={styles.buttons}>
               <Link
                 className="button button--secondary button--lg"
-                to="/docs/getting-started/quick-start">
+                to="/getting-started/quick-start">
                 Get Started
               </Link>
               <Link
                 className="button button--outline button--secondary button--lg"
                 style={{marginLeft: '1rem'}}
-                to="/docs/intro">
+                to="/intro">
                 Learn More
               </Link>
             </div>
@@ -124,7 +124,7 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@host`}
           <div className="col col--12 text--center">
             <Link
               className="button button--primary button--lg"
-              to="/docs/getting-started/first-mesh">
+              to="/getting-started/first-mesh">
               Build Your First Mesh
             </Link>
           </div>

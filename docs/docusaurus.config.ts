@@ -14,6 +14,12 @@ const config: Config = {
     v4: true, // Improve compatibility with the upcoming Docusaurus v4
   },
 
+  // Enable Mermaid diagrams
+  markdown: {
+    mermaid: true,
+  },
+  themes: ['@docusaurus/theme-mermaid'],
+
   // Set the production url of your site here
   url: 'https://muti-metroo.postalsys.com',
   // Set the /<baseUrl>/ pathname under which your site is served
@@ -96,19 +102,19 @@ const config: Config = {
           items: [
             {
               label: 'Getting Started',
-              to: '/getting-started',
+              to: '/getting-started/overview',
             },
             {
               label: 'Configuration',
-              to: '/configuration',
+              to: '/configuration/overview',
             },
             {
               label: 'CLI Reference',
-              to: '/cli',
+              to: '/cli/overview',
             },
             {
               label: 'HTTP API',
-              to: '/api',
+              to: '/api/overview',
             },
           ],
         },
@@ -117,7 +123,7 @@ const config: Config = {
           items: [
             {
               label: 'SOCKS5 Proxy',
-              to: '/features/socks5',
+              to: '/features/socks5-proxy',
             },
             {
               label: 'Exit Routing',
@@ -142,7 +148,7 @@ const config: Config = {
             },
             {
               label: 'Protocol Details',
-              to: '/protocol',
+              to: '/protocol/overview',
             },
           ],
         },

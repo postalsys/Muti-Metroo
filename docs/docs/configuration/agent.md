@@ -165,10 +165,10 @@ Logs go to stderr by default. Redirect as needed:
 
 ```bash
 # To file
-./build/muti-metroo run -c config.yaml 2> agent.log
+muti-metroo run -c config.yaml 2> agent.log
 
 # With rotation (using logrotate)
-./build/muti-metroo run -c config.yaml 2>> /var/log/muti-metroo/agent.log
+muti-metroo run -c config.yaml 2>> /var/log/muti-metroo/agent.log
 ```
 
 ### Runtime Log Level
@@ -176,7 +176,7 @@ Logs go to stderr by default. Redirect as needed:
 Log level can be set at runtime via flag:
 
 ```bash
-./build/muti-metroo run -c config.yaml --log-level debug
+muti-metroo run -c config.yaml --log-level debug
 ```
 
 This overrides the config file setting.

@@ -305,17 +305,17 @@ Ports below 1024 require root on Linux:
 address: "0.0.0.0:4433"
 
 # Option 2: Run as root (not recommended)
-sudo ./build/muti-metroo run -c config.yaml
+sudo muti-metroo run -c config.yaml
 
 # Option 3: Use capabilities
-sudo setcap 'cap_net_bind_service=+ep' ./build/muti-metroo
+sudo setcap 'cap_net_bind_service=+ep' muti-metroo
 ```
 
 ### Certificate Errors
 
 ```bash
 # Verify certificate
-./build/muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/agent.crt
 
 # Check key matches certificate
 openssl x509 -noout -modulus -in agent.crt | openssl md5

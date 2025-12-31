@@ -63,8 +63,8 @@ Error: open ./certs/agent.crt: no such file or directory
 
 ```bash
 # Generate certificates
-./build/muti-metroo cert ca -n "My CA"
-./build/muti-metroo cert agent -n "agent-1"
+muti-metroo cert ca -n "My CA"
+muti-metroo cert agent -n "agent-1"
 
 # Or fix path in config
 tls:
@@ -352,7 +352,7 @@ See [Performance Troubleshooting](performance) for:
 Enable debug logging for detailed diagnostics:
 
 ```bash
-./build/muti-metroo run -c config.yaml --log-level debug
+muti-metroo run -c config.yaml --log-level debug
 ```
 
 Or in config:

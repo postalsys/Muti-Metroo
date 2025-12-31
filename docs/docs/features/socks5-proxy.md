@@ -52,11 +52,13 @@ socks5:
         password_hash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 ```
 
-Generate password hash:
+Generate password hash using the built-in CLI:
 
 ```bash
-htpasswd -bnBC 10 "" password | tr -d ':\n'
+muti-metroo hash --cost 12
 ```
+
+See [CLI - hash](/cli/hash) for details.
 
 ## Usage Examples
 

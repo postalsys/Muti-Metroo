@@ -41,7 +41,7 @@ Both agents will use certificates signed by the same CA:
 
 ```bash
 # On Agent A's machine (or shared location)
-./build/muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert ca -n "My Mesh CA" -o ./certs
 
 # Copy ca.crt and ca.key to Agent B
 # (or generate Agent B's cert using the same CA)
@@ -52,7 +52,7 @@ Both agents will use certificates signed by the same CA:
 ### Agent A Certificate
 
 ```bash
-./build/muti-metroo cert agent -n "agent-a" \
+muti-metroo cert agent -n "agent-a" \
   --ip "192.168.1.10" \
   --dns "agent-a.local" \
   -o ./certs \
@@ -63,7 +63,7 @@ Both agents will use certificates signed by the same CA:
 ### Agent B Certificate
 
 ```bash
-./build/muti-metroo cert agent -n "agent-b" \
+muti-metroo cert agent -n "agent-b" \
   --ip "192.168.1.20" \
   --dns "agent-b.local" \
   -o ./certs-b \
@@ -76,14 +76,14 @@ Both agents will use certificates signed by the same CA:
 ### Agent A
 
 ```bash
-./build/muti-metroo init -d ./data-a
+muti-metroo init -d ./data-a
 # Note the Agent ID: aaaa1111....
 ```
 
 ### Agent B
 
 ```bash
-./build/muti-metroo init -d ./data-b
+muti-metroo init -d ./data-b
 # Note the Agent ID: bbbb2222....
 ```
 
@@ -130,7 +130,7 @@ control:
 Start Agent B:
 
 ```bash
-./build/muti-metroo run -c ./config-b.yaml
+muti-metroo run -c ./config-b.yaml
 ```
 
 Note the Agent ID from the output (e.g., `bbbb2222333344445555666677778888`).
@@ -180,7 +180,7 @@ control:
 Start Agent A:
 
 ```bash
-./build/muti-metroo run -c ./config-a.yaml
+muti-metroo run -c ./config-a.yaml
 ```
 
 ## Step 6: Verify Connection

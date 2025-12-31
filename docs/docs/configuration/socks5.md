@@ -84,16 +84,27 @@ socks5:
 
 ### Generating Password Hash
 
+Use the built-in CLI command (recommended):
+
+```bash
+# Interactive (recommended - password hidden)
+muti-metroo hash
+
+# Or provide password as argument
+muti-metroo hash "yourpassword"
+
+# With custom cost factor
+muti-metroo hash --cost 12
+```
+
+See [CLI - hash](/cli/hash) for full documentation.
+
+#### Alternative Methods
+
 Using htpasswd:
 
 ```bash
 htpasswd -bnBC 10 "" yourpassword | tr -d ':\n'
-```
-
-Using the CLI (if available):
-
-```bash
-./build/muti-metroo hash-password yourpassword
 ```
 
 Using Python:

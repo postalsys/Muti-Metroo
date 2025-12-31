@@ -25,6 +25,7 @@ Available for all commands:
 | `init` | Initialize agent identity |
 | `setup` | Interactive setup wizard |
 | `cert` | Certificate management (CA, agent, client) |
+| `hash` | Generate bcrypt password hash |
 | `rpc` | Execute remote procedure call |
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
@@ -41,6 +42,9 @@ muti-metroo setup
 
 # Generate CA
 muti-metroo cert ca -n "My CA"
+
+# Generate password hash for config
+muti-metroo hash --cost 12
 
 # Execute remote command
 muti-metroo rpc agent123 whoami

@@ -16,7 +16,7 @@ This section provides a complete reference for all Muti Metroo configuration opt
 Muti Metroo uses YAML configuration files. The default location is `./config.yaml`, but you can specify a different path:
 
 ```bash
-./build/muti-metroo run -c /path/to/config.yaml
+muti-metroo run -c /path/to/config.yaml
 ```
 
 ## Configuration Sections
@@ -194,7 +194,7 @@ Currently, configuration cannot be reloaded without restart. To apply changes:
 # Stop agent (Ctrl+C or SIGTERM)
 # Edit config.yaml
 # Start agent
-./build/muti-metroo run -c ./config.yaml
+muti-metroo run -c ./config.yaml
 ```
 
 ## Configuration Best Practices
@@ -207,7 +207,7 @@ Currently, configuration cannot be reloaded without restart. To apply changes:
 
 ```bash
 # Validate config without starting
-./build/muti-metroo validate -c ./config.yaml
+muti-metroo validate -c ./config.yaml
 ```
 
 ## Next Steps

@@ -34,10 +34,10 @@ The CA private key is the most critical secret:
 
 ```bash
 # CA: 1-3 years
-./build/muti-metroo cert ca --days 365
+muti-metroo cert ca --days 365
 
 # Agent certificates: 90 days
-./build/muti-metroo cert agent --days 90
+muti-metroo cert agent --days 90
 ```
 
 ### Automate Certificate Rotation

@@ -1,5 +1,4 @@
 ---
-slug: /
 title: Introduction
 sidebar_position: 1
 ---
@@ -16,21 +15,16 @@ sidebar_position: 1
 
 Muti Metroo allows you to build flexible, resilient mesh networks where traffic can flow through multiple intermediate nodes to reach its destination. Think of it as building your own private network overlay that works across different network segments, firewalls, and transport protocols.
 
-```
-                                 +------------------+
-                                 |   Internet       |
-                                 +--------+---------+
-                                          |
-+-------------+     +-------------+     +-+----------+
-|   Client    |     |   Agent A   |     |  Agent C   |
-|  (Browser)  +---->+  (Ingress)  +---->+  (Exit)    |
-+-------------+     +------+------+     +------------+
-   SOCKS5                  |
-   Proxy                   |
-                     +-----v------+
-                     |  Agent B   |
-                     | (Transit)  |
-                     +------------+
+```mermaid
+flowchart LR
+    subgraph Internet
+        Server[Internet]
+    end
+
+    Client[Client<br/>Browser] -->|SOCKS5| A[Agent A<br/>Ingress]
+    A --> B[Agent B<br/>Transit]
+    B --> C[Agent C<br/>Exit]
+    C --> Server
 ```
 
 ## Key Features
@@ -53,18 +47,29 @@ Muti Metroo allows you to build flexible, resilient mesh networks where traffic 
 
 Provide secure access to internal resources through multi-hop SOCKS5 proxy chains, bypassing network segmentation without VPN infrastructure.
 
-```
-Employee Laptop --[SOCKS5]--> Cloud Agent --[QUIC]--> Office Agent --[TCP]--> Internal Server
+```mermaid
+flowchart LR
+    Laptop[Employee Laptop] -->|SOCKS5| Cloud[Cloud Agent]
+    Cloud -->|QUIC| Office[Office Agent]
+    Office -->|TCP| Internal[Internal Server]
 ```
 
 ### Multi-Site Connectivity
 
 Connect multiple office locations through a mesh of agents, enabling seamless access to resources across sites.
 
-```
-Site A Agent <--[HTTP/2]--> Cloud Relay <--[WebSocket]--> Site B Agent
-     |                                                          |
-Private Network A                                     Private Network B
+```mermaid
+flowchart LR
+    subgraph SiteA[Site A]
+        NetA[Private Network A] --- AgentA[Site A Agent]
+    end
+
+    subgraph SiteB[Site B]
+        AgentB[Site B Agent] --- NetB[Private Network B]
+    end
+
+    AgentA <-->|HTTP/2| Cloud[Cloud Relay]
+    Cloud <-->|WebSocket| AgentB
 ```
 
 ### Resilient Remote Access
@@ -94,7 +99,7 @@ cd Muti-Metroo-v4
 make build
 
 # Run interactive setup wizard
-./build/muti-metroo setup
+muti-metroo setup
 ```
 
 The wizard guides you through configuring your first agent, generating TLS certificates, and starting the mesh.

@@ -59,7 +59,7 @@ GOOS=windows GOARCH=amd64 go build -o build/muti-metroo-windows-amd64.exe ./cmd/
 
 Binary is created at:
 ```
-./build/muti-metroo
+muti-metroo
 ```
 
 ## Cross-Compilation

@@ -14,7 +14,7 @@ The easiest way to get started with Muti Metroo is using the interactive setup w
 ## Running the Wizard
 
 ```bash
-./build/muti-metroo setup
+muti-metroo setup
 ```
 
 ## What the Wizard Configures
@@ -91,7 +91,7 @@ When running as root (Linux) or Administrator (Windows):
 ## Example Wizard Session
 
 ```
-$ ./build/muti-metroo setup
+$ muti-metroo setup
 
 Welcome to Muti Metroo Setup Wizard
 ===================================
@@ -220,7 +220,7 @@ Once the wizard completes:
 If you did not start it during the wizard:
 
 ```bash
-./build/muti-metroo run -c ./config.yaml
+muti-metroo run -c ./config.yaml
 ```
 
 ### Verify Operation
@@ -243,7 +243,7 @@ When running the wizard with elevated privileges, you can install as a system se
 ### Linux (as root)
 
 ```bash
-sudo ./build/muti-metroo setup
+sudo muti-metroo setup
 # At the end, choose to install as service
 ```
 
@@ -269,7 +269,7 @@ The wizard will:
 You can run the wizard again to modify configuration:
 
 ```bash
-./build/muti-metroo setup
+muti-metroo setup
 
 # Existing config detected
 Use existing configuration as base? [y]: y

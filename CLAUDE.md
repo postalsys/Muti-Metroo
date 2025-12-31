@@ -61,6 +61,11 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo cert client -n "client-1"    # Generate client certificate
 ./build/muti-metroo cert info ./certs/ca.crt     # Display certificate info
 
+# Password Hash Generation (for SOCKS5, RPC, file transfer authentication)
+./build/muti-metroo hash                         # Interactive prompt (recommended)
+./build/muti-metroo hash "password"              # From argument
+./build/muti-metroo hash --cost 12               # Custom cost factor
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -132,7 +137,7 @@ An agent can serve multiple roles simultaneously:
 | `recovery` | Panic recovery utilities for goroutines with logging and callbacks |
 | `routing` | Route table with longest-prefix match, route manager with subscription system |
 | `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
-| `service` | Cross-platform service management - systemd (Linux), Windows Service |
+| `service` | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service |
 | `socks5` | SOCKS5 server with no-auth and username/password methods |
 | `stream` | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O |
 | `sysinfo` | System information collection for node info advertisements |
@@ -313,19 +318,19 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 
 ## Service Installation
 
-Muti Metroo can be installed as a system service on Linux (systemd) and Windows.
+Muti Metroo can be installed as a system service on Linux (systemd), macOS (launchd), and Windows.
 
 ### Commands
 
 ```bash
 # Install as system service
-./build/muti-metroo service install -c /path/to/config.yaml
+sudo muti-metroo service install -c /path/to/config.yaml
 
 # Check service status
-./build/muti-metroo service status
+muti-metroo service status
 
 # Uninstall service
-./build/muti-metroo service uninstall
+sudo muti-metroo service uninstall
 ```
 
 ### Linux (systemd)
@@ -337,6 +342,16 @@ The installer creates a systemd unit file at `/etc/systemd/system/muti-metroo.se
 sudo systemctl start muti-metroo
 sudo systemctl enable muti-metroo
 sudo journalctl -u muti-metroo -f
+```
+
+### macOS (launchd)
+
+The installer creates a launchd plist at `/Library/LaunchDaemons/com.muti-metroo.plist`:
+
+```bash
+# After installation
+sudo launchctl start com.muti-metroo
+tail -f /var/log/muti-metroo.out.log
 ```
 
 ### Windows

@@ -86,7 +86,7 @@ peers:
 Signs all other certificates. Never share the private key:
 
 ```bash
-./build/muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert ca -n "My Mesh CA" -o ./certs
 
 # Files created:
 # ./certs/ca.crt   - Share with all agents
@@ -98,7 +98,7 @@ Signs all other certificates. Never share the private key:
 For listeners (server authentication):
 
 ```bash
-./build/muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent -n "agent-1" \
   --dns "agent1.example.com" \
   --ip "192.168.1.10"
 ```
@@ -112,7 +112,7 @@ Features:
 For peer connections (client authentication):
 
 ```bash
-./build/muti-metroo cert client -n "peer-client"
+muti-metroo cert client -n "peer-client"
 ```
 
 Features:
@@ -126,7 +126,7 @@ Features:
 Always include SANs for server certificates:
 
 ```bash
-./build/muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent -n "agent-1" \
   --dns "agent1.example.com" \
   --dns "agent1.internal" \
   --ip "192.168.1.10" \

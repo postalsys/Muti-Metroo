@@ -21,42 +21,40 @@ Muti Metroo is designed as a modular, userspace mesh networking agent. This docu
 
 ## High-Level Architecture
 
-```
-+------------------------------------------------------------------+
-|                          Muti Metroo Agent                        |
-+------------------------------------------------------------------+
-|                                                                    |
-|  +------------------+     +------------------+     +-------------+ |
-|  |   SOCKS5 Server  |     |   Exit Handler   |     | HTTP Server | |
-|  |    (Ingress)     |     |     (Exit)       |     | (API/UI)    | |
-|  +--------+---------+     +--------+---------+     +------+------+ |
-|           |                        |                      |        |
-|           v                        v                      v        |
-|  +----------------------------------------------------------------+|
-|  |                        Agent Core                              ||
-|  |  +-------------+  +-------------+  +------------------+        ||
-|  |  |   Stream    |  |   Route     |  |      Peer        |        ||
-|  |  |   Manager   |  |   Manager   |  |     Manager      |        ||
-|  |  +------+------+  +------+------+  +--------+---------+        ||
-|  |         |                |                  |                  ||
-|  +---------+----------------+------------------+-----------------+||
-|            |                |                  |                   |
-|  +---------v----------------v------------------v-----------------+ |
-|  |                    Protocol Layer                             | |
-|  |  +------------+  +------------+  +------------+  +----------+ | |
-|  |  |   Frame    |  |   Flood    |  |  Handshake |  | Keepalive| | |
-|  |  |  Encoder   |  |  Routing   |  |   Handler  |  |  Handler | | |
-|  |  +------------+  +------------+  +------------+  +----------+ | |
-|  +---------------------------------------------------------------+ |
-|                              |                                     |
-|  +---------------------------v-----------------------------------+ |
-|  |                    Transport Layer                            | |
-|  |  +------------+  +------------+  +------------+               | |
-|  |  |    QUIC    |  |   HTTP/2   |  |  WebSocket |               | |
-|  |  +------------+  +------------+  +------------+               | |
-|  +---------------------------------------------------------------+ |
-|                                                                    |
-+------------------------------------------------------------------+
+```mermaid
+flowchart TB
+    subgraph Agent[Muti Metroo Agent]
+        subgraph Services[Services Layer]
+            SOCKS5[SOCKS5 Server<br/>Ingress]
+            Exit[Exit Handler<br/>Exit]
+            HTTP[HTTP Server<br/>API/UI]
+        end
+
+        subgraph Core[Agent Core]
+            Stream[Stream Manager]
+            Route[Route Manager]
+            Peer[Peer Manager]
+        end
+
+        subgraph Protocol[Protocol Layer]
+            Frame[Frame Encoder]
+            Flood[Flood Routing]
+            Handshake[Handshake Handler]
+            Keepalive[Keepalive Handler]
+        end
+
+        subgraph Transport[Transport Layer]
+            QUIC[QUIC]
+            H2[HTTP/2]
+            WS[WebSocket]
+        end
+
+        SOCKS5 --> Core
+        Exit --> Core
+        HTTP --> Core
+        Core --> Protocol
+        Protocol --> Transport
+    end
 ```
 
 ## Core Components
@@ -119,44 +117,64 @@ Pluggable transport implementations:
 
 ### Client Request Flow
 
-```
-1. Client              2. SOCKS5              3. Route                4. Stream
-   Request                Server                Lookup                  Open
-+----------+          +-----------+          +-----------+          +-----------+
-|  Client  | CONNECT  |  Ingress  |  Lookup  |  Route    |  Open    |  Stream   |
-| (Browser)| -------> |   Agent   | -------> |  Table    | -------> |  Manager  |
-+----------+          +-----------+          +-----------+          +-----+-----+
-                                                                          |
-                                                                          v
-5. Peer                6. Transit             7. Exit                8. Destination
-   Forward               Relay                  Handler                Connection
-+-----------+          +-----------+          +-----------+          +-----------+
-|   Peer    |  Frame   |  Transit  |  Frame   |   Exit    |   TCP    | External  |
-|  Manager  | -------> |   Agent   | -------> |   Agent   | -------> |  Server   |
-+-----------+          +-----------+          +-----------+          +-----------+
+```mermaid
+flowchart LR
+    subgraph Step1[1. Client Request]
+        Client[Client<br/>Browser]
+    end
+
+    subgraph Step2[2. Ingress Agent]
+        SOCKS5[SOCKS5 Server]
+        RouteTable[Route Table]
+        StreamMgr[Stream Manager]
+        PeerMgr[Peer Manager]
+    end
+
+    subgraph Step3[3. Transit]
+        Transit[Transit Agent]
+    end
+
+    subgraph Step4[4. Exit]
+        Exit[Exit Agent]
+    end
+
+    subgraph Step5[5. Destination]
+        Server[External Server]
+    end
+
+    Client -->|CONNECT| SOCKS5
+    SOCKS5 -->|Lookup| RouteTable
+    RouteTable -->|Open| StreamMgr
+    StreamMgr -->|Forward| PeerMgr
+    PeerMgr -->|Frame| Transit
+    Transit -->|Frame| Exit
+    Exit -->|TCP| Server
 ```
 
 ### Route Advertisement Flow
 
-```
-1. Exit agent generates ROUTE_ADVERTISE
-2. Frame sent to all connected peers
-3. Each peer:
-   a. Updates local routing table
-   b. Increments hop count
-   c. Adds self to SeenBy list
-   d. Forwards to other peers (if not in SeenBy)
-4. Eventually, all reachable agents know the route
+```mermaid
+sequenceDiagram
+    participant Exit as Exit Agent
+    participant Transit as Transit Agent
+    participant Ingress as Ingress Agent
+
+    Exit->>Transit: ROUTE_ADVERTISE (metric=0)
+    Note over Transit: Update route table<br/>Increment metric<br/>Add to SeenBy
+    Transit->>Ingress: ROUTE_ADVERTISE (metric=1)
+    Note over Ingress: Update route table<br/>Route now known
 ```
 
 ## Memory Model
 
 Each stream consumes a configurable buffer (default 256 KB) at each hop:
 
-```
-Client <-> Agent A <-> Agent B <-> Agent C <-> Server
-           256 KB      256 KB      256 KB
-           Buffer      Buffer      Buffer
+```mermaid
+flowchart LR
+    Client[Client] <--> A[Agent A<br/>256 KB Buffer]
+    A <--> B[Agent B<br/>256 KB Buffer]
+    B <--> C[Agent C<br/>256 KB Buffer]
+    C <--> Server[Server]
 ```
 
 Total memory per stream = buffer_size x number_of_hops

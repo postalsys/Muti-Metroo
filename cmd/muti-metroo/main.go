@@ -28,6 +28,8 @@ import (
 	"github.com/postalsys/muti-metroo/internal/service"
 	"github.com/postalsys/muti-metroo/internal/wizard"
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/term"
 )
 
 var (
@@ -56,10 +58,11 @@ root privileges.`,
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(peersCmd())
 	rootCmd.AddCommand(routesCmd())
-	rootCmd.AddCommand(uninstallCmd())
+	rootCmd.AddCommand(serviceCmd())
 	rootCmd.AddCommand(rpcCmd())
 	rootCmd.AddCommand(uploadCmd())
 	rootCmd.AddCommand(downloadCmd())
+	rootCmd.AddCommand(hashCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -334,7 +337,118 @@ func routesCmd() *cobra.Command {
 	return cmd
 }
 
-func uninstallCmd() *cobra.Command {
+func serviceCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "service",
+		Short: "System service management",
+		Long: `Manage Muti Metroo as a system service.
+
+Supported platforms:
+  - Linux: systemd
+  - macOS: launchd
+  - Windows: Windows Service`,
+	}
+
+	cmd.AddCommand(serviceInstallCmd())
+	cmd.AddCommand(serviceUninstallCmd())
+	cmd.AddCommand(serviceStatusCmd())
+
+	return cmd
+}
+
+func serviceInstallCmd() *cobra.Command {
+	var configPath string
+	var serviceName string
+
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install as a system service",
+		Long: `Install Muti Metroo as a system service.
+
+On Linux, this creates and enables a systemd service.
+On macOS, this creates and loads a launchd service.
+On Windows, this registers a Windows service.
+
+This command requires root/administrator privileges.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check platform support
+			if !service.IsSupported() {
+				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
+			}
+
+			// Check privileges
+			if !service.IsRoot() {
+				switch runtime.GOOS {
+				case "linux", "darwin":
+					return fmt.Errorf("must run as root to install the service (try: sudo muti-metroo service install ...)")
+				case "windows":
+					return fmt.Errorf("must run as Administrator to install the service")
+				}
+			}
+
+			// Validate config file exists
+			if configPath == "" {
+				return fmt.Errorf("config file is required: use -c flag")
+			}
+
+			absPath, err := filepath.Abs(configPath)
+			if err != nil {
+				return fmt.Errorf("failed to resolve config path: %w", err)
+			}
+
+			if _, err := os.Stat(absPath); os.IsNotExist(err) {
+				return fmt.Errorf("config file not found: %s", absPath)
+			}
+
+			// Check if already installed
+			if service.IsInstalled(serviceName) {
+				return fmt.Errorf("service '%s' is already installed", serviceName)
+			}
+
+			// Create service config
+			cfg := service.DefaultConfig(absPath)
+			cfg.Name = serviceName
+
+			// Install
+			fmt.Printf("Installing service '%s'...\n", serviceName)
+			fmt.Printf("  Config: %s\n", absPath)
+			fmt.Printf("  Platform: %s\n", service.Platform())
+
+			if err := service.Install(cfg); err != nil {
+				return fmt.Errorf("failed to install service: %w", err)
+			}
+
+			fmt.Println("\nService installed successfully.")
+
+			switch runtime.GOOS {
+			case "linux":
+				fmt.Println("\nManage the service with:")
+				fmt.Println("  sudo systemctl status muti-metroo")
+				fmt.Println("  sudo systemctl restart muti-metroo")
+				fmt.Println("  sudo journalctl -u muti-metroo -f")
+			case "darwin":
+				fmt.Println("\nManage the service with:")
+				fmt.Println("  sudo launchctl list com.muti-metroo")
+				fmt.Printf("  tail -f %s/%s.log\n", cfg.WorkingDir, serviceName)
+			case "windows":
+				fmt.Println("\nManage the service with:")
+				fmt.Println("  sc query muti-metroo")
+				fmt.Println("  sc stop muti-metroo")
+				fmt.Println("  sc start muti-metroo")
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to config file (required)")
+	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
+	cmd.MarkFlagRequired("config")
+
+	return cmd
+}
+
+func serviceUninstallCmd() *cobra.Command {
 	var serviceName string
 	var force bool
 
@@ -344,6 +458,7 @@ func uninstallCmd() *cobra.Command {
 		Long: `Remove the Muti Metroo system service.
 
 On Linux, this stops and removes the systemd service.
+On macOS, this unloads and removes the launchd service.
 On Windows, this stops and removes the Windows service.
 
 This command requires root/administrator privileges.`,
@@ -356,8 +471,8 @@ This command requires root/administrator privileges.`,
 			// Check privileges
 			if !service.IsRoot() {
 				switch runtime.GOOS {
-				case "linux":
-					return fmt.Errorf("must run as root to uninstall the service (try: sudo muti-metroo uninstall)")
+				case "linux", "darwin":
+					return fmt.Errorf("must run as root to uninstall the service (try: sudo muti-metroo service uninstall)")
 				case "windows":
 					return fmt.Errorf("must run as Administrator to uninstall the service")
 				}
@@ -393,6 +508,44 @@ This command requires root/administrator privileges.`,
 
 	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
+
+	return cmd
+}
+
+func serviceStatusCmd() *cobra.Command {
+	var serviceName string
+
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show service status",
+		Long:  `Show the current status of the Muti Metroo system service.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check platform support
+			if !service.IsSupported() {
+				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
+			}
+
+			// Check if installed
+			if !service.IsInstalled(serviceName) {
+				fmt.Printf("Service '%s' is not installed.\n", serviceName)
+				return nil
+			}
+
+			// Get status
+			status, err := service.Status(serviceName)
+			if err != nil {
+				return fmt.Errorf("failed to get service status: %w", err)
+			}
+
+			fmt.Printf("Service: %s\n", serviceName)
+			fmt.Printf("Status: %s\n", status)
+			fmt.Printf("Platform: %s\n", service.Platform())
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
 
 	return cmd
 }
@@ -1208,4 +1361,91 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 	}
 
 	return nil
+}
+
+func hashCmd() *cobra.Command {
+	var cost int
+
+	cmd := &cobra.Command{
+		Use:   "hash [password]",
+		Short: "Generate a bcrypt hash for use in configuration",
+		Long: `Generate a bcrypt password hash for use in configuration files.
+
+The generated hash can be used in:
+  - socks5.auth.users[].password_hash  (SOCKS5 proxy authentication)
+  - rpc.password_hash                   (RPC command authentication)
+  - file_transfer.password_hash         (File transfer authentication)
+
+If no password is provided as an argument, you will be prompted to enter
+it interactively (recommended for security).
+
+Examples:
+  # Interactive prompt (recommended - password hidden)
+  muti-metroo hash
+
+  # From argument (less secure - visible in shell history)
+  muti-metroo hash "mysecretpassword"
+
+  # With custom cost (default: 10, range: 4-31)
+  muti-metroo hash --cost 12
+
+  # Use in config file:
+  # socks5:
+  #   auth:
+  #     enabled: true
+  #     users:
+  #       - username: admin
+  #         password_hash: "<paste hash here>"`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var password string
+
+			if len(args) > 0 {
+				password = args[0]
+			} else {
+				// Interactive prompt
+				fmt.Print("Enter password: ")
+				pwBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Println() // newline after hidden input
+				if err != nil {
+					return fmt.Errorf("failed to read password: %w", err)
+				}
+
+				fmt.Print("Confirm password: ")
+				confirmBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Println()
+				if err != nil {
+					return fmt.Errorf("failed to read confirmation: %w", err)
+				}
+
+				if string(pwBytes) != string(confirmBytes) {
+					return fmt.Errorf("passwords do not match")
+				}
+
+				password = string(pwBytes)
+			}
+
+			if password == "" {
+				return fmt.Errorf("password cannot be empty")
+			}
+
+			// Validate cost
+			if cost < bcrypt.MinCost || cost > bcrypt.MaxCost {
+				return fmt.Errorf("cost must be between %d and %d", bcrypt.MinCost, bcrypt.MaxCost)
+			}
+
+			// Generate hash
+			hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
+			if err != nil {
+				return fmt.Errorf("failed to generate hash: %w", err)
+			}
+
+			fmt.Println(string(hash))
+			return nil
+		},
+	}
+
+	cmd.Flags().IntVar(&cost, "cost", bcrypt.DefaultCost, "bcrypt cost factor (4-31, higher = slower but more secure)")
+
+	return cmd
 }

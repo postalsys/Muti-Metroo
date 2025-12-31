@@ -40,6 +40,23 @@ socks5:
 
 ### Generating Password Hashes
 
+The recommended way to generate bcrypt password hashes is using the built-in CLI command:
+
+```bash
+# Interactive (recommended - password hidden)
+muti-metroo hash
+
+# Or provide password as argument
+muti-metroo hash "yourpassword"
+
+# With custom cost factor
+muti-metroo hash --cost 12
+```
+
+See [Generating Password Hashes](/cli/hash) for detailed documentation.
+
+#### Alternative Methods
+
 Using htpasswd:
 
 ```bash
@@ -113,10 +130,10 @@ rpc:
 
 ### Generating RPC Password Hash
 
-Same as SOCKS5:
+Use the built-in CLI command (see [Generating Password Hashes](/cli/hash)):
 
 ```bash
-htpasswd -bnBC 12 "" myrpcpassword | tr -d ':\n'
+muti-metroo hash --cost 12
 ```
 
 ### Using RPC with Authentication

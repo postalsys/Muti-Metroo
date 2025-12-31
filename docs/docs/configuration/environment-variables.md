@@ -125,13 +125,13 @@ peers:
 
 ```bash
 # Single variable
-LOG_LEVEL=debug ./build/muti-metroo run -c config.yaml
+LOG_LEVEL=debug muti-metroo run -c config.yaml
 
 # Multiple variables
 SOCKS_ADDR=0.0.0.0:1080 \
 LOG_LEVEL=info \
 PEER_ID=abc123 \
-./build/muti-metroo run -c config.yaml
+muti-metroo run -c config.yaml
 ```
 
 ### Environment File
@@ -151,11 +151,11 @@ Load and run:
 
 ```bash
 # Using env command
-env $(cat .env | xargs) ./build/muti-metroo run -c config.yaml
+env $(cat .env | xargs) muti-metroo run -c config.yaml
 
 # Using set -a
 set -a && source .env && set +a
-./build/muti-metroo run -c config.yaml
+muti-metroo run -c config.yaml
 ```
 
 ### Docker

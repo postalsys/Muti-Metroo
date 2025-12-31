@@ -89,7 +89,7 @@ curl http://peer-address:8080/health
 openssl s_client -connect peer-address:4433 -CAfile ca.crt
 
 # Verify certificate
-./build/muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/agent.crt
 ```
 
 ### Peer Disconnects Frequently
@@ -262,7 +262,7 @@ Routes are selected by:
 
 ```bash
 # Enable debug logging
-./build/muti-metroo run --log-level debug
+muti-metroo run --log-level debug
 
 # Look for route lookup logs
 grep "route lookup" logs

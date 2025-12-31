@@ -25,19 +25,19 @@ Muti Metroo uses a PKI (Public Key Infrastructure) model:
 
 ```bash
 # Generate CA (do once, share across mesh)
-./build/muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert ca -n "My Mesh CA" -o ./certs
 
 # Generate agent certificate
-./build/muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent -n "agent-1" \
   --dns "agent1.example.com" \
   --ip "192.168.1.10" \
   -o ./certs
 
 # Generate client certificate (for mTLS)
-./build/muti-metroo cert client -n "client-1" -o ./certs
+muti-metroo cert client -n "client-1" -o ./certs
 
 # View certificate info
-./build/muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/agent.crt
 ```
 
 ### Using OpenSSL
@@ -195,7 +195,7 @@ Must include:
 - Subject Alternative Names (SANs) for IP and DNS names
 
 ```bash
-./build/muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent -n "agent-1" \
   --dns "agent1.example.com" \
   --dns "agent1.internal" \
   --ip "192.168.1.10" \
@@ -207,8 +207,8 @@ Must include:
 Default: 365 days. Specify custom:
 
 ```bash
-./build/muti-metroo cert ca --days 730       # 2 years
-./build/muti-metroo cert agent --days 90     # 90 days
+muti-metroo cert ca --days 730       # 2 years
+muti-metroo cert agent --days 90     # 90 days
 ```
 
 ### Key Size
@@ -240,7 +240,7 @@ If CA is compromised:
 ### CLI Check
 
 ```bash
-./build/muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/agent.crt
 ```
 
 Output includes expiration date.

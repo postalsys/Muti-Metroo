@@ -1,5 +1,5 @@
 // Package service provides cross-platform service management for Muti Metroo.
-// It supports systemd on Linux and Windows Service on Windows.
+// It supports systemd on Linux, launchd on macOS, and Windows Service on Windows.
 package service
 
 import (
@@ -67,6 +67,7 @@ func IsRoot() bool {
 
 // Install installs the application as a system service.
 // On Linux, this creates and enables a systemd unit.
+// On macOS, this creates and loads a launchd plist.
 // On Windows, this registers a Windows service.
 func Install(cfg ServiceConfig) error {
 	if !IsRoot() {
@@ -90,6 +91,7 @@ func Install(cfg ServiceConfig) error {
 
 // Uninstall removes the system service.
 // On Linux, this stops, disables, and removes the systemd unit.
+// On macOS, this unloads and removes the launchd plist.
 // On Windows, this stops and removes the Windows service.
 func Uninstall(serviceName string) error {
 	if !IsRoot() {
@@ -116,6 +118,8 @@ func Platform() string {
 		return "linux"
 	case "windows":
 		return "windows"
+	case "darwin":
+		return "darwin"
 	default:
 		return "unsupported"
 	}
@@ -123,7 +127,7 @@ func Platform() string {
 
 // IsSupported returns true if service installation is supported on this platform.
 func IsSupported() bool {
-	return runtime.GOOS == "linux" || runtime.GOOS == "windows"
+	return runtime.GOOS == "linux" || runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 }
 
 // runCommand executes a command and returns combined output.

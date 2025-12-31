@@ -373,7 +373,7 @@ nc -zv 192.168.1.10 4433
 dig agent.example.com
 
 # Check with debug logging
-./build/muti-metroo run -c config.yaml --log-level debug
+muti-metroo run -c config.yaml --log-level debug
 ```
 
 ### Certificate Errors

@@ -22,67 +22,59 @@ A **stream** represents a single TCP-like connection flowing through the mesh. S
 
 ## Stream Lifecycle
 
-```
-   Client       Ingress         Transit          Exit          Server
-     |            |               |               |               |
-     |  CONNECT   |               |               |               |
-     |----------->|               |               |               |
-     |            | STREAM_OPEN   |               |               |
-     |            |-------------->| STREAM_OPEN   |               |
-     |            |               |-------------->| TCP Connect   |
-     |            |               |               |-------------->|
-     |            |               |               |   Connected   |
-     |            |               |STREAM_OPEN_ACK|<--------------|
-     |            |STREAM_OPEN_ACK|<--------------|               |
-     |   OK       |<--------------|               |               |
-     |<-----------|               |               |               |
-     |            |               |               |               |
-     |   DATA     | STREAM_DATA   | STREAM_DATA   | STREAM_DATA   |
-     |----------->|-------------->|-------------->|-------------->|
-     |            |               |               |               |
-     |   DATA     | STREAM_DATA   | STREAM_DATA   | STREAM_DATA   |
-     |<-----------|<--------------|<--------------|<--------------|
-     |            |               |               |               |
-     |   EOF      | FIN_WRITE     | FIN_WRITE     | TCP half-close|
-     |----------->|-------------->|-------------->|-------------->|
-     |            |               |               |               |
-     |   EOF      | FIN_READ      | FIN_READ      | TCP half-close|
-     |<-----------|<--------------|<--------------|<--------------|
-     |            |               |               |               |
-     |  CLOSE     | STREAM_CLOSE  | STREAM_CLOSE  |               |
-     |----------->|-------------->|-------------->|               |
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Ingress
+    participant Transit
+    participant Exit
+    participant Server
+
+    Client->>Ingress: CONNECT
+    Ingress->>Transit: STREAM_OPEN
+    Transit->>Exit: STREAM_OPEN
+    Exit->>Server: TCP Connect
+    Server-->>Exit: Connected
+    Exit-->>Transit: STREAM_OPEN_ACK
+    Transit-->>Ingress: STREAM_OPEN_ACK
+    Ingress-->>Client: OK
+
+    Client->>Ingress: DATA
+    Ingress->>Transit: STREAM_DATA
+    Transit->>Exit: STREAM_DATA
+    Exit->>Server: STREAM_DATA
+
+    Server-->>Exit: DATA
+    Exit-->>Transit: STREAM_DATA
+    Transit-->>Ingress: STREAM_DATA
+    Ingress-->>Client: DATA
+
+    Client->>Ingress: EOF
+    Ingress->>Transit: FIN_WRITE
+    Transit->>Exit: FIN_WRITE
+    Exit->>Server: TCP half-close
+
+    Server-->>Exit: EOF
+    Exit-->>Transit: FIN_READ
+    Transit-->>Ingress: FIN_READ
+    Ingress-->>Client: EOF
+
+    Client->>Ingress: CLOSE
+    Ingress->>Transit: STREAM_CLOSE
+    Transit->>Exit: STREAM_CLOSE
 ```
 
 ## Stream States
 
 Each stream progresses through these states:
 
-```
-                    +----------+
-                    | OPENING  |
-                    +----+-----+
-                         |
-              STREAM_OPEN_ACK received
-                         |
-                         v
-                    +----+-----+
-                    |   OPEN   |
-                    +----+-----+
-                         |
-              FIN_WRITE or FIN_READ
-                         |
-                         v
-                +--------+--------+
-                | HALF_CLOSED     |
-                | (one direction) |
-                +--------+--------+
-                         |
-              Both directions closed
-                         |
-                         v
-                    +----+-----+
-                    |  CLOSED  |
-                    +----------+
+```mermaid
+stateDiagram-v2
+    [*] --> OPENING: STREAM_OPEN sent
+    OPENING --> OPEN: STREAM_OPEN_ACK received
+    OPEN --> HALF_CLOSED: FIN_WRITE or FIN_READ
+    HALF_CLOSED --> CLOSED: Both directions closed
+    CLOSED --> [*]
 ```
 
 ### State Descriptions
@@ -103,23 +95,27 @@ Stream IDs are allocated to prevent collisions:
 - **Listener (acceptor)**: Even IDs (2, 4, 6, ...)
 - **Stream ID 0**: Reserved for control channel
 
-```
-Peer A (dialer)      Peer B (listener)
-    |                     |
-    | Stream 1 ---------> |
-    | Stream 3 ---------> |
-    | <--------- Stream 2 |
-    | Stream 5 ---------> |
-    | <--------- Stream 4 |
+```mermaid
+sequenceDiagram
+    participant A as Peer A (dialer)
+    participant B as Peer B (listener)
+
+    A->>B: Stream 1 (odd)
+    A->>B: Stream 3 (odd)
+    B->>A: Stream 2 (even)
+    A->>B: Stream 5 (odd)
+    B->>A: Stream 4 (even)
 ```
 
 ## Buffering
 
 Each stream has a buffer at each hop:
 
-```
-Client <-- Buffer --> Agent A <-- Buffer --> Agent B <-- Buffer --> Server
-             256KB                 256KB                 256KB
+```mermaid
+flowchart LR
+    Client <-->|Buffer<br/>256KB| A[Agent A]
+    A <-->|Buffer<br/>256KB| B[Agent B]
+    B <-->|Buffer<br/>256KB| Server
 ```
 
 ### Buffer Configuration
@@ -159,15 +155,13 @@ limits:
 
 Data is sent in `STREAM_DATA` frames:
 
-```
-+----------------+----------------+----------------+
-| Type (0x04)    | Flags          | StreamID       |
-+----------------+----------------+----------------+
-| Payload Length                                  |
-+----------------+----------------+----------------+
-| Payload (up to 16 KB)                           |
-+------------------------------------------------+
-```
+| Field | Size | Description |
+|-------|------|-------------|
+| Type | 1 byte | 0x04 (STREAM_DATA) |
+| Flags | 1 byte | FIN_WRITE, FIN_READ |
+| StreamID | 4 bytes | Stream identifier |
+| Payload Length | 4 bytes | Length of payload |
+| Payload | up to 16 KB | Data bytes |
 
 ### Flags
 
@@ -182,20 +176,30 @@ Streams support half-close for proper TCP semantics:
 
 ### Example: HTTP Request/Response
 
-```
-Client      Ingress        Exit        Server
-   |           |            |            |
-   | Request   |            |            |
-   |---------->|  DATA      |  DATA      |
-   |           |----------->|----------->| Process
-   | FIN_WRITE | FIN_WRITE  | TCP FIN    | request
-   |---------->|----------->|----------->|
-   |           |            |            |
-   |           |            |            | Send
-   | Response  |  DATA      |  DATA      | response
-   |<----------|<-----------|<-----------|
-   | FIN_READ  | FIN_READ   | TCP FIN    |
-   |<----------|<-----------|<-----------|
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Ingress
+    participant Exit
+    participant Server
+
+    Client->>Ingress: Request DATA
+    Ingress->>Exit: DATA
+    Exit->>Server: DATA
+    Note over Server: Process request
+
+    Client->>Ingress: FIN_WRITE
+    Ingress->>Exit: FIN_WRITE
+    Exit->>Server: TCP FIN
+
+    Note over Server: Send response
+    Server-->>Exit: Response DATA
+    Exit-->>Ingress: DATA
+    Ingress-->>Client: Response
+
+    Server-->>Exit: TCP FIN
+    Exit-->>Ingress: FIN_READ
+    Ingress-->>Client: FIN_READ
 ```
 
 ## Error Handling
@@ -243,10 +247,10 @@ Prometheus metrics for streams:
 
 Stream open latency = network RTT x number of hops
 
-```
-2 hops, 50ms RTT each = ~100ms stream open time
-5 hops, 50ms RTT each = ~250ms stream open time
-```
+| Hops | RTT per hop | Stream open time |
+|------|-------------|------------------|
+| 2 | 50ms | ~100ms |
+| 5 | 50ms | ~250ms |
 
 ### Throughput
 
@@ -260,10 +264,9 @@ Limited by:
 
 Memory per stream = buffer_size x number_of_hops
 
-```
-256 KB buffer, 3 hops = 768 KB per stream
-1000 streams = ~750 MB memory
-```
+| Configuration | Memory per stream | 1000 streams |
+|---------------|-------------------|--------------|
+| 256 KB buffer, 3 hops | 768 KB | ~750 MB |
 
 ## Best Practices
 
@@ -285,7 +288,7 @@ curl http://localhost:8080/healthz | jq '.pending_opens'
 curl http://localhost:8080/healthz | jq '.streams, .max_streams'
 
 # Enable debug logging
-./build/muti-metroo run --log-level debug
+muti-metroo run --log-level debug
 ```
 
 ### High Latency
