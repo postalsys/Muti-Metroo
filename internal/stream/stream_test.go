@@ -2,6 +2,8 @@ package stream
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -606,5 +608,252 @@ func TestManager_Callbacks(t *testing.T) {
 	m.HandleStreamClose(1)
 	if !closeCalled {
 		t.Error("Close callback should be called")
+	}
+}
+
+// ============================================================================
+// E2E Encryption Tests
+// ============================================================================
+
+func TestStream_SetSessionKey(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	remoteID, _ := identity.NewAgentID()
+
+	s := NewStream(1, localID, remoteID, 100)
+
+	// Initially no session key
+	if s.GetSessionKey() != nil {
+		t.Error("SessionKey should be nil initially")
+	}
+
+	// Create session key
+	privA, pubA, _ := crypto.GenerateEphemeralKeypair()
+	_, pubB, _ := crypto.GenerateEphemeralKeypair()
+	secret, _ := crypto.ComputeECDH(privA, pubB)
+	sk := crypto.DeriveSessionKey(secret, 1, pubA, pubB, true)
+
+	s.SetSessionKey(sk)
+
+	if s.GetSessionKey() == nil {
+		t.Error("SessionKey should be set")
+	}
+	if s.GetSessionKey() != sk {
+		t.Error("SessionKey should match")
+	}
+}
+
+func TestStream_EncryptDecryptWithSessionKey(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	remoteID, _ := identity.NewAgentID()
+
+	// Create two streams with matching session keys (simulating ingress and exit)
+	streamIngress := NewStream(1, localID, remoteID, 100)
+	streamExit := NewStream(1, remoteID, localID, 100)
+
+	// Generate keypairs and derive session keys
+	privIngress, pubIngress, _ := crypto.GenerateEphemeralKeypair()
+	privExit, pubExit, _ := crypto.GenerateEphemeralKeypair()
+
+	secretIngress, _ := crypto.ComputeECDH(privIngress, pubExit)
+	secretExit, _ := crypto.ComputeECDH(privExit, pubIngress)
+
+	skIngress := crypto.DeriveSessionKey(secretIngress, 1, pubIngress, pubExit, true)  // initiator
+	skExit := crypto.DeriveSessionKey(secretExit, 1, pubIngress, pubExit, false)       // responder
+
+	streamIngress.SetSessionKey(skIngress)
+	streamExit.SetSessionKey(skExit)
+
+	// Test encryption from ingress and decryption at exit
+	plaintext := []byte("Hello from ingress!")
+	ciphertext, err := streamIngress.GetSessionKey().Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt failed: %v", err)
+	}
+
+	decrypted, err := streamExit.GetSessionKey().Decrypt(ciphertext)
+	if err != nil {
+		t.Fatalf("Decrypt failed: %v", err)
+	}
+
+	if string(decrypted) != string(plaintext) {
+		t.Errorf("Decrypted = %q, want %q", decrypted, plaintext)
+	}
+}
+
+func TestStream_BidirectionalEncryption(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	remoteID, _ := identity.NewAgentID()
+
+	// Setup ingress and exit with matching session keys
+	privIngress, pubIngress, _ := crypto.GenerateEphemeralKeypair()
+	privExit, pubExit, _ := crypto.GenerateEphemeralKeypair()
+
+	secretIngress, _ := crypto.ComputeECDH(privIngress, pubExit)
+	secretExit, _ := crypto.ComputeECDH(privExit, pubIngress)
+
+	skIngress := crypto.DeriveSessionKey(secretIngress, 42, pubIngress, pubExit, true)
+	skExit := crypto.DeriveSessionKey(secretExit, 42, pubIngress, pubExit, false)
+
+	streamIngress := NewStream(42, localID, remoteID, 100)
+	streamExit := NewStream(42, remoteID, localID, 100)
+	streamIngress.SetSessionKey(skIngress)
+	streamExit.SetSessionKey(skExit)
+
+	// Test ingress -> exit
+	msgToExit := []byte("request data")
+	encToExit, _ := streamIngress.GetSessionKey().Encrypt(msgToExit)
+	decFromIngress, err := streamExit.GetSessionKey().Decrypt(encToExit)
+	if err != nil {
+		t.Fatalf("Exit decrypt failed: %v", err)
+	}
+	if string(decFromIngress) != string(msgToExit) {
+		t.Errorf("ingress->exit mismatch")
+	}
+
+	// Test exit -> ingress
+	msgToIngress := []byte("response data")
+	encToIngress, _ := streamExit.GetSessionKey().Encrypt(msgToIngress)
+	decFromExit, err := streamIngress.GetSessionKey().Decrypt(encToIngress)
+	if err != nil {
+		t.Fatalf("Ingress decrypt failed: %v", err)
+	}
+	if string(decFromExit) != string(msgToIngress) {
+		t.Errorf("exit->ingress mismatch")
+	}
+}
+
+// ============================================================================
+// Concurrent Stream Tests
+// ============================================================================
+
+func TestManager_ConcurrentStreamAccess(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	remoteID, _ := identity.NewAgentID()
+	cfg := DefaultManagerConfig()
+
+	m := NewManager(cfg, localID)
+
+	const numGoroutines = 10
+	const streamsPerGoroutine = 10
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, numGoroutines*streamsPerGoroutine)
+
+	// Concurrent stream creation
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for i := 0; i < streamsPerGoroutine; i++ {
+				streamID := uint64(goroutineID*1000 + i)
+				_, err := m.AcceptStream(streamID, uint64(i), remoteID, "10.0.0.1", uint16(8000+i))
+				if err != nil {
+					errCh <- fmt.Errorf("AcceptStream %d: %w", streamID, err)
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("Concurrent error: %v", err)
+	}
+
+	// Verify expected stream count
+	expectedCount := numGoroutines * streamsPerGoroutine
+	if m.StreamCount() != expectedCount {
+		t.Errorf("StreamCount = %d, want %d", m.StreamCount(), expectedCount)
+	}
+
+	// Concurrent data handling
+	errCh = make(chan error, numGoroutines*streamsPerGoroutine)
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for i := 0; i < streamsPerGoroutine; i++ {
+				streamID := uint64(goroutineID*1000 + i)
+				data := []byte(fmt.Sprintf("data-%d-%d", goroutineID, i))
+				err := m.HandleStreamData(streamID, 0, data)
+				if err != nil {
+					errCh <- fmt.Errorf("HandleStreamData %d: %w", streamID, err)
+				}
+			}
+		}(g)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("Concurrent data error: %v", err)
+	}
+
+	// Concurrent stream close
+	errCh = make(chan error, numGoroutines*streamsPerGoroutine)
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for i := 0; i < streamsPerGoroutine; i++ {
+				streamID := uint64(goroutineID*1000 + i)
+				m.HandleStreamClose(streamID)
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	if m.StreamCount() != 0 {
+		t.Errorf("StreamCount after close = %d, want 0", m.StreamCount())
+	}
+}
+
+func TestStream_ConcurrentPushAndRead(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	remoteID, _ := identity.NewAgentID()
+
+	s := NewStream(1, localID, remoteID, 100)
+	s.Open()
+
+	const numMessages = 100
+	var wg sync.WaitGroup
+	errCh := make(chan error, numMessages*2)
+
+	// Producer
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numMessages; i++ {
+			data := []byte(fmt.Sprintf("message-%d", i))
+			if err := s.PushData(data); err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	// Consumer
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numMessages; i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_, err := s.Read(ctx)
+			cancel()
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("Concurrent push/read error: %v", err)
 	}
 }

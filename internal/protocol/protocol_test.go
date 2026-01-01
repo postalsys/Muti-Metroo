@@ -905,3 +905,419 @@ func TestDecodeNodeInfoAdvertise_TooShort(t *testing.T) {
 		t.Error("DecodeNodeInfoAdvertise() should fail with short data")
 	}
 }
+
+// ============================================================================
+// Ephemeral Public Key Tests (E2E Encryption)
+// ============================================================================
+
+func TestStreamOpen_WithEphemeralKey(t *testing.T) {
+	path1, _ := identity.NewAgentID()
+
+	// Generate a mock ephemeral public key (32 bytes)
+	var ephemeralKey [EphemeralKeySize]byte
+	for i := range ephemeralKey {
+		ephemeralKey[i] = byte(i + 1)
+	}
+
+	original := &StreamOpen{
+		RequestID:       12345678,
+		AddressType:     AddrTypeIPv4,
+		Address:         []byte{10, 0, 0, 1},
+		Port:            8080,
+		TTL:             15,
+		RemainingPath:   []identity.AgentID{path1},
+		EphemeralPubKey: ephemeralKey,
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeStreamOpen(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamOpen() error = %v", err)
+	}
+
+	// Verify ephemeral key was encoded/decoded correctly
+	if decoded.EphemeralPubKey != original.EphemeralPubKey {
+		t.Errorf("EphemeralPubKey mismatch: got %v, want %v", decoded.EphemeralPubKey, original.EphemeralPubKey)
+	}
+
+	// Verify the key is not zero
+	var zeroKey [EphemeralKeySize]byte
+	if decoded.EphemeralPubKey == zeroKey {
+		t.Error("Decoded EphemeralPubKey should not be zero")
+	}
+}
+
+func TestStreamOpen_IPv6WithEphemeralKey(t *testing.T) {
+	// IPv6 address: ::1
+	ipv6Addr := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+
+	var ephemeralKey [EphemeralKeySize]byte
+	for i := range ephemeralKey {
+		ephemeralKey[i] = byte(255 - i)
+	}
+
+	original := &StreamOpen{
+		RequestID:       999,
+		AddressType:     AddrTypeIPv6,
+		Address:         ipv6Addr,
+		Port:            443,
+		TTL:             10,
+		RemainingPath:   []identity.AgentID{},
+		EphemeralPubKey: ephemeralKey,
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeStreamOpen(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamOpen() error = %v", err)
+	}
+
+	if decoded.AddressType != AddrTypeIPv6 {
+		t.Errorf("AddressType = %d, want %d", decoded.AddressType, AddrTypeIPv6)
+	}
+	if !bytes.Equal(decoded.Address, ipv6Addr) {
+		t.Errorf("Address mismatch for IPv6")
+	}
+	if decoded.EphemeralPubKey != original.EphemeralPubKey {
+		t.Errorf("EphemeralPubKey mismatch")
+	}
+}
+
+func TestStreamOpenAck_WithEphemeralKey(t *testing.T) {
+	var ephemeralKey [EphemeralKeySize]byte
+	for i := range ephemeralKey {
+		ephemeralKey[i] = byte(i * 2)
+	}
+
+	original := &StreamOpenAck{
+		RequestID:       12345,
+		BoundAddrType:   AddrTypeIPv4,
+		BoundAddr:       []byte{10, 0, 0, 1},
+		BoundPort:       22,
+		EphemeralPubKey: ephemeralKey,
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeStreamOpenAck(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamOpenAck() error = %v", err)
+	}
+
+	if decoded.EphemeralPubKey != original.EphemeralPubKey {
+		t.Errorf("EphemeralPubKey mismatch")
+	}
+	if decoded.RequestID != original.RequestID {
+		t.Errorf("RequestID = %d, want %d", decoded.RequestID, original.RequestID)
+	}
+}
+
+func TestStreamOpenAck_IPv6WithEphemeralKey(t *testing.T) {
+	// Test with IPv6 bound address
+	ipv6Addr := []byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+
+	var ephemeralKey [EphemeralKeySize]byte
+	for i := range ephemeralKey {
+		ephemeralKey[i] = byte(i + 100)
+	}
+
+	original := &StreamOpenAck{
+		RequestID:       54321,
+		BoundAddrType:   AddrTypeIPv6,
+		BoundAddr:       ipv6Addr,
+		BoundPort:       8443,
+		EphemeralPubKey: ephemeralKey,
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeStreamOpenAck(data)
+	if err != nil {
+		t.Fatalf("DecodeStreamOpenAck() error = %v", err)
+	}
+
+	if decoded.BoundAddrType != AddrTypeIPv6 {
+		t.Errorf("BoundAddrType = %d, want %d", decoded.BoundAddrType, AddrTypeIPv6)
+	}
+	if !bytes.Equal(decoded.BoundAddr, ipv6Addr) {
+		t.Errorf("BoundAddr mismatch")
+	}
+	if decoded.EphemeralPubKey != original.EphemeralPubKey {
+		t.Errorf("EphemeralPubKey mismatch")
+	}
+}
+
+func TestDecodeStreamOpen_MissingEphemeralKey(t *testing.T) {
+	// Create a truncated StreamOpen without ephemeral key
+	// This simulates a malformed frame
+	data := make([]byte, 13) // Minimum without key
+	data[8] = AddrTypeIPv4   // Address type
+
+	_, err := DecodeStreamOpen(data)
+	if err == nil {
+		t.Error("DecodeStreamOpen() should fail when ephemeral key is missing")
+	}
+}
+
+func TestDecodeStreamOpenAck_MissingEphemeralKey(t *testing.T) {
+	// Create truncated StreamOpenAck without ephemeral key
+	data := make([]byte, 11) // 8 + 1 + 2 (missing 32 byte key)
+
+	_, err := DecodeStreamOpenAck(data)
+	if err == nil {
+		t.Error("DecodeStreamOpenAck() should fail when ephemeral key is missing")
+	}
+}
+
+// ============================================================================
+// Control Request/Response Tests
+// ============================================================================
+
+func TestControlRequest_EncodeDecode(t *testing.T) {
+	target, _ := identity.NewAgentID()
+	path1, _ := identity.NewAgentID()
+	path2, _ := identity.NewAgentID()
+
+	original := &ControlRequest{
+		RequestID:   12345,
+		ControlType: ControlTypeMetrics,
+		TargetAgent: target,
+		Path:        []identity.AgentID{path1, path2},
+		Data:        []byte("request payload data"),
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeControlRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeControlRequest() error = %v", err)
+	}
+
+	if decoded.RequestID != original.RequestID {
+		t.Errorf("RequestID = %d, want %d", decoded.RequestID, original.RequestID)
+	}
+	if decoded.ControlType != original.ControlType {
+		t.Errorf("ControlType = %d, want %d", decoded.ControlType, original.ControlType)
+	}
+	if !decoded.TargetAgent.Equal(original.TargetAgent) {
+		t.Error("TargetAgent mismatch")
+	}
+	if len(decoded.Path) != len(original.Path) {
+		t.Errorf("Path length = %d, want %d", len(decoded.Path), len(original.Path))
+	}
+	if !bytes.Equal(decoded.Data, original.Data) {
+		t.Errorf("Data mismatch")
+	}
+}
+
+func TestControlRequest_EmptyPathAndData(t *testing.T) {
+	target, _ := identity.NewAgentID()
+
+	original := &ControlRequest{
+		RequestID:   1,
+		ControlType: ControlTypeStatus,
+		TargetAgent: target,
+		Path:        []identity.AgentID{},
+		Data:        []byte{},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeControlRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeControlRequest() error = %v", err)
+	}
+
+	if len(decoded.Path) != 0 {
+		t.Errorf("Path should be empty")
+	}
+	if len(decoded.Data) != 0 {
+		t.Errorf("Data should be empty")
+	}
+}
+
+func TestControlRequest_LargeData(t *testing.T) {
+	target, _ := identity.NewAgentID()
+
+	largeData := make([]byte, 10000)
+	for i := range largeData {
+		largeData[i] = byte(i % 256)
+	}
+
+	original := &ControlRequest{
+		RequestID:   999,
+		ControlType: ControlTypeRPC,
+		TargetAgent: target,
+		Path:        []identity.AgentID{},
+		Data:        largeData,
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeControlRequest(data)
+	if err != nil {
+		t.Fatalf("DecodeControlRequest() error = %v", err)
+	}
+
+	if !bytes.Equal(decoded.Data, original.Data) {
+		t.Errorf("Large data mismatch")
+	}
+}
+
+func TestDecodeControlRequest_TooShort(t *testing.T) {
+	_, err := DecodeControlRequest(make([]byte, 20))
+	if err == nil {
+		t.Error("DecodeControlRequest() should fail with short data")
+	}
+}
+
+func TestControlResponse_EncodeDecode(t *testing.T) {
+	original := &ControlResponse{
+		RequestID:   12345,
+		ControlType: ControlTypeMetrics,
+		Success:     true,
+		Data:        []byte("prometheus metrics data here"),
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeControlResponse(data)
+	if err != nil {
+		t.Fatalf("DecodeControlResponse() error = %v", err)
+	}
+
+	if decoded.RequestID != original.RequestID {
+		t.Errorf("RequestID = %d, want %d", decoded.RequestID, original.RequestID)
+	}
+	if decoded.ControlType != original.ControlType {
+		t.Errorf("ControlType = %d, want %d", decoded.ControlType, original.ControlType)
+	}
+	if decoded.Success != original.Success {
+		t.Errorf("Success = %v, want %v", decoded.Success, original.Success)
+	}
+	if !bytes.Equal(decoded.Data, original.Data) {
+		t.Errorf("Data mismatch")
+	}
+}
+
+func TestControlResponse_Failure(t *testing.T) {
+	original := &ControlResponse{
+		RequestID:   999,
+		ControlType: ControlTypeStatus,
+		Success:     false,
+		Data:        []byte("error: agent not found"),
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeControlResponse(data)
+	if err != nil {
+		t.Fatalf("DecodeControlResponse() error = %v", err)
+	}
+
+	if decoded.Success != false {
+		t.Error("Success should be false")
+	}
+}
+
+func TestControlResponse_EmptyData(t *testing.T) {
+	original := &ControlResponse{
+		RequestID:   1,
+		ControlType: ControlTypeMetrics,
+		Success:     true,
+		Data:        []byte{},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeControlResponse(data)
+	if err != nil {
+		t.Fatalf("DecodeControlResponse() error = %v", err)
+	}
+
+	if len(decoded.Data) != 0 {
+		t.Errorf("Data should be empty, got %d bytes", len(decoded.Data))
+	}
+}
+
+func TestDecodeControlResponse_TooShort(t *testing.T) {
+	_, err := DecodeControlResponse(make([]byte, 10))
+	if err == nil {
+		t.Error("DecodeControlResponse() should fail with short data")
+	}
+}
+
+func TestControlResponse_DataTruncation(t *testing.T) {
+	// Test that very large data is truncated during encoding
+	largeData := make([]byte, MaxPayloadSize+1000)
+	for i := range largeData {
+		largeData[i] = byte(i % 256)
+	}
+
+	original := &ControlResponse{
+		RequestID:   1,
+		ControlType: ControlTypeMetrics,
+		Success:     true,
+		Data:        largeData,
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeControlResponse(data)
+	if err != nil {
+		t.Fatalf("DecodeControlResponse() error = %v", err)
+	}
+
+	// Data should be truncated
+	if len(decoded.Data) >= len(original.Data) {
+		t.Errorf("Data should be truncated, got %d bytes", len(decoded.Data))
+	}
+}
+
+// ============================================================================
+// RouteAdvertise with DisplayName Tests
+// ============================================================================
+
+func TestRouteAdvertise_WithDisplayName(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	path1, _ := identity.NewAgentID()
+
+	original := &RouteAdvertise{
+		OriginAgent:       origin,
+		OriginDisplayName: "exit-node-1",
+		Sequence:          42,
+		Routes: []Route{
+			{
+				AddressFamily: AddrFamilyIPv4,
+				PrefixLength:  24,
+				Prefix:        []byte{10, 0, 0, 0},
+				Metric:        1,
+			},
+		},
+		Path:   []identity.AgentID{path1},
+		SeenBy: []identity.AgentID{origin},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeRouteAdvertise(data)
+	if err != nil {
+		t.Fatalf("DecodeRouteAdvertise() error = %v", err)
+	}
+
+	if decoded.OriginDisplayName != original.OriginDisplayName {
+		t.Errorf("OriginDisplayName = %s, want %s", decoded.OriginDisplayName, original.OriginDisplayName)
+	}
+}
+
+func TestPeerHello_WithDisplayName(t *testing.T) {
+	agentID, _ := identity.NewAgentID()
+
+	original := &PeerHello{
+		Version:      ProtocolVersion,
+		AgentID:      agentID,
+		Timestamp:    1703001234,
+		DisplayName:  "transit-node-west",
+		Capabilities: []string{"exit", "socks5"},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodePeerHello(data)
+	if err != nil {
+		t.Fatalf("DecodePeerHello() error = %v", err)
+	}
+
+	if decoded.DisplayName != original.DisplayName {
+		t.Errorf("DisplayName = %s, want %s", decoded.DisplayName, original.DisplayName)
+	}
+}

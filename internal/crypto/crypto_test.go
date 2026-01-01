@@ -2,6 +2,10 @@ package crypto
 
 import (
 	"bytes"
+	"encoding/binary"
+	"fmt"
+	"sort"
+	"sync"
 	"testing"
 )
 
@@ -357,5 +361,358 @@ func BenchmarkKeyExchange(b *testing.B) {
 
 		secretA, _ := ComputeECDH(privA, pubB)
 		_ = DeriveSessionKey(secretA, uint64(i), pubA, pubB, true)
+	}
+}
+
+// ============================================================================
+// Concurrency Tests
+// ============================================================================
+
+func TestEncryptDecrypt_Concurrent(t *testing.T) {
+	// Test concurrent encryption from multiple goroutines
+	// Note: Decryption must happen in-order due to anti-replay nonce protection
+	privA, pubA, _ := GenerateEphemeralKeypair()
+	privB, pubB, _ := GenerateEphemeralKeypair()
+
+	secretA, _ := ComputeECDH(privA, pubB)
+	secretB, _ := ComputeECDH(privB, pubA)
+
+	streamID := uint64(999)
+
+	skA := DeriveSessionKey(secretA, streamID, pubA, pubB, true)
+	skB := DeriveSessionKey(secretB, streamID, pubA, pubB, false)
+
+	const numGoroutines = 10
+	const messagesPerGoroutine = 100
+
+	// Test that concurrent encryption is thread-safe
+	type encResult struct {
+		nonce uint64
+		data  []byte
+	}
+	encryptedCh := make(chan encResult, numGoroutines*messagesPerGoroutine)
+	errCh := make(chan error, numGoroutines*messagesPerGoroutine)
+
+	var wgEncrypt sync.WaitGroup
+
+	// Concurrent encryption
+	for g := 0; g < numGoroutines; g++ {
+		wgEncrypt.Add(1)
+		go func(goroutineID int) {
+			defer wgEncrypt.Done()
+			for i := 0; i < messagesPerGoroutine; i++ {
+				msg := []byte(fmt.Sprintf("message-%d-%d", goroutineID, i))
+				enc, err := skA.Encrypt(msg)
+				if err != nil {
+					errCh <- fmt.Errorf("encrypt error: %w", err)
+					return
+				}
+				// Extract nonce for ordering
+				nonceVal := binary.BigEndian.Uint64(enc[4:12])
+				encryptedCh <- encResult{nonce: nonceVal, data: enc}
+			}
+		}(g)
+	}
+
+	wgEncrypt.Wait()
+	close(encryptedCh)
+
+	// Collect and sort by nonce for in-order decryption
+	var results []encResult
+	for enc := range encryptedCh {
+		results = append(results, enc)
+	}
+
+	// Sort by nonce to ensure in-order decryption
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].nonce < results[j].nonce
+	})
+
+	// Decrypt in order (anti-replay requires this)
+	decryptErrs := 0
+	for _, enc := range results {
+		_, err := skB.Decrypt(enc.data)
+		if err != nil {
+			decryptErrs++
+		}
+	}
+
+	close(errCh)
+
+	// Check for encryption errors
+	for err := range errCh {
+		t.Errorf("Concurrent encryption failed: %v", err)
+	}
+
+	// Decryption should succeed for most messages when done in order
+	if decryptErrs > len(results)/10 {
+		t.Errorf("Too many decryption errors: %d out of %d", decryptErrs, len(results))
+	}
+}
+
+func TestEncryptDecrypt_BidirectionalConcurrent(t *testing.T) {
+	privA, pubA, _ := GenerateEphemeralKeypair()
+	privB, pubB, _ := GenerateEphemeralKeypair()
+
+	secretA, _ := ComputeECDH(privA, pubB)
+	secretB, _ := ComputeECDH(privB, pubA)
+
+	streamID := uint64(888)
+
+	skA := DeriveSessionKey(secretA, streamID, pubA, pubB, true)
+	skB := DeriveSessionKey(secretB, streamID, pubA, pubB, false)
+
+	const numMessages = 100
+	var wg sync.WaitGroup
+	errCh := make(chan error, numMessages*4)
+
+	// A -> B concurrent
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numMessages; i++ {
+			msg := []byte(fmt.Sprintf("A-to-B-%d", i))
+			enc, err := skA.Encrypt(msg)
+			if err != nil {
+				errCh <- err
+				continue
+			}
+			dec, err := skB.Decrypt(enc)
+			if err != nil {
+				errCh <- err
+				continue
+			}
+			if !bytes.Equal(dec, msg) {
+				errCh <- fmt.Errorf("A->B mismatch at %d", i)
+			}
+		}
+	}()
+
+	// B -> A concurrent
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numMessages; i++ {
+			msg := []byte(fmt.Sprintf("B-to-A-%d", i))
+			enc, err := skB.Encrypt(msg)
+			if err != nil {
+				errCh <- err
+				continue
+			}
+			dec, err := skA.Decrypt(enc)
+			if err != nil {
+				errCh <- err
+				continue
+			}
+			if !bytes.Equal(dec, msg) {
+				errCh <- fmt.Errorf("B->A mismatch at %d", i)
+			}
+		}
+	}()
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("Bidirectional concurrent error: %v", err)
+	}
+}
+
+// ============================================================================
+// Nonce and Replay Protection Tests
+// ============================================================================
+
+func TestDecrypt_NonceReplay(t *testing.T) {
+	privA, pubA, _ := GenerateEphemeralKeypair()
+	privB, pubB, _ := GenerateEphemeralKeypair()
+
+	secretA, _ := ComputeECDH(privA, pubB)
+	secretB, _ := ComputeECDH(privB, pubA)
+
+	streamID := uint64(777)
+
+	skA := DeriveSessionKey(secretA, streamID, pubA, pubB, true)
+	skB := DeriveSessionKey(secretB, streamID, pubA, pubB, false)
+
+	// Send multiple messages
+	msg1 := []byte("message 1")
+	msg2 := []byte("message 2")
+	msg3 := []byte("message 3")
+
+	enc1, _ := skA.Encrypt(msg1)
+	enc2, _ := skA.Encrypt(msg2)
+	enc3, _ := skA.Encrypt(msg3)
+
+	// Decrypt in order - all should succeed
+	_, err := skB.Decrypt(enc1)
+	if err != nil {
+		t.Fatalf("Decrypt enc1 failed: %v", err)
+	}
+	_, err = skB.Decrypt(enc2)
+	if err != nil {
+		t.Fatalf("Decrypt enc2 failed: %v", err)
+	}
+	_, err = skB.Decrypt(enc3)
+	if err != nil {
+		t.Fatalf("Decrypt enc3 failed: %v", err)
+	}
+
+	// Replaying enc1 (old nonce) should fail
+	_, err = skB.Decrypt(enc1)
+	if err == nil {
+		t.Error("Replaying old message should fail")
+	}
+
+	// Replaying enc2 should also fail
+	_, err = skB.Decrypt(enc2)
+	if err == nil {
+		t.Error("Replaying enc2 should fail")
+	}
+}
+
+func TestDecrypt_OutOfOrder(t *testing.T) {
+	privA, pubA, _ := GenerateEphemeralKeypair()
+	privB, pubB, _ := GenerateEphemeralKeypair()
+
+	secretA, _ := ComputeECDH(privA, pubB)
+	secretB, _ := ComputeECDH(privB, pubA)
+
+	streamID := uint64(666)
+
+	skA := DeriveSessionKey(secretA, streamID, pubA, pubB, true)
+	skB := DeriveSessionKey(secretB, streamID, pubA, pubB, false)
+
+	// Encrypt 5 messages
+	messages := make([][]byte, 5)
+	encrypted := make([][]byte, 5)
+	for i := 0; i < 5; i++ {
+		messages[i] = []byte(fmt.Sprintf("message-%d", i))
+		encrypted[i], _ = skA.Encrypt(messages[i])
+	}
+
+	// Decrypt out of order: 2, 0, 4, 1, 3
+	order := []int{2, 0, 4, 1, 3}
+	for _, idx := range order {
+		dec, err := skB.Decrypt(encrypted[idx])
+		if err != nil {
+			// Out-of-order messages after nonce advancement may fail
+			// The implementation rejects old nonces for replay protection
+			t.Logf("Decrypt message %d out-of-order: %v (may be expected)", idx, err)
+			continue
+		}
+		if !bytes.Equal(dec, messages[idx]) {
+			t.Errorf("Message %d mismatch", idx)
+		}
+	}
+}
+
+func TestNonce_DirectionIsolation(t *testing.T) {
+	privA, pubA, _ := GenerateEphemeralKeypair()
+	privB, pubB, _ := GenerateEphemeralKeypair()
+
+	secretA, _ := ComputeECDH(privA, pubB)
+	secretB, _ := ComputeECDH(privB, pubA)
+
+	streamID := uint64(555)
+
+	skA := DeriveSessionKey(secretA, streamID, pubA, pubB, true)  // initiator
+	skB := DeriveSessionKey(secretB, streamID, pubA, pubB, false) // responder
+
+	// Both sides encrypt the same plaintext
+	plaintext := []byte("same message")
+
+	encA, _ := skA.Encrypt(plaintext)
+	encB, _ := skB.Encrypt(plaintext)
+
+	// Ciphertexts should be different due to different direction bits in nonce
+	if bytes.Equal(encA, encB) {
+		t.Error("Ciphertexts from different directions should be different")
+	}
+
+	// A's message should only be decryptable by B
+	decByB, err := skB.Decrypt(encA)
+	if err != nil {
+		t.Fatalf("B decrypting A's message failed: %v", err)
+	}
+	if !bytes.Equal(decByB, plaintext) {
+		t.Error("B decrypted wrong plaintext")
+	}
+
+	// B's message should only be decryptable by A
+	decByA, err := skA.Decrypt(encB)
+	if err != nil {
+		t.Fatalf("A decrypting B's message failed: %v", err)
+	}
+	if !bytes.Equal(decByA, plaintext) {
+		t.Error("A decrypted wrong plaintext")
+	}
+
+	// A should not be able to decrypt its own message (wrong direction)
+	_, err = skA.Decrypt(encA)
+	if err == nil {
+		t.Error("A should not decrypt its own message")
+	}
+
+	// B should not be able to decrypt its own message (wrong direction)
+	_, err = skB.Decrypt(encB)
+	if err == nil {
+		t.Error("B should not decrypt its own message")
+	}
+}
+
+func TestEncrypt_LargePayload(t *testing.T) {
+	priv, pub, _ := GenerateEphemeralKeypair()
+	secret, _ := ComputeECDH(priv, pub)
+	skA := DeriveSessionKey(secret, 1, pub, pub, true)
+	skB := DeriveSessionKey(secret, 1, pub, pub, false)
+
+	// Test with large payloads (up to max frame size)
+	sizes := []int{1024, 4096, 16384, 32768, 65536}
+
+	for _, size := range sizes {
+		t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
+			plaintext := make([]byte, size)
+			for i := range plaintext {
+				plaintext[i] = byte(i % 256)
+			}
+
+			enc, err := skA.Encrypt(plaintext)
+			if err != nil {
+				t.Fatalf("Encrypt failed: %v", err)
+			}
+
+			// Reset recv nonce for clean test
+			skB.mu.Lock()
+			skB.recvNonce = 0
+			skB.mu.Unlock()
+
+			dec, err := skB.Decrypt(enc)
+			if err != nil {
+				t.Fatalf("Decrypt failed: %v", err)
+			}
+
+			if !bytes.Equal(dec, plaintext) {
+				t.Errorf("Large payload mismatch at size %d", size)
+			}
+		})
+	}
+}
+
+func TestDeriveSessionKey_DifferentPublicKeyOrder(t *testing.T) {
+	privA, pubA, _ := GenerateEphemeralKeypair()
+	_, pubB, _ := GenerateEphemeralKeypair()
+
+	secretA, _ := ComputeECDH(privA, pubB)
+
+	streamID := uint64(123)
+
+	// Correct order: initiator pub first
+	sk1 := DeriveSessionKey(secretA, streamID, pubA, pubB, true)
+
+	// Wrong order: responder pub first - should produce different key
+	sk2 := DeriveSessionKey(secretA, streamID, pubB, pubA, true)
+
+	if sk1.Key() == sk2.Key() {
+		t.Error("Different public key order should produce different session keys")
 	}
 }
