@@ -75,6 +75,7 @@ const (
 	ErrFileTooLarge       uint16 = 15
 	ErrFileNotFound       uint16 = 16
 	ErrWriteFailed        uint16 = 17
+	ErrGeneralFailure     uint16 = 18
 )
 
 // Protocol constants
@@ -179,6 +180,8 @@ func ErrorCodeName(code uint16) string {
 		return "FILE_NOT_FOUND"
 	case ErrWriteFailed:
 		return "WRITE_FAILED"
+	case ErrGeneralFailure:
+		return "GENERAL_FAILURE"
 	default:
 		return "UNKNOWN"
 	}

@@ -49,4 +49,4 @@ The command exits with the same code as the remote command.
 ## See Also
 
 - [RPC Feature](../features/rpc) - Detailed RPC documentation
-- [Configuration](../configuration) - RPC configuration
+- [Configuration](../configuration/overview) - RPC configuration

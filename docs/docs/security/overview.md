@@ -13,6 +13,17 @@ Muti Metroo is designed with security as a core principle. This guide covers the
 
 ## Security Model
 
+### End-to-End Encryption
+
+All stream data is encrypted end-to-end between ingress and exit agents:
+
+- **X25519 Key Exchange**: Ephemeral keys per stream for forward secrecy
+- **ChaCha20-Poly1305**: Authenticated encryption prevents tampering
+- **Transit Opacity**: Transit agents cannot decrypt payload data
+- **Key Derivation**: HKDF-SHA256 with stream context
+
+See [End-to-End Encryption](e2e-encryption) for details.
+
 ### Transport Security
 
 All peer connections use TLS 1.3:
@@ -26,6 +37,7 @@ All peer connections use TLS 1.3:
 
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
+| E2E | X25519 + ChaCha20-Poly1305 | Stream data encryption |
 | TLS | Certificates | Peer authentication |
 | mTLS | Client certs | Mutual authentication |
 | SOCKS5 | Username/password | Client authentication |
@@ -44,7 +56,10 @@ All peer connections use TLS 1.3:
 
 | Threat | Protection |
 |--------|------------|
-| Eavesdropping | TLS encryption |
+| Eavesdropping | TLS + E2E encryption |
+| Compromised transit | E2E encryption (transit cannot decrypt) |
+| Replay attacks | Nonce-based encryption |
+| Data tampering | Authenticated encryption (Poly1305) |
 | Man-in-the-middle | Certificate validation |
 | Unauthorized peers | mTLS authentication |
 | Unauthorized clients | SOCKS5 authentication |
@@ -141,6 +156,7 @@ listeners:
 
 | Topic | Description |
 |-------|-------------|
+| [E2E Encryption](e2e-encryption) | Stream payload encryption |
 | [TLS/mTLS](tls-mtls) | Certificate-based security |
 | [Authentication](authentication) | Client and RPC authentication |
 | [Access Control](access-control) | Route and command restrictions |
@@ -157,6 +173,7 @@ If you discover a security vulnerability:
 
 ## Next Steps
 
+- [End-to-End Encryption](e2e-encryption)
 - [TLS/mTLS Configuration](tls-mtls)
 - [Authentication](authentication)
 - [Best Practices](best-practices)

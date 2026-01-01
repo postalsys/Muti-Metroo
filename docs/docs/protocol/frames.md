@@ -35,9 +35,12 @@ Open a new virtual stream.
 - TTL (1 byte)
 - Path length (1 byte)
 - Remaining path (N * 16 bytes, where N is path length)
+- Ephemeral public key (32 bytes): X25519 key for E2E encryption
 
 **Sent by:** Ingress agent
 **Received by:** Exit agent (after routing)
+
+The ephemeral public key is used to establish end-to-end encryption. Transit agents forward this key unchanged.
 
 ### STREAM_OPEN_ACK (0x02)
 
@@ -48,9 +51,12 @@ Acknowledge successful stream open.
 - Bound address type (1 byte)
 - Bound address (4 or 16 bytes)
 - Bound port (2 bytes)
+- Ephemeral public key (32 bytes): Exit's X25519 key for E2E encryption
 
 **Sent by:** Exit agent
 **Received by:** Ingress agent
+
+The ephemeral public key allows the ingress agent to compute the same shared secret via ECDH.
 
 ### STREAM_OPEN_ERR (0x03)
 
@@ -69,14 +75,23 @@ Stream open failed.
 
 Stream data payload.
 
-**Payload:** Binary data (max 16 KB)
+**Payload:** Encrypted data (max 16 KB)
+
+The payload is encrypted with ChaCha20-Poly1305:
+- Nonce (12 bytes): Counter + direction bit
+- Ciphertext (variable): Encrypted application data
+- Auth tag (16 bytes): Poly1305 authentication
+
+**Encryption overhead:** 28 bytes per frame
 
 **Flags:**
 - `FIN_WRITE` (0x01): Sender half-close (no more writes)
 - `FIN_READ` (0x02): Receiver half-close (no more reads)
 
-**Sent by:** Any agent
-**Received by:** Any agent
+**Sent by:** Ingress or exit agent
+**Received by:** Exit or ingress agent
+
+Transit agents forward encrypted payloads unchanged without decryption.
 
 ### STREAM_CLOSE (0x05)
 
@@ -153,9 +168,12 @@ Advertise node metadata.
 - IP count (1 byte) + IP addresses (each: length + string)
 - SeenBy length (1 byte) + seen agent IDs (N * 16 bytes)
 - Peer count (1 byte) + peer connection info (each: 16 + 1+transport + 8 + 1)
+- Public key (32 bytes): Agent's long-term X25519 public key
 
 **Sent by:** All agents periodically
 **Received by:** All connected peers
+
+The public key enables identity verification and potential future features like signed route advertisements.
 
 ## Control Frames
 
@@ -264,3 +282,4 @@ Used in STREAM_OPEN_ERR and STREAM_RESET frames:
 | 15 | FILE_TOO_LARGE | File exceeds size limit |
 | 16 | FILE_NOT_FOUND | File not found |
 | 17 | WRITE_FAILED | Write operation failed |
+| 18 | GENERAL_FAILURE | General error (e.g., key exchange failure) |

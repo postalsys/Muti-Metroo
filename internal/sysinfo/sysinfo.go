@@ -29,7 +29,8 @@ func init() {
 
 // Collect gathers local system information and returns a NodeInfo struct.
 // The peers parameter contains current peer connection details to include in the advertisement.
-func Collect(displayName string, peers []protocol.PeerConnectionInfo) *protocol.NodeInfo {
+// The publicKey parameter is the agent's X25519 public key for E2E encryption.
+func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte) *protocol.NodeInfo {
 	hostname, _ := os.Hostname()
 
 	return &protocol.NodeInfo{
@@ -41,6 +42,7 @@ func Collect(displayName string, peers []protocol.PeerConnectionInfo) *protocol.
 		StartTime:   startTime.Unix(),
 		IPAddresses: GetLocalIPs(),
 		Peers:       peers,
+		PublicKey:   publicKey,
 	}
 }
 

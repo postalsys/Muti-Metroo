@@ -31,6 +31,7 @@ flowchart LR
 
 | Feature | Description |
 |---------|-------------|
+| **End-to-End Encryption** | X25519 + ChaCha20-Poly1305 encryption - transit nodes cannot decrypt |
 | **Multiple Transports** | QUIC/TLS 1.3, HTTP/2, and WebSocket - mix protocols in a single mesh |
 | **SOCKS5 Proxy** | Accept client connections with optional authentication |
 | **CIDR-Based Routing** | Advertise network routes and handle DNS at exit nodes |
@@ -93,14 +94,16 @@ Create complex network topologies for testing distributed applications without p
 Get up and running in minutes:
 
 ```bash
-# Clone and build
-git clone ssh://git@git.aiateibad.ee:3346/andris/Muti-Metroo-v4.git
-cd Muti-Metroo-v4
-make build
+# Download the binary for your platform (example: Linux amd64)
+curl -L -o muti-metroo https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-amd64
+chmod +x muti-metroo
+sudo mv muti-metroo /usr/local/bin/
 
 # Run interactive setup wizard
 muti-metroo setup
 ```
+
+Download binaries for all platforms from the [Download page](/download).
 
 The wizard guides you through configuring your first agent, generating TLS certificates, and starting the mesh.
 

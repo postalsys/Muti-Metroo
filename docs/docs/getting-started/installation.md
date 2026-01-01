@@ -11,75 +11,33 @@ sidebar_position: 2
 
 This guide covers all methods for installing Muti Metroo.
 
-## Build from Source
+## Download Binary
 
-### Prerequisites
+The easiest way to install Muti Metroo is to download a pre-built binary for your platform.
 
-- Go 1.23 or later ([download](https://go.dev/dl/))
-- Git
-- Make (optional)
+**[Download Muti Metroo](/download)**
 
-### Clone and Build
+Pre-built binaries are available for:
 
-```bash
-# Clone the repository
-git clone ssh://git@git.aiateibad.ee:3346/andris/Muti-Metroo-v4.git
-cd Muti-Metroo-v4
+- **macOS**: Apple Silicon (arm64) and Intel (amd64) - both installer packages and standalone binaries
+- **Linux**: x86_64 (amd64) and ARM64 (aarch64)
+- **Windows**: x86_64 (amd64) and ARM64
 
-# Build using Make (recommended)
-make build
-
-# Or build directly with Go
-go build -o build/muti-metroo ./cmd/muti-metroo
-```
-
-The compiled binary will be at `muti-metroo`.
-
-### Verify Installation
+### Quick Install (Linux/macOS)
 
 ```bash
+# Download for your platform (example: Linux amd64)
+curl -L -o muti-metroo https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-amd64
+
+# Make executable and install
+chmod +x muti-metroo
+sudo mv muti-metroo /usr/local/bin/
+
+# Verify installation
 muti-metroo --version
-muti-metroo --help
 ```
 
-### Install to PATH (Optional)
-
-```bash
-# Install to $GOPATH/bin
-make install
-
-# Or manually copy
-sudo cp muti-metroo /usr/local/bin/
-```
-
-## Cross-Compilation
-
-Build for different platforms:
-
-```bash
-# Linux AMD64
-GOOS=linux GOARCH=amd64 go build -o build/muti-metroo-linux-amd64 ./cmd/muti-metroo
-
-# Linux ARM64 (Raspberry Pi, AWS Graviton)
-GOOS=linux GOARCH=arm64 go build -o build/muti-metroo-linux-arm64 ./cmd/muti-metroo
-
-# Windows
-GOOS=windows GOARCH=amd64 go build -o build/muti-metroo-windows-amd64.exe ./cmd/muti-metroo
-
-# macOS Intel
-GOOS=darwin GOARCH=amd64 go build -o build/muti-metroo-darwin-amd64 ./cmd/muti-metroo
-
-# macOS Apple Silicon
-GOOS=darwin GOARCH=arm64 go build -o build/muti-metroo-darwin-arm64 ./cmd/muti-metroo
-```
-
-### Static Binary
-
-Build a fully static binary (no external dependencies):
-
-```bash
-CGO_ENABLED=0 go build -ldflags="-s -w" -o build/muti-metroo ./cmd/muti-metroo
-```
+See the [Download page](/download) for platform-specific instructions.
 
 ## Docker Installation
 

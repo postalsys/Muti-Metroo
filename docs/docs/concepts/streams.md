@@ -17,6 +17,7 @@ A **stream** represents a single TCP-like connection flowing through the mesh. S
 
 - **Multiplexed**: Many streams share one peer connection
 - **Bidirectional**: Data flows both directions
+- **Encrypted**: End-to-end encryption between ingress and exit
 - **Buffered**: Each hop buffers data for flow control
 - **Half-closable**: Can close one direction independently
 
@@ -31,22 +32,31 @@ sequenceDiagram
     participant Server
 
     Client->>Ingress: CONNECT
-    Ingress->>Transit: STREAM_OPEN
-    Transit->>Exit: STREAM_OPEN
+    Note over Ingress: Generate ephemeral key
+    Ingress->>Transit: STREAM_OPEN + ephemeral_pub
+    Transit->>Exit: STREAM_OPEN + ephemeral_pub
     Exit->>Server: TCP Connect
     Server-->>Exit: Connected
-    Exit-->>Transit: STREAM_OPEN_ACK
-    Transit-->>Ingress: STREAM_OPEN_ACK
+    Note over Exit: Generate ephemeral key<br/>Derive session key
+    Exit-->>Transit: STREAM_OPEN_ACK + ephemeral_pub
+    Transit-->>Ingress: STREAM_OPEN_ACK + ephemeral_pub
+    Note over Ingress: Derive session key
     Ingress-->>Client: OK
 
     Client->>Ingress: DATA
-    Ingress->>Transit: STREAM_DATA
-    Transit->>Exit: STREAM_DATA
-    Exit->>Server: STREAM_DATA
+    Note over Ingress: Encrypt
+    Ingress->>Transit: STREAM_DATA (encrypted)
+    Note over Transit: Forward unchanged
+    Transit->>Exit: STREAM_DATA (encrypted)
+    Note over Exit: Decrypt
+    Exit->>Server: DATA
 
     Server-->>Exit: DATA
-    Exit-->>Transit: STREAM_DATA
-    Transit-->>Ingress: STREAM_DATA
+    Note over Exit: Encrypt
+    Exit-->>Transit: STREAM_DATA (encrypted)
+    Note over Transit: Forward unchanged
+    Transit-->>Ingress: STREAM_DATA (encrypted)
+    Note over Ingress: Decrypt
     Ingress-->>Client: DATA
 
     Client->>Ingress: EOF
@@ -169,6 +179,31 @@ Data is sent in `STREAM_DATA` frames:
 |------|-------|-------------|
 | FIN_WRITE | 0x01 | Sender half-close (no more data from sender) |
 | FIN_READ | 0x02 | Receiver half-close (no more data expected) |
+
+## End-to-End Encryption
+
+All stream data is encrypted between ingress and exit agents using ChaCha20-Poly1305.
+
+### Key Exchange
+
+During stream open, ephemeral X25519 keypairs are exchanged:
+
+1. **Ingress** generates an ephemeral keypair and includes public key in `STREAM_OPEN`
+2. **Transit** forwards the public key unchanged (cannot decrypt)
+3. **Exit** generates its own ephemeral keypair, computes shared secret via ECDH
+4. **Exit** returns its public key in `STREAM_OPEN_ACK`
+5. **Ingress** computes the same shared secret
+
+### Encryption Properties
+
+| Property | Description |
+|----------|-------------|
+| Forward secrecy | Ephemeral keys per stream |
+| Transit opacity | Transit cannot decrypt payloads |
+| Authenticated | Tampering detected via Poly1305 |
+| Overhead | +28 bytes per frame |
+
+For full details, see [End-to-End Encryption](../security/e2e-encryption).
 
 ## Half-Close
 
@@ -305,6 +340,7 @@ muti-metroo run --log-level debug
 
 ## Next Steps
 
+- [End-to-End Encryption](../security/e2e-encryption) - Encryption details
 - [Protocol Frames](../protocol/frames) - Detailed frame format
 - [Limits Reference](../protocol/limits) - All configurable limits
 - [Performance Troubleshooting](../troubleshooting/performance) - Optimization tips

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 )
@@ -496,7 +497,8 @@ func TestManager_OpenStream_Success(t *testing.T) {
 	// Simulate receiving ACK
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		m.HandleStreamOpenAck(pending.RequestID, nil, 0)
+		var remoteEphemeral [crypto.KeySize]byte
+		m.HandleStreamOpenAck(pending.RequestID, nil, 0, remoteEphemeral)
 	}()
 
 	result := <-pending.ResultCh

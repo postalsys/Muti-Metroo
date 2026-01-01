@@ -86,7 +86,7 @@ docs/
 
 ## Configuration
 
-The site is configured to be deployed at root domain `https://muti-metroo.postalsys.com`.
+The site is configured to be deployed at root domain `https://muti-metroo.postalsys.ee`.
 
 Key configuration files:
 - `docusaurus.config.ts` - Site configuration

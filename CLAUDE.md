@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Muti Metroo is a userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
 
 **Key capabilities:**
+- End-to-end encryption: X25519 key exchange + ChaCha20-Poly1305 (transit cannot decrypt)
 - Multiple transport layers: QUIC/TLS 1.3, HTTP/2, and WebSocket
 - SOCKS5 proxy ingress with optional authentication
 - CIDR-based exit routing with DNS resolution
@@ -143,11 +144,12 @@ An agent can serve multiple roles simultaneously:
 | `chaos` | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing |
 | `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
 | `control` | Unix socket control interface for CLI status commands |
-| `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
+| `crypto` | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation |
+| `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control, E2E decryption |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
 | `flood` | Route propagation via flooding with loop prevention and seen-cache |
 | `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC, pprof, dashboard |
-| `identity` | 128-bit AgentID generation and persistence |
+| `identity` | 128-bit AgentID generation, X25519 keypair storage for E2E encryption |
 | `integration` | Integration tests for multi-agent mesh scenarios |
 | `loadtest` | Load testing utilities - stream throughput, route table, connection churn |
 | `logging` | Structured logging with slog - text/JSON formats, standard attribute keys |
@@ -168,10 +170,11 @@ An agent can serve multiple roles simultaneously:
 ### Frame Flow
 1. Client connects to SOCKS5 proxy on ingress agent
 2. Agent looks up route via longest-prefix match
-3. `STREAM_OPEN` frame sent through path to exit agent
-4. Exit agent opens real TCP connection, sends `STREAM_OPEN_ACK`
-5. `STREAM_DATA` frames relay bidirectionally through the chain
-6. Half-close via `FIN_WRITE`/`FIN_READ` flags, full close via `STREAM_CLOSE`
+3. `STREAM_OPEN` frame sent through path to exit agent (includes ephemeral public key)
+4. Exit agent opens real TCP connection, performs key exchange, sends `STREAM_OPEN_ACK` (includes ephemeral public key)
+5. Both sides derive shared session key via X25519 ECDH
+6. `STREAM_DATA` frames relay bidirectionally (encrypted with ChaCha20-Poly1305, transit cannot decrypt)
+7. Half-close via `FIN_WRITE`/`FIN_READ` flags, full close via `STREAM_CLOSE`
 
 ### Stream ID Allocation
 - Connection initiator (dialer): ODD IDs (1, 3, 5...)

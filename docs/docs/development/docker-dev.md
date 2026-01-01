@@ -213,4 +213,3 @@ See Kubernetes manifests in `k8s/` directory.
 - [Deployment - Docker](../deployment/docker) - Production Docker deployment
 - [Deployment - Kubernetes](../deployment/kubernetes) - Kubernetes deployment
 - [Development - Testing](testing) - Running tests
-- [Development - Building](building) - Build from source

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 )
@@ -72,6 +73,9 @@ type Stream struct {
 	onData  func(*Stream, []byte)
 	onClose func(*Stream, error)
 	onReset func(*Stream, uint16)
+
+	// End-to-end encryption session key
+	sessionKey *crypto.SessionKey
 }
 
 // NewStream creates a new stream.
@@ -228,6 +232,20 @@ func (s *Stream) SetCallbacks(onData func(*Stream, []byte), onClose func(*Stream
 	s.onReset = onReset
 }
 
+// SetSessionKey sets the encryption session key for this stream.
+func (s *Stream) SetSessionKey(key *crypto.SessionKey) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionKey = key
+}
+
+// GetSessionKey returns the encryption session key for this stream.
+func (s *Stream) GetSessionKey() *crypto.SessionKey {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessionKey
+}
+
 // String returns a debug representation.
 func (s *Stream) String() string {
 	return fmt.Sprintf("Stream{id=%d, state=%s, dest=%s:%d}",
@@ -262,6 +280,10 @@ type PendingRequest struct {
 	Timer     *time.Timer
 	Result    chan<- *StreamOpenResult
 	CreatedAt time.Time
+
+	// Ephemeral keys for E2E encryption key exchange
+	EphemeralPrivate [crypto.KeySize]byte
+	EphemeralPublic  [crypto.KeySize]byte
 }
 
 // StreamOpenResult contains the result of opening a stream.
@@ -271,6 +293,9 @@ type StreamOpenResult struct {
 	ErrorCode uint16
 	BoundIP   net.IP
 	BoundPort uint16
+
+	// RemoteEphemeral is the exit node's ephemeral public key for E2E encryption
+	RemoteEphemeral [crypto.KeySize]byte
 }
 
 // Manager manages streams for a peer connection.
@@ -362,7 +387,7 @@ func (m *Manager) handleRequestTimeout(requestID uint64) {
 }
 
 // HandleStreamOpenAck processes a STREAM_OPEN_ACK frame.
-func (m *Manager) HandleStreamOpenAck(requestID uint64, boundAddr net.IP, boundPort uint16) (*Stream, error) {
+func (m *Manager) HandleStreamOpenAck(requestID uint64, boundAddr net.IP, boundPort uint16, remoteEphemeral [crypto.KeySize]byte) (*Stream, error) {
 	m.mu.Lock()
 	pending, ok := m.pendingRequests[requestID]
 	if !ok {
@@ -377,11 +402,12 @@ func (m *Manager) HandleStreamOpenAck(requestID uint64, boundAddr net.IP, boundP
 	m.streams[stream.ID] = stream
 	m.mu.Unlock()
 
-	// Send success result
+	// Send success result with ephemeral key for key exchange
 	pending.Result <- &StreamOpenResult{
-		Stream:    stream,
-		BoundIP:   boundAddr,
-		BoundPort: boundPort,
+		Stream:          stream,
+		BoundIP:         boundAddr,
+		BoundPort:       boundPort,
+		RemoteEphemeral: remoteEphemeral,
 	}
 
 	// Notify callback
@@ -559,4 +585,34 @@ func (m *Manager) Close() {
 // NextRequestID returns the next available request ID.
 func (m *Manager) NextRequestID() uint64 {
 	return m.nextRequestID.Add(1)
+}
+
+// GetPendingEphemeralKeys returns the ephemeral keys for a pending request.
+// Returns the private key, public key, and a boolean indicating if the request was found.
+func (m *Manager) GetPendingEphemeralKeys(requestID uint64) ([crypto.KeySize]byte, [crypto.KeySize]byte, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	pending, ok := m.pendingRequests[requestID]
+	if !ok {
+		var zeroKey [crypto.KeySize]byte
+		return zeroKey, zeroKey, false
+	}
+
+	return pending.EphemeralPrivate, pending.EphemeralPublic, true
+}
+
+// SetPendingEphemeralKeys sets the ephemeral keys for a pending request.
+func (m *Manager) SetPendingEphemeralKeys(requestID uint64, privateKey, publicKey [crypto.KeySize]byte) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pending, ok := m.pendingRequests[requestID]
+	if !ok {
+		return false
+	}
+
+	pending.EphemeralPrivate = privateKey
+	pending.EphemeralPublic = publicKey
+	return true
 }

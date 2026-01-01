@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/logging"
 	"github.com/postalsys/muti-metroo/internal/protocol"
@@ -54,8 +55,8 @@ type StreamWriter interface {
 	// WriteStreamData writes data to a stream.
 	WriteStreamData(peerID identity.AgentID, streamID uint64, data []byte, flags uint8) error
 
-	// WriteStreamOpenAck sends a successful open acknowledgment.
-	WriteStreamOpenAck(peerID identity.AgentID, streamID uint64, requestID uint64, boundIP net.IP, boundPort uint16) error
+	// WriteStreamOpenAck sends a successful open acknowledgment with ephemeral public key for E2E encryption.
+	WriteStreamOpenAck(peerID identity.AgentID, streamID uint64, requestID uint64, boundIP net.IP, boundPort uint16, ephemeralPubKey [crypto.KeySize]byte) error
 
 	// WriteStreamOpenErr sends a failed open acknowledgment.
 	WriteStreamOpenErr(peerID identity.AgentID, streamID uint64, requestID uint64, errorCode uint16, message string) error
@@ -66,14 +67,15 @@ type StreamWriter interface {
 
 // ActiveConnection represents an active exit connection.
 type ActiveConnection struct {
-	StreamID  uint64
-	RemoteID  identity.AgentID
-	DestAddr  string
-	DestPort  uint16
-	Conn      net.Conn
-	StartedAt time.Time
-	closed    atomic.Bool
-	closeOnce sync.Once
+	StreamID   uint64
+	RemoteID   identity.AgentID
+	DestAddr   string
+	DestPort   uint16
+	Conn       net.Conn
+	StartedAt  time.Time
+	closed     atomic.Bool
+	closeOnce  sync.Once
+	sessionKey *crypto.SessionKey // E2E encryption session key
 }
 
 // Close closes the connection.
@@ -155,7 +157,7 @@ func (h *Handler) IsRunning() bool {
 }
 
 // HandleStreamOpen processes a STREAM_OPEN request.
-func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, requestID uint64, remoteID identity.AgentID, destAddr string, destPort uint16) error {
+func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, requestID uint64, remoteID identity.AgentID, destAddr string, destPort uint16, remoteEphemeralPub [crypto.KeySize]byte) error {
 	if !h.running.Load() {
 		return fmt.Errorf("handler not running")
 	}
@@ -179,6 +181,28 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 		return fmt.Errorf("destination not allowed: %s", ip)
 	}
 
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrGeneralFailure, "key generation failed")
+		return fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
+	// Compute shared secret from ECDH
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrGeneralFailure, "key exchange failed")
+		return fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	// Zero out ephemeral private key after computing shared secret
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the responder (exit node)
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, streamID, remoteEphemeralPub, ephPub, false)
+	crypto.ZeroKey(&sharedSecret)
+
 	// Connect to destination
 	addr := fmt.Sprintf("%s:%d", ip.String(), destPort)
 	dialer := &net.Dialer{Timeout: h.cfg.ConnectTimeout}
@@ -193,14 +217,15 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 	// Get local address for ACK
 	localAddr := conn.LocalAddr().(*net.TCPAddr)
 
-	// Track connection
+	// Track connection with session key
 	ac := &ActiveConnection{
-		StreamID:  streamID,
-		RemoteID:  remoteID,
-		DestAddr:  destAddr,
-		DestPort:  destPort,
-		Conn:      conn,
-		StartedAt: time.Now(),
+		StreamID:   streamID,
+		RemoteID:   remoteID,
+		DestAddr:   destAddr,
+		DestPort:   destPort,
+		Conn:       conn,
+		StartedAt:  time.Now(),
+		sessionKey: sessionKey,
 	}
 
 	h.mu.Lock()
@@ -208,8 +233,8 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 	h.connCount.Add(1)
 	h.mu.Unlock()
 
-	// Send ACK
-	if err := h.writer.WriteStreamOpenAck(remoteID, streamID, requestID, localAddr.IP, uint16(localAddr.Port)); err != nil {
+	// Send ACK with our ephemeral public key
+	if err := h.writer.WriteStreamOpenAck(remoteID, streamID, requestID, localAddr.IP, uint16(localAddr.Port), ephPub); err != nil {
 		ac.Close()
 		h.removeConnection(streamID)
 		return fmt.Errorf("write ack: %w", err)
@@ -235,9 +260,20 @@ func (h *Handler) HandleStreamData(peerID identity.AgentID, streamID uint64, dat
 		return fmt.Errorf("stream %d closed", streamID)
 	}
 
-	// Write data to destination
+	// Decrypt data before writing to destination
 	if len(data) > 0 {
-		if _, err := ac.Conn.Write(data); err != nil {
+		if ac.sessionKey == nil {
+			h.closeConnection(streamID, peerID, fmt.Errorf("no session key"))
+			return fmt.Errorf("no session key for stream %d", streamID)
+		}
+
+		plaintext, err := ac.sessionKey.Decrypt(data)
+		if err != nil {
+			h.closeConnection(streamID, peerID, err)
+			return fmt.Errorf("decrypt: %w", err)
+		}
+
+		if _, err := ac.Conn.Write(plaintext); err != nil {
 			h.closeConnection(streamID, peerID, err)
 			return err
 		}
@@ -269,7 +305,9 @@ func (h *Handler) readLoop(ac *ActiveConnection) {
 	defer h.closeConnection(ac.StreamID, ac.RemoteID, nil)
 	defer recovery.RecoverWithLog(h.logger, "exit.readLoop")
 
-	buf := make([]byte, 32768)
+	// Account for encryption overhead when reading
+	maxPlaintext := 32768 - crypto.EncryptionOverhead
+	buf := make([]byte, maxPlaintext)
 	for {
 		select {
 		case <-h.stopCh:
@@ -284,15 +322,30 @@ func (h *Handler) readLoop(ac *ActiveConnection) {
 
 		n, err := ac.Conn.Read(buf)
 		if n > 0 {
-			// Forward to stream
-			if writeErr := h.writer.WriteStreamData(ac.RemoteID, ac.StreamID, buf[:n], 0); writeErr != nil {
+			// Encrypt data before forwarding
+			if ac.sessionKey == nil {
+				h.logger.Error("no session key in readLoop",
+					logging.KeyStreamID, ac.StreamID)
+				return
+			}
+
+			ciphertext, encErr := ac.sessionKey.Encrypt(buf[:n])
+			if encErr != nil {
+				h.logger.Error("encrypt failed in readLoop",
+					logging.KeyStreamID, ac.StreamID,
+					logging.KeyError, encErr)
+				return
+			}
+
+			// Forward encrypted data to stream
+			if writeErr := h.writer.WriteStreamData(ac.RemoteID, ac.StreamID, ciphertext, 0); writeErr != nil {
 				return
 			}
 		}
 
 		if err != nil {
 			if err == io.EOF {
-				// Send FIN_WRITE
+				// Send FIN_WRITE (no data to encrypt)
 				h.writer.WriteStreamData(ac.RemoteID, ac.StreamID, nil, protocol.FlagFinWrite)
 			}
 			return

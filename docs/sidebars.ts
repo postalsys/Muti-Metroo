@@ -7,6 +7,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 const sidebars: SidebarsConfig = {
   docsSidebar: [
     'intro',
+    'download',
     {
       type: 'category',
       label: 'Getting Started',
@@ -72,6 +73,7 @@ const sidebars: SidebarsConfig = {
       label: 'Security',
       items: [
         'security/overview',
+        'security/e2e-encryption',
         'security/tls-mtls',
         'security/authentication',
         'security/access-control',
@@ -121,10 +123,8 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Development',
       items: [
-        'development/building',
         'development/testing',
         'development/docker-dev',
-        'development/contributing',
       ],
     },
     {

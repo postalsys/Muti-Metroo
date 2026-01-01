@@ -23,6 +23,7 @@ import (
 
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/control"
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/exit"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/flood"
@@ -78,6 +79,7 @@ type forwardedControlRequest struct {
 type Agent struct {
 	cfg     *config.Config
 	id      identity.AgentID
+	keypair *identity.Keypair // X25519 keypair for E2E encryption
 	dataDir string
 	logger  *slog.Logger
 
@@ -131,12 +133,19 @@ func New(cfg *config.Config) (*Agent, error) {
 		return nil, fmt.Errorf("load identity: %w", err)
 	}
 
+	// Load or create X25519 keypair for E2E encryption
+	keypair, _, err := identity.LoadOrCreateKeypair(cfg.Agent.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("load keypair: %w", err)
+	}
+
 	// Initialize logger
 	logger := logging.NewLogger(cfg.Agent.LogLevel, cfg.Agent.LogFormat)
 
 	a := &Agent{
 		cfg:               cfg,
 		id:                agentID,
+		keypair:           keypair,
 		dataDir:           cfg.Agent.DataDir,
 		logger:            logger,
 		stopCh:            make(chan struct{}),
@@ -388,7 +397,7 @@ func (a *Agent) Start() error {
 	// Initial node info announcement (with small delay for peer connections)
 	go func() {
 		time.Sleep(2 * time.Second) // Wait for initial peer connections
-		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo())
+		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
@@ -842,7 +851,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			return
 		case <-ticker.C:
 			// Collect and announce local node info with current peer connections
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo())
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -914,7 +923,7 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 			ctx := context.Background()
 			// Convert address bytes to string based on address type
 			destAddr := addressToString(open.AddressType, open.Address)
-			a.exitHandler.HandleStreamOpen(ctx, frame.StreamID, open.RequestID, peerID, destAddr, open.Port)
+			a.exitHandler.HandleStreamOpen(ctx, frame.StreamID, open.RequestID, peerID, destAddr, open.Port, open.EphemeralPubKey)
 		}
 		return
 	}
@@ -959,13 +968,14 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 	// Update remaining path (remove the next hop)
 	newPath := open.RemainingPath[1:]
 
-	// Build forwarded STREAM_OPEN
+	// Build forwarded STREAM_OPEN (preserve ephemeral key for E2E encryption)
 	fwdOpen := &protocol.StreamOpen{
-		RequestID:     open.RequestID,
-		AddressType:   open.AddressType,
-		Address:       open.Address,
-		Port:          open.Port,
-		RemainingPath: newPath,
+		RequestID:       open.RequestID,
+		AddressType:     open.AddressType,
+		Address:         open.Address,
+		Port:            open.Port,
+		RemainingPath:   newPath,
+		EphemeralPubKey: open.EphemeralPubKey,
 	}
 
 	fwdFrame := &protocol.Frame{
@@ -1043,7 +1053,7 @@ func (a *Agent) handleStreamOpenAck(peerID identity.AgentID, frame *protocol.Fra
 		boundIP = net.IP(ack.BoundAddr)
 	}
 
-	a.streamMgr.HandleStreamOpenAck(ack.RequestID, boundIP, ack.BoundPort)
+	a.streamMgr.HandleStreamOpenAck(ack.RequestID, boundIP, ack.BoundPort, ack.EphemeralPubKey)
 }
 
 // handleStreamOpenErr processes a STREAM_OPEN_ERR.
@@ -1970,16 +1980,26 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 		addrBytes = destIP
 	}
 
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
 	// Create the stream in stream manager
 	pending := a.streamMgr.OpenStream(streamID, route.NextHop, host, uint16(port), 30*time.Second)
 
-	// Build and send STREAM_OPEN
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with ephemeral public key
 	openPayload := &protocol.StreamOpen{
-		RequestID:     pending.RequestID,
-		AddressType:   addrType,
-		Address:       addrBytes,
-		Port:          uint16(port),
-		RemainingPath: remainingPath,
+		RequestID:       pending.RequestID,
+		AddressType:     addrType,
+		Address:         addrBytes,
+		Port:            uint16(port),
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
 	}
 
 	frame := &protocol.Frame{
@@ -1995,8 +2015,27 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 	// Wait for response
 	result := <-pending.ResultCh
 	if result.Error != nil {
+		// Zero out ephemeral private key on error
+		crypto.ZeroKey(&ephPriv)
 		return nil, result.Error
 	}
+
+	// Derive session key from ECDH with exit node's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	// Zero out ephemeral private key after computing shared secret
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, streamID, ephPub, result.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Store session key in stream
+	result.Stream.SetSessionKey(sessionKey)
 
 	// Return a MeshConn wrapper
 	return &meshConn{
@@ -2065,9 +2104,20 @@ func (c *meshConn) Read(b []byte) (int, error) {
 		return 0, err
 	}
 
-	n := copy(b, data)
-	if n < len(data) {
-		c.readBuf = data
+	// Decrypt the received data
+	sessionKey := c.stream.GetSessionKey()
+	if sessionKey == nil {
+		return 0, fmt.Errorf("no session key for stream %d", c.streamID)
+	}
+
+	plaintext, err := sessionKey.Decrypt(data)
+	if err != nil {
+		return 0, fmt.Errorf("decrypt: %w", err)
+	}
+
+	n := copy(b, plaintext)
+	if n < len(plaintext) {
+		c.readBuf = plaintext
 		c.readOffset = n
 	}
 	return n, nil
@@ -2084,19 +2134,34 @@ func (c *meshConn) Write(b []byte) (int, error) {
 		return 0, nil
 	}
 
-	// Chunk data into MaxPayloadSize pieces
+	// Get session key for encryption
+	sessionKey := c.stream.GetSessionKey()
+	if sessionKey == nil {
+		return 0, fmt.Errorf("no session key for stream %d", c.streamID)
+	}
+
+	// Account for encryption overhead when chunking
+	maxPlaintext := protocol.MaxPayloadSize - crypto.EncryptionOverhead
+
+	// Chunk data into max plaintext size pieces, encrypt each, and send
 	for offset := 0; offset < len(b); {
-		end := offset + protocol.MaxPayloadSize
+		end := offset + maxPlaintext
 		if end > len(b) {
 			end = len(b)
 		}
 
 		chunk := b[offset:end]
 
+		// Encrypt the chunk
+		ciphertext, err := sessionKey.Encrypt(chunk)
+		if err != nil {
+			return offset, fmt.Errorf("encrypt: %w", err)
+		}
+
 		frame := &protocol.Frame{
 			Type:     protocol.FrameStreamData,
 			StreamID: c.streamID,
-			Payload:  chunk,
+			Payload:  ciphertext,
 		}
 
 		if err := c.agent.peerMgr.SendToPeer(c.peerID, frame); err != nil {
@@ -2311,7 +2376,7 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo())
+	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
 }
 
 // getPeerConnectionInfo returns peer connection info for NodeInfo advertisement.
@@ -2385,7 +2450,7 @@ func (a *Agent) WriteStreamData(peerID identity.AgentID, streamID uint64, data [
 }
 
 // WriteStreamOpenAck implements exit.StreamWriter.
-func (a *Agent) WriteStreamOpenAck(peerID identity.AgentID, streamID uint64, requestID uint64, boundIP net.IP, boundPort uint16) error {
+func (a *Agent) WriteStreamOpenAck(peerID identity.AgentID, streamID uint64, requestID uint64, boundIP net.IP, boundPort uint16, ephemeralPubKey [crypto.KeySize]byte) error {
 	var addrType uint8
 	var addrBytes []byte
 	if ip4 := boundIP.To4(); ip4 != nil {
@@ -2400,10 +2465,11 @@ func (a *Agent) WriteStreamOpenAck(peerID identity.AgentID, streamID uint64, req
 	}
 
 	ack := &protocol.StreamOpenAck{
-		RequestID:     requestID,
-		BoundAddrType: addrType,
-		BoundAddr:     addrBytes,
-		BoundPort:     boundPort,
+		RequestID:       requestID,
+		BoundAddrType:   addrType,
+		BoundAddr:       addrBytes,
+		BoundPort:       boundPort,
+		EphemeralPubKey: ephemeralPubKey,
 	}
 	frame := &protocol.Frame{
 		Type:     protocol.FrameStreamOpenAck,
@@ -2465,7 +2531,9 @@ func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uin
 	a.fileStreamsMu.Unlock()
 
 	// Send ACK to accept the stream (metadata will come in first data frame)
-	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0)
+	// File transfers use internal protocol and don't use E2E encryption
+	var zeroKey [crypto.KeySize]byte
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, zeroKey)
 }
 
 // handleFileDownloadStreamOpen handles a file download stream open request.
@@ -2496,7 +2564,9 @@ func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID u
 	a.fileStreamsMu.Unlock()
 
 	// Send ACK to accept the stream (metadata will come in first data frame)
-	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0)
+	// File transfers use internal protocol and don't use E2E encryption
+	var zeroKey [crypto.KeySize]byte
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, zeroKey)
 }
 
 // handleFileTransferStreamData processes data for a file transfer stream.

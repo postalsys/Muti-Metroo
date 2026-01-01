@@ -10,6 +10,8 @@
 #   5. Cross-platform Docker builds
 #   6. Mac binary signing and notarization (Developer ID + Apple notarization)
 #   7. Upload binaries to Gitea release
+#   8. Build and deploy Docusaurus documentation to web server
+#   9. Upload binaries to web server for public download
 #
 # Usage:
 #   ./scripts/release.sh [options] [version]
@@ -28,6 +30,9 @@
 #   GITEA_URL        - Gitea instance URL (default: https://git.aiateibad.ee)
 #   GITEA_OWNER      - Repository owner (default: andris)
 #   GITEA_REPO       - Repository name (default: Muti-Metroo-v4)
+#   WEB_SERVER       - Documentation web server (default: srv-04.emailengine.dev)
+#   WEB_SERVER_USER  - SSH user for web server (default: andris)
+#   WEB_ROOT         - Web root directory (default: /var/www/muti-metroo)
 #   SKIP_TESTS       - Set to 1 to skip tests
 #   SKIP_PUSH        - Set to 1 to skip git push
 #   DRY_RUN          - Set to 1 for dry run (no actual changes)
@@ -48,6 +53,12 @@ GITEA_URL="${GITEA_URL:-https://git.aiateibad.ee}"
 GITEA_OWNER="${GITEA_OWNER:-andris}"
 GITEA_REPO="${GITEA_REPO:-Muti-Metroo-v4}"
 GITEA_API="$GITEA_URL/api/v1"
+
+# Web server configuration for documentation and downloads
+WEB_SERVER="${WEB_SERVER:-srv-04.emailengine.dev}"
+WEB_SERVER_USER="${WEB_SERVER_USER:-andris}"
+WEB_ROOT="${WEB_ROOT:-/var/www/muti-metroo}"
+DOCS_DIR="$PROJECT_DIR/docs"
 
 # Get token from multiple sources (in order of priority):
 # 1. CLI argument (--token)
@@ -532,6 +543,121 @@ upload_all_assets() {
     log_success "All assets uploaded"
 }
 
+# Update version in download page before building docs
+update_download_version() {
+    local version="$1"
+    local download_page="$DOCS_DIR/docs/download.md"
+
+    log_step "Updating version in download page..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would update version to $version in $download_page"
+        return 0
+    fi
+
+    if [[ ! -f "$download_page" ]]; then
+        log_error "Download page not found: $download_page"
+        return 1
+    fi
+
+    # Update the version line in download.md
+    sed -i.bak "s/Current Version: \*\*v[0-9]*\.[0-9]*\.[0-9]*\*\*/Current Version: **v$version**/" "$download_page"
+    rm -f "$download_page.bak"
+
+    log_success "Updated download page to v$version"
+}
+
+# Build Docusaurus documentation
+build_docs() {
+    log_step "Building Docusaurus documentation..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would build documentation"
+        return 0
+    fi
+
+    # Check if npm is available
+    if ! command -v npm >/dev/null 2>&1; then
+        log_error "npm not found - cannot build documentation"
+        return 1
+    fi
+
+    # Build docs
+    (cd "$DOCS_DIR" && npm install --silent && npm run build)
+
+    if [[ -d "$DOCS_DIR/build" ]]; then
+        log_success "Documentation built successfully"
+    else
+        log_error "Documentation build failed - build directory not found"
+        return 1
+    fi
+}
+
+# Deploy documentation to web server
+deploy_docs() {
+    log_step "Deploying documentation to $WEB_SERVER..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would deploy docs to $WEB_SERVER:$WEB_ROOT"
+        return 0
+    fi
+
+    # Check if rsync is available
+    if ! command -v rsync >/dev/null 2>&1; then
+        log_error "rsync not found - cannot deploy documentation"
+        return 1
+    fi
+
+    # Check if build directory exists
+    if [[ ! -d "$DOCS_DIR/build" ]]; then
+        log_error "Documentation build directory not found"
+        return 1
+    fi
+
+    # Deploy using rsync (exclude downloads directory to preserve it)
+    rsync -avz --delete \
+        --exclude 'downloads/' \
+        "$DOCS_DIR/build/" \
+        "$WEB_SERVER_USER@$WEB_SERVER:$WEB_ROOT/"
+
+    log_success "Documentation deployed to $WEB_SERVER"
+}
+
+# Upload binaries to web server
+upload_binaries_to_web() {
+    local version="$1"
+
+    log_step "Uploading binaries to web server..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would upload binaries to $WEB_SERVER:$WEB_ROOT/downloads"
+        return 0
+    fi
+
+    # Check if rsync is available
+    if ! command -v rsync >/dev/null 2>&1; then
+        log_error "rsync not found - cannot upload binaries"
+        return 1
+    fi
+
+    local downloads_dir="$WEB_ROOT/downloads"
+    local latest_dir="$downloads_dir/latest"
+    local version_dir="$downloads_dir/v$version"
+
+    # Create directories on remote server
+    ssh "$WEB_SERVER_USER@$WEB_SERVER" "mkdir -p $latest_dir $version_dir"
+
+    # Upload to latest directory
+    rsync -avz "$BUILD_DIR/" "$WEB_SERVER_USER@$WEB_SERVER:$latest_dir/"
+
+    # Copy to versioned directory
+    ssh "$WEB_SERVER_USER@$WEB_SERVER" "cp -r $latest_dir/* $version_dir/"
+
+    log_success "Binaries uploaded to $WEB_SERVER"
+    log_info "  Latest: https://muti-metroo.postalsys.ee/downloads/latest/"
+    log_info "  v$version: https://muti-metroo.postalsys.ee/downloads/v$version/"
+}
+
 # Run tests
 run_tests() {
     if [[ "${SKIP_TESTS:-0}" == "1" ]]; then
@@ -623,10 +749,16 @@ main() {
     local release_id
     release_id=$(create_gitea_release "$new_version" "$release_notes")
 
-    # Upload assets
+    # Upload assets to Gitea
     if [[ -n "$release_id" ]]; then
         upload_all_assets "$release_id"
     fi
+
+    # Deploy documentation and binaries to web server
+    update_download_version "$new_version"
+    build_docs
+    deploy_docs
+    upload_binaries_to_web "$new_version"
 
     echo ""
     echo "=========================================="
@@ -634,6 +766,8 @@ main() {
     echo "=========================================="
     echo ""
     log_info "Release URL: $GITEA_URL/$GITEA_OWNER/$GITEA_REPO/releases/tag/v$new_version"
+    log_info "Documentation: https://muti-metroo.postalsys.ee/"
+    log_info "Downloads: https://muti-metroo.postalsys.ee/downloads/latest/"
     echo ""
 }
 

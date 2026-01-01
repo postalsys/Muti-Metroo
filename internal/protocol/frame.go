@@ -205,19 +205,23 @@ func DecodePeerHello(buf []byte) (*PeerHello, error) {
 	return p, nil
 }
 
+// EphemeralKeySize is the size of X25519 ephemeral public keys.
+const EphemeralKeySize = 32
+
 // StreamOpen is the payload for STREAM_OPEN frames.
 type StreamOpen struct {
-	RequestID     uint64
-	AddressType   uint8
-	Address       []byte // IPv4 (4), IPv6 (16), or domain (1+N)
-	Port          uint16
-	TTL           uint8
-	RemainingPath []identity.AgentID
+	RequestID       uint64
+	AddressType     uint8
+	Address         []byte // IPv4 (4), IPv6 (16), or domain (1+N)
+	Port            uint16
+	TTL             uint8
+	RemainingPath   []identity.AgentID
+	EphemeralPubKey [EphemeralKeySize]byte // Initiator's ephemeral public key for E2E encryption
 }
 
 // Encode serializes StreamOpen to bytes.
 func (s *StreamOpen) Encode() []byte {
-	size := 8 + 1 + len(s.Address) + 2 + 1 + 1 + len(s.RemainingPath)*16
+	size := 8 + 1 + len(s.Address) + 2 + 1 + 1 + len(s.RemainingPath)*16 + EphemeralKeySize
 	buf := make([]byte, size)
 	offset := 0
 
@@ -244,12 +248,15 @@ func (s *StreamOpen) Encode() []byte {
 		offset += 16
 	}
 
+	// Append ephemeral public key
+	copy(buf[offset:], s.EphemeralPubKey[:])
+
 	return buf
 }
 
 // DecodeStreamOpen deserializes StreamOpen from bytes.
 func DecodeStreamOpen(buf []byte) (*StreamOpen, error) {
-	if len(buf) < 13 { // 8 + 1 + 2 + 1 + 1 (minimum)
+	if len(buf) < 13+EphemeralKeySize { // 8 + 1 + 2 + 1 + 1 + 32 (minimum with key)
 		return nil, fmt.Errorf("%w: StreamOpen too short", ErrInvalidFrame)
 	}
 
@@ -306,6 +313,12 @@ func DecodeStreamOpen(buf []byte) (*StreamOpen, error) {
 		offset += 16
 	}
 
+	// Read ephemeral public key
+	if offset+EphemeralKeySize > len(buf) {
+		return nil, fmt.Errorf("%w: StreamOpen ephemeral key missing", ErrInvalidFrame)
+	}
+	copy(s.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
+
 	return s, nil
 }
 
@@ -331,15 +344,16 @@ func (s *StreamOpen) GetDestinationDomain() string {
 
 // StreamOpenAck is the payload for STREAM_OPEN_ACK frames.
 type StreamOpenAck struct {
-	RequestID     uint64
-	BoundAddrType uint8
-	BoundAddr     []byte
-	BoundPort     uint16
+	RequestID       uint64
+	BoundAddrType   uint8
+	BoundAddr       []byte
+	BoundPort       uint16
+	EphemeralPubKey [EphemeralKeySize]byte // Responder's ephemeral public key for E2E encryption
 }
 
 // Encode serializes StreamOpenAck to bytes.
 func (s *StreamOpenAck) Encode() []byte {
-	buf := make([]byte, 8+1+len(s.BoundAddr)+2)
+	buf := make([]byte, 8+1+len(s.BoundAddr)+2+EphemeralKeySize)
 	offset := 0
 
 	binary.BigEndian.PutUint64(buf[offset:], s.RequestID)
@@ -352,13 +366,17 @@ func (s *StreamOpenAck) Encode() []byte {
 	offset += len(s.BoundAddr)
 
 	binary.BigEndian.PutUint16(buf[offset:], s.BoundPort)
+	offset += 2
+
+	// Append ephemeral public key
+	copy(buf[offset:], s.EphemeralPubKey[:])
 
 	return buf
 }
 
 // DecodeStreamOpenAck deserializes StreamOpenAck from bytes.
 func DecodeStreamOpenAck(buf []byte) (*StreamOpenAck, error) {
-	if len(buf) < 12 { // 8 + 1 + 1 + 2 minimum (empty addr)
+	if len(buf) < 12+EphemeralKeySize { // 8 + 1 + 1 + 2 + 32 minimum (empty addr + key)
 		return nil, fmt.Errorf("%w: StreamOpenAck too short", ErrInvalidFrame)
 	}
 
@@ -381,7 +399,7 @@ func DecodeStreamOpenAck(buf []byte) (*StreamOpenAck, error) {
 		addrLen = 0
 	}
 
-	if offset+addrLen+2 > len(buf) {
+	if offset+addrLen+2+EphemeralKeySize > len(buf) {
 		return nil, fmt.Errorf("%w: StreamOpenAck address truncated", ErrInvalidFrame)
 	}
 
@@ -390,6 +408,10 @@ func DecodeStreamOpenAck(buf []byte) (*StreamOpenAck, error) {
 	offset += addrLen
 
 	s.BoundPort = binary.BigEndian.Uint16(buf[offset:])
+	offset += 2
+
+	// Read ephemeral public key
+	copy(s.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
 
 	return s, nil
 }
@@ -817,14 +839,15 @@ const MaxPeersInNodeInfo = 50
 
 // NodeInfo contains metadata about an agent in the mesh.
 type NodeInfo struct {
-	DisplayName string               // Human-readable name (from config)
-	Hostname    string               // System hostname
-	OS          string               // Operating system (runtime.GOOS)
-	Arch        string               // Architecture (runtime.GOARCH)
-	Version     string               // Agent version
-	StartTime   int64                // Agent start time (Unix timestamp)
-	IPAddresses []string             // Local IP addresses (non-loopback)
-	Peers       []PeerConnectionInfo // Connected peers (max 50)
+	DisplayName string                     // Human-readable name (from config)
+	Hostname    string                     // System hostname
+	OS          string                     // Operating system (runtime.GOOS)
+	Arch        string                     // Architecture (runtime.GOARCH)
+	Version     string                     // Agent version
+	StartTime   int64                      // Agent start time (Unix timestamp)
+	IPAddresses []string                   // Local IP addresses (non-loopback)
+	Peers       []PeerConnectionInfo       // Connected peers (max 50)
+	PublicKey   [EphemeralKeySize]byte     // Agent's static X25519 public key for E2E encryption
 }
 
 // NodeInfoAdvertise is the payload for NODE_INFO_ADVERTISE frames.
@@ -848,7 +871,8 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 	// StartTime(8) +
 	// IPCount(1) + [IPLen(1) + IP]... +
 	// SeenByLen(1) + SeenBy(N*16) +
-	// PeerCount(1) + [PeerID(16) + TransportLen(1) + Transport + RTTMs(8) + IsDialer(1)]...
+	// PeerCount(1) + [PeerID(16) + TransportLen(1) + Transport + RTTMs(8) + IsDialer(1)]... +
+	// PublicKey(32)
 
 	// Limit peers to max
 	peers := n.Info.Peers
@@ -871,11 +895,12 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 	// Peers (appended after SeenBy for backward compatibility)
 	size += 1 // PeerCount
 	for _, peer := range peers {
-		size += 16                     // PeerID
+		size += 16                      // PeerID
 		size += 1 + len(peer.Transport) // TransportLen + Transport
 		size += 8                       // RTTMs
 		size += 1                       // IsDialer
 	}
+	size += EphemeralKeySize // PublicKey
 
 	buf := make([]byte, size)
 	offset := 0
@@ -964,12 +989,15 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 		offset++
 	}
 
+	// PublicKey (agent's static X25519 public key)
+	copy(buf[offset:], n.Info.PublicKey[:])
+
 	return buf
 }
 
 // DecodeNodeInfoAdvertise deserializes NodeInfoAdvertise from bytes.
 func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
-	if len(buf) < 30 { // Minimum: 16 + 8 + 1 + 1 + 1 + 1 + 1 + 8 + 1 + 1 = 30
+	if len(buf) < 30+EphemeralKeySize { // Minimum: 16 + 8 + 1 + 1 + 1 + 1 + 1 + 8 + 1 + 1 + 32 = 62
 		return nil, fmt.Errorf("%w: NodeInfoAdvertise too short", ErrInvalidFrame)
 	}
 
@@ -1133,6 +1161,12 @@ func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
 			n.Info.Peers = append(n.Info.Peers, peer)
 		}
 	}
+
+	// PublicKey (agent's static X25519 public key)
+	if offset+EphemeralKeySize > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfoAdvertise publicKey missing", ErrInvalidFrame)
+	}
+	copy(n.Info.PublicKey[:], buf[offset:offset+EphemeralKeySize])
 
 	return n, nil
 }

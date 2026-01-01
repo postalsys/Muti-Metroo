@@ -38,4 +38,4 @@ Generates complete `config.yaml` and optionally:
 - Systemd service file (Linux)
 - Windows Service registration (Windows)
 
-See [Interactive Setup](../interactive-setup) for detailed guide.
+See [Interactive Setup](../getting-started/interactive-setup) for detailed guide.
