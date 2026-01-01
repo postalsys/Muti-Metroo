@@ -29,13 +29,16 @@ Detailed health with statistics.
 ```json
 {
   "status": "healthy",
-  "agent_id": "abc123...",
-  "peers": 3,
-  "streams": 42,
-  "routes": 5,
-  "uptime": 3600
+  "running": true,
+  "peer_count": 3,
+  "stream_count": 42,
+  "route_count": 5,
+  "socks5_running": true,
+  "exit_handler_running": false
 }
 ```
+
+Returns 503 Service Unavailable if agent is not running.
 
 ## GET /ready
 
@@ -43,10 +46,11 @@ Kubernetes readiness probe.
 
 **Response:**
 ```
-Ready
+READY
 ```
 
 Returns 200 if agent is ready to accept traffic.
+Returns 503 with "NOT READY" if agent is not running.
 
 ## Examples
 

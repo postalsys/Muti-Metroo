@@ -26,6 +26,9 @@ Available for all commands:
 | `setup` | Interactive setup wizard |
 | `cert` | Certificate management (CA, agent, client) |
 | `hash` | Generate bcrypt password hash |
+| `status` | Show agent status via control socket |
+| `peers` | List connected peers via control socket |
+| `routes` | List route table via control socket |
 | `rpc` | Execute remote procedure call |
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
@@ -45,6 +48,15 @@ muti-metroo cert ca -n "My CA"
 
 # Generate password hash for config
 muti-metroo hash --cost 12
+
+# Check agent status via control socket
+muti-metroo status -s ./data/control.sock
+
+# List connected peers
+muti-metroo peers -s ./data/control.sock
+
+# List route table
+muti-metroo routes -s ./data/control.sock
 
 # Execute remote command
 muti-metroo rpc agent123 whoami

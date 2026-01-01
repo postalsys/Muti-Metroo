@@ -413,7 +413,7 @@ rpc:
     - whoami
     - hostname
     - ip
-  password_hash: "sha256..."       # SHA-256 hash of RPC password
+  password_hash: "$2a$10$..."      # bcrypt hash of RPC password
   timeout: 60s                     # Default command timeout
 ```
 
@@ -425,8 +425,8 @@ rpc:
    - Specific commands: `["whoami", "hostname", "ip"]`
 
 2. **Password Authentication**: RPC requests must include the correct password
-   - Password is hashed with SHA-256 and stored in config
-   - Generate hash: `echo -n "password" | sha256sum`
+   - Password is hashed with bcrypt and stored in config
+   - Generate hash: `muti-metroo hash --cost 12`
    - Setup wizard can generate the hash automatically
 
 ### HTTP API

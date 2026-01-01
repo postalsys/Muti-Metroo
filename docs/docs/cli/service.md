@@ -17,11 +17,12 @@ Service management commands for system integration.
 Install as system service (requires root/admin).
 
 ```bash
-muti-metroo service install -c <config-file>
+muti-metroo service install -c <config-file> [-n <service-name>]
 ```
 
 **Flags:**
 - `-c, --config <file>`: Configuration file path (required)
+- `-n, --name <name>`: Service name (default: muti-metroo)
 
 **Linux (systemd):**
 - Creates `/etc/systemd/system/muti-metroo.service`
@@ -40,8 +41,12 @@ muti-metroo service install -c <config-file>
 Uninstall system service.
 
 ```bash
-muti-metroo service uninstall
+muti-metroo service uninstall [-n <service-name>] [-f]
 ```
+
+**Flags:**
+- `-n, --name <name>`: Service name (default: muti-metroo)
+- `-f, --force`: Skip confirmation prompt
 
 Removes service registration on Linux, macOS, and Windows.
 
@@ -50,8 +55,11 @@ Removes service registration on Linux, macOS, and Windows.
 Check service status.
 
 ```bash
-muti-metroo service status
+muti-metroo service status [-n <service-name>]
 ```
+
+**Flags:**
+- `-n, --name <name>`: Service name (default: muti-metroo)
 
 Shows current service state (running, stopped, etc.).
 

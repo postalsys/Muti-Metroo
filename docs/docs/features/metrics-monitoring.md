@@ -215,7 +215,8 @@ Monitor remote command execution:
 | `rpc_bytes_sent_total` | Counter | Bytes sent in responses |
 
 **Labels:**
-- `rpc_calls_total`: `result` (success, failed, rejected, auth_failed), `command`
+- `rpc_calls_total`: `result` (success, failed, rejected, auth_failed, error), `command`
+- `rpc_call_duration_seconds`: `command`
 
 ## Alerting Examples
 

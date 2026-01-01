@@ -120,7 +120,7 @@ routing:
 
 # Connection tuning
 connections:
-  idle_threshold: 30s
+  idle_threshold: 5m
   timeout: 90s
   reconnect:
     initial_delay: 1s
@@ -204,11 +204,6 @@ muti-metroo run -c ./config.yaml
 3. **Use display_name** for easier dashboard identification
 4. **Start minimal** and add features as needed
 5. **Test configuration** before production deployment
-
-```bash
-# Validate config without starting
-muti-metroo validate -c ./config.yaml
-```
 
 ## Next Steps
 

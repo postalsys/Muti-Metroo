@@ -18,17 +18,22 @@ Current version: **0x01**
 
 Every frame has a 14-byte header followed by variable-length payload:
 
+```mermaid
+packet-beta
+0-7: "Type (1)"
+8-15: "Flags (1)"
+16-47: "Length (4)"
+48-111: "StreamID (8)"
+112-127: "Payload..."
 ```
-+----------------+----------------+----------------+----------------+
-| Type (1 byte)  | Flags (1 byte) |   StreamID (4 bytes)            |
-+----------------+----------------+----------------+----------------+
-|                    Payload Length (4 bytes)                      |
-+----------------+----------------+----------------+----------------+
-|                    Reserved (4 bytes)                            |
-+----------------+----------------+----------------+----------------+
-|                    Payload (0-16384 bytes)                       |
-+------------------------------------------------------------------|
-```
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 byte | Type | Frame type identifier |
+| 1 | 1 byte | Flags | Frame flags (e.g., FIN_WRITE, FIN_READ) |
+| 2-5 | 4 bytes | Length | Payload length (big-endian) |
+| 6-13 | 8 bytes | StreamID | Stream identifier (big-endian) |
+| 14+ | variable | Payload | Frame payload (0-16384 bytes) |
 
 ## Frame Types
 
@@ -62,7 +67,7 @@ See [Frame Types](frames) for complete list.
 |-----------|---------|
 | Handshake | 10s |
 | Stream open | 30s |
-| Keepalive interval | 30s |
+| Keepalive interval | 5m |
 | Keepalive timeout | 90s |
 | Idle stream | 5m |
 

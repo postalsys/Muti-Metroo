@@ -21,7 +21,7 @@ title: Limits and Performance
 | Max Streams/Peer | `limits.max_streams_per_peer` | 1000 | Concurrent streams per peer |
 | Max Total Streams | `limits.max_streams_total` | 10000 | Total concurrent streams |
 | Max Pending Opens | `limits.max_pending_opens` | 100 | Pending stream opens |
-| Idle Threshold | `connections.idle_threshold` | 30s | Keepalive interval |
+| Idle Threshold | `connections.idle_threshold` | 5m | Keepalive interval |
 | Connection Timeout | `connections.timeout` | 90s | Keepalive timeout |
 
 ## Protocol Constants (Non-configurable)
@@ -123,10 +123,3 @@ All metrics prefixed with `muti_metroo_`.
 - `rpc_call_duration_seconds` (histogram): By command
 - `rpc_bytes_received_total` (counter): Request bytes
 - `rpc_bytes_sent_total` (counter): Response bytes
-
-### File Transfer Metrics
-
-- `file_transfer_uploads_total` (counter): Upload count
-- `file_transfer_downloads_total` (counter): Download count
-- `file_transfer_bytes_sent` (counter): Bytes sent
-- `file_transfer_bytes_received` (counter): Bytes received

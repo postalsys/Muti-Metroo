@@ -103,13 +103,6 @@ Access control via:
 2. **password_hash**: Require password for all transfers
 3. **enabled flag**: Disable completely if not needed
 
-## Metrics
-
-- `muti_metroo_file_transfer_uploads_total`: Upload count
-- `muti_metroo_file_transfer_downloads_total`: Download count
-- `muti_metroo_file_transfer_bytes_sent`: Bytes sent
-- `muti_metroo_file_transfer_bytes_received`: Bytes received
-
 ## Related
 
 - [CLI - File Transfer](../cli/file-transfer) - CLI reference
