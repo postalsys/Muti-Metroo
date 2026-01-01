@@ -43,3 +43,4 @@ config.yaml
 
 # Debug files
 __debug_bin*
+testbed/
