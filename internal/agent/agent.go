@@ -608,8 +608,9 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 
 	// Build TLS config for peer connection
 	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		NextProtos: []string{transport.ALPNProtocol},
+		MinVersion:         tls.VersionTLS13,
+		NextProtos:         []string{transport.ALPNProtocol},
+		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
 	}
 
 	// Load CA certificate for peer verification if specified
@@ -1974,15 +1975,33 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 	// Look up route in routing table
 	route := a.routeMgr.Lookup(destIP)
 
+	a.logger.Debug("mesh dial route lookup",
+		"address", address,
+		"dest_ip", destIP.String(),
+		"route_found", route != nil)
+
 	// If no route, or route is to ourselves (local exit), do direct dial
 	if route == nil || route.OriginAgent == a.id {
+		a.logger.Debug("mesh dial using direct connection",
+			"address", address,
+			"reason_no_route", route == nil,
+			"reason_local_exit", route != nil && route.OriginAgent == a.id)
 		return net.Dial(network, address)
 	}
+
+	a.logger.Debug("mesh dial routing through mesh",
+		"address", address,
+		"origin", route.OriginAgent.ShortString(),
+		"next_hop", route.NextHop.ShortString(),
+		"path_len", len(route.Path))
 
 	// Route through mesh - get next hop connection
 	conn := a.peerMgr.GetPeer(route.NextHop)
 	if conn == nil {
 		// Next hop not connected, fall back to direct
+		a.logger.Debug("mesh dial next hop not connected, falling back to direct",
+			"address", address,
+			"next_hop", route.NextHop.ShortString())
 		return net.Dial(network, address)
 	}
 
@@ -2039,17 +2058,32 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 		Payload:  openPayload.Encode(),
 	}
 
+	a.logger.Debug("mesh dial sending STREAM_OPEN",
+		"stream_id", streamID,
+		"request_id", pending.RequestID,
+		"remaining_path_len", len(remainingPath))
+
 	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
+		a.logger.Debug("mesh dial failed to send STREAM_OPEN", "error", err)
 		return nil, fmt.Errorf("send stream open: %w", err)
 	}
+
+	a.logger.Debug("mesh dial waiting for STREAM_OPEN_ACK", "stream_id", streamID)
 
 	// Wait for response
 	result := <-pending.ResultCh
 	if result.Error != nil {
+		a.logger.Debug("mesh dial received error", "error", result.Error)
 		// Zero out ephemeral private key on error
 		crypto.ZeroKey(&ephPriv)
 		return nil, result.Error
 	}
+
+	a.logger.Debug("mesh dial received ACK, connection established",
+		"stream_id", streamID,
+		"request_id", pending.RequestID,
+		"bound_ip", result.BoundIP,
+		"bound_port", result.BoundPort)
 
 	// Derive session key from ECDH with exit node's ephemeral public key
 	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
@@ -2062,7 +2096,8 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 	crypto.ZeroKey(&ephPriv)
 
 	// Derive session key - we are the initiator
-	sessionKey := crypto.DeriveSessionKey(sharedSecret, streamID, ephPub, result.RemoteEphemeral, true)
+	// Use requestID (not streamID) because streamID changes at each relay hop
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
 	crypto.ZeroKey(&sharedSecret)
 
 	// Store session key in stream

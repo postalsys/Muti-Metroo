@@ -200,7 +200,8 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 	crypto.ZeroKey(&ephPriv)
 
 	// Derive session key - we are the responder (exit node)
-	sessionKey := crypto.DeriveSessionKey(sharedSecret, streamID, remoteEphemeralPub, ephPub, false)
+	// Use requestID (not streamID) because streamID changes at each relay hop
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, remoteEphemeralPub, ephPub, false)
 	crypto.ZeroKey(&sharedSecret)
 
 	// Connect to destination
