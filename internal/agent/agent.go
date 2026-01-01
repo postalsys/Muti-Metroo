@@ -606,6 +606,12 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		Timeout:            a.cfg.Connections.Timeout,
 	}
 
+	// Build TLS config for peer connection
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		NextProtos: []string{transport.ALPNProtocol},
+	}
+
 	// Load CA certificate for peer verification if specified
 	caPEM, err := cfg.TLS.GetCAPEM()
 	if err != nil {
@@ -621,11 +627,36 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 				logging.KeyPeerID, cfg.ID)
 			return
 		}
-		dialOpts.TLSConfig = &tls.Config{
-			RootCAs:    certPool,
-			MinVersion: tls.VersionTLS13,
-		}
+		tlsConfig.RootCAs = certPool
 	}
+
+	// Load client certificate for mTLS if specified
+	if cfg.TLS.HasCert() && cfg.TLS.HasKey() {
+		certPEM, err := cfg.TLS.GetCertPEM()
+		if err != nil {
+			a.logger.Error("failed to load peer client certificate",
+				logging.KeyPeerID, cfg.ID,
+				logging.KeyError, err)
+			return
+		}
+		keyPEM, err := cfg.TLS.GetKeyPEM()
+		if err != nil {
+			a.logger.Error("failed to load peer client key",
+				logging.KeyPeerID, cfg.ID,
+				logging.KeyError, err)
+			return
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			a.logger.Error("failed to parse peer client certificate",
+				logging.KeyPeerID, cfg.ID,
+				logging.KeyError, err)
+			return
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	dialOpts.TLSConfig = tlsConfig
 
 	// Add peer info to manager
 	a.peerMgr.AddPeer(peer.PeerInfo{

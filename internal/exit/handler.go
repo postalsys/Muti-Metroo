@@ -306,7 +306,8 @@ func (h *Handler) readLoop(ac *ActiveConnection) {
 	defer recovery.RecoverWithLog(h.logger, "exit.readLoop")
 
 	// Account for encryption overhead when reading
-	maxPlaintext := 32768 - crypto.EncryptionOverhead
+	// Each encrypted message must fit in a single frame to be decryptable
+	maxPlaintext := protocol.MaxPayloadSize - crypto.EncryptionOverhead
 	buf := make([]byte, maxPlaintext)
 	for {
 		select {
