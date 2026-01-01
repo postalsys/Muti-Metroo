@@ -20,7 +20,7 @@ func TestDialerHandshake_WrongFrameType(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 	remoteID, _ := identity.NewAgentID()
 
-	h := NewHandshaker(localID, []string{"test"}, 1*time.Second)
+	h := NewHandshaker(localID, "", []string{"test"}, 1*time.Second)
 
 	// Create a pipe to simulate connection
 	clientReader, serverWriter := io.Pipe()
@@ -92,7 +92,7 @@ func TestDialerHandshake_WrongFrameType(t *testing.T) {
 func TestListenerHandshake_WrongFrameType(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 
-	h := NewHandshaker(localID, []string{"test"}, 1*time.Second)
+	h := NewHandshaker(localID, "", []string{"test"}, 1*time.Second)
 
 	// Create a pipe to simulate connection
 	_, serverWriter := io.Pipe()
@@ -154,7 +154,7 @@ func TestListenerHandshake_VersionMismatch(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 	remoteID, _ := identity.NewAgentID()
 
-	h := NewHandshaker(localID, []string{"test"}, 1*time.Second)
+	h := NewHandshaker(localID, "", []string{"test"}, 1*time.Second)
 
 	// Create a pipe to simulate connection
 	clientReader, serverWriter := io.Pipe()
@@ -225,7 +225,7 @@ func TestListenerHandshake_PeerIDMismatch(t *testing.T) {
 	remoteID, _ := identity.NewAgentID()
 	expectedID, _ := identity.NewAgentID() // Different from remoteID
 
-	h := NewHandshaker(localID, []string{"test"}, 1*time.Second)
+	h := NewHandshaker(localID, "", []string{"test"}, 1*time.Second)
 
 	// Create a pipe to simulate connection
 	clientReader, serverWriter := io.Pipe()
@@ -297,7 +297,7 @@ func TestDialerHandshake_PeerIDMismatch(t *testing.T) {
 	remoteID, _ := identity.NewAgentID()
 	expectedID, _ := identity.NewAgentID() // Different from remoteID
 
-	h := NewHandshaker(localID, []string{"test"}, 1*time.Second)
+	h := NewHandshaker(localID, "", []string{"test"}, 1*time.Second)
 
 	// Create a pipe to simulate connection
 	clientReader, serverWriter := io.Pipe()
@@ -373,7 +373,7 @@ func TestDialerHandshake_PeerIDMismatch(t *testing.T) {
 func TestListenerHandshake_MalformedPayload(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 
-	h := NewHandshaker(localID, []string{"test"}, 1*time.Second)
+	h := NewHandshaker(localID, "", []string{"test"}, 1*time.Second)
 
 	// Create a pipe to simulate connection
 	_, serverWriter := io.Pipe()
@@ -435,7 +435,7 @@ func TestDialerHandshake_MalformedAck(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 	remoteID, _ := identity.NewAgentID()
 
-	h := NewHandshaker(localID, []string{"test"}, 1*time.Second)
+	h := NewHandshaker(localID, "", []string{"test"}, 1*time.Second)
 
 	// Create a pipe to simulate connection
 	clientReader, serverWriter := io.Pipe()
@@ -504,8 +504,8 @@ func TestHandshake_Success(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 	remoteID, _ := identity.NewAgentID()
 
-	dialerHandshaker := NewHandshaker(localID, []string{"cap1", "cap2"}, 5*time.Second)
-	listenerHandshaker := NewHandshaker(remoteID, []string{"cap3"}, 5*time.Second)
+	dialerHandshaker := NewHandshaker(localID, "", []string{"cap1", "cap2"}, 5*time.Second)
+	listenerHandshaker := NewHandshaker(remoteID, "", []string{"cap3"}, 5*time.Second)
 
 	// Create pipes for bidirectional communication
 	dialerReader, listenerWriter := io.Pipe()

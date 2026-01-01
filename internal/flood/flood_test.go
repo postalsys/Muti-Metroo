@@ -121,7 +121,7 @@ func TestFlooder_HandleRouteAdvertise_NewRoute(t *testing.T) {
 		},
 	}
 
-	accepted := f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, nil)
+	accepted := f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, nil)
 	if !accepted {
 		t.Error("First advertisement should be accepted")
 	}
@@ -157,10 +157,10 @@ func TestFlooder_HandleRouteAdvertise_Duplicate(t *testing.T) {
 	}
 
 	// First advertisement
-	f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, nil)
+	f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, nil)
 
 	// Duplicate
-	accepted := f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, nil)
+	accepted := f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, nil)
 	if accepted {
 		t.Error("Duplicate advertisement should be rejected")
 	}
@@ -187,7 +187,7 @@ func TestFlooder_HandleRouteAdvertise_LoopDetection(t *testing.T) {
 
 	// Advertisement with our ID in seen-by list (loop)
 	seenBy := []identity.AgentID{localID}
-	accepted := f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, seenBy)
+	accepted := f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, seenBy)
 	if accepted {
 		t.Error("Advertisement with our ID in seen-by should be rejected")
 	}
@@ -218,7 +218,7 @@ func TestFlooder_HandleRouteAdvertise_Flood(t *testing.T) {
 	}
 
 	// Receive from peer1
-	f.HandleRouteAdvertise(peer1, peer1, 1, routes, nil, nil)
+	f.HandleRouteAdvertise(peer1, peer1, "", 1, routes, nil, nil)
 
 	// Should flood to peer2 and peer3, but not back to peer1
 	if len(sender.GetMessages(peer1)) != 0 {
@@ -252,7 +252,7 @@ func TestFlooder_HandleRouteWithdraw(t *testing.T) {
 	}
 
 	// First add the route
-	f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, nil)
+	f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, nil)
 
 	// Then withdraw
 	accepted := f.HandleRouteWithdraw(peerID, peerID, 2, routes, nil)
@@ -391,8 +391,8 @@ func TestFlooder_ClearSeenCache(t *testing.T) {
 	}
 
 	// Add some entries
-	f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, nil)
-	f.HandleRouteAdvertise(peerID, peerID, 2, routes, nil, nil)
+	f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, nil)
+	f.HandleRouteAdvertise(peerID, peerID, "", 2, routes, nil, nil)
 
 	if f.SeenCacheSize() != 2 {
 		t.Errorf("SeenCacheSize = %d, want 2", f.SeenCacheSize())
@@ -429,7 +429,7 @@ func TestFlooder_HasSeen(t *testing.T) {
 		},
 	}
 
-	f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, nil)
+	f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, nil)
 
 	if !f.HasSeen(peerID, 1) {
 		t.Error("Should have seen after handling")
@@ -455,7 +455,7 @@ func TestFlooder_IPv6Routes(t *testing.T) {
 		},
 	}
 
-	accepted := f.HandleRouteAdvertise(peerID, peerID, 1, routes, nil, nil)
+	accepted := f.HandleRouteAdvertise(peerID, peerID, "", 1, routes, nil, nil)
 	if !accepted {
 		t.Error("IPv6 route should be accepted")
 	}

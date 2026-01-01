@@ -396,7 +396,7 @@ func TestNewHandshaker(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 	caps := []string{"cap1", "cap2"}
 
-	h := NewHandshaker(localID, caps, 5*time.Second)
+	h := NewHandshaker(localID, "test-agent", caps, 5*time.Second)
 
 	if h.localID != localID {
 		t.Error("localID not set correctly")
@@ -412,7 +412,7 @@ func TestNewHandshaker(t *testing.T) {
 func TestNewHandshaker_DefaultTimeout(t *testing.T) {
 	localID, _ := identity.NewAgentID()
 
-	h := NewHandshaker(localID, nil, 0)
+	h := NewHandshaker(localID, "", nil, 0)
 
 	if h.timeout != 10*time.Second {
 		t.Errorf("default timeout = %v, want 10s", h.timeout)
@@ -619,6 +619,10 @@ func (m *mockPeerConn) RemoteAddr() net.Addr {
 
 func (m *mockPeerConn) IsDialer() bool {
 	return m.isDialer
+}
+
+func (m *mockPeerConn) TransportType() transport.TransportType {
+	return transport.TransportQUIC
 }
 
 type mockAddr struct {
