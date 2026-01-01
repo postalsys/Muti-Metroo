@@ -9,11 +9,11 @@
 }
 
 .connection.direct {
-    stroke: #0ea5e9;
+    stroke: #c4883a;
 }
 
 .connection.indirect {
-    stroke: #22c55e;
+    stroke: #6db36d;
 }
 
 .connection:hover {
@@ -38,7 +38,7 @@
 }
 
 .station-outer {
-    fill: #1a1a2e;
+    fill: #1a1a1a;
     stroke-width: 3;
 }
 
@@ -48,26 +48,26 @@
 
 /* Station types */
 .station.local .station-outer {
-    stroke: #fbbf24;
-    fill: #1a1a2e;
+    stroke: #daa054;
+    fill: #1a1a1a;
 }
 
 .station.local .station-inner {
-    fill: #fbbf24;
+    fill: #daa054;
 }
 
 .station.connected .station-outer {
-    stroke: #0ea5e9;
-    fill: #1a1a2e;
+    stroke: #c4883a;
+    fill: #1a1a1a;
 }
 
 .station.connected .station-inner {
-    fill: #0ea5e9;
+    fill: #c4883a;
 }
 
 .station.remote .station-outer {
-    stroke: #6b7280;
-    fill: #1a1a2e;
+    stroke: #a89f94;
+    fill: #1a1a1a;
 }
 
 .station.remote .station-inner {
@@ -79,14 +79,14 @@
     font-family: 'Segoe UI', 'Roboto', sans-serif;
     font-size: 12px;
     font-weight: 600;
-    fill: #e8e8e8;
+    fill: #f5ebe0;
     text-anchor: middle;
     pointer-events: none;
     text-shadow:
-        -1px -1px 0 #1a1a2e,
-        1px -1px 0 #1a1a2e,
-        -1px 1px 0 #1a1a2e,
-        1px 1px 0 #1a1a2e;
+        -1px -1px 0 #1a1a1a,
+        1px -1px 0 #1a1a1a,
+        -1px 1px 0 #1a1a1a,
+        1px 1px 0 #1a1a1a;
 }
 
 .station-label.above {
@@ -109,7 +109,7 @@
 .station-id {
     font-family: 'Courier New', monospace;
     font-size: 9px;
-    fill: #a0a0a0;
+    fill: #a89f94;
     text-anchor: middle;
     pointer-events: none;
 }
@@ -118,14 +118,14 @@
 .rtt-label {
     font-family: 'Courier New', monospace;
     font-size: 10px;
-    fill: #a0a0a0;
+    fill: #a89f94;
     text-anchor: middle;
     dominant-baseline: middle;
     pointer-events: none;
 }
 
 .rtt-label-bg {
-    fill: #1a1a2e;
+    fill: #1a1a1a;
     rx: 3;
     ry: 3;
 }
@@ -133,12 +133,12 @@
 /* Station Hover Tooltip */
 .station-tooltip {
     position: fixed;
-    background: #0f3460;
-    border: 1px solid #2a2a4a;
+    background: #2d2d2d;
+    border: 1px solid #4a3f35;
     border-radius: 6px;
     padding: 0;
     font-size: 0.8rem;
-    color: #e8e8e8;
+    color: #f5ebe0;
     pointer-events: auto;
     z-index: 1000;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -148,15 +148,15 @@
 }
 
 .station-tooltip .tooltip-header {
-    background: #16213e;
+    background: #3d3d3d;
     padding: 0.6rem 0.8rem;
-    border-bottom: 1px solid #2a2a4a;
+    border-bottom: 1px solid #4a3f35;
 }
 
 .station-tooltip .tooltip-name {
     font-weight: 700;
     font-size: 0.95rem;
-    color: #fbbf24;
+    color: #daa054;
 }
 
 .station-tooltip .tooltip-info {
@@ -171,61 +171,61 @@
 }
 
 .station-tooltip .tooltip-info-label {
-    color: #a0a0a0;
+    color: #a89f94;
 }
 
 .station-tooltip .tooltip-info-value {
-    color: #e8e8e8;
+    color: #f5ebe0;
     font-family: 'Courier New', monospace;
 }
 
 .station-tooltip .tooltip-id-section {
-    background: #1a1a2e;
+    background: #1a1a1a;
     padding: 0.5rem 0.8rem;
-    border-top: 1px solid #2a2a4a;
+    border-top: 1px solid #4a3f35;
     cursor: pointer;
     transition: background 0.2s;
 }
 
 .station-tooltip .tooltip-id-section:hover {
-    background: #2a2a4a;
+    background: #3d3d3d;
 }
 
 .station-tooltip .tooltip-id-label {
     font-size: 0.65rem;
-    color: #6b7280;
+    color: #a89f94;
     margin-bottom: 0.2rem;
 }
 
 .station-tooltip .tooltip-id {
     font-family: 'Courier New', monospace;
     font-size: 0.7rem;
-    color: #0ea5e9;
+    color: #c4883a;
     word-break: break-all;
 }
 
 .station-tooltip .tooltip-id-hint {
     font-size: 0.6rem;
-    color: #6b7280;
+    color: #a89f94;
     margin-top: 0.25rem;
     font-style: italic;
 }
 
 .station-tooltip .tooltip-id-copied {
-    color: #22c55e;
+    color: #6db36d;
     font-weight: 600;
 }
 
 /* Exit Routes Section */
 .station-tooltip .tooltip-exits {
     padding: 0.5rem 0.8rem;
-    border-top: 1px solid #2a2a4a;
-    background: #16213e;
+    border-top: 1px solid #4a3f35;
+    background: #3d3d3d;
 }
 
 .station-tooltip .tooltip-exits-header {
     font-size: 0.65rem;
-    color: #22c55e;
+    color: #6db36d;
     font-weight: 600;
     margin-bottom: 0.4rem;
     text-transform: uppercase;
@@ -239,31 +239,31 @@
 }
 
 .station-tooltip .tooltip-cidr {
-    background: #1a1a2e;
+    background: #1a1a1a;
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
     font-family: 'Courier New', monospace;
     font-size: 0.7rem;
-    color: #22c55e;
-    border: 1px solid #2a2a4a;
+    color: #6db36d;
+    border: 1px solid #4a3f35;
 }
 
 .station-tooltip .tooltip-cidr-more {
     padding: 0.15rem 0.4rem;
     font-size: 0.65rem;
-    color: #6b7280;
+    color: #a89f94;
     font-style: italic;
 }
 
 /* Connection Hover Tooltip */
 .connection-tooltip {
     position: fixed;
-    background: #0f3460;
-    border: 1px solid #2a2a4a;
+    background: #2d2d2d;
+    border: 1px solid #4a3f35;
     border-radius: 6px;
     padding: 0.6rem 0.8rem;
     font-size: 0.8rem;
-    color: #e8e8e8;
+    color: #f5ebe0;
     pointer-events: none;
     z-index: 1000;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -278,24 +278,24 @@
 }
 
 .connection-tooltip .connection-arrow {
-    color: #0ea5e9;
+    color: #c4883a;
 }
 
 .connection-tooltip .connection-role {
     font-size: 0.7rem;
-    color: #a0a0a0;
+    color: #a89f94;
     margin-top: 0.3rem;
 }
 
 .connection-tooltip .connection-transport {
     font-size: 0.75rem;
-    color: #0ea5e9;
+    color: #c4883a;
     margin-top: 0.3rem;
 }
 
 .connection-tooltip .connection-rtt {
     font-size: 0.75rem;
-    color: #22c55e;
+    color: #6db36d;
     margin-top: 0.3rem;
     font-family: 'Courier New', monospace;
 }
@@ -344,7 +344,7 @@
 
 /* Grid lines (optional background) */
 .grid-line {
-    stroke: #2a2a4a;
+    stroke: #4a3f35;
     stroke-width: 1;
     opacity: 0.3;
 }
@@ -353,7 +353,7 @@
 .empty-state {
     font-family: 'Segoe UI', 'Roboto', sans-serif;
     font-size: 14px;
-    fill: #6b7280;
+    fill: #a89f94;
     text-anchor: middle;
     dominant-baseline: middle;
 }

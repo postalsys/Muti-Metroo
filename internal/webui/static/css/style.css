@@ -1,17 +1,19 @@
 /* Muti Metroo Dashboard Styles */
+/* Color scheme inspired by Docusaurus documentation site */
 
 :root {
-    --bg-primary: #1a1a2e;
-    --bg-secondary: #16213e;
-    --bg-card: #0f3460;
-    --text-primary: #e8e8e8;
-    --text-secondary: #a0a0a0;
-    --accent-primary: #e94560;
-    --accent-secondary: #0ea5e9;
-    --success: #22c55e;
-    --warning: #f59e0b;
-    --error: #ef4444;
-    --border-color: #2a2a4a;
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #2d2d2d;
+    --bg-card: #3d3d3d;
+    --text-primary: #f5ebe0;
+    --text-secondary: #a89f94;
+    --accent-primary: #daa054;
+    --accent-secondary: #c4883a;
+    --accent-dark: #b07a34;
+    --success: #6db36d;
+    --warning: #daa054;
+    --error: #cf6679;
+    --border-color: #4a3f35;
 }
 
 * {
@@ -41,6 +43,17 @@ header {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.header-logo {
+    height: 40px;
+    width: auto;
 }
 
 header h1 {
@@ -179,18 +192,18 @@ section h2 {
 }
 
 .legend-color.local {
-    background: #fbbf24;
-    border-color: #fbbf24;
+    background: #daa054;
+    border-color: #daa054;
 }
 
 .legend-color.connected {
-    background: #0ea5e9;
-    border-color: #0ea5e9;
+    background: #c4883a;
+    border-color: #c4883a;
 }
 
 .legend-color.remote {
     background: transparent;
-    border-color: #6b7280;
+    border-color: #a89f94;
 }
 
 /* Tables */
@@ -226,7 +239,7 @@ td {
 }
 
 tbody tr:hover {
-    background: rgba(14, 165, 233, 0.1);
+    background: rgba(196, 136, 58, 0.1);
 }
 
 .no-data {
