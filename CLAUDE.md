@@ -15,7 +15,7 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 
 ## Documentation
 
-The project documentation is built with Docusaurus and lives in the `docs/` folder. The documentation is deployed at https://muti-metroo.postalsys.com.
+The project documentation is built with Docusaurus and lives in the `docs/` folder. The documentation is deployed at https://muti-metroo.postalsys.ee.
 
 **Important:** When adding or modifying features, the documentation must be updated accordingly:
 
@@ -33,6 +33,26 @@ npm install        # Install dependencies (first time only)
 npm start          # Start dev server at http://localhost:3000
 npm run build      # Build for production
 ```
+
+### Deploying Documentation to Production
+
+Documentation is hosted at https://muti-metroo.postalsys.ee on `srv-04.emailengine.dev`.
+
+**Manual deployment** (for docs-only changes without a release):
+
+```bash
+cd docs
+npm run build
+rsync -avz --delete --exclude 'downloads/' build/ andris@srv-04.emailengine.dev:/var/www/muti-metroo/
+```
+
+**Full release deployment**: The `scripts/release.sh` script automatically builds and deploys documentation as part of the release process. It also uploads binaries to `/var/www/muti-metroo/downloads/`.
+
+**Server details:**
+- Server: `srv-04.emailengine.dev`
+- SSH user: `andris`
+- Web root: `/var/www/muti-metroo`
+- Downloads: `/var/www/muti-metroo/downloads/latest/` and `/var/www/muti-metroo/downloads/v{version}/`
 
 ## Build & Development Commands
 

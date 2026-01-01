@@ -42,6 +42,13 @@ const config: Config = {
         href: '/site.webmanifest',
       },
     },
+    {
+      tagName: 'meta',
+      attributes: {
+        name: 'algolia-site-verification',
+        content: '7EEE0AB850E3143B',
+      },
+    },
   ],
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -56,7 +63,7 @@ const config: Config = {
   themes: ['@docusaurus/theme-mermaid'],
 
   // Set the production url of your site here
-  url: 'https://muti-metroo.postalsys.com',
+  url: 'https://muti-metroo.postalsys.ee',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: '/',
@@ -112,23 +119,22 @@ const config: Config = {
           label: 'Documentation',
         },
         {
-          type: 'search',
-          position: 'right',
+          to: '/download',
+          label: 'Download',
+          position: 'left',
         },
         {
-          href: 'https://git.aiateibad.ee/andris/Muti-Metroo-v4',
-          label: 'Source',
+          type: 'search',
           position: 'right',
         },
       ],
     },
-    // Uncomment and configure Algolia search when ready
-    // algolia: {
-    //   appId: 'YOUR_APP_ID',
-    //   apiKey: 'YOUR_SEARCH_API_KEY',
-    //   indexName: 'muti-metroo',
-    //   contextualSearch: true,
-    // },
+    algolia: {
+      appId: '8LJDT3DP7Q',
+      apiKey: '50fa5489f9e83f97cac8e51d09fd59b7',
+      indexName: 'Muti Metroo',
+      contextualSearch: true,
+    },
     footer: {
       style: 'dark',
       links: [
@@ -178,8 +184,8 @@ const config: Config = {
           title: 'Resources',
           items: [
             {
-              label: 'Source Code',
-              href: 'https://git.aiateibad.ee/andris/Muti-Metroo-v4',
+              label: 'Download',
+              to: '/download',
             },
             {
               label: 'Protocol Details',
@@ -188,7 +194,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Muti Metroo Project. All rights reserved.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Postal Systems OÜ. All rights reserved.`,
     },
     prism: {
       theme: prismThemes.github,
