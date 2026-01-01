@@ -334,7 +334,7 @@ build_binary() {
             -e CGO_ENABLED=0 \
             -e GOOS="$os" \
             -e GOARCH="$arch" \
-            golang:1.23-alpine \
+            golang:1.24-alpine \
             go build -trimpath -ldflags="-s -w -X main.Version=$version" \
                 -o "/app/build/release/$output_name" \
                 ./cmd/muti-metroo
@@ -347,7 +347,7 @@ build_binary() {
             -e CGO_ENABLED=0 \
             -e GOOS="$os" \
             -e GOARCH="$arch" \
-            golang:1.23-alpine \
+            golang:1.24-alpine \
             sh -c "apk add --no-cache upx >/dev/null 2>&1 && \
                    go build -trimpath -ldflags='-s -w -X main.Version=$version' \
                        -o '/app/build/release/$output_name.tmp' \
@@ -676,7 +676,7 @@ run_tests() {
     docker run --rm \
         -v "$PROJECT_DIR":/app \
         -w /app \
-        golang:1.23-alpine \
+        golang:1.24-alpine \
         sh -c "apk add --no-cache git && go test -short ./..."
 
     log_success "Tests passed"
