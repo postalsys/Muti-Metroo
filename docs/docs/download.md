@@ -6,7 +6,7 @@ description: Download Muti Metroo binaries for your platform
 
 # Download Muti Metroo
 
-Current Version: **v1.0.4**
+Current Version: **v1.0.5**
 
 Download the latest Muti Metroo binary for your platform. All binaries are self-contained and require no additional dependencies.
 
