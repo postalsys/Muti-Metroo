@@ -126,17 +126,26 @@ func (w *Wizard) Run() (*Result, error) {
 		return nil, fmt.Errorf("failed to initialize agent identity: %w", err)
 	}
 
+	// Initialize E2E encryption keypair
+	keypair, created, err := identity.LoadOrCreateKeypair(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize E2E encryption keypair: %w", err)
+	}
+	if created {
+		fmt.Println("\n[OK] Generated new E2E encryption keypair")
+	}
+
 	// Write configuration file
 	if err := w.writeConfig(cfg, configPath); err != nil {
 		return nil, err
 	}
 
 	// Print summary
-	w.printSummary(agentID, configPath, cfg)
+	w.printSummary(agentID, keypair, configPath, cfg)
 
-	// Step 11: Service installation (only if root/admin on supported platforms)
+	// Step 11: Service installation (on supported platforms)
 	var serviceInstalled bool
-	if service.IsRoot() && service.IsSupported() {
+	if service.IsSupported() {
 		serviceInstalled, err = w.askServiceInstallation(configPath)
 		if err != nil {
 			return nil, err
@@ -1344,7 +1353,7 @@ func (w *Wizard) writeConfig(cfg *config.Config, path string) error {
 	return nil
 }
 
-func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *config.Config) {
+func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypair, configPath string, cfg *config.Config) {
 	style := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("42"))
@@ -1361,13 +1370,14 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 
 	// Show display name if set, otherwise show agent ID
 	if cfg.Agent.DisplayName != "" {
-		fmt.Printf("  Display Name: %s\n", cfg.Agent.DisplayName)
-		fmt.Printf("  Agent ID:     %s\n", agentID.String())
+		fmt.Printf("  Display Name:   %s\n", cfg.Agent.DisplayName)
+		fmt.Printf("  Agent ID:       %s\n", agentID.String())
 	} else {
-		fmt.Printf("  Agent ID:     %s\n", agentID.String())
+		fmt.Printf("  Agent ID:       %s\n", agentID.String())
 	}
-	fmt.Printf("  Config file:  %s\n", configPath)
-	fmt.Printf("  Data dir:     %s\n", cfg.Agent.DataDir)
+	fmt.Printf("  E2E Public Key: %s\n", keypair.PublicKeyString())
+	fmt.Printf("  Config file:    %s\n", configPath)
+	fmt.Printf("  Data dir:       %s\n", cfg.Agent.DataDir)
 	fmt.Println()
 
 	if len(cfg.Listeners) > 0 {
@@ -1413,13 +1423,62 @@ func (w *Wizard) printSummary(agentID identity.AgentID, configPath string, cfg *
 func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 	var installService bool
 	var platformName string
+	var privilegeCmd string
 
 	switch runtime.GOOS {
 	case "linux":
 		platformName = "systemd service"
+		privilegeCmd = "sudo"
+	case "darwin":
+		platformName = "launchd service"
+		privilegeCmd = "sudo"
 	case "windows":
 		platformName = "Windows service"
+		privilegeCmd = "Run as Administrator"
 	default:
+		return false, nil
+	}
+
+	// Get absolute path for config
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to get absolute config path: %w", err)
+	}
+
+	// If not running as root/admin, show instructions instead
+	if !service.IsRoot() {
+		var showInstructions bool
+
+		form := huh.NewForm(
+			huh.NewGroup(
+				huh.NewNote().
+					Title("Service Installation").
+					Description(fmt.Sprintf("To install as a %s, elevated privileges are required.\nYou can run the service install command later with %s.", platformName, privilegeCmd)),
+
+				huh.NewConfirm().
+					Title("Show installation command?").
+					Description("Display the command to install the service").
+					Value(&showInstructions),
+			),
+		).WithTheme(w.theme)
+
+		if err := form.Run(); err != nil {
+			return false, err
+		}
+
+		if showInstructions {
+			fmt.Println()
+			fmt.Println("To install as a service, run:")
+			switch runtime.GOOS {
+			case "linux", "darwin":
+				fmt.Printf("  sudo muti-metroo service install -c %s\n", absConfigPath)
+			case "windows":
+				fmt.Printf("  muti-metroo service install -c %s\n", absConfigPath)
+				fmt.Println("  (Run this command as Administrator)")
+			}
+			fmt.Println()
+		}
+
 		return false, nil
 	}
 
@@ -1442,12 +1501,6 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 
 	if !installService {
 		return false, nil
-	}
-
-	// Get absolute path for config
-	absConfigPath, err := filepath.Abs(configPath)
-	if err != nil {
-		return false, fmt.Errorf("failed to get absolute config path: %w", err)
 	}
 
 	cfg := service.DefaultConfig(absConfigPath)
@@ -1474,13 +1527,20 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 		fmt.Println("  systemctl status muti-metroo    # Check status")
 		fmt.Println("  journalctl -u muti-metroo -f    # View logs")
 		fmt.Println("  systemctl restart muti-metroo   # Restart service")
-		fmt.Println("  muti-metroo uninstall           # Remove service")
+		fmt.Println("  muti-metroo service uninstall   # Remove service")
+	case "darwin":
+		fmt.Println("\nUseful commands:")
+		fmt.Println("  sudo launchctl list | grep muti   # Check if running")
+		fmt.Println("  tail -f /var/log/muti-metroo.log  # View logs")
+		fmt.Println("  sudo launchctl stop com.muti-metroo   # Stop service")
+		fmt.Println("  sudo launchctl start com.muti-metroo  # Start service")
+		fmt.Println("  muti-metroo service uninstall   # Remove service")
 	case "windows":
 		fmt.Println("\nUseful commands:")
 		fmt.Println("  sc query muti-metroo            # Check status")
 		fmt.Println("  net start muti-metroo           # Start service")
 		fmt.Println("  net stop muti-metroo            # Stop service")
-		fmt.Println("  muti-metroo uninstall           # Remove service")
+		fmt.Println("  muti-metroo service uninstall   # Remove service")
 	}
 	fmt.Println()
 
