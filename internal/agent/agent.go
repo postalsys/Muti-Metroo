@@ -128,9 +128,25 @@ type Agent struct {
 // New creates a new agent with the given configuration.
 func New(cfg *config.Config) (*Agent, error) {
 	// Load or create agent identity
-	agentID, _, err := identity.LoadOrCreate(cfg.Agent.DataDir)
-	if err != nil {
-		return nil, fmt.Errorf("load identity: %w", err)
+	var agentID identity.AgentID
+	var err error
+
+	// If config specifies an explicit ID (not "auto"), use it
+	if cfg.Agent.ID != "" && cfg.Agent.ID != "auto" {
+		agentID, err = identity.ParseAgentID(cfg.Agent.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse agent ID from config: %w", err)
+		}
+		// Store the config ID to data directory for consistency
+		if err := agentID.Store(cfg.Agent.DataDir); err != nil {
+			return nil, fmt.Errorf("store agent ID: %w", err)
+		}
+	} else {
+		// Auto-generate or load from data directory
+		agentID, _, err = identity.LoadOrCreate(cfg.Agent.DataDir)
+		if err != nil {
+			return nil, fmt.Errorf("load identity: %w", err)
+		}
 	}
 
 	// Load or create X25519 keypair for E2E encryption
@@ -823,6 +839,7 @@ func (a *Agent) TriggerRouteAdvertise() {
 
 // routeAdvertiseLoop periodically announces local routes to peers.
 // Also responds to manual triggers for immediate advertisement.
+// Cleans up stale routes that haven't been refreshed within route_ttl.
 func (a *Agent) routeAdvertiseLoop() {
 	defer a.wg.Done()
 	defer recovery.RecoverWithLog(a.logger, "routeAdvertiseLoop")
@@ -832,17 +849,31 @@ func (a *Agent) routeAdvertiseLoop() {
 		interval = 2 * time.Minute // Default if not configured
 	}
 
+	// Route TTL for cleanup (use config value or default to 5x advertise interval)
+	routeTTL := a.cfg.Routing.RouteTTL
+	if routeTTL <= 0 {
+		routeTTL = interval * 5
+	}
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	a.logger.Debug("route advertise loop started",
-		"interval", interval)
+		"interval", interval,
+		"route_ttl", routeTTL)
 
 	for {
 		select {
 		case <-a.stopCh:
 			return
 		case <-ticker.C:
+			// Clean up stale routes before advertising
+			if removed := a.routeMgr.CleanupStaleRoutes(routeTTL); removed > 0 {
+				a.logger.Debug("cleaned up stale routes",
+					"removed", removed,
+					"ttl", routeTTL)
+			}
+
 			if a.cfg.Exit.Enabled {
 				a.flooder.AnnounceLocalRoutes()
 				a.logger.Debug("periodic route advertisement sent")
@@ -858,6 +889,7 @@ func (a *Agent) routeAdvertiseLoop() {
 
 // nodeInfoAdvertiseLoop periodically announces local node info to peers.
 // All nodes advertise their info, not just exit nodes.
+// Also cleans up stale node info from agents that haven't advertised recently.
 func (a *Agent) nodeInfoAdvertiseLoop() {
 	defer a.wg.Done()
 	defer recovery.RecoverWithLog(a.logger, "nodeInfoAdvertiseLoop")
@@ -871,17 +903,28 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 		interval = 2 * time.Minute // Default if not configured
 	}
 
+	// Node info TTL is 5x the advertise interval (gives agents time to miss a few advertisements)
+	nodeInfoTTL := interval * 5
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	a.logger.Debug("node info advertise loop started",
-		"interval", interval)
+		"interval", interval,
+		"node_info_ttl", nodeInfoTTL)
 
 	for {
 		select {
 		case <-a.stopCh:
 			return
 		case <-ticker.C:
+			// Clean up stale node info before advertising
+			if removed := a.routeMgr.CleanupStaleNodeInfo(nodeInfoTTL); removed > 0 {
+				a.logger.Debug("cleaned up stale node info entries",
+					"removed", removed,
+					"ttl", nodeInfoTTL)
+			}
+
 			// Collect and announce local node info with current peer connections
 			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
 			a.flooder.AnnounceLocalNodeInfo(info)

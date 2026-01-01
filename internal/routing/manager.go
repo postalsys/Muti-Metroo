@@ -449,3 +449,34 @@ func (m *Manager) Size() int {
 func (m *Manager) TotalRoutes() int {
 	return m.table.TotalRoutes()
 }
+
+// CleanupStaleNodeInfo removes node info entries that haven't been updated
+// within the specified maxAge duration. Returns the number of entries removed.
+func (m *Manager) CleanupStaleNodeInfo(maxAge time.Duration) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	removed := 0
+
+	for agentID, entry := range m.nodeInfos {
+		// Don't remove our own node info
+		if agentID == m.localID {
+			continue
+		}
+
+		if now.Sub(entry.LastUpdate) > maxAge {
+			delete(m.nodeInfos, agentID)
+			delete(m.displayNames, agentID)
+			removed++
+		}
+	}
+
+	return removed
+}
+
+// CleanupStaleRoutes removes routes that haven't been updated within maxAge.
+// Local routes are never removed. Returns the number of routes removed.
+func (m *Manager) CleanupStaleRoutes(maxAge time.Duration) int {
+	return m.table.CleanupStaleRoutes(maxAge)
+}

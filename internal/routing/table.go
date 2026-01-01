@@ -6,6 +6,7 @@ import (
 	"net"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/postalsys/muti-metroo/internal/identity"
 )
@@ -29,6 +30,9 @@ type Route struct {
 
 	// Sequence is used for route versioning
 	Sequence uint64
+
+	// LastUpdate is when this route was last added or refreshed
+	LastUpdate time.Time
 }
 
 // String returns a human-readable representation of the route.
@@ -45,6 +49,7 @@ func (r *Route) Clone() *Route {
 		OriginAgent: r.OriginAgent,
 		Metric:      r.Metric,
 		Sequence:    r.Sequence,
+		LastUpdate:  r.LastUpdate,
 	}
 	copy(clone.Network.IP, r.Network.IP)
 	copy(clone.Network.Mask, r.Network.Mask)
@@ -89,6 +94,7 @@ func (t *Table) AddRoute(route *Route) bool {
 	}
 
 	key := route.Network.String()
+	now := time.Now()
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -100,7 +106,9 @@ func (t *Table) AddRoute(route *Route) bool {
 			// Update if newer sequence or better metric
 			if route.Sequence > r.Sequence ||
 				(route.Sequence == r.Sequence && route.Metric < r.Metric) {
-				t.routes[key][i] = route.Clone()
+				cloned := route.Clone()
+				cloned.LastUpdate = now
+				t.routes[key][i] = cloned
 				t.sortRoutes(key)
 				return true
 			}
@@ -109,7 +117,9 @@ func (t *Table) AddRoute(route *Route) bool {
 	}
 
 	// New route from this origin
-	t.routes[key] = append(t.routes[key], route.Clone())
+	cloned := route.Clone()
+	cloned.LastUpdate = now
+	t.routes[key] = append(t.routes[key], cloned)
 	t.sortRoutes(key)
 	return true
 }
@@ -375,4 +385,41 @@ func MustParseCIDR(cidr string) *net.IPNet {
 		panic(err)
 	}
 	return network
+}
+
+// CleanupStaleRoutes removes routes that haven't been updated within maxAge.
+// Local routes (where OriginAgent == localID) are never removed.
+// Returns the number of routes removed.
+func (t *Table) CleanupStaleRoutes(maxAge time.Duration) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now()
+	removed := 0
+
+	for key, routes := range t.routes {
+		var kept []*Route
+		for _, r := range routes {
+			// Never remove local routes
+			if r.OriginAgent == t.localID {
+				kept = append(kept, r)
+				continue
+			}
+
+			// Keep routes that are still fresh
+			if now.Sub(r.LastUpdate) <= maxAge {
+				kept = append(kept, r)
+			} else {
+				removed++
+			}
+		}
+
+		if len(kept) > 0 {
+			t.routes[key] = kept
+		} else {
+			delete(t.routes, key)
+		}
+	}
+
+	return removed
 }
