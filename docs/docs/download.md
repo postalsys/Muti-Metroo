@@ -12,7 +12,7 @@ Download the latest Muti Metroo binary for your platform. All binaries are self-
 
 ## macOS
 
-### Apple Silicon (M1/M2/M3)
+### Apple Silicon (M-series)
 
 Download the installer package for the easiest installation experience:
 
