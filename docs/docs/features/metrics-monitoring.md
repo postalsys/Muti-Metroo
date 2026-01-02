@@ -274,20 +274,55 @@ groups:
 
 ## Grafana Dashboard
 
-Example Grafana dashboard JSON available in the repository.
+A pre-built Grafana dashboard is available for visualizing Muti Metroo metrics.
 
-### Key Panels
+**[Download Grafana Dashboard JSON](/grafana-dashboard.json)**
 
-1. **Overview**: Peer count, stream count, route count
-2. **Throughput**: Bytes/sec sent and received
-3. **Latency**: Stream open, keepalive RTT, DNS
-4. **Errors**: Stream errors, auth failures, disconnects
-5. **Resources**: Memory usage, goroutine count
+### Import Instructions
+
+1. Open Grafana and navigate to **Dashboards** > **Import**
+2. Click **Upload JSON file** and select the downloaded file
+3. Select your Prometheus data source
+4. Click **Import**
+
+### Dashboard Panels
+
+The dashboard includes the following sections:
+
+**Overview Row:**
+- Connected Peers (gauge)
+- Active Streams (gauge)
+- Routes in Table (gauge)
+- SOCKS5 Connections (gauge)
+- Exit Connections (gauge)
+- Total Data Sent (stat)
+
+**Throughput Row:**
+- Data Throughput - bytes/sec sent and received over time
+- Frame Rate by Type - frames/sec by frame type
+
+**Latency Row:**
+- Stream Open Latency - P50, P95, P99 percentiles
+- Keepalive RTT - round-trip time percentiles
+- DNS Query Latency - DNS resolution time percentiles
+
+**Errors Row:**
+- Stream Errors by Type - error rate over time
+- Peer Disconnects by Reason - disconnect causes
+- Auth & Exit Errors - authentication and exit node failures
+
+**Connections Row:**
+- Peer Connections - inbound/outbound by transport type
+- Streams Over Time - opened vs closed stream rate
+
+**RPC Row:**
+- RPC Calls by Result - success, failed, rejected, auth_failed
+- RPC Duration - command execution time percentiles
 
 ### Dashboard Variables
 
 - `$instance`: Filter by Prometheus instance
-- `$job`: Filter by job name
+- `$job`: Filter by Prometheus job name
 
 ## Health Endpoints
 
