@@ -23,20 +23,93 @@ All metrics are prefixed with `muti_metroo_`.
 
 ## Prometheus Setup
 
-Configure Prometheus to scrape metrics from your local Muti Metroo agent.
+Configure Prometheus to scrape metrics from your Muti Metroo agents.
 
-### prometheus.yml
+### Scraping Remote Agents Through the Mesh
+
+Remote agents in the mesh expose their metrics through the local agent's HTTP API at `/metrics/{agent-id}`. This allows you to collect metrics from all agents without direct network access to each one.
+
+First, get the list of known agents:
+
+```bash
+curl http://localhost:8080/agents
+```
+
+Then configure Prometheus to scrape each agent through the local agent:
 
 ```yaml
+# prometheus.yml
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'muti-metroo'
+  # Local agent metrics
+  - job_name: 'muti-metroo-local'
     static_configs:
       - targets: ['localhost:8080']
+        labels:
+          agent: 'local'
     metrics_path: /metrics
+
+  # Remote agent metrics (through local agent)
+  - job_name: 'muti-metroo-remote'
+    static_configs:
+      - targets: ['localhost:8080']
+        labels:
+          agent: 'abc123def456'  # Remote agent ID
+    metrics_path: /metrics/abc123def456
+
+  # Add more remote agents as needed
+  - job_name: 'muti-metroo-exit'
+    static_configs:
+      - targets: ['localhost:8080']
+        labels:
+          agent: 'def789abc012'
+    metrics_path: /metrics/def789abc012
+```
+
+:::tip
+Use the `agent` label to distinguish metrics from different agents in your queries and dashboards.
+:::
+
+### Using Relabeling for Multiple Agents
+
+For cleaner configuration with many agents, use relabeling:
+
+```yaml
+# prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Scrape all agents through local HTTP API
+  - job_name: 'muti-metroo'
+    static_configs:
+      # Local agent
+      - targets: ['localhost:8080']
+        labels:
+          __metrics_path__: /metrics
+          agent_id: 'local'
+          agent_name: 'ingress'
+
+      # Remote agents (replace with your agent IDs)
+      - targets: ['localhost:8080']
+        labels:
+          __metrics_path__: /metrics/abc123def456789
+          agent_id: 'abc123def456789'
+          agent_name: 'transit'
+
+      - targets: ['localhost:8080']
+        labels:
+          __metrics_path__: /metrics/def789012345abc
+          agent_id: 'def789012345abc'
+          agent_name: 'exit'
+
+    relabel_configs:
+      - source_labels: [__metrics_path__]
+        target_label: __metrics_path__
 ```
 
 ### Docker Compose with Prometheus
@@ -65,7 +138,7 @@ volumes:
   prometheus_data:
 ```
 
-When running Prometheus in Docker and the agent on the host, use `host.docker.internal` as the target:
+When running Prometheus in Docker and the agent on the host, use `host.docker.internal`:
 
 ```yaml
 # prometheus.yml for Docker
@@ -73,6 +146,18 @@ scrape_configs:
   - job_name: 'muti-metroo'
     static_configs:
       - targets: ['host.docker.internal:8080']
+        labels:
+          __metrics_path__: /metrics
+          agent_name: 'local'
+
+      - targets: ['host.docker.internal:8080']
+        labels:
+          __metrics_path__: /metrics/abc123def456789
+          agent_name: 'remote-exit'
+
+    relabel_configs:
+      - source_labels: [__metrics_path__]
+        target_label: __metrics_path__
 ```
 
 ### Verify Scraping
@@ -84,16 +169,19 @@ scrape_configs:
 
 2. Open Prometheus UI at http://localhost:9090
 
-3. Check targets are up: **Status** > **Targets**
+3. Check all targets are up: **Status** > **Targets**
 
-4. Query metrics:
+4. Query metrics across all agents:
    ```promql
+   # Peer count per agent
    muti_metroo_peers_connected
-   ```
 
-:::note
-Prometheus only scrapes the local agent's `/metrics` endpoint. Other agents in the mesh are not directly visible to Prometheus - each agent exposes only its own metrics.
-:::
+   # Total streams across all agents
+   sum(muti_metroo_streams_active)
+
+   # Filter by agent name
+   muti_metroo_peers_connected{agent_name="exit"}
+   ```
 
 ## Connection Metrics
 
