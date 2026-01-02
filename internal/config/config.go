@@ -15,6 +15,7 @@ import (
 // Config represents the complete agent configuration.
 type Config struct {
 	Agent        AgentConfig        `yaml:"agent"`
+	Protocol     ProtocolConfig     `yaml:"protocol"`
 	TLS          GlobalTLSConfig    `yaml:"tls"`
 	Listeners    []ListenerConfig   `yaml:"listeners"`
 	Peers        []PeerConfig       `yaml:"peers"`
@@ -27,6 +28,23 @@ type Config struct {
 	Control      ControlConfig      `yaml:"control"`
 	RPC          RPCConfig          `yaml:"rpc"`
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
+}
+
+// ProtocolConfig defines protocol identifiers used for transport negotiation.
+// These can be customized to blend with other traffic for OPSEC purposes.
+type ProtocolConfig struct {
+	// ALPN is the Application-Layer Protocol Negotiation identifier.
+	// Used for QUIC and TLS connections. Default: "muti-metroo/1"
+	// Set to empty string "" to use no custom ALPN (uses transport defaults like "h2").
+	ALPN string `yaml:"alpn"`
+
+	// HTTPHeader is the custom header name for HTTP/2 transport protocol identification.
+	// Default: "X-Muti-Metroo-Protocol". Set to empty string "" to disable custom header.
+	HTTPHeader string `yaml:"http_header"`
+
+	// WSSubprotocol is the WebSocket subprotocol identifier.
+	// Default: "muti-metroo/1". Set to empty string "" to disable subprotocol negotiation.
+	WSSubprotocol string `yaml:"ws_subprotocol"`
 }
 
 // GlobalTLSConfig defines global TLS settings shared across all connections.
@@ -310,6 +328,50 @@ type HTTPConfig struct {
 	Address      string        `yaml:"address"`
 	ReadTimeout  time.Duration `yaml:"read_timeout"`
 	WriteTimeout time.Duration `yaml:"write_timeout"`
+
+	// Minimal mode - only enable /health, /healthz, /ready endpoints.
+	// When true, overrides all other endpoint flags to false.
+	Minimal bool `yaml:"minimal"`
+
+	// Endpoint group controls. All default to true when http.enabled=true.
+	// Use pointer types to distinguish between "not set" (nil = use default) and "explicitly false".
+	// Disabled endpoints return 404 and log access attempts.
+	Metrics   *bool `yaml:"metrics"`    // /metrics - Prometheus metrics endpoint
+	Pprof     *bool `yaml:"pprof"`      // /debug/pprof/* - Go profiling endpoints
+	Dashboard *bool `yaml:"dashboard"`  // /ui/*, /api/* - Web dashboard and API
+	RemoteAPI *bool `yaml:"remote_api"` // /agents/*, /metrics/{id} - Distributed mesh APIs
+}
+
+// MetricsEnabled returns whether the /metrics endpoint is enabled.
+func (h HTTPConfig) MetricsEnabled() bool {
+	if h.Minimal {
+		return false
+	}
+	return h.Metrics == nil || *h.Metrics
+}
+
+// PprofEnabled returns whether the /debug/pprof/* endpoints are enabled.
+func (h HTTPConfig) PprofEnabled() bool {
+	if h.Minimal {
+		return false
+	}
+	return h.Pprof == nil || *h.Pprof
+}
+
+// DashboardEnabled returns whether the /ui/* and /api/* endpoints are enabled.
+func (h HTTPConfig) DashboardEnabled() bool {
+	if h.Minimal {
+		return false
+	}
+	return h.Dashboard == nil || *h.Dashboard
+}
+
+// RemoteAPIEnabled returns whether the /agents/* and /metrics/{id} endpoints are enabled.
+func (h HTTPConfig) RemoteAPIEnabled() bool {
+	if h.Minimal {
+		return false
+	}
+	return h.RemoteAPI == nil || *h.RemoteAPI
 }
 
 // ControlConfig defines control socket settings.
@@ -365,6 +427,11 @@ func Default() *Config {
 			DataDir:   "./data",
 			LogLevel:  "info",
 			LogFormat: "text",
+		},
+		Protocol: ProtocolConfig{
+			ALPN:          "muti-metroo/1",
+			HTTPHeader:    "X-Muti-Metroo-Protocol",
+			WSSubprotocol: "muti-metroo/1",
 		},
 		Listeners: []ListenerConfig{},
 		Peers:     []PeerConfig{},

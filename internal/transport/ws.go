@@ -64,9 +64,14 @@ func (t *WebSocketTransport) Dial(ctx context.Context, addr string, opts DialOpt
 		defer cancel()
 	}
 
-	// Build dial options
-	dialOpts := &websocket.DialOptions{
-		Subprotocols: []string{ALPNProtocol},
+	// Build dial options with configurable subprotocol
+	dialOpts := &websocket.DialOptions{}
+	wsSubprotocol := opts.WSSubprotocol
+	if wsSubprotocol == "" {
+		wsSubprotocol = DefaultWSSubprotocol
+	}
+	if wsSubprotocol != "" {
+		dialOpts.Subprotocols = []string{wsSubprotocol}
 	}
 
 	// Configure HTTP client for TLS and proxy
@@ -110,12 +115,19 @@ func (t *WebSocketTransport) Listen(addr string, opts ListenOptions) (Listener, 
 		path = wsDefaultPath
 	}
 
+	// Determine WebSocket subprotocol
+	wsSubprotocol := opts.WSSubprotocol
+	if wsSubprotocol == "" {
+		wsSubprotocol = DefaultWSSubprotocol
+	}
+
 	listener := &WebSocketListener{
-		addr:      addr,
-		path:      path,
-		tlsConfig: tlsConfig,
-		connCh:    make(chan *WebSocketPeerConn, 16),
-		closeCh:   make(chan struct{}),
+		addr:          addr,
+		path:          path,
+		tlsConfig:     tlsConfig,
+		wsSubprotocol: wsSubprotocol,
+		connCh:        make(chan *WebSocketPeerConn, 16),
+		closeCh:       make(chan struct{}),
 	}
 
 	// Start HTTP server
@@ -150,15 +162,16 @@ func (t *WebSocketTransport) Close() error {
 
 // WebSocketListener implements Listener for WebSocket.
 type WebSocketListener struct {
-	addr      string
-	path      string
-	tlsConfig *tls.Config
-	server    *http.Server
-	netLn     net.Listener
-	connCh    chan *WebSocketPeerConn
-	closeCh   chan struct{}
-	closed    atomic.Bool
-	mu        sync.Mutex
+	addr          string
+	path          string
+	tlsConfig     *tls.Config
+	wsSubprotocol string // WebSocket subprotocol (empty to disable)
+	server        *http.Server
+	netLn         net.Listener
+	connCh        chan *WebSocketPeerConn
+	closeCh       chan struct{}
+	closed        atomic.Bool
+	mu            sync.Mutex
 }
 
 // start initializes the HTTP server.
@@ -199,10 +212,12 @@ func (l *WebSocketListener) handleWebSocket(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Accept WebSocket connection
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		Subprotocols: []string{ALPNProtocol},
-	})
+	// Accept WebSocket connection with configurable subprotocol
+	acceptOpts := &websocket.AcceptOptions{}
+	if l.wsSubprotocol != "" {
+		acceptOpts.Subprotocols = []string{l.wsSubprotocol}
+	}
+	conn, err := websocket.Accept(w, r, acceptOpts)
 	if err != nil {
 		return
 	}

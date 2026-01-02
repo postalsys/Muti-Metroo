@@ -115,7 +115,19 @@ func (t *H2Transport) Dial(ctx context.Context, addr string, opts DialOptions) (
 	}
 
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.Header.Set("X-Muti-Metroo-Protocol", ALPNProtocol)
+
+	// Set custom protocol header if configured (empty string disables)
+	httpHeader := opts.HTTPHeader
+	if httpHeader == "" {
+		httpHeader = DefaultHTTPHeader
+	}
+	alpnValue := opts.ALPNProtocol
+	if alpnValue == "" {
+		alpnValue = DefaultALPNProtocol
+	}
+	if httpHeader != "" {
+		req.Header.Set(httpHeader, alpnValue)
+	}
 
 	// Execute request with dial timeout
 	// We use a goroutine to monitor the dial timeout context
@@ -198,12 +210,24 @@ func (t *H2Transport) Listen(addr string, opts ListenOptions) (Listener, error) 
 		path = h2DefaultPath
 	}
 
+	// Determine protocol identifiers
+	httpHeader := opts.HTTPHeader
+	if httpHeader == "" {
+		httpHeader = DefaultHTTPHeader
+	}
+	alpnProtocol := opts.ALPNProtocol
+	if alpnProtocol == "" {
+		alpnProtocol = DefaultALPNProtocol
+	}
+
 	listener := &H2Listener{
-		addr:      addr,
-		path:      path,
-		tlsConfig: tlsConfig,
-		connCh:    make(chan *H2PeerConn, 16),
-		closeCh:   make(chan struct{}),
+		addr:         addr,
+		path:         path,
+		tlsConfig:    tlsConfig,
+		httpHeader:   httpHeader,
+		alpnProtocol: alpnProtocol,
+		connCh:       make(chan *H2PeerConn, 16),
+		closeCh:      make(chan struct{}),
 	}
 
 	// Start HTTP/2 server
@@ -238,15 +262,17 @@ func (t *H2Transport) Close() error {
 
 // H2Listener implements Listener for HTTP/2.
 type H2Listener struct {
-	addr      string
-	path      string
-	tlsConfig *tls.Config
-	server    *http.Server
-	netLn     net.Listener
-	connCh    chan *H2PeerConn
-	closeCh   chan struct{}
-	closed    atomic.Bool
-	mu        sync.Mutex
+	addr         string
+	path         string
+	tlsConfig    *tls.Config
+	httpHeader   string // Custom protocol header name (empty to disable)
+	alpnProtocol string // Protocol identifier value
+	server       *http.Server
+	netLn        net.Listener
+	connCh       chan *H2PeerConn
+	closeCh      chan struct{}
+	closed       atomic.Bool
+	mu           sync.Mutex
 }
 
 // start initializes the HTTP/2 server.
@@ -292,11 +318,13 @@ func (l *H2Listener) handleH2Stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check protocol header
-	proto := r.Header.Get("X-Muti-Metroo-Protocol")
-	if proto != "" && proto != ALPNProtocol {
-		http.Error(w, "unsupported protocol", http.StatusBadRequest)
-		return
+	// Check protocol header (only if configured)
+	if l.httpHeader != "" {
+		proto := r.Header.Get(l.httpHeader)
+		if proto != "" && proto != l.alpnProtocol {
+			http.Error(w, "unsupported protocol", http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Enable streaming response
@@ -307,7 +335,10 @@ func (l *H2Listener) handleH2Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("X-Muti-Metroo-Protocol", ALPNProtocol)
+	// Set protocol header in response (only if configured)
+	if l.httpHeader != "" {
+		w.Header().Set(l.httpHeader, l.alpnProtocol)
+	}
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 

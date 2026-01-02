@@ -44,6 +44,12 @@ func (t *QUICTransport) Dial(ctx context.Context, addr string, opts DialOptions)
 	}
 	t.mu.Unlock()
 
+	// Determine ALPN protocol to use
+	alpn := opts.ALPNProtocol
+	if alpn == "" {
+		alpn = DefaultALPNProtocol
+	}
+
 	tlsConfig := opts.TLSConfig
 	if tlsConfig == nil {
 		if !opts.InsecureSkipVerify {
@@ -52,9 +58,13 @@ func (t *QUICTransport) Dial(ctx context.Context, addr string, opts DialOptions)
 		// Create insecure TLS config only when explicitly requested
 		tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
-			NextProtos:         []string{ALPNProtocol},
+			NextProtos:         []string{alpn},
 			MinVersion:         tls.VersionTLS13,
 		}
+	} else {
+		// Clone and set ALPN on provided config
+		tlsConfig = tlsConfig.Clone()
+		tlsConfig.NextProtos = []string{alpn}
 	}
 
 	quicConfig := &quic.Config{
@@ -96,11 +106,15 @@ func (t *QUICTransport) Listen(addr string, opts ListenOptions) (Listener, error
 		return nil, fmt.Errorf("TLS config required for QUIC listener")
 	}
 
-	// Ensure ALPN is set
-	if len(tlsConfig.NextProtos) == 0 {
-		tlsConfig = tlsConfig.Clone()
-		tlsConfig.NextProtos = []string{ALPNProtocol}
+	// Determine ALPN protocol to use
+	alpn := opts.ALPNProtocol
+	if alpn == "" {
+		alpn = DefaultALPNProtocol
 	}
+
+	// Clone and set ALPN
+	tlsConfig = tlsConfig.Clone()
+	tlsConfig.NextProtos = []string{alpn}
 
 	maxStreams := opts.MaxStreams
 	if maxStreams <= 0 {

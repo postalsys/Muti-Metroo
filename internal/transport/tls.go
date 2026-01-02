@@ -15,8 +15,19 @@ import (
 )
 
 const (
-	// ALPN protocol identifier for QUIC connections
-	ALPNProtocol = "muti-metroo/1"
+	// DefaultALPNProtocol is the default ALPN protocol identifier.
+	// This can be overridden via config for OPSEC purposes.
+	DefaultALPNProtocol = "muti-metroo/1"
+
+	// DefaultHTTPHeader is the default HTTP header for protocol identification.
+	DefaultHTTPHeader = "X-Muti-Metroo-Protocol"
+
+	// DefaultWSSubprotocol is the default WebSocket subprotocol.
+	DefaultWSSubprotocol = "muti-metroo/1"
+
+	// ALPNProtocol is an alias for DefaultALPNProtocol for backward compatibility.
+	// Deprecated: Use DefaultALPNProtocol instead.
+	ALPNProtocol = DefaultALPNProtocol
 )
 
 // LoadTLSConfig loads a TLS configuration from certificate and key files.

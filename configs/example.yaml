@@ -50,6 +50,29 @@ tls:
   mtls: true
 
 # ------------------------------------------------------------------------------
+# Protocol Identifiers (OPSEC Customization)
+# These identifiers appear in network traffic and can be customized for evasion
+# ------------------------------------------------------------------------------
+protocol:
+  # ALPN (Application-Layer Protocol Negotiation) for QUIC and TLS connections
+  # Default: "muti-metroo/1". Set to empty string "" to disable custom ALPN.
+  alpn: "muti-metroo/1"
+
+  # Custom HTTP header for HTTP/2 transport protocol identification
+  # Default: "X-Muti-Metroo-Protocol". Set to empty string "" to disable.
+  http_header: "X-Muti-Metroo-Protocol"
+
+  # WebSocket subprotocol identifier
+  # Default: "muti-metroo/1". Set to empty string "" to disable.
+  ws_subprotocol: "muti-metroo/1"
+
+# Example: Stealth configuration (disable all custom protocol identifiers)
+# protocol:
+#   alpn: ""
+#   http_header: ""
+#   ws_subprotocol: ""
+
+# ------------------------------------------------------------------------------
 # Transport Listeners
 # Listen for incoming peer connections
 # ------------------------------------------------------------------------------
@@ -194,6 +217,23 @@ http:
   address: ":8080"
   read_timeout: 10s
   write_timeout: 10s
+
+  # Minimal mode: only enable /health, /healthz, /ready endpoints
+  # When true, overrides all endpoint flags below to false
+  minimal: false
+
+  # Endpoint group controls (all default to true when http.enabled=true)
+  # Set to false to disable (returns 404 with debug logging)
+  metrics: true      # /metrics - Prometheus metrics endpoint
+  pprof: false       # /debug/pprof/* - Go profiling (disable in production)
+  dashboard: true    # /ui/*, /api/* - Web dashboard and visualization
+  remote_api: true   # /agents/*, /metrics/{id} - Distributed mesh APIs
+
+# Example: Minimal OPSEC configuration (health endpoints only)
+# http:
+#   enabled: true
+#   address: "127.0.0.1:8080"
+#   minimal: true
 
 # ------------------------------------------------------------------------------
 # Control Socket

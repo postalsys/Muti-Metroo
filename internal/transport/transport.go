@@ -111,6 +111,21 @@ type DialOptions struct {
 
 	// ProxyPassword is the proxy authentication password.
 	ProxyPassword string
+
+	// Protocol identifiers for OPSEC customization.
+	// Empty string disables the identifier.
+
+	// ALPNProtocol is the ALPN protocol identifier for QUIC/TLS.
+	// Default: "muti-metroo/1". Empty string uses transport default.
+	ALPNProtocol string
+
+	// HTTPHeader is the custom header name for HTTP/2 transport.
+	// Default: "X-Muti-Metroo-Protocol". Empty string disables custom header.
+	HTTPHeader string
+
+	// WSSubprotocol is the WebSocket subprotocol identifier.
+	// Default: "muti-metroo/1". Empty string disables subprotocol.
+	WSSubprotocol string
 }
 
 // ListenOptions contains options for creating a listener.
@@ -128,6 +143,21 @@ type ListenOptions struct {
 	// Use this when the agent is behind a reverse proxy that handles TLS termination.
 	// WARNING: Only use in trusted network environments (e.g., localhost or internal network).
 	PlainText bool
+
+	// Protocol identifiers for OPSEC customization.
+	// Empty string disables the identifier.
+
+	// ALPNProtocol is the ALPN protocol identifier for QUIC/TLS.
+	// Default: "muti-metroo/1". Empty string uses transport default.
+	ALPNProtocol string
+
+	// HTTPHeader is the custom header name for HTTP/2 transport.
+	// Default: "X-Muti-Metroo-Protocol". Empty string disables custom header.
+	HTTPHeader string
+
+	// WSSubprotocol is the WebSocket subprotocol identifier.
+	// Default: "muti-metroo/1". Empty string disables subprotocol.
+	WSSubprotocol string
 }
 
 // DefaultDialOptions returns DialOptions with sensible defaults.

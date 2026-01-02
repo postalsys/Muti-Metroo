@@ -185,14 +185,33 @@ type ServerConfig struct {
 
 	// WriteTimeout for HTTP writes
 	WriteTimeout time.Duration
+
+	// Endpoint group toggles. Disabled endpoints return 404 with logging.
+	// /health, /healthz, /ready are always enabled.
+
+	// EnableMetrics enables the /metrics endpoint
+	EnableMetrics bool
+
+	// EnablePprof enables the /debug/pprof/* endpoints
+	EnablePprof bool
+
+	// EnableDashboard enables the /ui/*, /api/* endpoints
+	EnableDashboard bool
+
+	// EnableRemoteAPI enables the /agents/*, /metrics/{id}, /routes/advertise endpoints
+	EnableRemoteAPI bool
 }
 
 // DefaultServerConfig returns sensible defaults.
 func DefaultServerConfig() ServerConfig {
 	return ServerConfig{
-		Address:      ":8080",
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Address:         ":8080",
+		ReadTimeout:     10 * time.Second,
+		WriteTimeout:    10 * time.Second,
+		EnableMetrics:   true,
+		EnablePprof:     true,
+		EnableDashboard: true,
+		EnableRemoteAPI: true,
 	}
 }
 
@@ -207,6 +226,15 @@ type Server struct {
 	running        atomic.Bool
 }
 
+// disabledHandler returns a handler that logs access attempts and returns 404.
+func disabledHandler(endpoint string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Log at debug level to avoid noise in production
+		// The caller can enable debug logging if they want to see access attempts
+		http.NotFound(w, r)
+	}
+}
+
 // NewServer creates a new health check server.
 func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	s := &Server{
@@ -215,53 +243,69 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	}
 
 	mux := http.NewServeMux()
+
+	// Health endpoints - always enabled (minimal footprint)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/ready", s.handleReady)
 
 	// Prometheus metrics endpoint (local)
-	mux.Handle("/metrics", promhttp.Handler())
+	if cfg.EnableMetrics {
+		mux.Handle("/metrics", promhttp.Handler())
+	} else {
+		mux.HandleFunc("/metrics", disabledHandler("metrics"))
+	}
 
-	// Remote metrics endpoint: /metrics/{agent-id}
-	mux.HandleFunc("/metrics/", s.handleRemoteMetrics)
+	// Remote API endpoints: /metrics/{id}, /agents, /agents/*, /routes/advertise
+	if cfg.EnableRemoteAPI {
+		mux.HandleFunc("/metrics/", s.handleRemoteMetrics)
+		mux.HandleFunc("/agents", s.handleListAgents)
+		mux.HandleFunc("/agents/", s.handleAgentInfo)
+		mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
+	} else {
+		mux.HandleFunc("/metrics/", disabledHandler("remote_metrics"))
+		mux.HandleFunc("/agents", disabledHandler("agents"))
+		mux.HandleFunc("/agents/", disabledHandler("agents"))
+		mux.HandleFunc("/routes/advertise", disabledHandler("routes_advertise"))
+	}
 
-	// Agent status endpoints
-	mux.HandleFunc("/agents", s.handleListAgents)
-	mux.HandleFunc("/agents/", s.handleAgentInfo)
+	// Dashboard API and Web UI endpoints
+	if cfg.EnableDashboard {
+		mux.HandleFunc("/api/topology", s.handleTopology)
+		mux.HandleFunc("/api/dashboard", s.handleDashboard)
+		mux.HandleFunc("/api/nodes", s.handleNodes)
 
-	// RPC endpoint: POST /agents/{agent-id}/rpc
-	// Note: The /agents/ handler will also handle RPC by checking for "rpc" suffix
-
-	// Route advertisement trigger endpoint
-	mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
-
-	// Dashboard API endpoints
-	mux.HandleFunc("/api/topology", s.handleTopology)
-	mux.HandleFunc("/api/dashboard", s.handleDashboard)
-	mux.HandleFunc("/api/nodes", s.handleNodes)
-
-	// Web UI static files
-	uiHandler := webui.Handler()
-	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
-		// Strip /ui prefix
-		path := strings.TrimPrefix(r.URL.Path, "/ui")
-		if path == "" || path == "/" {
-			path = "/index.html"
-		}
-		r.URL.Path = path
-		uiHandler.ServeHTTP(w, r)
-	})
-	// Redirect /ui to /ui/
-	mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
-	})
+		// Web UI static files
+		uiHandler := webui.Handler()
+		mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
+			// Strip /ui prefix
+			path := strings.TrimPrefix(r.URL.Path, "/ui")
+			if path == "" || path == "/" {
+				path = "/index.html"
+			}
+			r.URL.Path = path
+			uiHandler.ServeHTTP(w, r)
+		})
+		// Redirect /ui to /ui/
+		mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
+		})
+	} else {
+		mux.HandleFunc("/api/", disabledHandler("dashboard_api"))
+		mux.HandleFunc("/ui", disabledHandler("dashboard"))
+		mux.HandleFunc("/ui/", disabledHandler("dashboard"))
+	}
 
 	// pprof debug endpoints
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	if cfg.EnablePprof {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	} else {
+		mux.HandleFunc("/debug/", disabledHandler("pprof"))
+	}
 
 	s.server = &http.Server{
 		Addr:         cfg.Address,

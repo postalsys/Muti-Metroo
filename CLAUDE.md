@@ -187,16 +187,48 @@ An agent can serve multiple roles simultaneously:
 
 Example config in `configs/example.yaml`. Key sections:
 - `agent`: ID, data_dir, display_name, logging
+- `tls`: Global TLS settings (CA, cert, key, mTLS)
+- `protocol`: Protocol identifiers for OPSEC customization (ALPN, HTTP header, WS subprotocol)
 - `listeners`: Transport listeners (QUIC on :4433)
 - `peers`: Outbound peer connections with TLS config
 - `socks5`: Ingress proxy settings
 - `exit`: Exit node routes and DNS settings
 - `routing`: Advertisement intervals, node info interval, TTL, max hops
 - `limits`: Stream limits and buffer sizes
-- `http`: HTTP API server (health, metrics, dashboard, remote agent APIs)
+- `http`: HTTP API server with granular endpoint control (health, metrics, dashboard, remote APIs)
 - `control`: Unix socket for CLI commands
 - `rpc`: Remote command execution (disabled by default)
 - `file_transfer`: File upload/download (disabled by default)
+
+### Protocol Identifiers (OPSEC)
+
+The `protocol` section allows customizing identifiers that appear in network traffic:
+
+```yaml
+protocol:
+  alpn: "muti-metroo/1"                    # ALPN for QUIC/TLS (empty to disable)
+  http_header: "X-Muti-Metroo-Protocol"    # HTTP/2 header (empty to disable)
+  ws_subprotocol: "muti-metroo/1"          # WebSocket subprotocol (empty to disable)
+```
+
+For stealth deployments, set all values to empty strings to disable custom identifiers.
+
+### HTTP Endpoint Control
+
+The `http` section supports granular endpoint toggling:
+
+```yaml
+http:
+  enabled: true
+  address: ":8080"
+  minimal: false     # When true, only /health, /healthz, /ready are enabled
+  metrics: true      # /metrics endpoint
+  pprof: false       # /debug/pprof/* endpoints (disable in production)
+  dashboard: true    # /ui/*, /api/* endpoints
+  remote_api: true   # /agents/*, /metrics/{id} endpoints
+```
+
+Disabled endpoints return HTTP 404 and log access attempts at debug level.
 
 ## Key Implementation Details
 

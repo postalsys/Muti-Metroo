@@ -274,9 +274,13 @@ func (a *Agent) initComponents() error {
 	// Initialize HTTP server if enabled
 	if a.cfg.HTTP.Enabled {
 		healthCfg := health.ServerConfig{
-			Address:      a.cfg.HTTP.Address,
-			ReadTimeout:  a.cfg.HTTP.ReadTimeout,
-			WriteTimeout: a.cfg.HTTP.WriteTimeout,
+			Address:         a.cfg.HTTP.Address,
+			ReadTimeout:     a.cfg.HTTP.ReadTimeout,
+			WriteTimeout:    a.cfg.HTTP.WriteTimeout,
+			EnableMetrics:   a.cfg.HTTP.MetricsEnabled(),
+			EnablePprof:     a.cfg.HTTP.PprofEnabled(),
+			EnableDashboard: a.cfg.HTTP.DashboardEnabled(),
+			EnableRemoteAPI: a.cfg.HTTP.RemoteAPIEnabled(),
 		}
 		provider := &agentStatsProvider{agent: a}
 		a.healthServer = health.NewServer(healthCfg, provider)
@@ -491,12 +495,15 @@ func (a *Agent) startListener(cfg config.ListenerConfig) error {
 		return fmt.Errorf("unsupported transport type: %s", transportType)
 	}
 
-	// Start the listener
+	// Start the listener with protocol identifiers from config
 	listener, err := tr.Listen(cfg.Address, transport.ListenOptions{
-		TLSConfig:  tlsConfig,
-		Path:       cfg.Path, // Used by WebSocket and HTTP/2
-		MaxStreams: a.cfg.Limits.MaxStreamsTotal,
-		PlainText:  cfg.PlainText,
+		TLSConfig:     tlsConfig,
+		Path:          cfg.Path, // Used by WebSocket and HTTP/2
+		MaxStreams:    a.cfg.Limits.MaxStreamsTotal,
+		PlainText:     cfg.PlainText,
+		ALPNProtocol:  a.cfg.Protocol.ALPN,
+		HTTPHeader:    a.cfg.Protocol.HTTPHeader,
+		WSSubprotocol: a.cfg.Protocol.WSSubprotocol,
 	})
 	if err != nil {
 		return err
@@ -674,16 +681,25 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 	// In this case, the external server might use RSA, so skip EC validation for CA
 	isProxiedWS := cfg.Transport == "ws" && cfg.Proxy != ""
 
-	// Build DialOptions from peer config
+	// Determine ALPN protocol to use
+	alpn := a.cfg.Protocol.ALPN
+	if alpn == "" {
+		alpn = transport.DefaultALPNProtocol
+	}
+
+	// Build DialOptions from peer config with protocol identifiers
 	dialOpts := &transport.DialOptions{
 		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
 		Timeout:            a.cfg.Connections.Timeout,
+		ALPNProtocol:       a.cfg.Protocol.ALPN,
+		HTTPHeader:         a.cfg.Protocol.HTTPHeader,
+		WSSubprotocol:      a.cfg.Protocol.WSSubprotocol,
 	}
 
 	// Build TLS config for peer connection
 	tlsConfig := &tls.Config{
 		MinVersion:         tls.VersionTLS13,
-		NextProtos:         []string{transport.ALPNProtocol},
+		NextProtos:         []string{alpn},
 		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
 	}
 
