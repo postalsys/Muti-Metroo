@@ -31,6 +31,11 @@ open http://localhost:8080/ui/
 - **Real-time updates**: Live status of connections and routes
 - **Interactive**: Click nodes for details
 
+<div style={{textAlign: 'center', margin: '2rem 0'}}>
+  <img src="/img/dashboard-screenshot.png" alt="Muti Metroo Dashboard" style={{maxWidth: '100%', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'}} />
+  <p style={{marginTop: '0.5rem', fontStyle: 'italic', color: '#666'}}>Dashboard showing a 4-agent mesh topology</p>
+</div>
+
 ### Node Information
 
 - **Agent details**: ID, display name, IP address
