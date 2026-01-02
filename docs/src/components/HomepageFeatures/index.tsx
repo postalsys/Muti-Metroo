@@ -14,74 +14,74 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Multi-Transport Support',
-    image: '/img/mole-wiring.png',
-    imageAlt: 'Mole connecting wires',
-    link: '/concepts/transports',
+    title: 'End-to-End Encryption',
+    image: '/img/mole-inspecting.png',
+    imageAlt: 'Mole inspecting with magnifying glass',
+    link: '/security/e2e-encryption',
     description: (
       <>
-        Choose the right transport for your environment: QUIC for performance,
-        HTTP/2 for compatibility, or WebSocket for traversing restrictive firewalls.
+        X25519 key exchange with ChaCha20-Poly1305 encryption. Transit nodes
+        relay traffic they cannot decrypt - zero trust by design.
       </>
     ),
   },
   {
-    title: 'Userspace Operation',
-    image: '/img/mole-drilling.png',
-    imageAlt: 'Mole drilling through layers',
-    link: '/concepts/architecture',
-    description: (
-      <>
-        Runs entirely in userspace without kernel modules or root privileges.
-        Deploy anywhere - containers, VMs, or bare metal.
-      </>
-    ),
-  },
-  {
-    title: 'Mesh Networking',
+    title: 'Multi-Hop Mesh Routing',
     image: '/img/mole-plumbing.png',
     imageAlt: 'Mole connecting pipes',
     link: '/concepts/routing',
     description: (
       <>
-        Automatic multi-hop routing with flood-based route propagation.
-        Build arbitrary topologies: chains, trees, or full mesh.
+        Automatic route propagation across arbitrary topologies. Traffic flows
+        through chains, trees, or full mesh networks with CIDR-based exit routing.
       </>
     ),
   },
   {
-    title: 'SOCKS5 Proxy',
+    title: 'Flexible Transports',
+    image: '/img/mole-wiring.png',
+    imageAlt: 'Mole connecting wires',
+    link: '/concepts/transports',
+    description: (
+      <>
+        QUIC for performance, HTTP/2 for blending with HTTPS, or WebSocket for
+        traversing corporate proxies and restrictive firewalls.
+      </>
+    ),
+  },
+  {
+    title: 'No Root Required',
+    image: '/img/mole-drilling.png',
+    imageAlt: 'Mole drilling through layers',
+    link: '/concepts/architecture',
+    description: (
+      <>
+        Runs entirely in userspace as a single binary. No kernel modules,
+        no elevated privileges. Deploy on containers, VMs, or bare metal.
+      </>
+    ),
+  },
+  {
+    title: 'SOCKS5 Interface',
     image: '/img/mole-escalator.png',
     imageAlt: 'Mole on escalator',
     link: '/features/socks5-proxy',
     description: (
       <>
-        Standard SOCKS5 proxy interface for transparent application integration.
-        Works with browsers, SSH, curl, and any SOCKS5-aware app.
+        Standard SOCKS5 proxy for transparent integration. Route SSH, browsers,
+        curl, and any TCP application through the mesh.
       </>
     ),
   },
   {
-    title: 'TLS/mTLS Security',
-    image: '/img/mole-inspecting.png',
-    imageAlt: 'Mole inspecting with magnifying glass',
-    link: '/security/tls-mtls',
-    description: (
-      <>
-        All connections secured with TLS 1.3 and perfect forward secrecy.
-        Mutual TLS ensures only authorized agents can join.
-      </>
-    ),
-  },
-  {
-    title: 'Production Ready',
+    title: 'Remote Operations',
     image: '/img/mole-presenting.png',
     imageAlt: 'Mole presenting',
-    link: '/features/metrics-monitoring',
+    link: '/features/rpc',
     description: (
       <>
-        Built-in Prometheus metrics, health endpoints, web dashboard,
-        and systemd/Windows service support.
+        Execute commands and transfer files across the mesh. Built-in RPC with
+        command whitelisting and authenticated file upload/download.
       </>
     ),
   },

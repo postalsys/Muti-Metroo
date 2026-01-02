@@ -6,7 +6,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Muti Metroo',
-  tagline: 'Userspace mesh networking agent with multi-hop routing',
+  tagline: 'Self-hosted mesh tunneling with end-to-end encryption',
   favicon: 'img/favicon.ico',
 
   headTags: [

@@ -70,6 +70,13 @@
   margin-bottom: 0.5rem;
 }
 
+.useCaseLink {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
 .example {
   padding: 3rem 0;
 }

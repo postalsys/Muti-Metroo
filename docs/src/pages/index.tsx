@@ -54,31 +54,45 @@ function UseCases(): ReactNode {
           </div>
         </div>
         <div className="row">
-          <div className="col col--4">
+          <div className="col col--3">
             <div className={styles.useCase}>
-              <Heading as="h3">Corporate Network Access</Heading>
+              <Heading as="h3">Secure Remote Access</Heading>
               <p>
-                Access internal resources securely from anywhere. Create encrypted
-                tunnels through corporate firewalls without VPN infrastructure.
+                Access internal resources from anywhere without traditional VPN
+                infrastructure. End-to-end encryption ensures transit nodes
+                never see your traffic.
               </p>
             </div>
           </div>
-          <div className="col col--4">
+          <div className="col col--3">
             <div className={styles.useCase}>
               <Heading as="h3">Multi-Site Connectivity</Heading>
               <p>
-                Connect multiple data centers, offices, or cloud regions through
-                a unified mesh network with automatic failover.
+                Connect data centers, offices, and cloud regions through a
+                self-healing mesh. Automatic route propagation handles topology
+                changes.
               </p>
             </div>
           </div>
-          <div className="col col--4">
+          <div className="col col--3">
             <div className={styles.useCase}>
               <Heading as="h3">Firewall Traversal</Heading>
               <p>
-                Traverse restrictive firewalls using WebSocket or HTTP/2 transports
-                that work through corporate proxies.
+                Reach networks behind restrictive firewalls using HTTP/2 or
+                WebSocket transports that blend with normal HTTPS traffic.
               </p>
+            </div>
+          </div>
+          <div className="col col--3">
+            <div className={styles.useCase}>
+              <Heading as="h3">Red Team Operations</Heading>
+              <p>
+                Purpose-built for authorized security assessments. OPSEC-hardened
+                with configurable protocol identifiers and topology encryption.
+              </p>
+              <Link to="/security/red-team-operations" className={styles.useCaseLink}>
+                Learn more
+              </Link>
             </div>
           </div>
         </div>
@@ -138,8 +152,8 @@ export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
   return (
     <Layout
-      title="Userspace Mesh Networking"
-      description="Muti Metroo is a userspace mesh networking agent that creates virtual TCP tunnels across heterogeneous transport layers with multi-hop routing.">
+      title="Self-Hosted Mesh Tunneling"
+      description="Muti Metroo creates encrypted multi-hop TCP tunnels across your infrastructure. End-to-end encryption, multiple transports, no root required.">
       <HomepageHeader />
       <main>
         <HomepageFeatures />
