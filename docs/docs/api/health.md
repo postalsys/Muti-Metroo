@@ -23,9 +23,9 @@ OK
 
 ## GET /healthz
 
-Detailed health with statistics.
+Detailed health check with statistics.
 
-**Response:**
+**Response (200 OK):**
 ```json
 {
   "status": "healthy",
@@ -35,6 +35,14 @@ Detailed health with statistics.
   "route_count": 5,
   "socks5_running": true,
   "exit_handler_running": false
+}
+```
+
+**Response (503 Service Unavailable):**
+```json
+{
+  "status": "unavailable",
+  "running": false
 }
 ```
 

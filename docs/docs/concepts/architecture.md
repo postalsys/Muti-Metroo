@@ -98,12 +98,12 @@ Manages peer connections:
 
 ### Protocol Layer
 
-Binary frame encoding/decoding:
+Handles communication between agents:
 
-- **Frame Encoder**: Serializes frames with 14-byte header
+- **Frame Processing**: Encodes and decodes messages between peers
 - **Flood Routing**: Propagates route advertisements with loop prevention
-- **Handshake Handler**: PEER_HELLO/PEER_HELLO_ACK exchange
-- **Keepalive Handler**: Connection health monitoring
+- **Handshake**: Establishes peer connections with identity verification
+- **Keepalive**: Monitors connection health and detects failures
 
 ### Transport Layer
 

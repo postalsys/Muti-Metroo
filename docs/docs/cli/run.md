@@ -18,7 +18,7 @@ muti-metroo run -c <config-file>
 
 ## Flags
 
-- `-c, --config <file>`: Path to configuration file (required)
+- `-c, --config <file>`: Path to configuration file (default: `./config.yaml`)
 
 ## Examples
 

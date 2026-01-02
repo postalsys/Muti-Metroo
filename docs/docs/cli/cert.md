@@ -17,13 +17,13 @@ Certificate management commands.
 Generate Certificate Authority.
 
 ```bash
-muti-metroo cert ca -n <name> [-o <output-dir>] [--days <days>]
+muti-metroo cert ca -n <name> [-o <output-dir>] [-d <days>]
 ```
 
 **Flags:**
-- `-n, --name`: CA common name (required)
-- `-o, --output`: Output directory (default: ./certs)
-- `--days`: Validity period in days (default: 365)
+- `-n, --cn`: CA common name (default: "Muti Metroo CA")
+- `-o, --out`: Output directory (default: ./certs)
+- `-d, --days`: Validity period in days (default: 365)
 
 **Output:**
 - `ca.crt`: CA certificate
@@ -34,38 +34,40 @@ muti-metroo cert ca -n <name> [-o <output-dir>] [--days <days>]
 Generate agent/peer certificate.
 
 ```bash
-muti-metroo cert agent -n <name> [--dns <hostname>] [--ip <ip>] [-o <output>]
+muti-metroo cert agent -n <name> [--dns <hostnames>] [--ip <ips>] [-o <output>] [-d <days>]
 ```
 
 **Flags:**
-- `-n, --name`: Certificate common name (required)
-- `--dns`: DNS name (can be repeated)
-- `--ip`: IP address (can be repeated)
-- `-o, --output`: Output directory (default: ./certs)
-- `--ca-cert`: CA certificate path (default: ./certs/ca.crt)
+- `-n, --cn`: Certificate common name (required)
+- `--dns`: Additional DNS names (comma-separated)
+- `--ip`: Additional IP addresses (comma-separated)
+- `-o, --out`: Output directory (default: ./certs)
+- `-d, --days`: Validity period in days (default: 90)
+- `--ca`: CA certificate path (default: ./certs/ca.crt)
 - `--ca-key`: CA key path (default: ./certs/ca.key)
 
 **Output:**
-- `agent.crt`: Agent certificate
-- `agent.key`: Agent private key
+- `<name>.crt`: Agent certificate
+- `<name>.key`: Agent private key
 
 ### cert client
 
 Generate client-only certificate.
 
 ```bash
-muti-metroo cert client -n <name> [-o <output>]
+muti-metroo cert client -n <name> [-o <output>] [-d <days>]
 ```
 
 **Flags:**
-- `-n, --name`: Certificate common name (required)
-- `-o, --output`: Output directory (default: ./certs)
-- `--ca-cert`: CA certificate path
-- `--ca-key`: CA key path
+- `-n, --cn`: Certificate common name (required)
+- `-o, --out`: Output directory (default: ./certs)
+- `-d, --days`: Validity period in days (default: 90)
+- `--ca`: CA certificate path (default: ./certs/ca.crt)
+- `--ca-key`: CA key path (default: ./certs/ca.key)
 
 **Output:**
-- `client.crt`: Client certificate
-- `client.key`: Client private key
+- `<name>.crt`: Client certificate
+- `<name>.key`: Client private key
 
 ### cert info
 

@@ -16,15 +16,19 @@ List all known agents in the mesh.
 
 **Response:**
 ```json
-{
-  "agents": [
-    {
-      "id": "abc123...",
-      "display_name": "Agent 1",
-      "last_seen": "2025-01-01T00:00:00Z"
-    }
-  ]
-}
+[
+  {
+    "id": "abc123def456789012345678901234ab",
+    "short": "abc123de",
+    "display_name": "Agent 1",
+    "local": true
+  },
+  {
+    "id": "def456789012345678901234567890cd",
+    "short": "def45678",
+    "local": false
+  }
+]
 ```
 
 ## GET /agents/\{agent-id\}

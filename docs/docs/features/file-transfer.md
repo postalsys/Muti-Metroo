@@ -16,7 +16,7 @@ Upload and download files and directories to/from remote agents.
 ```yaml
 file_transfer:
   enabled: true
-  max_file_size: 0            # 0 = unlimited
+  max_file_size: 524288000    # 500 MB default, 0 = unlimited
   allowed_paths:
     - /tmp
     - /home/user/uploads

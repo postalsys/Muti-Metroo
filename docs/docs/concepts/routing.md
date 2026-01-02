@@ -87,11 +87,18 @@ Multiple agents can advertise the same route for redundancy:
 
 ## Viewing Routes
 
+### CLI
+
+```bash
+# View local routes via control socket
+muti-metroo routes -s ./data/control.sock
+```
+
 ### HTTP API
 
 ```bash
-# View local routing table
-curl http://localhost:8080/healthz | jq '.routes'
+# View local agent stats (peer count, route count)
+curl http://localhost:8080/healthz
 
 # View routes from specific agent
 curl http://localhost:8080/agents/{agent-id}/routes

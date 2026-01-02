@@ -85,6 +85,12 @@ tls:
   key: "./certs/agent.key"      # Private key
   mtls: false                   # Enable mutual TLS
 
+# Protocol identifiers (OPSEC customization)
+protocol:
+  alpn: "muti-metroo/1"         # ALPN for QUIC/TLS (empty to disable)
+  http_header: "X-Muti-Metroo-Protocol"  # HTTP header (empty to disable)
+  ws_subprotocol: "muti-metroo/1"        # WebSocket subprotocol (empty to disable)
+
 # Transport listeners
 listeners:
   - transport: quic             # quic, h2, ws
@@ -151,6 +157,11 @@ http:
   address: ":8080"
   read_timeout: 10s
   write_timeout: 10s
+  minimal: false               # When true, only health endpoints enabled
+  metrics: true                # /metrics endpoint
+  pprof: false                 # /debug/pprof/* endpoints
+  dashboard: true              # /ui/*, /api/* endpoints
+  remote_api: true             # /agents/*, /metrics/{id} endpoints
 
 # Control socket
 control:

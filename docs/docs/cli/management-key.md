@@ -110,5 +110,5 @@ Without the private key, agents see only opaque 128-bit agent IDs instead of mea
 
 ## Related
 
-- [Red Team Operations Guide](/docs/security/red-team-operations#management-key-encryption)
-- [Configuration Overview](/docs/configuration/overview)
+- [Red Team Operations Guide](/security/red-team-operations#management-key-encryption)
+- [Configuration Overview](/configuration/overview)

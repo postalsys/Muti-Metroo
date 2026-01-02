@@ -30,26 +30,36 @@ Dashboard overview data.
 ```json
 {
   "agent": {
-    "id": "abc123...",
+    "id": "abc123def456789012345678901234ab",
+    "short_id": "abc123de",
     "display_name": "My Agent",
-    "uptime": 3600
+    "is_local": true,
+    "is_connected": true
   },
   "stats": {
-    "peers": 3,
-    "streams": 42,
-    "routes": 5
+    "peer_count": 3,
+    "stream_count": 42,
+    "route_count": 5,
+    "socks5_running": true,
+    "exit_handler_running": false
   },
   "peers": [
     {
-      "id": "def456...",
-      "address": "192.168.1.20:4433",
-      "transport": "quic"
+      "id": "def456789012345678901234567890cd",
+      "short_id": "def45678",
+      "display_name": "Peer 1",
+      "state": "connected",
+      "rtt_ms": 15,
+      "is_dialer": true
     }
   ],
   "routes": [
     {
-      "cidr": "10.0.0.0/8",
-      "metric": 1
+      "network": "10.0.0.0/8",
+      "origin": "Exit Node",
+      "origin_id": "exit1234",
+      "hop_count": 2,
+      "path_display": ["My Agent", "Transit", "Exit Node"]
     }
   ]
 }
@@ -57,26 +67,50 @@ Dashboard overview data.
 
 ## GET /api/topology
 
-Metro map topology data.
+Metro map topology data for visualization.
 
 **Response:**
 ```json
 {
+  "local_agent": {
+    "id": "abc123def456789012345678901234ab",
+    "short_id": "abc123de",
+    "display_name": "My Agent",
+    "is_local": true,
+    "is_connected": true,
+    "hostname": "server1.example.com",
+    "os": "linux",
+    "arch": "amd64",
+    "version": "1.0.7",
+    "uptime_hours": 24.5,
+    "ip_addresses": ["192.168.1.10", "10.0.0.1"]
+  },
   "agents": [
     {
-      "id": "abc123...",
-      "name": "Agent 1",
-      "ip": "192.168.1.10",
+      "id": "abc123def456789012345678901234ab",
+      "short_id": "abc123de",
+      "display_name": "My Agent",
+      "is_local": true,
+      "is_connected": true
+    },
+    {
+      "id": "def456789012345678901234567890cd",
+      "short_id": "def45678",
+      "display_name": "Peer 1",
+      "is_local": false,
+      "is_connected": true,
+      "hostname": "peer1.example.com",
       "os": "linux",
       "arch": "amd64"
     }
   ],
   "connections": [
     {
-      "source": "abc123...",
-      "target": "def456...",
-      "transport": "quic",
-      "state": "connected"
+      "from_agent": "abc123de",
+      "to_agent": "def45678",
+      "is_direct": true,
+      "rtt_ms": 15,
+      "transport": "quic"
     }
   ]
 }
@@ -91,14 +125,30 @@ Detailed node information for all known agents.
 {
   "nodes": [
     {
-      "id": "abc123...",
+      "id": "abc123def456789012345678901234ab",
+      "short_id": "abc123de",
       "display_name": "Agent 1",
+      "is_local": true,
+      "is_connected": true,
       "hostname": "agent1.example.com",
-      "ip": "192.168.1.10",
       "os": "linux",
       "arch": "amd64",
-      "uptime": 3600,
-      "last_seen": "2025-01-01T00:00:00Z"
+      "version": "1.0.7",
+      "uptime_hours": 24.5,
+      "ip_addresses": ["192.168.1.10", "10.0.0.1"]
+    },
+    {
+      "id": "def456789012345678901234567890cd",
+      "short_id": "def45678",
+      "display_name": "Agent 2",
+      "is_local": false,
+      "is_connected": true,
+      "hostname": "agent2.example.com",
+      "os": "darwin",
+      "arch": "arm64",
+      "version": "1.0.7",
+      "uptime_hours": 12.0,
+      "ip_addresses": ["192.168.1.20"]
     }
   ]
 }

@@ -18,7 +18,7 @@ muti-metroo init -d <data-dir>
 
 ## Flags
 
-- `-d, --data-dir <dir>`: Data directory path (required)
+- `-d, --data-dir <dir>`: Data directory path (default: `./data`)
 
 ## Examples
 
