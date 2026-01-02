@@ -25,8 +25,8 @@ The project documentation is built with Docusaurus and lives in the `docs/` fold
 1. **New features**: Add documentation pages under `docs/docs/` in the appropriate category
 2. **CLI changes**: Update the CLI reference in `docs/docs/cli/`
 3. **API changes**: Update the HTTP API reference in `docs/docs/api/`
-4. **Configuration changes**: Update `docs/docs/getting-started/configuration.md`
-5. **Protocol changes**: Update `docs/docs/protocol/`
+4. **Configuration changes**: Update `docs/docs/configuration/`
+5. **Protocol/internals changes**: Update `Architecture.md` (Docusaurus is for end users only)
 
 To work with documentation locally:
 

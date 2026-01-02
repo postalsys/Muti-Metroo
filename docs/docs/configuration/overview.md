@@ -78,6 +78,13 @@ agent:
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text, json
 
+# Global TLS configuration (used by listeners and peers)
+tls:
+  ca: "./certs/ca.crt"          # CA certificate
+  cert: "./certs/agent.crt"     # Agent certificate
+  key: "./certs/agent.key"      # Private key
+  mtls: false                   # Enable mutual TLS
+
 # Transport listeners
 listeners:
   - transport: quic             # quic, h2, ws
@@ -115,6 +122,7 @@ exit:
 # Routing settings
 routing:
   advertise_interval: 2m
+  node_info_interval: 2m   # Node info advertisement interval
   route_ttl: 5m
   max_hops: 16
 
@@ -125,17 +133,24 @@ connections:
   reconnect:
     initial_delay: 1s
     max_delay: 60s
+    multiplier: 2.0        # Exponential backoff multiplier
+    jitter: 0.2            # Random jitter factor (0.0-1.0)
+    max_retries: 0         # 0 = infinite retries
 
 # Resource limits
 limits:
   max_streams_per_peer: 1000
   max_streams_total: 10000
+  max_pending_opens: 100     # Pending stream open requests
+  stream_open_timeout: 30s   # Timeout for stream open
   buffer_size: 262144
 
 # HTTP API
 http:
   enabled: true
   address: ":8080"
+  read_timeout: 10s
+  write_timeout: 10s
 
 # Control socket
 control:
@@ -147,10 +162,12 @@ rpc:
   enabled: false
   whitelist: []
   password_hash: ""
+  timeout: 60s               # Default command timeout
 
 # File transfer
 file_transfer:
   enabled: false
+  max_file_size: 524288000   # 500 MB default, 0 = unlimited
   allowed_paths: []
   password_hash: ""
 ```

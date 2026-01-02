@@ -680,9 +680,11 @@ All communication uses a consistent framing protocol:
 │  │ 0x03 │ PEERS              │ Request peer list                        │  │
 │  │ 0x04 │ ROUTES             │ Request route table                      │  │
 │  │ 0x05 │ RPC                │ Remote procedure call (shell command)    │  │
-│  │ 0x06 │ FILE_UPLOAD        │ Upload file to agent                     │  │
-│  │ 0x07 │ FILE_DOWNLOAD      │ Download file from agent                 │  │
 │  └──────┴────────────────────┴──────────────────────────────────────────┘  │
+│                                                                             │
+│  File Transfer: Uses special domain addresses in STREAM_OPEN:               │
+│  • "file:upload" - Upload file to remote agent                              │
+│  • "file:download" - Download file from remote agent                        │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1862,6 +1864,7 @@ The agent exposes Prometheus metrics at `/metrics` endpoint when health server i
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `exit_connections_active` | Gauge | - | Active exit connections |
+| `exit_connections_total` | Counter | - | Total exit connections |
 | `exit_dns_queries_total` | Counter | - | DNS queries made |
 | `exit_dns_latency_seconds` | Histogram | - | DNS resolution latency |
 | `exit_errors_total` | Counter | error_type | Exit handler errors |
@@ -1880,6 +1883,7 @@ The agent exposes Prometheus metrics at `/metrics` endpoint when health server i
 | `handshake_latency_seconds` | Histogram | - | Peer handshake latency |
 | `handshake_errors_total` | Counter | error_type | Handshake failures |
 | `keepalives_sent_total` | Counter | - | Keepalives sent |
+| `keepalives_received_total` | Counter | - | Keepalives received |
 | `keepalive_rtt_seconds` | Histogram | - | Keepalive RTT |
 
 ### 15.2 HTTP API Endpoints
