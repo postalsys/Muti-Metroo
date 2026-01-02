@@ -388,3 +388,204 @@ func TestWebSocketStream_StreamID(t *testing.T) {
 		t.Errorf("StreamID() = %d, want 42", stream.StreamID())
 	}
 }
+
+func TestWebSocketTransport_PlainText_Listen(t *testing.T) {
+	// Create plaintext WebSocket listener (no TLS)
+	transport := NewWebSocketTransport()
+	defer transport.Close()
+
+	listener, err := transport.Listen("127.0.0.1:0", ListenOptions{
+		Path:      "/mesh",
+		PlainText: true, // No TLS required
+	})
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	addr := listener.Addr().String()
+
+	// Accept in goroutine
+	var serverConn PeerConn
+	var acceptErr error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		serverConn, acceptErr = listener.Accept(ctx)
+	}()
+
+	// Dial using plain ws:// URL
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	wsURL := "ws://" + addr + "/mesh"
+	clientConn, err := transport.Dial(ctx, wsURL, DialOptions{
+		InsecureSkipVerify: true, // Still needed to build HTTP client
+		Timeout:            5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer clientConn.Close()
+
+	wg.Wait()
+
+	if acceptErr != nil {
+		t.Fatalf("Accept() error = %v", acceptErr)
+	}
+	defer serverConn.Close()
+
+	// Verify connection properties
+	if !clientConn.IsDialer() {
+		t.Error("Client IsDialer() = false")
+	}
+	if serverConn.IsDialer() {
+		t.Error("Server IsDialer() = true")
+	}
+	if clientConn.TransportType() != TransportWebSocket {
+		t.Errorf("TransportType() = %s, want %s", clientConn.TransportType(), TransportWebSocket)
+	}
+}
+
+func TestWebSocketTransport_PlainText_StreamBidirectional(t *testing.T) {
+	// Create plaintext WebSocket transport
+	transport := NewWebSocketTransport()
+	defer transport.Close()
+
+	listener, err := transport.Listen("127.0.0.1:0", ListenOptions{
+		Path:      "/mesh",
+		PlainText: true,
+	})
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	defer listener.Close()
+
+	addr := listener.Addr().String()
+
+	serverResult := make(chan error, 1)
+	clientConnected := make(chan struct{})
+
+	// Server goroutine - accepts connection, then accepts stream and echoes
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		conn, err := listener.Accept(ctx)
+		if err != nil {
+			serverResult <- err
+			return
+		}
+		defer conn.Close()
+
+		// Signal that connection is established
+		close(clientConnected)
+
+		// Accept stream
+		stream, err := conn.AcceptStream(ctx)
+		if err != nil {
+			serverResult <- err
+			return
+		}
+
+		// Read data and echo back
+		buf := make([]byte, 1024)
+		n, err := stream.Read(buf)
+		if err != nil {
+			serverResult <- err
+			return
+		}
+
+		_, err = stream.Write(buf[:n])
+		if err != nil {
+			serverResult <- err
+			return
+		}
+
+		serverResult <- nil
+	}()
+
+	// Client side - dial using plain ws://
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	wsURL := "ws://" + addr + "/mesh"
+	clientConn, err := transport.Dial(ctx, wsURL, DialOptions{
+		InsecureSkipVerify: true,
+		Timeout:            5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer clientConn.Close()
+
+	// Wait for server to accept
+	select {
+	case <-clientConnected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for server connection")
+	}
+
+	// Open stream
+	stream, err := clientConn.OpenStream(ctx)
+	if err != nil {
+		t.Fatalf("OpenStream() error = %v", err)
+	}
+
+	// Write test data
+	testData := []byte("Hello, Plain WebSocket!")
+	_, err = stream.Write(testData)
+	if err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	// Read response
+	buf := make([]byte, 1024)
+	n, err := stream.Read(buf)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+
+	if string(buf[:n]) != string(testData) {
+		t.Errorf("Received %q, want %q", string(buf[:n]), string(testData))
+	}
+
+	// Check server result
+	select {
+	case err := <-serverResult:
+		if err != nil {
+			t.Errorf("Server error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Timeout waiting for server result")
+	}
+}
+
+func TestWebSocketTransport_PlainText_RequiresWSTransport(t *testing.T) {
+	// Verify that plaintext mode requires explicit PlainText flag
+	transport := NewWebSocketTransport()
+	defer transport.Close()
+
+	// Without PlainText, nil TLS config should fail
+	_, err := transport.Listen("127.0.0.1:0", ListenOptions{
+		Path: "/mesh",
+		// PlainText: false (default)
+		// TLSConfig: nil
+	})
+	if err == nil {
+		t.Error("Listen() should fail without TLS config or PlainText flag")
+	}
+
+	// With PlainText flag, nil TLS config should succeed
+	listener, err := transport.Listen("127.0.0.1:0", ListenOptions{
+		Path:      "/mesh",
+		PlainText: true,
+	})
+	if err != nil {
+		t.Fatalf("Listen() with PlainText should succeed: %v", err)
+	}
+	listener.Close()
+}

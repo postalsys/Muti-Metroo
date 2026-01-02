@@ -101,8 +101,8 @@ func (t *WebSocketTransport) Listen(addr string, opts ListenOptions) (Listener, 
 	}
 
 	tlsConfig := opts.TLSConfig
-	if tlsConfig == nil {
-		return nil, fmt.Errorf("TLS config required for WebSocket listener")
+	if tlsConfig == nil && !opts.PlainText {
+		return nil, fmt.Errorf("TLS config required for WebSocket listener (use PlainText: true for reverse proxy mode)")
 	}
 
 	path := opts.Path

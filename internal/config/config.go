@@ -42,6 +42,7 @@ type ListenerConfig struct {
 	Transport string    `yaml:"transport"` // quic, h2, ws
 	Address   string    `yaml:"address"`   // listen address
 	Path      string    `yaml:"path"`      // HTTP path for h2/ws
+	PlainText bool      `yaml:"plaintext"` // Allow plain WebSocket without TLS (for reverse proxy)
 	TLS       TLSConfig `yaml:"tls"`
 }
 
@@ -493,6 +494,14 @@ func validateListener(l ListenerConfig) error {
 	}
 	if (l.Transport == "h2" || l.Transport == "ws") && l.Path == "" {
 		return fmt.Errorf("path is required for %s transport", l.Transport)
+	}
+	// PlainText mode is only supported for WebSocket (for reverse proxy scenarios)
+	if l.PlainText {
+		if l.Transport != "ws" {
+			return fmt.Errorf("plaintext mode is only supported for ws transport (for reverse proxy scenarios)")
+		}
+		// Skip TLS requirement for plaintext WebSocket
+		return nil
 	}
 	if !l.TLS.HasCert() || !l.TLS.HasKey() {
 		return fmt.Errorf("tls certificate and key are required (use cert/key paths or cert_pem/key_pem)")

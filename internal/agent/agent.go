@@ -457,10 +457,20 @@ func (a *Agent) Start() error {
 
 // startListener starts a listener for the given configuration.
 func (a *Agent) startListener(cfg config.ListenerConfig) error {
-	// Load or generate TLS config
-	tlsConfig, err := a.loadTLSConfig(cfg.TLS)
-	if err != nil {
-		return fmt.Errorf("load TLS config: %w", err)
+	// For plaintext WebSocket listeners (reverse proxy mode), skip TLS
+	var tlsConfig *tls.Config
+	if cfg.PlainText {
+		a.logger.Warn("starting plaintext WebSocket listener (no TLS)",
+			"address", cfg.Address,
+			"path", cfg.Path,
+			"warning", "only use behind trusted reverse proxy")
+	} else {
+		// Load or generate TLS config
+		var err error
+		tlsConfig, err = a.loadTLSConfig(cfg.TLS)
+		if err != nil {
+			return fmt.Errorf("load TLS config: %w", err)
+		}
 	}
 
 	// Select the appropriate transport based on config
@@ -479,6 +489,7 @@ func (a *Agent) startListener(cfg config.ListenerConfig) error {
 		TLSConfig:  tlsConfig,
 		Path:       cfg.Path, // Used by WebSocket and HTTP/2
 		MaxStreams: a.cfg.Limits.MaxStreamsTotal,
+		PlainText:  cfg.PlainText,
 	})
 	if err != nil {
 		return err

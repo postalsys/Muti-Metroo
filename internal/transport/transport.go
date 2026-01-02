@@ -123,6 +123,11 @@ type ListenOptions struct {
 
 	// MaxStreams is the maximum number of concurrent streams per connection.
 	MaxStreams int
+
+	// PlainText allows WebSocket listeners to accept connections without TLS.
+	// Use this when the agent is behind a reverse proxy that handles TLS termination.
+	// WARNING: Only use in trusted network environments (e.g., localhost or internal network).
+	PlainText bool
 }
 
 // DefaultDialOptions returns DialOptions with sensible defaults.

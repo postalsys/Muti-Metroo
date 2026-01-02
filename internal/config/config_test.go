@@ -761,3 +761,121 @@ listeners:
 		t.Errorf("KeyPEM should contain BEGIN PRIVATE KEY, got %q", tls.KeyPEM)
 	}
 }
+
+func TestListenerConfig_PlainTextWebSocket(t *testing.T) {
+	// Test valid plaintext WebSocket configuration (for reverse proxy mode)
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+listeners:
+  - transport: ws
+    address: "127.0.0.1:8080"
+    path: "/mesh"
+    plaintext: true
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if len(cfg.Listeners) != 1 {
+		t.Fatalf("len(Listeners) = %d, want 1", len(cfg.Listeners))
+	}
+	listener := cfg.Listeners[0]
+	if listener.Transport != "ws" {
+		t.Errorf("Transport = %s, want ws", listener.Transport)
+	}
+	if listener.Address != "127.0.0.1:8080" {
+		t.Errorf("Address = %s, want 127.0.0.1:8080", listener.Address)
+	}
+	if listener.Path != "/mesh" {
+		t.Errorf("Path = %s, want /mesh", listener.Path)
+	}
+	if !listener.PlainText {
+		t.Error("PlainText = false, want true")
+	}
+}
+
+func TestListenerConfig_PlainTextOnlyForWS(t *testing.T) {
+	// Test that plaintext is only allowed for ws transport
+	tests := []struct {
+		name      string
+		transport string
+		wantError bool
+	}{
+		{"ws plaintext allowed", "ws", false},
+		{"quic plaintext not allowed", "quic", true},
+		{"h2 plaintext not allowed", "h2", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yamlConfig := `
+agent:
+  data_dir: "./data"
+listeners:
+  - transport: ` + tt.transport + `
+    address: "127.0.0.1:8080"
+    path: "/mesh"
+    plaintext: true
+`
+
+			_, err := Parse([]byte(yamlConfig))
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("Parse() should fail for %s with plaintext", tt.transport)
+				} else if !strings.Contains(err.Error(), "plaintext mode is only supported for ws") {
+					t.Errorf("Error = %v, want to contain 'plaintext mode is only supported for ws'", err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Parse() error = %v, want nil", err)
+				}
+			}
+		})
+	}
+}
+
+func TestListenerConfig_PlainTextNoTLSRequired(t *testing.T) {
+	// Test that plaintext WS does not require TLS config
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+listeners:
+  - transport: ws
+    address: "127.0.0.1:8080"
+    path: "/mesh"
+    plaintext: true
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() error = %v, plaintext ws should not require TLS", err)
+	}
+
+	// Verify TLS is not set
+	if cfg.Listeners[0].TLS.HasCert() || cfg.Listeners[0].TLS.HasKey() {
+		t.Error("Plaintext WS should work without TLS config")
+	}
+}
+
+func TestListenerConfig_NonPlainTextRequiresTLS(t *testing.T) {
+	// Test that non-plaintext WS still requires TLS
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+listeners:
+  - transport: ws
+    address: "127.0.0.1:8080"
+    path: "/mesh"
+`
+
+	_, err := Parse([]byte(yamlConfig))
+	if err == nil {
+		t.Error("Parse() should fail for ws without plaintext or TLS")
+	}
+	if !strings.Contains(err.Error(), "tls certificate and key are required") {
+		t.Errorf("Error = %v, want to contain 'tls certificate and key are required'", err)
+	}
+}

@@ -178,6 +178,26 @@ peers:
       password: "${PROXY_PASS}"
 ```
 
+### Plain WebSocket Mode (Reverse Proxy)
+
+When deploying behind a reverse proxy that handles TLS termination (Nginx, Caddy, Apache), use the `plaintext` option to accept unencrypted WebSocket connections:
+
+```yaml
+listeners:
+  - transport: ws
+    address: "127.0.0.1:8080"  # Bind to localhost only
+    path: "/mesh"
+    plaintext: true            # No TLS - proxy handles encryption
+```
+
+**Security notes:**
+- Only use behind trusted reverse proxies
+- Bind to `127.0.0.1` to prevent direct external access
+- mTLS is not available in this mode
+- Peer authentication and end-to-end encryption still work
+
+See [Reverse Proxy Deployment](../deployment/reverse-proxy) for complete configuration examples.
+
 ### Firewall Considerations
 
 - Uses standard HTTP/HTTPS ports

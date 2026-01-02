@@ -66,6 +66,32 @@ listeners:
       key: "./certs/agent.key"
 ```
 
+### Plain WebSocket (Reverse Proxy)
+
+For deployments behind a reverse proxy that handles TLS termination:
+
+```yaml
+listeners:
+  - transport: ws
+    address: "127.0.0.1:8080"  # Bind to localhost only
+    path: "/mesh"
+    plaintext: true            # No TLS - proxy handles it
+```
+
+The `plaintext` option:
+- Accepts unencrypted WebSocket connections (`ws://`)
+- Only available for `ws` transport
+- Does not require TLS certificates
+- Should only be used behind trusted reverse proxies
+
+**Security considerations:**
+- Always bind to `127.0.0.1` to prevent direct external access
+- Block the plaintext port from external access via firewall
+- mTLS client authentication is not available in this mode
+- Peer authentication and end-to-end encryption still work
+
+See [Reverse Proxy Deployment](../deployment/reverse-proxy) for Nginx, Caddy, and Apache configuration examples.
+
 ## Multiple Listeners
 
 An agent can listen on multiple transports simultaneously:
