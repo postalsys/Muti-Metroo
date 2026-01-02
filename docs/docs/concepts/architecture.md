@@ -253,7 +253,7 @@ See [Security Overview](../security/overview) for details.
 | **Memory** | 256KB buffer per stream per hop |
 | **Connections** | Up to 1000 streams per peer (configurable) |
 
-See [Protocol Limits](../protocol/limits) for complete limits reference.
+See [Streams](streams) for configurable limits.
 
 ## Next Steps
 

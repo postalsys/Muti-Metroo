@@ -45,7 +45,7 @@ This fetches metrics from agent `abc123def456` via the control channel.
 
 ## Available Metrics
 
-See [Prometheus Metrics](../protocol/limits#prometheus-metrics) for complete list.
+See [Metrics and Monitoring](../features/metrics-monitoring) for complete list.
 
 ### Key Metrics
 

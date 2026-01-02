@@ -355,4 +355,3 @@ time curl -x socks5://localhost:1080 https://example.com -o /dev/null
 
 - [Performance Troubleshooting](performance)
 - [Common Issues](common-issues)
-- [Protocol Limits](../protocol/limits)

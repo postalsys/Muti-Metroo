@@ -352,6 +352,5 @@ limits:
 
 ## Next Steps
 
-- [Protocol Limits](../protocol/limits) - Limit reference
 - [Common Issues](common-issues) - Quick solutions
 - [Deployment](../deployment/scenarios) - Optimize deployment

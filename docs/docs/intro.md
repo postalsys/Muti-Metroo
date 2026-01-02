@@ -119,7 +119,6 @@ The wizard guides you through configuring your first agent, generating TLS certi
 | [Security](security/overview) | TLS, authentication, and best practices |
 | [CLI Reference](cli/overview) | Command-line interface documentation |
 | [HTTP API](api/overview) | REST API for monitoring and management |
-| [Protocol](protocol/overview) | Wire protocol and internals |
 | [Troubleshooting](troubleshooting/common-issues) | Common issues and FAQ |
 
 ## Next Steps

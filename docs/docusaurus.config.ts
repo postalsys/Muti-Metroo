@@ -188,8 +188,8 @@ const config: Config = {
               to: '/download',
             },
             {
-              label: 'Protocol Details',
-              to: '/protocol/overview',
+              label: 'Troubleshooting',
+              to: '/troubleshooting/common-issues',
             },
           ],
         },

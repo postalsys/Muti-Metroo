@@ -12,6 +12,13 @@ A userspace mesh networking agent written in Go that creates virtual TCP tunnels
 - **Automatic Reconnection**: Exponential backoff with jitter for resilient peer connections
 - **No Root Required**: Runs entirely in userspace
 
+## Documentation
+
+| Documentation | Description |
+|---------------|-------------|
+| **[User Manual](https://muti-metroo.postalsys.ee)** | Installation, configuration, and usage guide for end users |
+| **[Architecture.md](./Architecture.md)** | Technical internals, protocol specification, and implementation details |
+
 ## Quick Start
 
 ### Prerequisites

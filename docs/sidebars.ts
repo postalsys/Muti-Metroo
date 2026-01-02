@@ -111,24 +111,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Protocol Reference',
-      items: [
-        'protocol/overview',
-        'protocol/frames',
-        'protocol/routing-algorithm',
-        'protocol/limits',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Development',
-      items: [
-        'development/testing',
-        'development/docker-dev',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Troubleshooting',
       items: [
         'troubleshooting/common-issues',

@@ -753,12 +753,68 @@ All communication uses a consistent framing protocol:
 │   │ TTL             │ 1      │ Remaining hops (decremented each hop)   │  │
 │   │ PathLength      │ 1      │ Number of agents in remaining path      │  │
 │   │ RemainingPath   │ varies │ Array of AgentIDs (16 bytes each)       │  │
+│   │ EphemeralPubKey │ 32     │ X25519 public key for E2E encryption    │  │
 │   └─────────────────┴────────┴──────────────────────────────────────────┘  │
 │                                                                             │
 │   Address encoding:                                                         │
 │   • IPv4 (0x01):   4 bytes, network order                                  │
 │   • IPv6 (0x04):   16 bytes, network order                                 │
 │   • Domain (0x03): 1-byte length + UTF-8 domain name                       │
+│                                                                             │
+│   The ephemeral public key is used to establish E2E encryption between     │
+│   ingress and exit agents. Transit agents forward this key unchanged.      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### STREAM_OPEN_ACK (0x02)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           STREAM_OPEN_ACK                                   │
+│                                                                             │
+│   Sent by exit agent to acknowledge successful stream open.                 │
+│                                                                             │
+│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
+│   │ Field           │ Size   │ Description                              │  │
+│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
+│   │ RequestID       │ 8      │ Correlates with STREAM_OPEN request      │  │
+│   │ BoundAddrType   │ 1      │ 0x01=IPv4, 0x04=IPv6                     │  │
+│   │ BoundAddress    │ 4 or 16│ Bound local address                      │  │
+│   │ BoundPort       │ 2      │ Bound local port                         │  │
+│   │ EphemeralPubKey │ 32     │ Exit's X25519 public key for E2E         │  │
+│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
+│                                                                             │
+│   The ephemeral public key allows the ingress agent to compute the same    │
+│   shared secret via X25519 ECDH for end-to-end encryption.                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### STREAM_DATA (0x04)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             STREAM_DATA                                     │
+│                                                                             │
+│   Encrypted stream data payload. Max payload: 16 KB.                        │
+│                                                                             │
+│   Payload is encrypted with ChaCha20-Poly1305:                              │
+│   ┌─────────────────┬────────┬──────────────────────────────────────────┐  │
+│   │ Field           │ Size   │ Description                              │  │
+│   ├─────────────────┼────────┼──────────────────────────────────────────┤  │
+│   │ Nonce           │ 12     │ Counter (8 bytes) + direction bit        │  │
+│   │ Ciphertext      │ varies │ Encrypted application data               │  │
+│   │ AuthTag         │ 16     │ Poly1305 authentication tag              │  │
+│   └─────────────────┴────────┴──────────────────────────────────────────┘  │
+│                                                                             │
+│   Encryption overhead: 28 bytes per frame                                   │
+│                                                                             │
+│   Flags:                                                                    │
+│   • FIN_WRITE (0x01): Sender half-close (no more writes)                   │
+│   • FIN_READ (0x02): Receiver half-close (no more reads)                   │
+│                                                                             │
+│   Transit agents forward encrypted payloads unchanged (cannot decrypt).    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -783,6 +839,13 @@ All communication uses a consistent framing protocol:
 │   │ 9     │ RESOURCE_LIMIT       │ Too many streams                   │   │
 │   │ 10    │ CONNECTION_LIMIT     │ Connection limit exceeded          │   │
 │   │ 11    │ NOT_ALLOWED          │ Operation not permitted            │   │
+│   │ 12    │ FILE_TRANSFER_DENIED │ File transfer not allowed          │   │
+│   │ 13    │ AUTH_REQUIRED        │ Authentication required            │   │
+│   │ 14    │ PATH_NOT_ALLOWED     │ Path not in allowed list           │   │
+│   │ 15    │ FILE_TOO_LARGE       │ File exceeds size limit            │   │
+│   │ 16    │ FILE_NOT_FOUND       │ File does not exist                │   │
+│   │ 17    │ WRITE_FAILED         │ Write operation failed             │   │
+│   │ 18    │ GENERAL_FAILURE      │ General error (e.g., key exchange) │   │
 │   └───────┴──────────────────────┴────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -916,6 +979,44 @@ All communication uses a consistent framing protocol:
 │  • New STREAM_OPEN receives STREAM_OPEN_ERR with RESOURCE_LIMIT            │
 │  • Existing streams are not affected                                       │
 │  • Log warning for monitoring                                              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 7.4 Proxy Chain Performance Characteristics
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                  PROXY CHAIN PERFORMANCE CHARACTERISTICS                     │
+│                                                                             │
+│  Note: max_hops only limits route advertisement propagation, NOT stream     │
+│  path length. Stream paths are limited by the 30-second open timeout.       │
+│                                                                             │
+│  Recommended max hops by use case:                                          │
+│  ┌────────────────────┬──────────────┬─────────────────────────────────┐   │
+│  │ Use Case           │ Max Hops     │ Limiting Factor                 │   │
+│  ├────────────────────┼──────────────┼─────────────────────────────────┤   │
+│  │ Interactive SSH    │ 8-12 hops    │ Latency (5-50ms per hop)        │   │
+│  │ Video Streaming    │ 6-10 hops    │ Buffering (256KB x hops)        │   │
+│  │ Bulk Transfer      │ 12-16 hops   │ Throughput (16KB chunks)        │   │
+│  │ High-latency WAN   │ 4-6 hops     │ 30s stream open timeout         │   │
+│  └────────────────────┴──────────────┴─────────────────────────────────┘   │
+│                                                                             │
+│  Per-hop overhead:                                                          │
+│  ┌────────────────────┬─────────────────────────────────────────────────┐  │
+│  │ Latency            │ +1-5ms (LAN), +50-200ms (WAN)                   │  │
+│  │ Memory             │ +256KB buffer per active stream                 │  │
+│  │ CPU                │ Frame decode/encode at each relay               │  │
+│  └────────────────────┴─────────────────────────────────────────────────┘  │
+│                                                                             │
+│  Protocol constants (non-configurable):                                     │
+│  ┌────────────────────┬─────────────────────────────────────────────────┐  │
+│  │ Max Frame Payload  │ 16 KB                                           │  │
+│  │ Max Frame Size     │ 16,398 bytes (payload + 14-byte header)         │  │
+│  │ Header Size        │ 14 bytes                                        │  │
+│  │ Protocol Version   │ 0x01                                            │  │
+│  │ Control Stream ID  │ 0 (reserved)                                    │  │
+│  └────────────────────┴─────────────────────────────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1665,15 +1766,24 @@ muti-metroo uninstall --name muti-metroo
 │  │ • Traffic volume and timing                                         │   │
 │  │ • Path information                                                  │   │
 │  │                                                                     │   │
-│  │ Not visible:                                                        │   │
-│  │ • Payload content (just forwarded)                                  │   │
+│  │ Not visible (encrypted end-to-end):                                 │   │
+│  │ • Payload content (encrypted with ChaCha20-Poly1305)                │   │
 │  │ • Application-layer data                                            │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
-│  End-to-end encryption:                                                     │
-│  • The mesh provides transport security (TLS between each hop)             │
-│  • For true end-to-end encryption, use application-layer TLS              │
-│    (e.g., HTTPS, SSH)                                                      │
+│  End-to-end encryption (built-in):                                          │
+│  • X25519 key exchange during stream open (ephemeral keys in frames)       │
+│  • ChaCha20-Poly1305 AEAD for all STREAM_DATA payloads                     │
+│  • Transit agents cannot decrypt stream data                               │
+│  • Each stream has unique session keys derived via ECDH                    │
+│                                                                             │
+│  Key exchange flow:                                                         │
+│  1. Ingress generates ephemeral X25519 keypair                             │
+│  2. Ingress sends public key in STREAM_OPEN                                │
+│  3. Exit generates ephemeral X25519 keypair                                │
+│  4. Exit sends public key in STREAM_OPEN_ACK                               │
+│  5. Both compute shared secret: ECDH(local_private, remote_public)         │
+│  6. Session key derived: HKDF-SHA256(shared_secret)                        │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
