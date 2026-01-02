@@ -21,6 +21,80 @@ curl http://localhost:8080/metrics
 
 All metrics are prefixed with `muti_metroo_`.
 
+## Prometheus Setup
+
+Configure Prometheus to scrape metrics from your local Muti Metroo agent.
+
+### prometheus.yml
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'muti-metroo'
+    static_configs:
+      - targets: ['localhost:8080']
+    metrics_path: /metrics
+```
+
+### Docker Compose with Prometheus
+
+Create a `docker-compose.yml` to run Prometheus alongside your agent:
+
+```yaml
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  prometheus_data:
+```
+
+When running Prometheus in Docker and the agent on the host, use `host.docker.internal` as the target:
+
+```yaml
+# prometheus.yml for Docker
+scrape_configs:
+  - job_name: 'muti-metroo'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+```
+
+### Verify Scraping
+
+1. Start Prometheus:
+   ```bash
+   docker compose up -d prometheus
+   ```
+
+2. Open Prometheus UI at http://localhost:9090
+
+3. Check targets are up: **Status** > **Targets**
+
+4. Query metrics:
+   ```promql
+   muti_metroo_peers_connected
+   ```
+
+:::note
+Prometheus only scrapes the local agent's `/metrics` endpoint. Other agents in the mesh are not directly visible to Prometheus - each agent exposes only its own metrics.
+:::
+
 ## Connection Metrics
 
 Monitor peer connectivity and connection health:
