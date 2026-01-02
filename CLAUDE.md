@@ -20,6 +20,10 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 
 The project documentation is built with Docusaurus and lives in the `docs/` folder. The documentation is deployed at https://muti-metroo.postalsys.ee.
 
+**URL Structure:** The public website uses `/` as root, not `/docs`. Source files in `docs/docs/` map to URLs without the `docs` prefix:
+- `docs/docs/cli/overview.md` -> https://muti-metroo.postalsys.ee/cli/overview
+- `docs/docs/security/red-team-operations.md` -> https://muti-metroo.postalsys.ee/security/red-team-operations
+
 **Important:** When adding or modifying features, the documentation must be updated accordingly:
 
 1. **New features**: Add documentation pages under `docs/docs/` in the appropriate category
