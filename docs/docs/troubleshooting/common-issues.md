@@ -91,6 +91,51 @@ chmod 700 ./data
 chown -R muti-metroo:muti-metroo /var/lib/muti-metroo
 ```
 
+### Permission Denied for Agent Keys
+
+```
+Error: failed to read private key: open /opt/muti-metroo/data/agent_key: permission denied
+```
+
+This often happens when the agent was previously run as root or a different user.
+
+**Solution:**
+
+```bash
+# Check current ownership
+ls -la /opt/muti-metroo/data/
+
+# Fix ownership (replace 'andris' with your user)
+sudo chown andris:andris /opt/muti-metroo/data/agent_key
+sudo chown andris:andris /opt/muti-metroo/data/agent_key.pub
+
+# Or fix for all data files
+sudo chown -R andris:andris /opt/muti-metroo/data/
+```
+
+### Stale Process from Previous Run
+
+```
+Error: bind: address already in use
+```
+
+A previous instance may still be running.
+
+**Solution:**
+
+```bash
+# Find and kill stale processes
+pgrep -la muti-metroo
+pkill -f muti-metroo
+
+# Verify ports are free
+lsof -i :4433
+lsof -i :1080
+
+# On Linux, check for zombie listeners
+ss -tlnp | grep muti
+```
+
 ## Connection Issues
 
 ### Peer Won't Connect
@@ -346,6 +391,207 @@ See [Performance Troubleshooting](performance) for:
 - High latency
 - Memory usage
 - CPU usage
+
+## Windows-Specific Issues
+
+### Port 8080 Already in Use
+
+Windows commonly has services using port 8080. You'll see:
+
+```
+Error: listen tcp :8080: bind: Only one usage of each socket address
+```
+
+**Solution:** Use a different port:
+
+```yaml
+http:
+  address: ":8083"  # Or another free port
+```
+
+Check what's using the port:
+
+```powershell
+netstat -anb | findstr ":8080"
+```
+
+### Running Agent in Background on Windows
+
+Unlike Linux, Windows doesn't support `nohup`. Use PowerShell:
+
+```powershell
+# Start agent in background
+Start-Process -FilePath "C:\muti-metroo\muti-metroo.exe" `
+  -ArgumentList "run","-c","C:\muti-metroo\config.yaml" `
+  -WorkingDirectory "C:\muti-metroo" `
+  -WindowStyle Hidden
+
+# Verify it's running
+tasklist | findstr muti-metroo
+
+# Stop the agent
+taskkill /IM muti-metroo.exe /F
+```
+
+For persistent background operation, install as a Windows service:
+
+```powershell
+muti-metroo.exe service install -c C:\muti-metroo\config.yaml
+```
+
+### Firewall Blocking Connections
+
+Windows Firewall may block inbound or outbound connections.
+
+```powershell
+# Check if Windows Firewall is blocking
+netsh advfirewall firewall show rule name=all | findstr muti
+
+# Allow inbound on specific port
+netsh advfirewall firewall add rule name="Muti Metroo" `
+  dir=in action=allow protocol=tcp localport=3000
+
+# Or allow the executable
+netsh advfirewall firewall add rule name="Muti Metroo" `
+  dir=in action=allow program="C:\muti-metroo\muti-metroo.exe"
+```
+
+### Path Issues with Backslashes
+
+Windows paths use backslashes. In YAML, either escape or use forward slashes:
+
+```yaml
+# Option 1: Escaped backslashes
+data_dir: "C:\\muti-metroo\\data"
+tls:
+  cert: "C:\\muti-metroo\\certs\\agent.crt"
+
+# Option 2: Forward slashes (also works)
+data_dir: "C:/muti-metroo/data"
+```
+
+## Multi-Agent Deployment
+
+### Start Order Matters
+
+When deploying multiple agents, start them in the correct order:
+
+1. **Listeners first** - Agents that accept connections (have `listeners:` configured)
+2. **Dialers second** - Agents that connect outbound (have `peers:` configured)
+
+Example for a chain A -> B -> C:
+1. Start Agent C (has listener, exit role)
+2. Start Agent B (has listener, connects to C)
+3. Start Agent A (connects to B, SOCKS5 ingress)
+
+### Peer Not Connecting After Restart
+
+After restarting a listener agent, dialers may take time to reconnect due to exponential backoff.
+
+**Speed up reconnection:**
+
+```bash
+# Restart the dialer agent
+pkill -f muti-metroo
+./muti-metroo run -c config.yaml
+
+# Or trigger faster reconnect by reducing max_delay
+connections:
+  reconnect:
+    initial_delay: 500ms
+    max_delay: 10s
+```
+
+### Routes Not Propagating
+
+After starting agents, routes may take time to propagate (up to `advertise_interval`).
+
+**Trigger immediate advertisement:**
+
+```bash
+# On exit agent
+curl -X POST http://localhost:8080/routes/advertise
+
+# Wait a few seconds for propagation
+sleep 5
+
+# Check routes on ingress agent
+curl http://ingress-agent:8080/healthz | jq '.routes'
+```
+
+### Verifying Multi-Agent Topology
+
+Check the full topology from the dashboard API:
+
+```bash
+# List all known nodes
+curl -s http://localhost:8080/api/nodes | jq '.nodes[] | {id: .short_id, name: .display_name, connected: .is_connected}'
+
+# Check route paths
+curl -s http://localhost:8080/api/dashboard | jq '.routes[] | {network, origin, hops: .hop_count, path: .path_display}'
+```
+
+### Upgrading Agents
+
+When deploying new binary versions:
+
+```bash
+# 1. Stop the agent
+pkill -f muti-metroo  # Linux/macOS
+taskkill /IM muti-metroo.exe /F  # Windows
+
+# 2. Replace binary
+cp muti-metroo-linux-amd64 /opt/muti-metroo/muti-metroo
+chmod +x /opt/muti-metroo/muti-metroo
+
+# 3. Start agent
+cd /opt/muti-metroo && ./muti-metroo run -c config.yaml
+
+# 4. Verify
+curl http://localhost:8080/healthz
+```
+
+For remote agents via SSH:
+
+```bash
+# Upload new binary
+scp muti-metroo-linux-amd64 user@remote:/opt/muti-metroo/muti-metroo
+
+# Stop, set permissions, restart
+ssh user@remote "pkill -f muti-metroo; chmod +x /opt/muti-metroo/muti-metroo"
+ssh user@remote "cd /opt/muti-metroo && nohup ./muti-metroo run -c config.yaml > agent.log 2>&1 &"
+```
+
+### Deployment Verification Checklist
+
+After deploying agents, verify each component:
+
+```bash
+# 1. Check each agent is running
+curl http://agent-a:8080/healthz  # Should show running: true
+
+# 2. Check peer connections
+curl http://agent-a:8080/healthz | jq '.peer_count'  # Should be > 0
+
+# 3. Check routes exist
+curl http://agent-a:8080/healthz | jq '.route_count'  # Should match expected routes
+
+# 4. Test SOCKS5 proxy (if applicable)
+curl --socks5 127.0.0.1:1080 https://ifconfig.me/ip
+
+# 5. Check all nodes visible
+curl http://agent-a:8080/api/nodes | jq '.nodes | length'
+```
+
+**Quick health check script:**
+
+```bash
+#!/bin/bash
+for agent in "localhost:8080" "remote1:8080" "remote2:8082"; do
+  echo "=== $agent ==="
+  curl -s "http://$agent/healthz" | jq '{running, peers: .peer_count, routes: .route_count}'
+done
+```
 
 ## Debug Mode
 
