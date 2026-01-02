@@ -103,14 +103,18 @@ agent:
   data_dir: "./data-b"
   log_level: "info"
 
+# Global TLS configuration
+tls:
+  ca: "./certs/ca.crt"           # CA for verifying client certs (mTLS)
+  cert: "./certs-b/agent-b.crt"  # Agent certificate
+  key: "./certs-b/agent-b.key"   # Agent private key
+  mtls: true                     # Require valid client certificates
+
 # Listen for peer connections
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs-b/agent-b.crt"
-      key: "./certs-b/agent-b.key"
-      client_ca: "./certs/ca.crt"  # Require valid client certs
+    # Uses global TLS settings
 
 # Exit node - open connections to internet
 exit:
@@ -151,21 +155,24 @@ agent:
   data_dir: "./data-a"
   log_level: "info"
 
+# Global TLS configuration
+tls:
+  ca: "./certs/ca.crt"           # CA for verifying peers
+  cert: "./certs/agent-a.crt"    # Agent certificate
+  key: "./certs/agent-a.key"     # Agent private key
+
 # Listen for peer connections (optional, for other agents)
 listeners:
   - transport: quic
     address: "0.0.0.0:4434"    # Different port if on same machine
-    tls:
-      cert: "./certs/agent-a.crt"
-      key: "./certs/agent-a.key"
+    # Uses global TLS settings
 
 # Connect to Agent B
 peers:
   - id: "bbbb2222333344445555666677778888"  # Agent B's ID
     transport: quic
     address: "192.168.1.20:4433"            # Agent B's address
-    tls:
-      ca: "./certs/ca.crt"                  # Same CA
+    # Uses global CA and cert/key
 
 # SOCKS5 proxy for client connections
 socks5:
@@ -307,20 +314,23 @@ agent:
   data_dir: "./data-c"
   log_level: "info"
 
+# Global TLS configuration
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs-c/agent-c.crt"
+  key: "./certs-c/agent-c.key"
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4435"
-    tls:
-      cert: "./certs-c/agent-c.crt"
-      key: "./certs-c/agent-c.key"
+    # Uses global TLS settings
 
 # Connect to Agent B
 peers:
   - id: "bbbb2222..."
     transport: quic
     address: "192.168.1.20:4433"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA and cert/key
 
 # No socks5 or exit - pure transit
 http:
@@ -335,8 +345,7 @@ peers:
   - id: "cccc3333..."     # Agent C's ID
     transport: quic
     address: "192.168.1.30:4435"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA from tls section
 ```
 
 Routes will propagate: Agent A learns about Agent B's 0.0.0.0/0 route through Agent C.

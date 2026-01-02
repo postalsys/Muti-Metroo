@@ -136,11 +136,16 @@ iptables -A INPUT -p tcp --dport 8080 -s 10.0.0.0/8 -j ACCEPT  # API internal
 
 ```yaml
 # Always use mTLS in production
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"      # CA for verifying client certs
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+  mtls: true                               # Require valid client certificates
+
 listeners:
-  - tls:
-      cert: "/etc/muti-metroo/certs/agent.crt"
-      key: "/etc/muti-metroo/certs/agent.key"
-      client_ca: "/etc/muti-metroo/certs/ca.crt"  # Require client cert
+  - transport: quic
+    address: "0.0.0.0:4433"
+    # Uses global TLS settings with mTLS enabled
 ```
 
 ## Access Control

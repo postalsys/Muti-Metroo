@@ -236,9 +236,15 @@ listeners:
 Only specific clients can connect:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"    # Only certs signed by this CA can connect
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true              # Require valid client certificates
+
 listeners:
-  - tls:
-      client_ca: "./certs/ca.crt"    # Only certs signed by this CA
+  - transport: quic
+    address: "0.0.0.0:4433"
 ```
 
 Combined with separate CAs for different access levels.
@@ -261,9 +267,15 @@ socks5:
         password_hash: "$2a$12$..."
 
 # Layer 3: TLS mutual auth
+tls:
+  ca: "./certs/internal-ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
-  - tls:
-      client_ca: "./certs/internal-ca.crt"
+  - transport: quic
+    address: "0.0.0.0:4433"
 
 # Layer 4: Route restriction
 exit:

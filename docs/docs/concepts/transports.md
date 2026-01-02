@@ -40,15 +40,18 @@ QUIC (Quick UDP Internet Connections) is the recommended transport for most depl
 
 ### Configuration
 
-**Listener:**
+**Global TLS and Listener:**
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global TLS settings
 ```
 
 **Peer connection:**
@@ -58,8 +61,7 @@ peers:
   - id: "peer-id..."
     transport: quic
     address: "192.168.1.10:4433"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA and cert/key
 ```
 
 ### Firewall Considerations
@@ -93,13 +95,16 @@ HTTP/2 provides a TCP-based alternative with good firewall compatibility.
 **Listener:**
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 listeners:
   - transport: h2
     address: "0.0.0.0:8443"
     path: "/mesh"           # Optional URL path
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global TLS settings
 ```
 
 **Peer connection:**
@@ -110,8 +115,7 @@ peers:
     transport: h2
     address: "192.168.1.10:8443"
     path: "/mesh"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA and cert/key
 ```
 
 ### Firewall Considerations
@@ -145,13 +149,16 @@ WebSocket provides maximum compatibility, especially through HTTP proxies.
 **Listener:**
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 listeners:
   - transport: ws
     address: "0.0.0.0:443"
     path: "/mesh"           # URL path for WebSocket
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global TLS settings
 ```
 
 **Peer connection:**
@@ -161,8 +168,7 @@ peers:
   - id: "peer-id..."
     transport: ws
     address: "wss://relay.example.com:443/mesh"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA and cert/key
 ```
 
 **Through HTTP proxy:**
@@ -257,32 +263,31 @@ You can mix transports in a single mesh:
 Agent A (multiple transports):
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global TLS settings
 
   - transport: h2
     address: "0.0.0.0:8443"
     path: "/mesh"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global TLS settings
 
 peers:
   - id: "agent-b-id..."
     transport: h2
     address: "corporate-relay.example.com:443/mesh"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA and cert/key
 
   - id: "agent-c-id..."
     transport: quic
     address: "192.168.1.50:4433"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA and cert/key
 ```
 
 ## Transport Selection Guide

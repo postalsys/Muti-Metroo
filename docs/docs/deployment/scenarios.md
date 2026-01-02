@@ -41,13 +41,16 @@ flowchart LR
 agent:
   display_name: "Cloud Relay"
 
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "/etc/muti-metroo/certs/agent.crt"
-      key: "/etc/muti-metroo/certs/agent.key"
-      client_ca: "/etc/muti-metroo/certs/ca.crt"
+    # Uses global TLS settings
 
 socks5:
   enabled: true
@@ -69,14 +72,16 @@ http:
 agent:
   display_name: "Office Gateway"
 
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+
 peers:
   - id: "${CLOUD_RELAY_ID}"
     transport: quic
     address: "cloud-relay.example.com:4433"
-    tls:
-      ca: "/etc/muti-metroo/certs/ca.crt"
-      cert: "/etc/muti-metroo/certs/client.crt"
-      key: "/etc/muti-metroo/certs/client.key"
+    # Uses global CA and cert/key
 
 exit:
   enabled: true
@@ -139,13 +144,16 @@ flowchart TB
 agent:
   display_name: "Cloud Relay"
 
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "/etc/muti-metroo/certs/agent.crt"
-      key: "/etc/muti-metroo/certs/agent.key"
-      client_ca: "/etc/muti-metroo/certs/ca.crt"
+    # Uses global TLS settings
 ```
 
 **Site A Gateway:**
@@ -154,12 +162,16 @@ listeners:
 agent:
   display_name: "Site A Gateway"
 
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+
 peers:
   - id: "${CLOUD_RELAY_ID}"
     transport: quic
     address: "cloud-relay.example.com:4433"
-    tls:
-      ca: "/etc/muti-metroo/certs/ca.crt"
+    # Uses global TLS settings
 
 socks5:
   enabled: true
@@ -180,12 +192,16 @@ exit:
 agent:
   display_name: "Site B Gateway"
 
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+
 peers:
   - id: "${CLOUD_RELAY_ID}"
     transport: quic
     address: "cloud-relay.example.com:4433"
-    tls:
-      ca: "/etc/muti-metroo/certs/ca.crt"
+    # Uses global TLS settings
 
 socks5:
   enabled: true

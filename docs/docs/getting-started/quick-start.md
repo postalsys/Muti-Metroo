@@ -70,13 +70,16 @@ agent:
   log_level: "info"
   log_format: "text"
 
+# Global TLS configuration
+tls:
+  cert: "./certs/my-agent.crt"
+  key: "./certs/my-agent.key"
+
 # Listen for peer connections
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/my-agent.crt"
-      key: "./certs/my-agent.key"
+    # Uses global TLS settings
 
 # SOCKS5 proxy (ingress role)
 socks5:
@@ -188,12 +191,14 @@ agent:
   log_level: "info"
   log_format: "text"
 
+tls:
+  cert: "./certs/my-agent.crt"
+  key: "./certs/my-agent.key"
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/my-agent.crt"
-      key: "./certs/my-agent.key"
+    # Uses global TLS settings
 
 socks5:
   enabled: true

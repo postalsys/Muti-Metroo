@@ -78,12 +78,15 @@ file_transfer:
 Inline certificates from environment:
 
 ```yaml
+tls:
+  ca_pem: "${TLS_CA}"
+  cert_pem: "${TLS_CERT}"
+  key_pem: "${TLS_KEY}"
+  mtls: true
+
 listeners:
   - transport: quic
-    tls:
-      cert_pem: "${TLS_CERT}"
-      key_pem: "${TLS_KEY}"
-      client_ca_pem: "${TLS_CA}"
+    address: "0.0.0.0:4433"
 ```
 
 ### Deployment Configuration

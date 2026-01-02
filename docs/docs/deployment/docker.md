@@ -197,12 +197,15 @@ agent:
   log_level: "${LOG_LEVEL:-info}"
   log_format: "json"
 
+tls:
+  ca: "/app/certs/ca.crt"
+  cert: "/app/certs/agent.crt"
+  key: "/app/certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "/app/certs/agent.crt"
-      key: "/app/certs/agent.key"
 
 socks5:
   enabled: true
@@ -218,21 +221,19 @@ http:
 Use container names for peer addresses:
 
 ```yaml
-# agent1.yaml
+# agent1.yaml - uses global TLS settings
 peers:
   - id: "${AGENT2_ID}"
     transport: quic
     address: "agent2:4433"
-    tls:
-      ca: "/app/certs/ca.crt"
+    # Uses global CA and cert/key
 
 # agent2.yaml
 peers:
   - id: "${AGENT3_ID}"
     transport: quic
     address: "agent3:4433"
-    tls:
-      ca: "/app/certs/ca.crt"
+    # Uses global CA and cert/key
 ```
 
 ## Docker Commands

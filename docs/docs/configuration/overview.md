@@ -42,12 +42,13 @@ agent:
   id: "auto"
   data_dir: "./data"
 
+tls:
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 
 socks5:
   enabled: true
@@ -95,17 +96,14 @@ protocol:
 listeners:
   - transport: quic             # quic, h2, ws
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global TLS settings; per-listener overrides available via tls: section
 
 # Peer connections
 peers:
   - id: "abc123..."
     transport: quic
     address: "192.168.1.10:4433"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global TLS settings; per-peer overrides available via tls: section
 
 # SOCKS5 proxy
 socks5:

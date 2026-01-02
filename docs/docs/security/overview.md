@@ -144,12 +144,16 @@ exit:
 
 ```yaml
 # Require client certificates
+tls:
+  ca: "./certs/ca.crt"           # CA for verifying client certs
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true                     # Require valid client certificates
+
 listeners:
   - transport: quic
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
-      client_ca: "./certs/ca.crt"    # Require valid client cert
+    address: "0.0.0.0:4433"
+    # Uses global TLS settings with mTLS enabled
 ```
 
 ## Security Topics

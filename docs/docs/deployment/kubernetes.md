@@ -77,12 +77,15 @@ data:
       log_level: "info"
       log_format: "json"
 
+    tls:
+      ca_pem: "${TLS_CA}"
+      cert_pem: "${TLS_CERT}"
+      key_pem: "${TLS_KEY}"
+      mtls: true
+
     listeners:
       - transport: quic
         address: "0.0.0.0:4433"
-        tls:
-          cert_pem: "${TLS_CERT}"
-          key_pem: "${TLS_KEY}"
 
     socks5:
       enabled: true
@@ -160,6 +163,11 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            - name: TLS_CA
+              valueFrom:
+                secretKeyRef:
+                  name: muti-metroo-tls
+                  key: ca.crt
             - name: TLS_CERT
               valueFrom:
                 secretKeyRef:

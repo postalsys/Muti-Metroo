@@ -172,19 +172,21 @@ agent:
   data_dir: "./data"
   log_level: "info"
 
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global TLS settings
 
 peers:
   - id: "abc123def456..."
     transport: quic
     address: "192.168.1.50:4433"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global CA and cert/key
 
 socks5:
   enabled: true
