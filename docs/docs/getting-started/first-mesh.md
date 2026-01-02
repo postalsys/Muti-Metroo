@@ -61,7 +61,7 @@ muti-metroo cert agent -n "agent-a" \
   --ip "192.168.1.10" \
   --dns "agent-a.local" \
   -o ./certs \
-  --ca-cert ./certs/ca.crt \
+  --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key
 ```
 
@@ -72,7 +72,7 @@ muti-metroo cert agent -n "agent-b" \
   --ip "192.168.1.20" \
   --dns "agent-b.local" \
   -o ./certs-b \
-  --ca-cert ./certs/ca.crt \
+  --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key
 ```
 
@@ -108,8 +108,8 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
     tls:
-      cert: "./certs-b/agent.crt"
-      key: "./certs-b/agent.key"
+      cert: "./certs-b/agent-b.crt"
+      key: "./certs-b/agent-b.key"
       client_ca: "./certs/ca.crt"  # Require valid client certs
 
 # Exit node - open connections to internet
@@ -156,8 +156,8 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4434"    # Different port if on same machine
     tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+      cert: "./certs/agent-a.crt"
+      key: "./certs/agent-a.key"
 
 # Connect to Agent B
 peers:
@@ -311,8 +311,8 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4435"
     tls:
-      cert: "./certs-c/agent.crt"
-      key: "./certs-c/agent.key"
+      cert: "./certs-c/agent-c.crt"
+      key: "./certs-c/agent-c.key"
 
 # Connect to Agent B
 peers:

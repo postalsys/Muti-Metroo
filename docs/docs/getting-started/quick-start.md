@@ -38,20 +38,20 @@ All peer connections require TLS. Generate a Certificate Authority and agent cer
 muti-metroo cert ca -n "My Mesh CA" -o ./certs
 
 # Generate agent certificate
-muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent -n "my-agent" \
   --dns "agent1.example.com" \
   --ip "192.168.1.10" \
   -o ./certs
 
 # Verify the certificate
-muti-metroo cert info ./certs/agent.crt
+muti-metroo cert info ./certs/my-agent.crt
 ```
 
 Output files:
 - `./certs/ca.crt` - CA certificate (share with peers)
 - `./certs/ca.key` - CA private key (keep secure!)
-- `./certs/agent.crt` - Agent certificate
-- `./certs/agent.key` - Agent private key
+- `./certs/my-agent.crt` - Agent certificate (named after common name)
+- `./certs/my-agent.key` - Agent private key
 
 :::warning
 Keep `ca.key` secure. Anyone with access to it can create valid certificates for your mesh.
@@ -75,8 +75,8 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
     tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+      cert: "./certs/my-agent.crt"
+      key: "./certs/my-agent.key"
 
 # SOCKS5 proxy (ingress role)
 socks5:
@@ -192,8 +192,8 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
     tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+      cert: "./certs/my-agent.crt"
+      key: "./certs/my-agent.key"
 
 socks5:
   enabled: true
@@ -240,8 +240,10 @@ lsof -i :8080
 ls -la ./data/
 ls -la ./certs/
 
-# Run with debug logging
-muti-metroo run -c ./config.yaml --log-level debug
+# Enable debug logging in config.yaml:
+# agent:
+#   log_level: "debug"
+muti-metroo run -c ./config.yaml
 ```
 
 ### Certificate errors

@@ -130,12 +130,14 @@ For development:
 ```
 ./config.yaml              # Configuration file
 ./data/                    # Data directory
-  agent_id                 # Agent identity
-  control.sock             # Control socket
+  agent_id                 # Agent identity (128-bit hex)
+  keypair.json             # E2E encryption keypair
+  control.sock             # Control socket (when running)
 ./certs/                   # TLS certificates
   ca.crt                   # Certificate Authority
-  agent.crt                # Agent certificate
-  agent.key                # Agent private key
+  ca.key                   # CA private key
+  <name>.crt               # Agent certificate (named after -n flag)
+  <name>.key               # Agent private key
 ```
 
 ## Verify Installation
@@ -153,8 +155,8 @@ cat ./data/agent_id
 muti-metroo cert ca -n "Test CA"
 muti-metroo cert agent -n "test-agent"
 
-# Verify certificates
-muti-metroo cert info ./certs/agent.crt
+# Verify certificates (output file uses common name)
+muti-metroo cert info ./certs/test-agent.crt
 ```
 
 ## Next Steps
