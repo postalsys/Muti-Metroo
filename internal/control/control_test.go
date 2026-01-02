@@ -53,9 +53,14 @@ func TestNewServer(t *testing.T) {
 }
 
 func TestServer_StartStop(t *testing.T) {
-	// Use temp directory for socket
-	tmpDir := t.TempDir()
-	socketPath := filepath.Join(tmpDir, "control.sock")
+	// Use short temp directory for socket to avoid Unix socket path length limits
+	// (108 chars on Linux, 104 on macOS)
+	tmpDir, err := os.MkdirTemp("/tmp", "ctrl")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	socketPath := filepath.Join(tmpDir, "c.sock")
 
 	cfg := ServerConfig{
 		SocketPath:   socketPath,
@@ -96,9 +101,14 @@ func TestServer_StartStop(t *testing.T) {
 }
 
 func TestServer_ClientIntegration(t *testing.T) {
-	// Use temp directory for socket
-	tmpDir := t.TempDir()
-	socketPath := filepath.Join(tmpDir, "control.sock")
+	// Use short temp directory for socket to avoid Unix socket path length limits
+	// (108 chars on Linux, 104 on macOS)
+	tmpDir, err := os.MkdirTemp("/tmp", "ctrl")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	socketPath := filepath.Join(tmpDir, "c.sock")
 
 	cfg := ServerConfig{
 		SocketPath:   socketPath,

@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/text/unicode/norm"
 )
 
 // TransferMetadata is sent as the first data frame in a file transfer stream.
@@ -93,7 +95,12 @@ func (h *StreamHandler) ValidateDownloadMetadata(meta *TransferMetadata) error {
 		return err
 	}
 
-	// Check if path exists
+	// Check for symlinks and validate their targets
+	if err := h.validateSymlinkTarget(meta.Path); err != nil {
+		return err
+	}
+
+	// Check if path exists (follows symlinks)
 	info, err := os.Stat(meta.Path)
 	if err != nil {
 		return fmt.Errorf("path not found: %w", err)
@@ -104,6 +111,35 @@ func (h *StreamHandler) ValidateDownloadMetadata(meta *TransferMetadata) error {
 		if info.Size() > h.cfg.MaxFileSize {
 			return fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), h.cfg.MaxFileSize)
 		}
+	}
+
+	return nil
+}
+
+// validateSymlinkTarget checks if a path is a symlink and validates that its target
+// is within the allowed paths. This prevents symlink-based escape attacks.
+func (h *StreamHandler) validateSymlinkTarget(path string) error {
+	// Use Lstat to check if the path itself is a symlink (doesn't follow symlinks)
+	info, err := os.Lstat(path)
+	if err != nil {
+		// Path doesn't exist or can't be accessed - let later checks handle this
+		return nil
+	}
+
+	// If not a symlink, nothing to validate
+	if info.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+
+	// Resolve the symlink target
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("cannot resolve symlink: %w", err)
+	}
+
+	// Validate the resolved target path
+	if err := h.validatePath(target); err != nil {
+		return fmt.Errorf("symlink target not allowed: %w", err)
 	}
 
 	return nil
@@ -123,24 +159,75 @@ func (h *StreamHandler) authenticate(password string) error {
 	return nil
 }
 
+// containsDangerousChars checks for null bytes and other dangerous characters in paths.
+func containsDangerousChars(path string) bool {
+	for _, r := range path {
+		// Check for null bytes
+		if r == 0 {
+			return true
+		}
+		// Check for control characters (except common whitespace)
+		if unicode.IsControl(r) && r != '\t' && r != '\n' && r != '\r' {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizePath applies Unicode NFC normalization and cleans the path.
+func normalizePath(path string) string {
+	// Apply NFC normalization to prevent Unicode normalization attacks
+	normalized := norm.NFC.String(path)
+	// Clean the path to resolve . and .. components
+	return filepath.Clean(normalized)
+}
+
+// isPathUnderPrefix checks if path is exactly prefix or is under prefix directory.
+// This prevents prefix bypass attacks like /var/wwwevil matching /var/www.
+func isPathUnderPrefix(path, prefix string) bool {
+	// Normalize both paths
+	cleanPath := normalizePath(path)
+	cleanPrefix := normalizePath(prefix)
+
+	// Exact match
+	if cleanPath == cleanPrefix {
+		return true
+	}
+
+	// Path must be under prefix (prefix + separator + something)
+	// Ensure prefix ends with separator for proper matching
+	if !strings.HasSuffix(cleanPrefix, string(filepath.Separator)) {
+		cleanPrefix += string(filepath.Separator)
+	}
+
+	return strings.HasPrefix(cleanPath, cleanPrefix)
+}
+
 // validatePath checks if the path is allowed.
 func (h *StreamHandler) validatePath(path string) error {
+	// Check for null bytes and dangerous characters first (before any processing)
+	if containsDangerousChars(path) {
+		return fmt.Errorf("path contains dangerous characters")
+	}
+
+	// Apply Unicode normalization
+	normalizedPath := normalizePath(path)
+
 	// Must be absolute
-	if !filepath.IsAbs(path) {
+	if !filepath.IsAbs(normalizedPath) {
 		return fmt.Errorf("path must be absolute: %s", path)
 	}
 
-	// Check for directory traversal
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
+	// Check for directory traversal (after cleaning)
+	if strings.Contains(normalizedPath, "..") {
 		return fmt.Errorf("directory traversal not allowed")
 	}
 
-	// Check allowed paths
+	// Check allowed paths with proper prefix matching
 	if len(h.cfg.AllowedPaths) > 0 {
 		allowed := false
 		for _, prefix := range h.cfg.AllowedPaths {
-			if strings.HasPrefix(cleanPath, prefix) {
+			if isPathUnderPrefix(normalizedPath, prefix) {
 				allowed = true
 				break
 			}
