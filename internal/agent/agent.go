@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/expfmt"
 
+	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/control"
 	"github.com/postalsys/muti-metroo/internal/crypto"
@@ -465,9 +466,15 @@ func (a *Agent) startListener(cfg config.ListenerConfig) error {
 			"path", cfg.Path,
 			"warning", "only use behind trusted reverse proxy")
 	} else {
-		// Load or generate TLS config
+		// Determine effective mTLS setting (per-listener override or global)
+		enableMTLS := a.cfg.TLS.MTLS
+		if cfg.TLS.MTLS != nil {
+			enableMTLS = *cfg.TLS.MTLS
+		}
+
+		// Load TLS config with mTLS support
 		var err error
-		tlsConfig, err = a.loadTLSConfig(cfg.TLS)
+		tlsConfig, err = a.loadListenerTLSConfig(&cfg.TLS, enableMTLS)
 		if err != nil {
 			return fmt.Errorf("load TLS config: %w", err)
 		}
@@ -504,27 +511,37 @@ func (a *Agent) startListener(cfg config.ListenerConfig) error {
 	return nil
 }
 
-// loadTLSConfig loads TLS configuration from files, inline PEM, or generates self-signed.
-func (a *Agent) loadTLSConfig(cfg config.TLSConfig) (*tls.Config, error) {
+// loadListenerTLSConfig loads TLS configuration for a listener.
+// Uses per-listener override if available, otherwise falls back to global config.
+// If enableMTLS is true, client certificate verification is enabled.
+func (a *Agent) loadListenerTLSConfig(override *config.TLSConfig, enableMTLS bool) (*tls.Config, error) {
 	var cert tls.Certificate
+	var certPEM, keyPEM []byte
+	var err error
 
-	if cfg.HasCert() && cfg.HasKey() {
-		// Load from inline PEM or files
-		certPEM, err := cfg.GetCertPEM()
-		if err != nil {
-			return nil, fmt.Errorf("load certificate: %w", err)
+	// Get effective cert/key (per-listener override or global)
+	certPEM, err = a.cfg.GetEffectiveCertPEM(override)
+	if err != nil {
+		return nil, fmt.Errorf("load certificate: %w", err)
+	}
+	keyPEM, err = a.cfg.GetEffectiveKeyPEM(override)
+	if err != nil {
+		return nil, fmt.Errorf("load private key: %w", err)
+	}
+
+	if certPEM != nil && keyPEM != nil {
+		// Validate EC-only certificates
+		if err := certutil.ValidateECKeyPair(certPEM, keyPEM); err != nil {
+			return nil, fmt.Errorf("EC validation failed: %w", err)
 		}
-		keyPEM, err := cfg.GetKeyPEM()
-		if err != nil {
-			return nil, fmt.Errorf("load private key: %w", err)
-		}
+
 		cert, err = tls.X509KeyPair(certPEM, keyPEM)
 		if err != nil {
 			return nil, fmt.Errorf("parse certificate: %w", err)
 		}
 	} else {
-		// Generate self-signed for development
-		certPEM, keyPEM, err := transport.GenerateSelfSignedCert(a.id.ShortString(), 365*24*time.Hour)
+		// Generate self-signed EC cert for development
+		certPEM, keyPEM, err = transport.GenerateSelfSignedCert(a.id.ShortString(), 365*24*time.Hour)
 		if err != nil {
 			return nil, fmt.Errorf("generate self-signed cert: %w", err)
 		}
@@ -534,12 +551,38 @@ func (a *Agent) loadTLSConfig(cfg config.TLSConfig) (*tls.Config, error) {
 		}
 	}
 
-	return &tls.Config{
-		Certificates:       []tls.Certificate{cert},
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
-		NextProtos:         []string{transport.ALPNProtocol},
-		MinVersion:         tls.VersionTLS13,
-	}, nil
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		NextProtos:   []string{transport.ALPNProtocol},
+		MinVersion:   tls.VersionTLS13,
+	}
+
+	// Set up mTLS if enabled
+	if enableMTLS {
+		// Load CA certificate for client verification (always from global config)
+		caPEM, err := a.cfg.TLS.GetCAPEM()
+		if err != nil {
+			return nil, fmt.Errorf("load CA certificate: %w", err)
+		}
+		if caPEM == nil {
+			return nil, fmt.Errorf("tls.ca is required when mTLS is enabled")
+		}
+
+		// Validate CA is EC
+		if err := certutil.ValidateECCertificate(caPEM); err != nil {
+			return nil, fmt.Errorf("CA EC validation failed: %w", err)
+		}
+
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("failed to parse CA certificate")
+		}
+
+		tlsConfig.ClientCAs = certPool
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+
+	return tlsConfig, nil
 }
 
 // acceptLoop accepts incoming connections from a listener.
@@ -627,6 +670,10 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 	}
 	// If ID is "auto" or empty, expectedID will be zero and peer manager will accept any ID
 
+	// Determine if this is a WebSocket connection through a proxy
+	// In this case, the external server might use RSA, so skip EC validation for CA
+	isProxiedWS := cfg.Transport == "ws" && cfg.Proxy != ""
+
 	// Build DialOptions from peer config
 	dialOpts := &transport.DialOptions{
 		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
@@ -640,8 +687,8 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
 	}
 
-	// Load CA certificate for peer verification if specified
-	caPEM, err := cfg.TLS.GetCAPEM()
+	// Load CA certificate for peer verification (per-peer override or global)
+	caPEM, err := a.cfg.GetEffectiveCAPEM(&cfg.TLS)
 	if err != nil {
 		a.logger.Error("failed to load peer CA certificate",
 			logging.KeyPeerID, cfg.ID,
@@ -649,6 +696,16 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		return
 	}
 	if caPEM != nil {
+		// Validate EC-only for CA (skip for proxied WebSocket - external server may use RSA)
+		if !isProxiedWS && !cfg.TLS.InsecureSkipVerify {
+			if err := certutil.ValidateECCertificate(caPEM); err != nil {
+				a.logger.Error("CA EC validation failed",
+					logging.KeyPeerID, cfg.ID,
+					logging.KeyError, err)
+				return
+			}
+		}
+
 		certPool := x509.NewCertPool()
 		if !certPool.AppendCertsFromPEM(caPEM) {
 			a.logger.Error("failed to parse peer CA certificate",
@@ -658,22 +715,31 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		tlsConfig.RootCAs = certPool
 	}
 
-	// Load client certificate for mTLS if specified
-	if cfg.TLS.HasCert() && cfg.TLS.HasKey() {
-		certPEM, err := cfg.TLS.GetCertPEM()
-		if err != nil {
-			a.logger.Error("failed to load peer client certificate",
+	// Load client certificate for mTLS (per-peer override or global)
+	certPEM, err := a.cfg.GetEffectiveCertPEM(&cfg.TLS)
+	if err != nil {
+		a.logger.Error("failed to load peer client certificate",
+			logging.KeyPeerID, cfg.ID,
+			logging.KeyError, err)
+		return
+	}
+	keyPEM, err := a.cfg.GetEffectiveKeyPEM(&cfg.TLS)
+	if err != nil {
+		a.logger.Error("failed to load peer client key",
+			logging.KeyPeerID, cfg.ID,
+			logging.KeyError, err)
+		return
+	}
+
+	if certPEM != nil && keyPEM != nil {
+		// Validate EC-only for client cert (always required for our certs)
+		if err := certutil.ValidateECKeyPair(certPEM, keyPEM); err != nil {
+			a.logger.Error("client cert EC validation failed",
 				logging.KeyPeerID, cfg.ID,
 				logging.KeyError, err)
 			return
 		}
-		keyPEM, err := cfg.TLS.GetKeyPEM()
-		if err != nil {
-			a.logger.Error("failed to load peer client key",
-				logging.KeyPeerID, cfg.ID,
-				logging.KeyError, err)
-			return
-		}
+
 		cert, err := tls.X509KeyPair(certPEM, keyPEM)
 		if err != nil {
 			a.logger.Error("failed to parse peer client certificate",

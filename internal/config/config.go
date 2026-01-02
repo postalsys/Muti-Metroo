@@ -15,6 +15,7 @@ import (
 // Config represents the complete agent configuration.
 type Config struct {
 	Agent        AgentConfig        `yaml:"agent"`
+	TLS          GlobalTLSConfig    `yaml:"tls"`
 	Listeners    []ListenerConfig   `yaml:"listeners"`
 	Peers        []PeerConfig       `yaml:"peers"`
 	SOCKS5       SOCKS5Config       `yaml:"socks5"`
@@ -26,6 +27,72 @@ type Config struct {
 	Control      ControlConfig      `yaml:"control"`
 	RPC          RPCConfig          `yaml:"rpc"`
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
+}
+
+// GlobalTLSConfig defines global TLS settings shared across all connections.
+// The CA is used for both verifying peer certificates and client certificate
+// verification when mTLS is enabled on listeners.
+type GlobalTLSConfig struct {
+	// CA certificate for verifying peer certificates and client certs (mTLS)
+	CA    string `yaml:"ca"`     // CA certificate file path
+	CAPEM string `yaml:"ca_pem"` // CA certificate PEM content (takes precedence)
+
+	// Agent's identity certificate used for listeners and peer connections
+	Cert    string `yaml:"cert"`     // Certificate file path
+	Key     string `yaml:"key"`      // Private key file path
+	CertPEM string `yaml:"cert_pem"` // Certificate PEM content (takes precedence)
+	KeyPEM  string `yaml:"key_pem"`  // Private key PEM content (takes precedence)
+
+	// MTLS enables mutual TLS on listeners (require client certificates)
+	MTLS bool `yaml:"mtls"`
+}
+
+// GetCAPEM returns the CA certificate PEM content, reading from file if necessary.
+func (g *GlobalTLSConfig) GetCAPEM() ([]byte, error) {
+	if g.CAPEM != "" {
+		return []byte(g.CAPEM), nil
+	}
+	if g.CA != "" {
+		return os.ReadFile(g.CA)
+	}
+	return nil, nil
+}
+
+// GetCertPEM returns the certificate PEM content, reading from file if necessary.
+func (g *GlobalTLSConfig) GetCertPEM() ([]byte, error) {
+	if g.CertPEM != "" {
+		return []byte(g.CertPEM), nil
+	}
+	if g.Cert != "" {
+		return os.ReadFile(g.Cert)
+	}
+	return nil, nil
+}
+
+// GetKeyPEM returns the private key PEM content, reading from file if necessary.
+func (g *GlobalTLSConfig) GetKeyPEM() ([]byte, error) {
+	if g.KeyPEM != "" {
+		return []byte(g.KeyPEM), nil
+	}
+	if g.Key != "" {
+		return os.ReadFile(g.Key)
+	}
+	return nil, nil
+}
+
+// HasCA returns true if CA certificate is configured (either file or PEM).
+func (g *GlobalTLSConfig) HasCA() bool {
+	return g.CA != "" || g.CAPEM != ""
+}
+
+// HasCert returns true if certificate is configured (either file or PEM).
+func (g *GlobalTLSConfig) HasCert() bool {
+	return g.Cert != "" || g.CertPEM != ""
+}
+
+// HasKey returns true if private key is configured (either file or PEM).
+func (g *GlobalTLSConfig) HasKey() bool {
+	return g.Key != "" || g.KeyPEM != ""
 }
 
 // AgentConfig contains agent identity settings.
@@ -57,21 +124,23 @@ type PeerConfig struct {
 	TLS       TLSConfig `yaml:"tls"`
 }
 
-// TLSConfig defines TLS settings.
+// TLSConfig defines per-connection TLS settings that can override global settings.
 // For each certificate/key, you can specify either a file path or inline PEM content.
 // If both are provided, inline PEM takes precedence.
 type TLSConfig struct {
-	// File paths
-	Cert     string `yaml:"cert"`      // Certificate file path
-	Key      string `yaml:"key"`       // Private key file path
-	CA       string `yaml:"ca"`        // CA certificate file path
-	ClientCA string `yaml:"client_ca"` // Client CA for mTLS
+	// Override global cert/key (optional - uses global if not set)
+	Cert    string `yaml:"cert"`     // Certificate file path
+	Key     string `yaml:"key"`      // Private key file path
+	CertPEM string `yaml:"cert_pem"` // Certificate PEM content
+	KeyPEM  string `yaml:"key_pem"`  // Private key PEM content
 
-	// Inline PEM content (takes precedence over file paths)
-	CertPEM     string `yaml:"cert_pem"`      // Certificate PEM content
-	KeyPEM      string `yaml:"key_pem"`       // Private key PEM content
-	CAPEM       string `yaml:"ca_pem"`        // CA certificate PEM content
-	ClientCAPEM string `yaml:"client_ca_pem"` // Client CA PEM content
+	// Override global CA (optional - peer connections only)
+	CA    string `yaml:"ca"`     // CA certificate file path
+	CAPEM string `yaml:"ca_pem"` // CA certificate PEM content
+
+	// mTLS override (optional - listener only, uses global if nil)
+	// Use pointer to distinguish "not set" from "false"
+	MTLS *bool `yaml:"mtls,omitempty"`
 
 	// Other options
 	Fingerprint        string `yaml:"fingerprint"`          // Certificate fingerprint for pinning
@@ -111,17 +180,6 @@ func (t *TLSConfig) GetCAPEM() ([]byte, error) {
 	return nil, nil
 }
 
-// GetClientCAPEM returns the client CA PEM content, reading from file if necessary.
-func (t *TLSConfig) GetClientCAPEM() ([]byte, error) {
-	if t.ClientCAPEM != "" {
-		return []byte(t.ClientCAPEM), nil
-	}
-	if t.ClientCA != "" {
-		return os.ReadFile(t.ClientCA)
-	}
-	return nil, nil
-}
-
 // HasCert returns true if certificate is configured (either file or PEM).
 func (t *TLSConfig) HasCert() bool {
 	return t.Cert != "" || t.CertPEM != ""
@@ -130,6 +188,44 @@ func (t *TLSConfig) HasCert() bool {
 // HasKey returns true if private key is configured (either file or PEM).
 func (t *TLSConfig) HasKey() bool {
 	return t.Key != "" || t.KeyPEM != ""
+}
+
+// HasCA returns true if CA certificate is configured (either file or PEM).
+func (t *TLSConfig) HasCA() bool {
+	return t.CA != "" || t.CAPEM != ""
+}
+
+// GetEffectiveCertPEM returns the effective certificate PEM, preferring per-connection
+// override over global config.
+func (c *Config) GetEffectiveCertPEM(override *TLSConfig) ([]byte, error) {
+	// Check per-connection override first
+	if override != nil && override.HasCert() {
+		return override.GetCertPEM()
+	}
+	// Fall back to global
+	return c.TLS.GetCertPEM()
+}
+
+// GetEffectiveKeyPEM returns the effective private key PEM, preferring per-connection
+// override over global config.
+func (c *Config) GetEffectiveKeyPEM(override *TLSConfig) ([]byte, error) {
+	// Check per-connection override first
+	if override != nil && override.HasKey() {
+		return override.GetKeyPEM()
+	}
+	// Fall back to global
+	return c.TLS.GetKeyPEM()
+}
+
+// GetEffectiveCAPEM returns the effective CA certificate PEM, preferring per-connection
+// override over global config.
+func (c *Config) GetEffectiveCAPEM(override *TLSConfig) ([]byte, error) {
+	// Check per-connection override first
+	if override != nil && override.HasCA() {
+		return override.GetCAPEM()
+	}
+	// Fall back to global
+	return c.TLS.GetCAPEM()
 }
 
 // ProxyAuth defines proxy authentication.
@@ -409,16 +505,21 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf("invalid log_format: %s (must be text or json)", c.Agent.LogFormat))
 	}
 
+	// Validate global TLS config
+	if err := c.validateGlobalTLS(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
 	// Validate listeners
 	for i, l := range c.Listeners {
-		if err := validateListener(l); err != nil {
+		if err := c.validateListener(l, i); err != nil {
 			errs = append(errs, fmt.Sprintf("listeners[%d]: %v", i, err))
 		}
 	}
 
 	// Validate peers
 	for i, p := range c.Peers {
-		if err := validatePeer(p); err != nil {
+		if err := c.validatePeer(p, i); err != nil {
 			errs = append(errs, fmt.Sprintf("peers[%d]: %v", i, err))
 		}
 	}
@@ -458,6 +559,21 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// validateGlobalTLS validates the global TLS configuration.
+func (c *Config) validateGlobalTLS() error {
+	// Check for mTLS without CA
+	if c.TLS.MTLS && !c.TLS.HasCA() {
+		return fmt.Errorf("tls.ca is required when tls.mtls is enabled")
+	}
+
+	// Check for partial cert/key configuration
+	if c.TLS.HasCert() != c.TLS.HasKey() {
+		return fmt.Errorf("tls.cert and tls.key must both be specified or both be empty")
+	}
+
+	return nil
+}
+
 func isValidLogLevel(level string) bool {
 	switch level {
 	case "debug", "info", "warn", "error":
@@ -485,7 +601,8 @@ func isValidTransport(transport string) bool {
 	}
 }
 
-func validateListener(l ListenerConfig) error {
+// validateListener validates a listener configuration, considering global TLS settings.
+func (c *Config) validateListener(l ListenerConfig, index int) error {
 	if !isValidTransport(l.Transport) {
 		return fmt.Errorf("invalid transport: %s (must be quic, h2, or ws)", l.Transport)
 	}
@@ -503,13 +620,30 @@ func validateListener(l ListenerConfig) error {
 		// Skip TLS requirement for plaintext WebSocket
 		return nil
 	}
-	if !l.TLS.HasCert() || !l.TLS.HasKey() {
-		return fmt.Errorf("tls certificate and key are required (use cert/key paths or cert_pem/key_pem)")
+
+	// Check if cert/key is available (from listener override or global)
+	hasCert := l.TLS.HasCert() || c.TLS.HasCert()
+	hasKey := l.TLS.HasKey() || c.TLS.HasKey()
+	if !hasCert || !hasKey {
+		return fmt.Errorf("tls certificate and key are required (specify in global tls section or per-listener)")
 	}
+
+	// Determine effective mTLS setting
+	enableMTLS := c.TLS.MTLS
+	if l.TLS.MTLS != nil {
+		enableMTLS = *l.TLS.MTLS
+	}
+
+	// If mTLS is enabled for this listener, ensure CA is configured
+	if enableMTLS && !c.TLS.HasCA() {
+		return fmt.Errorf("global tls.ca is required when mTLS is enabled")
+	}
+
 	return nil
 }
 
-func validatePeer(p PeerConfig) error {
+// validatePeer validates a peer configuration, considering global TLS settings.
+func (c *Config) validatePeer(p PeerConfig, index int) error {
 	if p.ID == "" {
 		return fmt.Errorf("id is required")
 	}
@@ -519,6 +653,12 @@ func validatePeer(p PeerConfig) error {
 	if p.Address == "" {
 		return fmt.Errorf("address is required")
 	}
+
+	// Check for partial cert/key override
+	if p.TLS.HasCert() != p.TLS.HasKey() {
+		return fmt.Errorf("tls cert and key must both be specified or both be empty")
+	}
+
 	return nil
 }
 
@@ -557,6 +697,14 @@ func (c *Config) Redacted() *Config {
 	redacted := &Config{}
 	if err := yaml.Unmarshal(data, redacted); err != nil {
 		return c
+	}
+
+	// Redact global TLS key
+	if redacted.TLS.Key != "" {
+		redacted.TLS.Key = redactedValue
+	}
+	if redacted.TLS.KeyPEM != "" {
+		redacted.TLS.KeyPEM = redactedValue
 	}
 
 	// Redact sensitive fields in peers

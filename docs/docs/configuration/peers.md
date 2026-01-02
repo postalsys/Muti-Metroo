@@ -13,14 +13,22 @@ Peers define outbound connections to other agents in the mesh.
 
 ## Configuration
 
+Peers use the global TLS configuration by default:
+
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 peers:
   - id: "abc123def456789012345678901234ab"   # Expected peer Agent ID
     transport: quic                           # quic, h2, ws
     address: "192.168.1.10:4433"             # Peer address
-    tls:
-      ca: "./certs/ca.crt"                   # CA certificate
 ```
+
+The global `ca` is used to verify the peer's server certificate, and the global `cert`/`key` are used as the client certificate when the peer requires mTLS.
 
 ## Peer Options
 
@@ -31,8 +39,7 @@ peers:
   - id: "abc123def456789012345678901234ab"
     transport: quic
     address: "192.168.1.10:4433"
-    tls:
-      ca: "./certs/ca.crt"
+    # Uses global TLS settings
 ```
 
 ### Full Options
@@ -43,9 +50,8 @@ peers:
     transport: quic
     address: "192.168.1.10:4433"
     tls:
-      ca: "./certs/ca.crt"
-      cert: "./certs/client.crt"      # Client certificate (for mTLS)
-      key: "./certs/client.key"       # Client key (for mTLS)
+      ca: "./certs/other-ca.crt"       # Override global CA (rare)
+      fingerprint: "sha256:ab12cd34..."  # Certificate pinning
     reconnect:
       initial_delay: 1s
       max_delay: 60s
@@ -91,8 +97,6 @@ peers:
   - id: "..."
     transport: quic
     address: "192.168.1.10:4433"
-    tls:
-      ca: "./certs/ca.crt"
 ```
 
 ### HTTP/2
@@ -103,8 +107,6 @@ peers:
     transport: h2
     address: "192.168.1.10:8443"
     path: "/mesh"                    # Must match listener path
-    tls:
-      ca: "./certs/ca.crt"
 ```
 
 ### WebSocket
@@ -114,11 +116,11 @@ peers:
   - id: "..."
     transport: ws
     address: "wss://relay.example.com:443/mesh"
-    tls:
-      ca: "./certs/ca.crt"
 ```
 
 ### WebSocket Through Proxy
+
+When connecting through a proxy, mTLS is not available and the external server may use RSA certificates:
 
 ```yaml
 peers:
@@ -129,34 +131,60 @@ peers:
     proxy_auth:
       username: "${PROXY_USER}"
       password: "${PROXY_PASS}"
-    tls:
-      ca: "./certs/ca.crt"
 ```
+
+Note: When using a proxy, the global agent certificate is not used for mTLS since the TLS connection terminates at the proxy or external server.
 
 ## TLS Configuration
 
-### Server CA Only
+### Using Global Settings
 
-Validate server certificate:
+By default, peers use the global TLS configuration:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 peers:
   - id: "..."
-    tls:
-      ca: "./certs/ca.crt"
+    transport: quic
+    address: "192.168.1.10:4433"
+    # Uses global CA to verify server
+    # Uses global cert/key as client certificate
 ```
 
-### Mutual TLS (mTLS)
+### Per-Peer Overrides
 
-Present client certificate:
+Override specific settings per peer:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 peers:
+  # Uses global settings
   - id: "..."
+    transport: quic
+    address: "192.168.1.10:4433"
+
+  # Override: different CA
+  - id: "..."
+    transport: quic
+    address: "external.example.com:4433"
     tls:
-      ca: "./certs/ca.crt"
-      cert: "./certs/client.crt"
-      key: "./certs/client.key"
+      ca: "./certs/external-ca.crt"
+
+  # Certificate pinning
+  - id: "..."
+    transport: quic
+    address: "pinned.example.com:4433"
+    tls:
+      fingerprint: "sha256:ab12cd34..."
 ```
 
 ### Inline Certificates
@@ -169,14 +197,6 @@ peers:
         -----BEGIN CERTIFICATE-----
         ...
         -----END CERTIFICATE-----
-      cert_pem: |
-        -----BEGIN CERTIFICATE-----
-        ...
-        -----END CERTIFICATE-----
-      key_pem: |
-        -----BEGIN PRIVATE KEY-----
-        ...
-        -----END PRIVATE KEY-----
 ```
 
 ## Reconnection
@@ -221,29 +241,28 @@ peers:
 Connect to multiple agents:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 peers:
   # Direct QUIC to local agent
   - id: "agent-local-id..."
     transport: quic
     address: "192.168.1.10:4433"
-    tls:
-      ca: "./certs/ca.crt"
 
   # HTTP/2 to cloud relay
   - id: "agent-cloud-id..."
     transport: h2
     address: "relay.cloud.com:443"
     path: "/mesh"
-    tls:
-      ca: "./certs/cloud-ca.crt"
 
   # WebSocket through proxy to remote site
   - id: "agent-remote-id..."
     transport: ws
     address: "wss://remote.site.com:443/mesh"
     proxy: "http://proxy:8080"
-    tls:
-      ca: "./certs/remote-ca.crt"
 ```
 
 ## Address Formats
@@ -283,8 +302,6 @@ peers:
   - id: "${PEER_ID}"
     transport: "${PEER_TRANSPORT:-quic}"
     address: "${PEER_ADDR}"
-    tls:
-      ca: "${PEER_CA:-./certs/ca.crt}"
 ```
 
 ## Examples
@@ -295,24 +312,30 @@ Agent A connects to Agent B:
 
 ```yaml
 # Agent A config
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 peers:
   - id: "bbbb2222..."    # Agent B's ID
     transport: quic
     address: "192.168.1.20:4433"
-    tls:
-      ca: "./certs/ca.crt"
 ```
 
 Agent B (listener only, no peers needed):
 
 ```yaml
 # Agent B config
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 ```
 
 ### Hub and Spoke
@@ -321,17 +344,26 @@ Central hub with multiple spokes:
 
 ```yaml
 # Hub config (no outbound peers, just listeners)
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
 
 # Spoke configs
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+
 peers:
   - id: "hub-agent-id..."
     transport: quic
     address: "hub.example.com:4433"
-    tls:
-      ca: "./certs/ca.crt"
 ```
 
 ### Full Mesh

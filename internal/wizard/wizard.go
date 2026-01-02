@@ -379,9 +379,10 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 	return
 }
 
-func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.TLSConfig, err error) {
+func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.GlobalTLSConfig, err error) {
 	certsDir = filepath.Join(dataDir, "certs")
 	var tlsChoice string
+	var enableMTLS bool = true // Default to mTLS enabled
 
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -403,6 +404,11 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 				Description("Where to store/find certificate files").
 				Placeholder(certsDir).
 				Value(&certsDir),
+
+			huh.NewConfirm().
+				Title("Enable mTLS (mutual TLS)?").
+				Description("Require client certificates for peer authentication").
+				Value(&enableMTLS),
 		),
 	).WithTheme(w.theme)
 
@@ -424,10 +430,13 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 		tlsConfig, err = w.useExistingCertificates(certsDir)
 	}
 
+	// Set mTLS preference
+	tlsConfig.MTLS = enableMTLS
+
 	return
 }
 
-func (w *Wizard) generateCertificates(certsDir string) (config.TLSConfig, error) {
+func (w *Wizard) generateCertificates(certsDir string) (config.GlobalTLSConfig, error) {
 	var commonName string = "muti-metroo"
 	var validDays int = 365
 
@@ -462,20 +471,20 @@ func (w *Wizard) generateCertificates(certsDir string) (config.TLSConfig, error)
 	).WithTheme(w.theme)
 
 	if err := form.Run(); err != nil {
-		return config.TLSConfig{}, err
+		return config.GlobalTLSConfig{}, err
 	}
 
 	// Generate CA
 	validFor := time.Duration(validDays) * 24 * time.Hour
 	ca, err := certutil.GenerateCA(commonName+" CA", validFor)
 	if err != nil {
-		return config.TLSConfig{}, fmt.Errorf("failed to generate CA: %w", err)
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate CA: %w", err)
 	}
 
 	caPath := filepath.Join(certsDir, "ca.crt")
 	caKeyPath := filepath.Join(certsDir, "ca.key")
 	if err := ca.SaveToFiles(caPath, caKeyPath); err != nil {
-		return config.TLSConfig{}, fmt.Errorf("failed to save CA: %w", err)
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to save CA: %w", err)
 	}
 
 	// Generate server certificate
@@ -488,28 +497,27 @@ func (w *Wizard) generateCertificates(certsDir string) (config.TLSConfig, error)
 
 	cert, err := certutil.GenerateCert(opts)
 	if err != nil {
-		return config.TLSConfig{}, fmt.Errorf("failed to generate certificate: %w", err)
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate certificate: %w", err)
 	}
 
 	certPath := filepath.Join(certsDir, "server.crt")
 	keyPath := filepath.Join(certsDir, "server.key")
 	if err := cert.SaveToFiles(certPath, keyPath); err != nil {
-		return config.TLSConfig{}, fmt.Errorf("failed to save certificate: %w", err)
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to save certificate: %w", err)
 	}
 
 	fmt.Printf("\n[OK] Generated CA certificate: %s\n", caPath)
 	fmt.Printf("[OK] Generated server certificate: %s\n", certPath)
 	fmt.Printf("  Fingerprint: %s\n\n", cert.Fingerprint())
 
-	return config.TLSConfig{
-		Cert:     certPath,
-		Key:      keyPath,
-		CA:       caPath,
-		ClientCA: caPath,
+	return config.GlobalTLSConfig{
+		Cert: certPath,
+		Key:  keyPath,
+		CA:   caPath,
 	}, nil
 }
 
-func (w *Wizard) pasteCertificates(certsDir string) (config.TLSConfig, error) {
+func (w *Wizard) pasteCertificates(certsDir string) (config.GlobalTLSConfig, error) {
 	var certContent, keyContent, caContent string
 
 	form := huh.NewForm(
@@ -546,14 +554,14 @@ func (w *Wizard) pasteCertificates(certsDir string) (config.TLSConfig, error) {
 		huh.NewGroup(
 			huh.NewText().
 				Title("CA Certificate (PEM) - Optional").
-				Description("Paste CA certificate for client verification").
+				Description("Paste CA certificate for peer verification and mTLS").
 				CharLimit(10000).
 				Value(&caContent),
 		),
 	).WithTheme(w.theme)
 
 	if err := form.Run(); err != nil {
-		return config.TLSConfig{}, err
+		return config.GlobalTLSConfig{}, err
 	}
 
 	// Write certificate files
@@ -561,13 +569,13 @@ func (w *Wizard) pasteCertificates(certsDir string) (config.TLSConfig, error) {
 	keyPath := filepath.Join(certsDir, "server.key")
 
 	if err := os.WriteFile(certPath, []byte(certContent), 0644); err != nil {
-		return config.TLSConfig{}, fmt.Errorf("failed to write certificate: %w", err)
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to write certificate: %w", err)
 	}
 	if err := os.WriteFile(keyPath, []byte(keyContent), 0600); err != nil {
-		return config.TLSConfig{}, fmt.Errorf("failed to write key: %w", err)
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to write key: %w", err)
 	}
 
-	tlsConfig := config.TLSConfig{
+	tlsConfig := config.GlobalTLSConfig{
 		Cert: certPath,
 		Key:  keyPath,
 	}
@@ -575,10 +583,9 @@ func (w *Wizard) pasteCertificates(certsDir string) (config.TLSConfig, error) {
 	if caContent != "" && strings.Contains(caContent, "-----BEGIN CERTIFICATE-----") {
 		caPath := filepath.Join(certsDir, "ca.crt")
 		if err := os.WriteFile(caPath, []byte(caContent), 0644); err != nil {
-			return config.TLSConfig{}, fmt.Errorf("failed to write CA: %w", err)
+			return config.GlobalTLSConfig{}, fmt.Errorf("failed to write CA: %w", err)
 		}
 		tlsConfig.CA = caPath
-		tlsConfig.ClientCA = caPath
 	}
 
 	fmt.Printf("\n[OK] Saved certificate to: %s\n", certPath)
@@ -587,7 +594,7 @@ func (w *Wizard) pasteCertificates(certsDir string) (config.TLSConfig, error) {
 	return tlsConfig, nil
 }
 
-func (w *Wizard) useExistingCertificates(certsDir string) (config.TLSConfig, error) {
+func (w *Wizard) useExistingCertificates(certsDir string) (config.GlobalTLSConfig, error) {
 	certPath := filepath.Join(certsDir, "server.crt")
 	keyPath := filepath.Join(certsDir, "server.key")
 	caPath := filepath.Join(certsDir, "ca.crt")
@@ -622,16 +629,17 @@ func (w *Wizard) useExistingCertificates(certsDir string) (config.TLSConfig, err
 
 			huh.NewInput().
 				Title("CA Certificate File (optional)").
+				Description("For peer verification and mTLS").
 				Placeholder(caPath).
 				Value(&caPath),
 		),
 	).WithTheme(w.theme)
 
 	if err := form.Run(); err != nil {
-		return config.TLSConfig{}, err
+		return config.GlobalTLSConfig{}, err
 	}
 
-	tlsConfig := config.TLSConfig{
+	tlsConfig := config.GlobalTLSConfig{
 		Cert: certPath,
 		Key:  keyPath,
 	}
@@ -639,7 +647,6 @@ func (w *Wizard) useExistingCertificates(certsDir string) (config.TLSConfig, err
 	if caPath != "" {
 		if _, err := os.Stat(caPath); err == nil {
 			tlsConfig.CA = caPath
-			tlsConfig.ClientCA = caPath
 		}
 	}
 
@@ -1272,7 +1279,7 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 
 func (w *Wizard) buildConfig(
 	dataDir, displayName, transport, listenAddr, listenPath string,
-	tlsConfig config.TLSConfig,
+	tlsConfig config.GlobalTLSConfig,
 	peers []config.PeerConfig,
 	socks5Config config.SOCKS5Config,
 	exitConfig config.ExitConfig,
@@ -1288,11 +1295,13 @@ func (w *Wizard) buildConfig(
 	cfg.Agent.LogLevel = logLevel
 	cfg.Agent.LogFormat = "text"
 
-	// Listener
+	// Global TLS config
+	cfg.TLS = tlsConfig
+
+	// Listener (uses global TLS config, no per-listener TLS needed)
 	listener := config.ListenerConfig{
 		Transport: transport,
 		Address:   listenAddr,
-		TLS:       tlsConfig,
 	}
 	if transport == "h2" || transport == "ws" {
 		listener.Path = listenPath

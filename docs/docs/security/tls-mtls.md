@@ -17,26 +17,41 @@ All Muti Metroo peer connections use TLS 1.3:
 
 - **Encryption**: AES-256-GCM or ChaCha20-Poly1305
 - **Key Exchange**: ECDHE with X25519 or P-256
-- **Authentication**: RSA or ECDSA certificates
+- **Authentication**: ECDSA certificates (EC-only, RSA not supported)
 - **Forward Secrecy**: New keys per session
+
+## Global TLS Configuration
+
+TLS is configured once in the global `tls:` section and automatically used by all listeners and peer connections:
+
+```yaml
+tls:
+  ca: "./certs/ca.crt"        # CA for verifying peers and clients
+  cert: "./certs/agent.crt"   # Agent's identity certificate
+  key: "./certs/agent.key"    # Agent's private key
+  mtls: true                  # Enable mutual TLS on listeners
+```
 
 ## Server Authentication (TLS)
 
-Basic TLS validates the server's certificate:
+Basic TLS validates the server's certificate. With `mtls: false`, listeners accept any connecting peer:
 
 ```yaml
-# Listener (server)
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: false                  # Don't require client certs
+
 listeners:
   - transport: quic
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    address: "0.0.0.0:4433"
 
-# Peer connection (client)
 peers:
-  - id: "..."
-    tls:
-      ca: "./certs/ca.crt"     # Validate server cert
+  - id: "abc123..."
+    transport: quic
+    address: "peer.example.com:4433"
+    # Uses global CA to validate server, global cert as client cert
 ```
 
 ### What This Provides
@@ -44,33 +59,29 @@ peers:
 - Server identity verified
 - Client can trust it's connecting to the right agent
 - Traffic encrypted
+- Peers still present certificates (using global cert)
 
 ### What This Does NOT Provide
 
-- No validation of client identity
+- No mandatory validation of client identity on listeners
 - Any client can connect (if they can reach the port)
 
 ## Mutual TLS (mTLS)
 
-mTLS requires both sides to present valid certificates:
+mTLS requires both sides to present valid certificates. Enable it globally:
 
 ```yaml
-# Listener (server) - require client certs
-listeners:
-  - transport: quic
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
-      client_ca: "./certs/ca.crt"    # Validate client certs
-
-# Peer connection (client) - present client cert
-peers:
-  - id: "..."
-    tls:
-      ca: "./certs/ca.crt"
-      cert: "./certs/client.crt"     # Client certificate
-      key: "./certs/client.key"      # Client key
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true                   # Require client certs on listeners
 ```
+
+With mTLS enabled:
+- Listeners require connecting peers to present valid certificates
+- The global CA is used to verify client certificates
+- Peers automatically use the global agent certificate as their client certificate
 
 ### What mTLS Provides
 
@@ -78,6 +89,18 @@ peers:
 - Only authorized peers can connect
 - Strong defense against unauthorized access
 - Certificate-based access control
+
+## EC-Only Certificates
+
+**Important**: Muti Metroo only accepts EC (Elliptic Curve) certificates. RSA certificates are rejected.
+
+```bash
+# Generate EC certificates using the CLI
+muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert agent -n "agent-1" -o ./certs
+```
+
+The only exception is WebSocket connections through a proxy - external servers may use any certificate type since mTLS is not available through proxies.
 
 ## Certificate Types
 
@@ -95,7 +118,7 @@ muti-metroo cert ca -n "My Mesh CA" -o ./certs
 
 ### Agent Certificate
 
-For listeners (server authentication):
+Used for both server and client authentication:
 
 ```bash
 muti-metroo cert agent -n "agent-1" \
@@ -105,93 +128,79 @@ muti-metroo cert agent -n "agent-1" \
 
 Features:
 - Extended Key Usage: Server Authentication, Client Authentication
-- Can be used for both server and client
-
-### Client Certificate
-
-For peer connections (client authentication):
-
-```bash
-muti-metroo cert client -n "peer-client"
-```
-
-Features:
-- Extended Key Usage: Client Authentication only
-- Cannot be used for server authentication
-
-## Certificate Requirements
-
-### Subject Alternative Names (SANs)
-
-Always include SANs for server certificates:
-
-```bash
-muti-metroo cert agent -n "agent-1" \
-  --dns "agent1.example.com" \
-  --dns "agent1.internal" \
-  --ip "192.168.1.10" \
-  --ip "10.0.0.10"
-```
-
-Without proper SANs, TLS validation will fail.
-
-### Key Size
-
-- **RSA**: Minimum 2048 bits, recommended 4096 for CA
-- **ECDSA**: P-256 or P-384
-
-### Validity Period
-
-- **CA**: 1-5 years
-- **Agent/Client**: 90-365 days
-- Shorter validity = more frequent rotation = better security
+- Used by listeners for server TLS
+- Used by peers as client certificate for mTLS
 
 ## Configuration Examples
 
-### Development (TLS Only)
+### Development (mTLS Disabled)
 
 ```yaml
-# Development - TLS but no client certs
+tls:
+  ca: "./dev-certs/ca.crt"
+  cert: "./dev-certs/agent.crt"
+  key: "./dev-certs/agent.key"
+  mtls: false                  # Disable for easier development
+
 listeners:
   - transport: quic
-    tls:
-      cert: "./dev-certs/agent.crt"
-      key: "./dev-certs/agent.key"
-
-peers:
-  - id: "..."
-    tls:
-      ca: "./dev-certs/ca.crt"
+    address: "0.0.0.0:4433"
 ```
 
 ### Production (Full mTLS)
 
 ```yaml
-# Production - mutual TLS
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
-    tls:
-      cert: "/etc/muti-metroo/certs/agent.crt"
-      key: "/etc/muti-metroo/certs/agent.key"
-      client_ca: "/etc/muti-metroo/certs/ca.crt"
+    address: "0.0.0.0:4433"
 
 peers:
-  - id: "..."
+  - id: "abc123..."
+    transport: quic
+    address: "peer.example.com:4433"
+```
+
+### Per-Listener Override
+
+Disable mTLS for a specific listener:
+
+```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true                   # Global default
+
+listeners:
+  # Uses global mTLS setting
+  - transport: quic
+    address: "0.0.0.0:4433"
+
+  # Override: disable mTLS for this listener
+  - transport: h2
+    address: "0.0.0.0:8443"
     tls:
-      ca: "/etc/muti-metroo/certs/ca.crt"
-      cert: "/etc/muti-metroo/certs/client.crt"
-      key: "/etc/muti-metroo/certs/client.key"
+      mtls: false
 ```
 
 ### Kubernetes (Inline Certs)
 
 ```yaml
+tls:
+  ca_pem: "${CA_CRT}"
+  cert_pem: "${TLS_CRT}"
+  key_pem: "${TLS_KEY}"
+  mtls: true
+
 listeners:
   - transport: quic
-    tls:
-      cert_pem: "${TLS_CRT}"
-      key_pem: "${TLS_KEY}"
-      client_ca_pem: "${CA_CRT}"
+    address: "0.0.0.0:4433"
 ```
 
 ## Certificate Validation
@@ -202,6 +211,7 @@ listeners:
 2. Validity period (not expired, not future)
 3. Subject Alternative Names (hostname/IP matches)
 4. Key usage (appropriate for server/client)
+5. Key type (must be ECDSA)
 
 ### Peer ID Validation
 
@@ -249,29 +259,38 @@ Error: x509: certificate is valid for agent1.example.com, not agent2.example.com
 - Use correct hostname in peer address
 - Generate certificate with correct SANs
 
+### RSA Certificate Rejected
+
+```
+Error: certificate must use ECDSA, got RSA
+```
+
+- Muti Metroo only accepts EC certificates
+- Regenerate using ECDSA:
+  ```bash
+  muti-metroo cert agent -n "agent-1" -o ./certs
+  ```
+
 ### Client Certificate Required
 
 ```
 Error: tls: client didn't provide a certificate
 ```
 
-- Configure client certificate in peer config:
-  ```yaml
-  peers:
-    - tls:
-        cert: "./certs/client.crt"
-        key: "./certs/client.key"
-  ```
+- The listener has mTLS enabled
+- Connecting peer must have a valid certificate configured
+- Check global `tls.cert` and `tls.key` are set
 
 ## Best Practices
 
 1. **Always use mTLS in production**
-2. **Protect CA private key** (HSM, vault, or encrypted storage)
-3. **Use short certificate validity** (90-365 days)
-4. **Automate certificate rotation**
-5. **Include all necessary SANs** when generating certs
-6. **Monitor certificate expiration**
-7. **Revoke compromised certificates** immediately
+2. **Use EC certificates only** (RSA is not supported)
+3. **Protect CA private key** (HSM, vault, or encrypted storage)
+4. **Use short certificate validity** (90-365 days)
+5. **Automate certificate rotation**
+6. **Include all necessary SANs** when generating certs
+7. **Monitor certificate expiration**
+8. **Revoke compromised certificates** immediately
 
 ## Next Steps
 

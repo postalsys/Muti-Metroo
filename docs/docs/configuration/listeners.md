@@ -13,14 +13,18 @@ Listeners accept incoming peer connections. Each listener binds to an address an
 
 ## Configuration
 
+Listeners use the global TLS configuration by default:
+
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic             # quic, h2, ws
     address: "0.0.0.0:4433"     # Bind address
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
-      client_ca: "./certs/ca.crt"  # Optional: require client certs
 ```
 
 ## Transport Types
@@ -30,12 +34,15 @@ listeners:
 Best performance, UDP-based:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 ```
 
 ### HTTP/2 Listener
@@ -47,9 +54,6 @@ listeners:
   - transport: h2
     address: "0.0.0.0:8443"
     path: "/mesh"              # Optional URL path
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 ```
 
 ### WebSocket Listener
@@ -61,9 +65,6 @@ listeners:
   - transport: ws
     address: "0.0.0.0:443"
     path: "/mesh"              # Required for WebSocket
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 ```
 
 ### Plain WebSocket (Reverse Proxy)
@@ -97,77 +98,97 @@ See [Reverse Proxy Deployment](../deployment/reverse-proxy) for Nginx, Caddy, an
 An agent can listen on multiple transports simultaneously:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
   # Primary: QUIC for direct connections
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 
   # Fallback: HTTP/2 for firewall traversal
   - transport: h2
     address: "0.0.0.0:8443"
     path: "/mesh"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 
   # Alternative: WebSocket for maximum compatibility
   - transport: ws
     address: "0.0.0.0:443"
     path: "/mesh"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 ```
 
 ## TLS Configuration
 
-### File-Based Certificates
+### Using Global Settings
+
+By default, listeners use the global TLS configuration:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
+    # Uses global cert, key, and mtls setting
 ```
 
-### Inline PEM Certificates
+### Per-Listener Overrides
 
-For containerized deployments:
+Override specific settings per listener:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true
+
 listeners:
+  # Uses global settings
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert_pem: |
-        -----BEGIN CERTIFICATE-----
-        MIIBkTCB+wIJAKi...
-        -----END CERTIFICATE-----
-      key_pem: |
-        -----BEGIN PRIVATE KEY-----
-        MIIEvQIBADANBg...
-        -----END PRIVATE KEY-----
-```
 
-Inline PEM takes precedence over file paths.
+  # Override: different certificate
+  - transport: h2
+    address: "0.0.0.0:8443"
+    tls:
+      cert: "./certs/public.crt"
+      key: "./certs/public.key"
+
+  # Override: disable mTLS
+  - transport: ws
+    address: "0.0.0.0:443"
+    tls:
+      mtls: false
+```
 
 ### Mutual TLS (mTLS)
 
-Require clients to present valid certificates:
+mTLS is controlled by the global `mtls` setting or per-listener override:
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: true                    # Global: require client certs
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
+    # mTLS enabled (from global)
+
+  - transport: h2
+    address: "0.0.0.0:8443"
     tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
-      client_ca: "./certs/ca.crt"   # Require client certs signed by this CA
+      mtls: false               # Override: no client certs required
 ```
 
 With mTLS:
@@ -232,14 +253,12 @@ listeners:
 listeners:
   - transport: h2
     address: "0.0.0.0:443"
-    tls: ...
 
 # Or WebSocket on standard HTTPS
 listeners:
   - transport: ws
     address: "0.0.0.0:443"
     path: "/mesh"
-    tls: ...
 ```
 
 ## URL Path
@@ -251,7 +270,6 @@ listeners:
   - transport: h2
     address: "0.0.0.0:443"
     path: "/mesh/v1"
-    tls: ...
 ```
 
 Peers must use matching path:
@@ -268,46 +286,49 @@ peers:
 ### Development
 
 ```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  mtls: false                  # Relax for development
+
 listeners:
   - transport: quic
     address: "127.0.0.1:4433"
-    tls:
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
 ```
 
 ### Production (Multi-Transport)
 
 ```yaml
+tls:
+  ca: "/etc/muti-metroo/certs/ca.crt"
+  cert: "/etc/muti-metroo/certs/agent.crt"
+  key: "/etc/muti-metroo/certs/agent.key"
+  mtls: true
+
 listeners:
   # QUIC for performance
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert: "/etc/muti-metroo/certs/agent.crt"
-      key: "/etc/muti-metroo/certs/agent.key"
-      client_ca: "/etc/muti-metroo/certs/ca.crt"
 
   # HTTP/2 for TCP fallback
   - transport: h2
     address: "0.0.0.0:443"
     path: "/mesh"
-    tls:
-      cert: "/etc/muti-metroo/certs/agent.crt"
-      key: "/etc/muti-metroo/certs/agent.key"
-      client_ca: "/etc/muti-metroo/certs/ca.crt"
 ```
 
 ### Docker/Kubernetes
 
 ```yaml
+tls:
+  ca_pem: "${TLS_CA}"
+  cert_pem: "${TLS_CERT}"
+  key_pem: "${TLS_KEY}"
+  mtls: true
+
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      cert_pem: "${TLS_CERT}"
-      key_pem: "${TLS_KEY}"
-      ca_pem: "${TLS_CA}"
 ```
 
 ## Troubleshooting
@@ -344,8 +365,8 @@ sudo setcap 'cap_net_bind_service=+ep' muti-metroo
 muti-metroo cert info ./certs/agent.crt
 
 # Check key matches certificate
-openssl x509 -noout -modulus -in agent.crt | openssl md5
-openssl rsa -noout -modulus -in agent.key | openssl md5
+openssl x509 -noout -pubkey -in agent.crt | openssl md5
+openssl ec -in agent.key -pubout 2>/dev/null | openssl md5
 # (should match)
 ```
 

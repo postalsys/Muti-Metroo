@@ -21,6 +21,35 @@ agent:
   log_format: "text"  # text, json
 
 # ------------------------------------------------------------------------------
+# Global TLS Configuration
+# Single CA and agent certificate used for all connections
+# ------------------------------------------------------------------------------
+tls:
+  # CA certificate for verifying peers and client certificates (mTLS)
+  ca: "./certs/ca.crt"
+  # Or inline PEM (takes precedence over file path):
+  # ca_pem: |
+  #   -----BEGIN CERTIFICATE-----
+  #   ...
+  #   -----END CERTIFICATE-----
+
+  # Agent's identity certificate (used by listeners and peer connections)
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  # Or inline PEM:
+  # cert_pem: |
+  #   -----BEGIN CERTIFICATE-----
+  #   ...
+  #   -----END CERTIFICATE-----
+  # key_pem: |
+  #   -----BEGIN PRIVATE KEY-----
+  #   ...
+  #   -----END PRIVATE KEY-----
+
+  # Enable mutual TLS on listeners (require client certificates)
+  mtls: true
+
+# ------------------------------------------------------------------------------
 # Transport Listeners
 # Listen for incoming peer connections
 # ------------------------------------------------------------------------------
@@ -28,59 +57,44 @@ listeners:
   # QUIC listener (best performance, recommended)
   - transport: quic
     address: "0.0.0.0:4433"
-    tls:
-      # Option 1: File paths
-      cert: "./certs/agent.crt"
-      key: "./certs/agent.key"
-      # Optional: require client certificates (mTLS)
-      # client_ca: "./certs/ca.crt"
-
-      # Option 2: Inline PEM (takes precedence over file paths)
-      # Useful for single-file configs or Kubernetes secrets
-      # cert_pem: |
-      #   -----BEGIN CERTIFICATE-----
-      #   MIIBkTCB+wIJAK...
-      #   -----END CERTIFICATE-----
-      # key_pem: |
-      #   -----BEGIN PRIVATE KEY-----
-      #   MIIEvQIBADANBg...
-      #   -----END PRIVATE KEY-----
-      # ca_pem: |
-      #   -----BEGIN CERTIFICATE-----
-      #   ...
-      #   -----END CERTIFICATE-----
+    # Optional per-listener overrides (uses global tls settings if not specified):
+    # tls:
+    #   cert: "./certs/listener-specific.crt"
+    #   key: "./certs/listener-specific.key"
+    #   mtls: false  # Override global mTLS setting
 
   # HTTP/2 listener (TCP fallback)
   # - transport: h2
   #   address: "0.0.0.0:8443"
   #   path: "/mesh"
-  #   tls:
-  #     cert: "./certs/agent.crt"
-  #     key: "./certs/agent.key"
 
   # WebSocket listener (maximum proxy compatibility)
   # - transport: ws
   #   address: "0.0.0.0:443"
   #   path: "/mesh"
-  #   tls:
-  #     cert: "./certs/agent.crt"
-  #     key: "./certs/agent.key"
+
+  # WebSocket behind reverse proxy (plaintext mode)
+  # - transport: ws
+  #   address: "0.0.0.0:8080"
+  #   path: "/mesh"
+  #   plaintext: true  # No TLS - proxy handles it
 
 # ------------------------------------------------------------------------------
 # Peer Connections
 # Connect to other agents in the mesh
 # ------------------------------------------------------------------------------
 peers:
-  # Example QUIC peer
-  # - id: "abc123def456789012345678901234ab"  # Expected peer AgentID
+  # Example QUIC peer (uses global CA and cert for mTLS)
+  # - id: "abc123def456789012345678901234ab"
   #   transport: quic
   #   address: "192.168.1.50:4433"
-  #   tls:
-  #     ca: "./certs/peer-ca.crt"
-  #     # Or use certificate pinning:
-  #     # fingerprint: "sha256:ab12cd34..."
+  #   # Optional per-peer overrides:
+  #   # tls:
+  #   #   ca: "./certs/other-ca.crt"  # Override global CA
+  #   #   fingerprint: "sha256:ab12cd34..."  # Certificate pinning
 
   # Example WebSocket peer through corporate proxy
+  # Note: mTLS not available through proxy (external server may use RSA)
   # - id: "ghi789jkl012345678901234567890cd"
   #   transport: ws
   #   address: "wss://relay.example.com:443/mesh"

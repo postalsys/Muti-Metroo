@@ -379,6 +379,82 @@ func VerifyFingerprint(cert *x509.Certificate, expectedFingerprint string) bool 
 	return strings.EqualFold(actual, expectedFingerprint)
 }
 
+// ValidateECCertificate validates that a certificate uses ECDSA (EC) public key.
+// Returns an error if the certificate uses RSA or another algorithm.
+func ValidateECCertificate(certPEM []byte) error {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return fmt.Errorf("failed to decode certificate PEM")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	switch cert.PublicKeyAlgorithm {
+	case x509.ECDSA:
+		return nil
+	case x509.RSA:
+		return fmt.Errorf("RSA certificates are not supported; use EC (ECDSA) certificates")
+	case x509.Ed25519:
+		return fmt.Errorf("Ed25519 certificates are not supported; use EC (ECDSA) certificates")
+	default:
+		return fmt.Errorf("unsupported certificate algorithm: %v", cert.PublicKeyAlgorithm)
+	}
+}
+
+// ValidateECPrivateKey validates that a private key is an ECDSA key.
+// Returns an error if the key is RSA or another type.
+func ValidateECPrivateKey(keyPEM []byte) error {
+	block, _ := pem.Decode(keyPEM)
+	if block == nil {
+		return fmt.Errorf("failed to decode private key PEM")
+	}
+
+	// Try EC PRIVATE KEY format
+	if block.Type == "EC PRIVATE KEY" {
+		_, err := x509.ParseECPrivateKey(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse EC private key: %w", err)
+		}
+		return nil
+	}
+
+	// Try PKCS#8 format (PRIVATE KEY)
+	if block.Type == "PRIVATE KEY" {
+		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse PKCS#8 private key: %w", err)
+		}
+
+		switch key.(type) {
+		case *ecdsa.PrivateKey:
+			return nil
+		default:
+			return fmt.Errorf("private key is not ECDSA; use EC (ECDSA) keys only")
+		}
+	}
+
+	// RSA PRIVATE KEY
+	if block.Type == "RSA PRIVATE KEY" {
+		return fmt.Errorf("RSA private keys are not supported; use EC (ECDSA) keys")
+	}
+
+	return fmt.Errorf("unsupported private key type: %s", block.Type)
+}
+
+// ValidateECKeyPair validates that both certificate and private key use ECDSA.
+func ValidateECKeyPair(certPEM, keyPEM []byte) error {
+	if err := ValidateECCertificate(certPEM); err != nil {
+		return fmt.Errorf("certificate: %w", err)
+	}
+	if err := ValidateECPrivateKey(keyPEM); err != nil {
+		return fmt.Errorf("private key: %w", err)
+	}
+	return nil
+}
+
 // CertInfo contains certificate information for display.
 type CertInfo struct {
 	Subject      string

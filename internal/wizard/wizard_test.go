@@ -90,7 +90,7 @@ func TestBuildConfig(t *testing.T) {
 		transport      string
 		listenAddr     string
 		listenPath     string
-		tlsConfig      config.TLSConfig
+		tlsConfig      config.GlobalTLSConfig
 		peers          []config.PeerConfig
 		socks5Config   config.SOCKS5Config
 		exitConfig     config.ExitConfig
@@ -105,7 +105,7 @@ func TestBuildConfig(t *testing.T) {
 			transport:  "quic",
 			listenAddr: "0.0.0.0:4433",
 			listenPath: "",
-			tlsConfig: config.TLSConfig{
+			tlsConfig: config.GlobalTLSConfig{
 				Cert: "/certs/server.crt",
 				Key:  "/certs/server.key",
 			},
@@ -154,7 +154,7 @@ func TestBuildConfig(t *testing.T) {
 			transport:  "h2",
 			listenAddr: "0.0.0.0:443",
 			listenPath: "/mesh",
-			tlsConfig: config.TLSConfig{
+			tlsConfig: config.GlobalTLSConfig{
 				Cert: "cert.pem",
 				Key:  "key.pem",
 			},
@@ -188,7 +188,7 @@ func TestBuildConfig(t *testing.T) {
 			transport:  "ws",
 			listenAddr: "0.0.0.0:8080",
 			listenPath: "/ws",
-			tlsConfig: config.TLSConfig{
+			tlsConfig: config.GlobalTLSConfig{
 				Cert: "ws.crt",
 				Key:  "ws.key",
 			},
@@ -213,7 +213,7 @@ func TestBuildConfig(t *testing.T) {
 			transport:  "quic",
 			listenAddr: "0.0.0.0:4433",
 			listenPath: "",
-			tlsConfig:  config.TLSConfig{Cert: "c", Key: "k"},
+			tlsConfig:  config.GlobalTLSConfig{Cert: "c", Key: "k"},
 			peers:      nil,
 			socks5Config: config.SOCKS5Config{
 				Enabled:        true,
@@ -257,7 +257,7 @@ func TestBuildConfig(t *testing.T) {
 			transport:  "quic",
 			listenAddr: "0.0.0.0:4433",
 			listenPath: "",
-			tlsConfig:  config.TLSConfig{Cert: "c", Key: "k"},
+			tlsConfig:  config.GlobalTLSConfig{Cert: "c", Key: "k"},
 			peers:      nil,
 			socks5Config: config.SOCKS5Config{Enabled: false},
 			exitConfig: config.ExitConfig{
@@ -292,7 +292,7 @@ func TestBuildConfig(t *testing.T) {
 			transport:  "quic",
 			listenAddr: "0.0.0.0:4433",
 			listenPath: "",
-			tlsConfig:  config.TLSConfig{Cert: "c", Key: "k"},
+			tlsConfig:  config.GlobalTLSConfig{Cert: "c", Key: "k"},
 			peers: []config.PeerConfig{
 				{
 					ID:        "peer1",
@@ -468,7 +468,7 @@ func TestBuildConfigLogFormat(t *testing.T) {
 
 	cfg := w.buildConfig(
 		"/data", "", "quic", "0.0.0.0:4433", "",
-		config.TLSConfig{Cert: "c", Key: "k"},
+		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",
 		config.RPCConfig{}, config.FileTransferConfig{},
@@ -485,7 +485,7 @@ func TestBuildConfigDefaults(t *testing.T) {
 
 	cfg := w.buildConfig(
 		"/data", "", "quic", "0.0.0.0:4433", "",
-		config.TLSConfig{Cert: "c", Key: "k"},
+		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",
 		config.RPCConfig{}, config.FileTransferConfig{},
