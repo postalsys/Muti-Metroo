@@ -342,6 +342,17 @@ func (s *Server) CanDecryptManagement() bool {
 	return s.sealedBox != nil && s.sealedBox.CanDecrypt()
 }
 
+// shouldRestrictTopology returns true if topology info should be restricted to local-only.
+// This happens when management key encryption is enabled but we don't have the private key.
+func (s *Server) shouldRestrictTopology() bool {
+	// If no sealed box configured, no restriction (management key not enabled)
+	if s.sealedBox == nil {
+		return false
+	}
+	// If sealed box configured but can't decrypt, restrict to local only
+	return !s.sealedBox.CanDecrypt()
+}
+
 // Start starts the health check server.
 func (s *Server) Start() error {
 	ln, err := net.Listen("tcp", s.cfg.Address)
@@ -1066,6 +1077,38 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	localID := s.remoteProvider.ID()
 	localName := s.remoteProvider.DisplayName()
 
+	// If management key encryption is enabled but we can't decrypt,
+	// only return local agent info (no peers, routes, or other agents)
+	if s.shouldRestrictTopology() {
+		localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
+		localAgent := TopologyAgentInfo{
+			ID:          localID.String(),
+			ShortID:     localID.ShortString(),
+			DisplayName: localName,
+			IsLocal:     true,
+			IsConnected: true,
+		}
+		if localNodeInfo != nil {
+			localAgent.Hostname = localNodeInfo.Hostname
+			localAgent.OS = localNodeInfo.OS
+			localAgent.Arch = localNodeInfo.Arch
+			localAgent.Version = localNodeInfo.Version
+			localAgent.IPAddresses = localNodeInfo.IPAddresses
+			if localNodeInfo.StartTime > 0 {
+				localAgent.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
+			}
+		}
+		response := TopologyResponse{
+			LocalAgent:  localAgent,
+			Agents:      []TopologyAgentInfo{localAgent},
+			Connections: []TopologyConnection{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	// Get all known display names from route advertisements
 	displayNames := s.remoteProvider.GetAllDisplayNames()
 
@@ -1242,6 +1285,27 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	localName := s.remoteProvider.DisplayName()
 	stats := s.provider.Stats()
 
+	// If management key encryption is enabled but we can't decrypt,
+	// only return local agent info and stats (no peers or routes)
+	if s.shouldRestrictTopology() {
+		response := DashboardResponse{
+			Agent: TopologyAgentInfo{
+				ID:          localID.String(),
+				ShortID:     localID.ShortString(),
+				DisplayName: localName,
+				IsLocal:     true,
+				IsConnected: true,
+			},
+			Stats:  stats,
+			Peers:  []DashboardPeerInfo{},
+			Routes: []DashboardRouteInfo{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
 	// Build peer info
 	peers := []DashboardPeerInfo{}
 	peerDetails := s.remoteProvider.GetPeerDetails()
@@ -1334,22 +1398,9 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 
 	localID := s.remoteProvider.ID()
 	localName := s.remoteProvider.DisplayName()
-
-	// Get all known node info
-	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
 	localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
 
-	// Build list of all nodes
-	nodes := []TopologyAgentInfo{}
-
-	// Build set of direct peers
-	peerIDs := s.remoteProvider.GetPeerIDs()
-	peerSet := make(map[identity.AgentID]bool)
-	for _, id := range peerIDs {
-		peerSet[id] = true
-	}
-
-	// Add local node
+	// Build local node info
 	localNode := TopologyAgentInfo{
 		ID:          localID.String(),
 		ShortID:     localID.ShortString(),
@@ -1367,7 +1418,31 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			localNode.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
 		}
 	}
-	nodes = append(nodes, localNode)
+
+	// If management key encryption is enabled but we can't decrypt,
+	// only return local node info
+	if s.shouldRestrictTopology() {
+		response := NodesResponse{
+			Nodes: []TopologyAgentInfo{localNode},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Get all known node info
+	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
+
+	// Build list of all nodes, starting with local
+	nodes := []TopologyAgentInfo{localNode}
+
+	// Build set of direct peers
+	peerIDs := s.remoteProvider.GetPeerIDs()
+	peerSet := make(map[identity.AgentID]bool)
+	for _, id := range peerIDs {
+		peerSet[id] = true
+	}
 
 	// Add all known remote nodes
 	for agentID, nodeInfo := range allNodeInfo {

@@ -362,12 +362,27 @@ management:
 
 ### API Behavior
 
-When the dashboard or topology API is accessed on a node without the private key, the API returns limited information:
-- Local agent info is visible (the agent knows its own identity)
-- Remote agent display names come from decrypted NodeInfo - without the key, only short IDs are shown
-- Route paths show agent IDs but not human-readable names
+When the dashboard, topology, or nodes API is accessed on a node without the private key, the API returns **only local agent information**:
 
-Operators with the private key see full topology details with all display names resolved.
+```json
+// /api/dashboard on field agent (no private key)
+{
+  "agent": { "display_name": "Field-1", "is_local": true, ... },
+  "stats": { "peer_count": 2, "route_count": 1, ... },
+  "peers": [],    // Empty - no peer info exposed
+  "routes": []    // Empty - no route info exposed
+}
+
+// /api/nodes on field agent (no private key)
+{
+  "nodes": [
+    { "display_name": "Field-1", "hostname": "field1", "is_local": true, ... }
+    // Only local node - no remote nodes exposed
+  ]
+}
+```
+
+Operators with the private key see full topology details including all peers, routes, and remote node information.
 
 ### Key Distribution
 
