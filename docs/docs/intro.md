@@ -9,7 +9,7 @@ sidebar_position: 1
 
 # Muti Metroo
 
-**Muti Metroo** is a userspace mesh networking agent that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
+**Your private metro system for network traffic** - tunnel through firewalls and bridge private networks with encrypted relay chains.
 
 ## What is Muti Metroo?
 
