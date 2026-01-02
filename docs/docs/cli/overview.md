@@ -33,6 +33,7 @@ Available for all commands:
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
 | `service` | Service management (install, uninstall, status) |
+| `management-key` | Generate and manage mesh topology encryption keys |
 
 ## Quick Examples
 

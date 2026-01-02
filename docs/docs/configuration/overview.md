@@ -170,6 +170,11 @@ file_transfer:
   max_file_size: 524288000   # 500 MB default, 0 = unlimited
   allowed_paths: []
   password_hash: ""
+
+# Management key encryption (for red team ops)
+management:
+  public_key: ""             # 64-char hex, add to ALL agents
+  private_key: ""            # 64-char hex, ONLY on operators
 ```
 
 ## Environment Variables

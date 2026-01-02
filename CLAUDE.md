@@ -199,6 +199,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `control`: Unix socket for CLI commands
 - `rpc`: Remote command execution (disabled by default)
 - `file_transfer`: File upload/download (disabled by default)
+- `management`: Management key encryption for topology compartmentalization
 
 ### Protocol Identifiers (OPSEC)
 
