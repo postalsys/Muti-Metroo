@@ -46,7 +46,7 @@ exit:
     - "10.0.0.0/8"         # Private class A
     - "172.16.0.0/12"      # Private class B
     - "192.168.0.0/16"     # Private class C
-    - "0.0.0.0/0"          # Default route (all traffic)
+    - "0.0.0.0/0"          # Default route (all IPv4 traffic)
 ```
 
 ### Route Types
@@ -56,7 +56,36 @@ exit:
 | `10.0.0.0/8` | Internal network |
 | `192.168.1.0/24` | Specific subnet |
 | `1.2.3.4/32` | Single host |
-| `0.0.0.0/0` | Default route (internet) |
+| `0.0.0.0/0` | Default route (all IPv4) |
+| `2001:db8::/32` | IPv6 documentation prefix |
+| `fd00::/8` | IPv6 unique local addresses |
+| `::1/128` | IPv6 single host (localhost) |
+| `::/0` | Default route (all IPv6) |
+
+### IPv6 Routes
+
+Muti Metroo fully supports IPv6 routes. Use standard CIDR notation:
+
+```yaml
+exit:
+  routes:
+    # IPv4 routes
+    - "10.0.0.0/8"
+    - "0.0.0.0/0"
+    # IPv6 routes
+    - "2001:db8::/32"      # Specific IPv6 prefix
+    - "fd00::/8"           # Unique local addresses
+    - "::/0"               # Default route (all IPv6)
+```
+
+For dual-stack environments, include both IPv4 and IPv6 default routes:
+
+```yaml
+exit:
+  routes:
+    - "0.0.0.0/0"          # All IPv4 traffic
+    - "::/0"               # All IPv6 traffic
+```
 
 ### Route Selection
 
@@ -79,10 +108,38 @@ Example:
 exit:
   dns:
     servers:
-      - "8.8.8.8:53"         # Google DNS
-      - "1.1.1.1:53"         # Cloudflare DNS
+      - "8.8.8.8:53"         # Google DNS (IPv4)
+      - "1.1.1.1:53"         # Cloudflare DNS (IPv4)
     timeout: 5s
 ```
+
+### IPv6 DNS Servers
+
+IPv6 DNS servers are supported using bracket notation:
+
+```yaml
+exit:
+  dns:
+    servers:
+      - "[2001:4860:4860::8888]:53"   # Google DNS (IPv6)
+      - "[2606:4700:4700::1111]:53"   # Cloudflare DNS (IPv6)
+    timeout: 5s
+```
+
+For dual-stack DNS resolution, include both IPv4 and IPv6 servers:
+
+```yaml
+exit:
+  dns:
+    servers:
+      - "8.8.8.8:53"                   # Google DNS (IPv4)
+      - "[2001:4860:4860::8888]:53"    # Google DNS (IPv6)
+    timeout: 5s
+```
+
+:::note DNS Resolution Preference
+When a domain resolves to both A (IPv4) and AAAA (IPv6) records, Muti Metroo prefers IPv4 addresses. If only AAAA records exist, IPv6 addresses are used.
+:::
 
 ### Private DNS
 
@@ -92,7 +149,17 @@ For internal domains:
 exit:
   dns:
     servers:
-      - "10.0.0.1:53"        # Internal DNS server
+      - "10.0.0.1:53"        # Internal DNS server (IPv4)
+    timeout: 5s
+```
+
+Or with IPv6:
+
+```yaml
+exit:
+  dns:
+    servers:
+      - "[fd00::1]:53"       # Internal DNS server (IPv6)
     timeout: 5s
 ```
 
@@ -127,9 +194,9 @@ Connections to non-matching destinations receive `STREAM_OPEN_ERR`.
 
 ## Examples
 
-### Internet Gateway
+### Internet Gateway (IPv4)
 
-Allow all traffic:
+Allow all IPv4 traffic:
 
 ```yaml
 exit:
@@ -140,6 +207,23 @@ exit:
     servers:
       - "8.8.8.8:53"
       - "1.1.1.1:53"
+    timeout: 5s
+```
+
+### Internet Gateway (Dual-Stack)
+
+Allow both IPv4 and IPv6 traffic:
+
+```yaml
+exit:
+  enabled: true
+  routes:
+    - "0.0.0.0/0"           # All IPv4 traffic
+    - "::/0"                # All IPv6 traffic
+  dns:
+    servers:
+      - "8.8.8.8:53"                   # Google DNS (IPv4)
+      - "[2001:4860:4860::8888]:53"    # Google DNS (IPv6)
     timeout: 5s
 ```
 

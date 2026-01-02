@@ -66,10 +66,50 @@ peers:
 
 ### Does Muti Metroo support IPv6?
 
-Yes. IPv6 is supported for:
-- Listener addresses
-- Peer addresses
-- Exit routes
+Yes. IPv6 is fully supported across the stack:
+
+**Listeners** - Bind to IPv6 addresses:
+```yaml
+listeners:
+  - transport: quic
+    address: "[::]:4433"        # All IPv6 interfaces
+    # or
+    address: "[::1]:4433"       # IPv6 localhost only
+```
+
+**Peers** - Connect to IPv6 peers:
+```yaml
+peers:
+  - transport: quic
+    address: "[2001:db8::1]:4433"
+```
+
+**Exit routes** - Advertise IPv6 CIDRs:
+```yaml
+exit:
+  routes:
+    - "0.0.0.0/0"    # IPv4 default
+    - "::/0"         # IPv6 default
+    - "2001:db8::/32"
+```
+
+**DNS servers** - Use IPv6 resolvers:
+```yaml
+exit:
+  dns:
+    servers:
+      - "[2001:4860:4860::8888]:53"  # Google IPv6 DNS
+```
+
+**SOCKS5** - Bind to IPv6 and proxy IPv6 destinations:
+```yaml
+socks5:
+  address: "[::1]:1080"    # IPv6 localhost
+```
+
+**Limitations:**
+- DNS resolution prefers IPv4 when both A and AAAA records exist
+- Node info advertisements only include IPv4 addresses
 
 ## Security
 

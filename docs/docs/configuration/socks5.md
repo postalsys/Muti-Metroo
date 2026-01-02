@@ -48,11 +48,31 @@ socks5:
 ```yaml
 socks5:
   enabled: true
-  address: "0.0.0.0:1080"    # Accept from any interface
+  address: "0.0.0.0:1080"    # Accept from any IPv4 interface
 ```
 
 :::warning
 Exposing SOCKS5 on 0.0.0.0 without authentication allows anyone to use your proxy.
+:::
+
+### IPv6 Access
+
+```yaml
+socks5:
+  enabled: true
+  address: "[::1]:1080"      # IPv6 localhost only
+```
+
+Or accept from all IPv6 interfaces:
+
+```yaml
+socks5:
+  enabled: true
+  address: "[::]:1080"       # All IPv6 interfaces
+```
+
+:::tip
+SOCKS5 clients can connect to IPv6 destinations regardless of which address family the server binds to. The destination address family is independent of the listener address.
 :::
 
 ## Authentication
