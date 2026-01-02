@@ -21,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 	"github.com/postalsys/muti-metroo/internal/webui"
@@ -221,6 +222,7 @@ type Server struct {
 	provider       StatsProvider
 	remoteProvider RemoteMetricsProvider
 	routeTrigger   RouteAdvertiseTrigger
+	sealedBox      *crypto.SealedBox // For checking decrypt capability
 	server         *http.Server
 	listener       net.Listener
 	running        atomic.Bool
@@ -327,6 +329,17 @@ func (s *Server) SetRemoteProvider(provider RemoteMetricsProvider) {
 // This is called after the agent is initialized.
 func (s *Server) SetRouteAdvertiseTrigger(trigger RouteAdvertiseTrigger) {
 	s.routeTrigger = trigger
+}
+
+// SetSealedBox sets the sealed box for checking decrypt capability.
+// This is called after the agent is initialized.
+func (s *Server) SetSealedBox(sealedBox *crypto.SealedBox) {
+	s.sealedBox = sealedBox
+}
+
+// CanDecryptManagement returns true if management key decryption is available.
+func (s *Server) CanDecryptManagement() bool {
+	return s.sealedBox != nil && s.sealedBox.CanDecrypt()
 }
 
 // Start starts the health check server.

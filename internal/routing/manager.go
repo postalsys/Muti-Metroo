@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 )
@@ -34,7 +35,9 @@ type LocalRoute struct {
 
 // NodeInfoEntry stores node info with metadata.
 type NodeInfoEntry struct {
-	Info       *protocol.NodeInfo
+	Encrypted  bool                // True if EncInfo contains encrypted data
+	EncInfo    *protocol.EncryptedData // Raw encrypted/plaintext data for forwarding
+	Info       *protocol.NodeInfo  // Decrypted NodeInfo (nil if encrypted and can't decrypt)
 	Sequence   uint64
 	LastUpdate time.Time
 }
@@ -49,6 +52,7 @@ type Manager struct {
 	displayNames map[identity.AgentID]string // Agent ID -> Display Name mapping
 	nodeInfos    map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
 	sequence     uint64
+	sealedBox    *crypto.SealedBox // For decrypting NodeInfo (nil if not configured)
 
 	// Subscribers for route changes
 	subscribers []chan<- RouteChange
@@ -64,6 +68,14 @@ func NewManager(localID identity.AgentID) *Manager {
 		displayNames: make(map[identity.AgentID]string),
 		nodeInfos:    make(map[identity.AgentID]*NodeInfoEntry),
 	}
+}
+
+// SetSealedBox sets the SealedBox for decrypting NodeInfo.
+// This should be called during initialization before any NodeInfo is received.
+func (m *Manager) SetSealedBox(sealedBox *crypto.SealedBox) {
+	m.mu.Lock()
+	m.sealedBox = sealedBox
+	m.mu.Unlock()
 }
 
 // SetDisplayName stores a display name for an agent.
@@ -94,8 +106,9 @@ func (m *Manager) GetAllDisplayNames() map[identity.AgentID]string {
 	return result
 }
 
-// SetNodeInfo stores or updates node info for an agent.
+// SetNodeInfo stores or updates node info for an agent (plaintext mode).
 // Only updates if the sequence is newer than the existing entry.
+// This is used for local node info that doesn't need encryption.
 func (m *Manager) SetNodeInfo(agentID identity.AgentID, info *protocol.NodeInfo, sequence uint64) bool {
 	if info == nil {
 		return false
@@ -110,7 +123,15 @@ func (m *Manager) SetNodeInfo(agentID identity.AgentID, info *protocol.NodeInfo,
 		return false // Already have newer or equal info
 	}
 
+	// For local NodeInfo, store as plaintext EncryptedData for consistency
+	encInfo := &protocol.EncryptedData{
+		Encrypted: false,
+		Data:      protocol.EncodeNodeInfo(info),
+	}
+
 	m.nodeInfos[agentID] = &NodeInfoEntry{
+		Encrypted:  false,
+		EncInfo:    encInfo,
 		Info:       info,
 		Sequence:   sequence,
 		LastUpdate: time.Now(),
@@ -124,6 +145,63 @@ func (m *Manager) SetNodeInfo(agentID identity.AgentID, info *protocol.NodeInfo,
 	return true
 }
 
+// SetNodeInfoEncrypted stores or updates node info for an agent (encrypted mode).
+// Only updates if the sequence is newer than the existing entry.
+// Attempts to decrypt if SealedBox is available.
+func (m *Manager) SetNodeInfoEncrypted(agentID identity.AgentID, encInfo *protocol.EncryptedData, sequence uint64) bool {
+	if encInfo == nil {
+		return false
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if we already have a newer entry
+	existing, exists := m.nodeInfos[agentID]
+	if exists && existing.Sequence >= sequence {
+		return false // Already have newer or equal info
+	}
+
+	entry := &NodeInfoEntry{
+		Encrypted:  encInfo.Encrypted,
+		EncInfo:    encInfo,
+		Info:       nil, // Will be set if we can decrypt
+		Sequence:   sequence,
+		LastUpdate: time.Now(),
+	}
+
+	// Attempt to decrypt
+	if encInfo.Encrypted {
+		// Encrypted - try to decrypt if we have the private key
+		if m.sealedBox != nil && m.sealedBox.CanDecrypt() {
+			decrypted, err := m.sealedBox.Open(encInfo.Data)
+			if err == nil {
+				info, err := protocol.DecodeNodeInfo(decrypted)
+				if err == nil {
+					entry.Info = info
+					// Update display name if we could decrypt
+					if info.DisplayName != "" {
+						m.displayNames[agentID] = info.DisplayName
+					}
+				}
+			}
+		}
+	} else {
+		// Plaintext - decode directly
+		info, err := protocol.DecodeNodeInfo(encInfo.Data)
+		if err == nil {
+			entry.Info = info
+			// Update display name
+			if info.DisplayName != "" {
+				m.displayNames[agentID] = info.DisplayName
+			}
+		}
+	}
+
+	m.nodeInfos[agentID] = entry
+	return true
+}
+
 // GetNodeInfo returns node info for an agent.
 func (m *Manager) GetNodeInfo(agentID identity.AgentID) *protocol.NodeInfo {
 	m.mu.RLock()
@@ -134,13 +212,28 @@ func (m *Manager) GetNodeInfo(agentID identity.AgentID) *protocol.NodeInfo {
 	return nil
 }
 
-// GetAllNodeInfo returns a copy of all known node info.
+// GetAllNodeInfo returns a copy of all known decrypted node info.
+// Only returns entries where Info is non-nil (decrypted successfully).
 func (m *Manager) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	result := make(map[identity.AgentID]*protocol.NodeInfo, len(m.nodeInfos))
 	for k, v := range m.nodeInfos {
-		result[k] = v.Info
+		if v.Info != nil {
+			result[k] = v.Info
+		}
+	}
+	return result
+}
+
+// GetAllNodeInfoEntries returns a copy of all known node info entries.
+// This includes encrypted entries where Info may be nil.
+func (m *Manager) GetAllNodeInfoEntries() map[identity.AgentID]*NodeInfoEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[identity.AgentID]*NodeInfoEntry, len(m.nodeInfos))
+	for k, v := range m.nodeInfos {
+		result[k] = v
 	}
 	return result
 }
@@ -261,6 +354,7 @@ func (m *Manager) ProcessRouteAdvertise(
 	sequence uint64,
 	routes []RouteEntry,
 	path []identity.AgentID,
+	encPath *protocol.EncryptedData,
 ) []*Route {
 	var accepted []*Route
 
@@ -273,6 +367,7 @@ func (m *Manager) ProcessRouteAdvertise(
 			OriginAgent: originAgent,
 			Metric:      entry.Metric + 1, // Increment metric
 			Path:        path,
+			EncPath:     encPath,
 			Sequence:    sequence,
 		}
 

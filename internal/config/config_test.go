@@ -879,3 +879,244 @@ listeners:
 		t.Errorf("Error = %v, want to contain 'tls certificate and key are required'", err)
 	}
 }
+
+func TestManagementConfig_ValidKeys(t *testing.T) {
+	// Valid 64-character hex strings (32 bytes)
+	validPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	validPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  public_key: "` + validPublicKey + `"
+  private_key: "` + validPrivateKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Test HasManagementKey
+	if !cfg.HasManagementKey() {
+		t.Error("HasManagementKey() = false, want true")
+	}
+
+	// Test CanDecryptManagement
+	if !cfg.CanDecryptManagement() {
+		t.Error("CanDecryptManagement() = false, want true")
+	}
+
+	// Test GetManagementPublicKey
+	pubKey, err := cfg.GetManagementPublicKey()
+	if err != nil {
+		t.Fatalf("GetManagementPublicKey() failed: %v", err)
+	}
+	if pubKey[0] != 0xa1 || pubKey[1] != 0xb2 {
+		t.Errorf("GetManagementPublicKey() first bytes = %x %x, want a1 b2", pubKey[0], pubKey[1])
+	}
+
+	// Test GetManagementPrivateKey
+	privKey, err := cfg.GetManagementPrivateKey()
+	if err != nil {
+		t.Fatalf("GetManagementPrivateKey() failed: %v", err)
+	}
+	if privKey[0] != 0x12 || privKey[1] != 0x34 {
+		t.Errorf("GetManagementPrivateKey() first bytes = %x %x, want 12 34", privKey[0], privKey[1])
+	}
+}
+
+func TestManagementConfig_PublicKeyOnly(t *testing.T) {
+	validPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  public_key: "` + validPublicKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	if !cfg.HasManagementKey() {
+		t.Error("HasManagementKey() = false, want true")
+	}
+
+	if cfg.CanDecryptManagement() {
+		t.Error("CanDecryptManagement() = true, want false (no private key)")
+	}
+
+	_, err = cfg.GetManagementPrivateKey()
+	if err == nil {
+		t.Error("GetManagementPrivateKey() should fail without private key")
+	}
+}
+
+func TestManagementConfig_NoKeys(t *testing.T) {
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	if cfg.HasManagementKey() {
+		t.Error("HasManagementKey() = true, want false")
+	}
+
+	if cfg.CanDecryptManagement() {
+		t.Error("CanDecryptManagement() = true, want false")
+	}
+}
+
+func TestManagementConfig_InvalidPublicKey(t *testing.T) {
+	tests := []struct {
+		name      string
+		publicKey string
+		wantErr   string
+	}{
+		{
+			name:      "too_short",
+			publicKey: "a1b2c3d4",
+			wantErr:   "must be 32 bytes",
+		},
+		{
+			name:      "invalid_hex",
+			publicKey: "not_valid_hex_string_here_needs_to_be_64_chars_long_for_testing!",
+			wantErr:   "invalid management public key hex",
+		},
+		{
+			name:      "odd_length",
+			publicKey: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b",
+			wantErr:   "invalid management public key hex",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  public_key: "` + tc.publicKey + `"
+`
+			_, err := Parse([]byte(yamlConfig))
+			if err == nil {
+				t.Error("Parse() should fail for invalid public key")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Error = %v, want to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestManagementConfig_PrivateKeyWithoutPublicKey(t *testing.T) {
+	validPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  private_key: "` + validPrivateKey + `"
+`
+
+	_, err := Parse([]byte(yamlConfig))
+	if err == nil {
+		t.Error("Parse() should fail when private key is set without public key")
+	}
+	if !strings.Contains(err.Error(), "requires management.public_key") {
+		t.Errorf("Error = %v, want to contain 'requires management.public_key'", err)
+	}
+}
+
+func TestManagementConfig_Redacted(t *testing.T) {
+	validPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	validPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  public_key: "` + validPublicKey + `"
+  private_key: "` + validPrivateKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Get redacted config
+	redacted := cfg.Redacted()
+
+	// Public key should NOT be redacted
+	if redacted.Management.PublicKey != validPublicKey {
+		t.Errorf("Redacted public key = %s, want %s", redacted.Management.PublicKey, validPublicKey)
+	}
+
+	// Private key SHOULD be redacted
+	if redacted.Management.PrivateKey != "[REDACTED]" {
+		t.Errorf("Redacted private key = %s, want [REDACTED]", redacted.Management.PrivateKey)
+	}
+
+	// Original should still have the real private key
+	if cfg.Management.PrivateKey != validPrivateKey {
+		t.Errorf("Original private key was modified")
+	}
+}
+
+func TestManagementConfig_HasSensitiveData(t *testing.T) {
+	validPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	validPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+
+	t.Run("with_private_key", func(t *testing.T) {
+		yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  public_key: "` + validPublicKey + `"
+  private_key: "` + validPrivateKey + `"
+`
+		cfg, err := Parse([]byte(yamlConfig))
+		if err != nil {
+			t.Fatalf("Parse() failed: %v", err)
+		}
+
+		if !cfg.HasSensitiveData() {
+			t.Error("HasSensitiveData() = false, want true (has private key)")
+		}
+	})
+
+	t.Run("public_key_only", func(t *testing.T) {
+		yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  public_key: "` + validPublicKey + `"
+`
+		cfg, err := Parse([]byte(yamlConfig))
+		if err != nil {
+			t.Fatalf("Parse() failed: %v", err)
+		}
+
+		// Public key alone is not sensitive
+		if cfg.HasSensitiveData() {
+			t.Error("HasSensitiveData() = true, want false (only public key)")
+		}
+	})
+}

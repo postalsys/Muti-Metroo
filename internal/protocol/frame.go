@@ -542,14 +542,29 @@ type RouteAdvertise struct {
 	OriginDisplayName string // Display name of the origin agent for topology visualization
 	Sequence          uint64
 	Routes            []Route
-	Path              []identity.AgentID
+	Path              []identity.AgentID // Route path (may be decrypted from EncPath)
+	EncPath           *EncryptedData     // Encrypted path data (nil if not using encryption)
 	SeenBy            []identity.AgentID
 }
 
 // Encode serializes RouteAdvertise to bytes.
+// Format with encryption support:
+//   origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes +
+//   EncryptedData(flag+len+path) + seenByLen(1) + seenBy
 func (r *RouteAdvertise) Encode() []byte {
+	// Prepare path data (encrypted or plaintext)
+	var encPath *EncryptedData
+	if r.EncPath != nil {
+		encPath = r.EncPath
+	} else {
+		encPath = &EncryptedData{
+			Encrypted: false,
+			Data:      EncodePath(r.Path),
+		}
+	}
+	encPathBytes := EncodeEncryptedData(encPath)
+
 	// Calculate size
-	// origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes + pathLen(1) + path + seenByLen(1) + seenBy
 	size := 16 + 1 + len(r.OriginDisplayName) + 8 + 1
 	for _, route := range r.Routes {
 		if route.AddressFamily == AddrFamilyIPv4 {
@@ -558,8 +573,8 @@ func (r *RouteAdvertise) Encode() []byte {
 			size += 2 + 16 + 2
 		}
 	}
-	size += 1 + len(r.Path)*16   // pathLen + path
-	size += 1 + len(r.SeenBy)*16 // seenByLen + seenBy
+	size += len(encPathBytes)        // encrypted path data
+	size += 1 + len(r.SeenBy)*16     // seenByLen + seenBy
 
 	buf := make([]byte, size)
 	offset := 0
@@ -594,12 +609,9 @@ func (r *RouteAdvertise) Encode() []byte {
 		offset += 2
 	}
 
-	buf[offset] = uint8(len(r.Path))
-	offset++
-	for _, id := range r.Path {
-		copy(buf[offset:], id[:])
-		offset += 16
-	}
+	// Encrypted path data
+	copy(buf[offset:], encPathBytes)
+	offset += len(encPathBytes)
 
 	buf[offset] = uint8(len(r.SeenBy))
 	offset++
@@ -612,8 +624,11 @@ func (r *RouteAdvertise) Encode() []byte {
 }
 
 // DecodeRouteAdvertise deserializes RouteAdvertise from bytes.
+// Supports new format with encrypted path:
+//   origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes +
+//   EncryptedData(flag+len+path) + seenByLen(1) + seenBy
 func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
-	if len(buf) < 28 { // 16 + 1 + 8 + 1 + 1 + 1 (origin + displayNameLen + seq + routeCount + pathLen + seenByLen)
+	if len(buf) < 28 { // Minimum size
 		return nil, fmt.Errorf("%w: RouteAdvertise too short", ErrInvalidFrame)
 	}
 
@@ -669,20 +684,23 @@ func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 		offset += 2
 	}
 
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: RouteAdvertise path missing", ErrInvalidFrame)
+	// Encrypted path data
+	encPath, consumed, err := DecodeEncryptedData(buf[offset:])
+	if err != nil {
+		return nil, fmt.Errorf("decode path: %w", err)
 	}
-	pathLen := int(buf[offset])
-	offset++
+	offset += consumed
+	r.EncPath = encPath
 
-	r.Path = make([]identity.AgentID, pathLen)
-	for i := 0; i < pathLen; i++ {
-		if offset+16 > len(buf) {
-			return nil, fmt.Errorf("%w: RouteAdvertise path truncated", ErrInvalidFrame)
+	// If not encrypted, decode path immediately
+	if !encPath.Encrypted {
+		path, err := DecodePath(encPath.Data)
+		if err != nil {
+			return nil, fmt.Errorf("decode path: %w", err)
 		}
-		copy(r.Path[i][:], buf[offset:offset+16])
-		offset += 16
+		r.Path = path
 	}
+	// If encrypted, Path stays nil - caller must decrypt using SealedBox
 
 	if offset >= len(buf) {
 		return nil, fmt.Errorf("%w: RouteAdvertise seenBy missing", ErrInvalidFrame)
@@ -822,6 +840,53 @@ func DecodeRouteWithdraw(buf []byte) (*RouteWithdraw, error) {
 }
 
 // ============================================================================
+// Encrypted data wrappers for management key encryption
+// ============================================================================
+
+// EncryptedData wraps data that may be encrypted with the management key.
+// Used for NodeInfo and route paths to protect mesh topology from compromised agents.
+type EncryptedData struct {
+	Encrypted bool   // True if Data contains encrypted blob
+	Data      []byte // Plaintext bytes OR encrypted blob (ephemeral_pub + nonce + ciphertext + tag)
+}
+
+// EncodeEncryptedData encodes an EncryptedData wrapper to bytes.
+// Format: Encrypted(1) + DataLen(2) + Data
+func EncodeEncryptedData(e *EncryptedData) []byte {
+	buf := make([]byte, 1+2+len(e.Data))
+	if e.Encrypted {
+		buf[0] = 1
+	} else {
+		buf[0] = 0
+	}
+	binary.BigEndian.PutUint16(buf[1:], uint16(len(e.Data)))
+	copy(buf[3:], e.Data)
+	return buf
+}
+
+// DecodeEncryptedData decodes an EncryptedData wrapper from bytes.
+// Returns the wrapper and the number of bytes consumed.
+func DecodeEncryptedData(buf []byte) (*EncryptedData, int, error) {
+	if len(buf) < 3 {
+		return nil, 0, fmt.Errorf("%w: EncryptedData too short", ErrInvalidFrame)
+	}
+
+	e := &EncryptedData{
+		Encrypted: buf[0] == 1,
+	}
+	dataLen := int(binary.BigEndian.Uint16(buf[1:]))
+
+	if len(buf) < 3+dataLen {
+		return nil, 0, fmt.Errorf("%w: EncryptedData data truncated", ErrInvalidFrame)
+	}
+
+	e.Data = make([]byte, dataLen)
+	copy(e.Data, buf[3:3+dataLen])
+
+	return e, 3 + dataLen, nil
+}
+
+// ============================================================================
 // Node info frames
 // ============================================================================
 
@@ -850,49 +915,27 @@ type NodeInfo struct {
 	PublicKey   [EphemeralKeySize]byte     // Agent's static X25519 public key for E2E encryption
 }
 
-// NodeInfoAdvertise is the payload for NODE_INFO_ADVERTISE frames.
-// Used to announce node metadata to all agents in the mesh.
-type NodeInfoAdvertise struct {
-	OriginAgent identity.AgentID   // Agent advertising its info
-	Sequence    uint64             // Monotonically increasing sequence
-	Info        NodeInfo           // Node metadata
-	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
-}
-
-// Encode serializes NodeInfoAdvertise to bytes.
-func (n *NodeInfoAdvertise) Encode() []byte {
-	// Format:
-	// OriginAgent(16) + Sequence(8) +
-	// DisplayNameLen(1) + DisplayName +
-	// HostnameLen(1) + Hostname +
-	// OSLen(1) + OS +
-	// ArchLen(1) + Arch +
-	// VersionLen(1) + Version +
-	// StartTime(8) +
-	// IPCount(1) + [IPLen(1) + IP]... +
-	// SeenByLen(1) + SeenBy(N*16) +
-	// PeerCount(1) + [PeerID(16) + TransportLen(1) + Transport + RTTMs(8) + IsDialer(1)]... +
-	// PublicKey(32)
-
+// EncodeNodeInfo encodes just the NodeInfo portion to bytes.
+// This is used for encryption - the returned bytes can be encrypted with the management key.
+func EncodeNodeInfo(info *NodeInfo) []byte {
 	// Limit peers to max
-	peers := n.Info.Peers
+	peers := info.Peers
 	if len(peers) > MaxPeersInNodeInfo {
 		peers = peers[:MaxPeersInNodeInfo]
 	}
 
-	size := 16 + 8 // OriginAgent + Sequence
-	size += 1 + len(n.Info.DisplayName)
-	size += 1 + len(n.Info.Hostname)
-	size += 1 + len(n.Info.OS)
-	size += 1 + len(n.Info.Arch)
-	size += 1 + len(n.Info.Version)
+	// Calculate size
+	size := 1 + len(info.DisplayName)
+	size += 1 + len(info.Hostname)
+	size += 1 + len(info.OS)
+	size += 1 + len(info.Arch)
+	size += 1 + len(info.Version)
 	size += 8 // StartTime
 	size += 1 // IPCount
-	for _, ip := range n.Info.IPAddresses {
+	for _, ip := range info.IPAddresses {
 		size += 1 + len(ip)
 	}
-	size += 1 + len(n.SeenBy)*16
-	// Peers (appended after SeenBy for backward compatibility)
+	// Peers
 	size += 1 // PeerCount
 	for _, peer := range peers {
 		size += 16                      // PeerID
@@ -905,6 +948,296 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 	buf := make([]byte, size)
 	offset := 0
 
+	// DisplayName
+	buf[offset] = uint8(len(info.DisplayName))
+	offset++
+	copy(buf[offset:], info.DisplayName)
+	offset += len(info.DisplayName)
+
+	// Hostname
+	buf[offset] = uint8(len(info.Hostname))
+	offset++
+	copy(buf[offset:], info.Hostname)
+	offset += len(info.Hostname)
+
+	// OS
+	buf[offset] = uint8(len(info.OS))
+	offset++
+	copy(buf[offset:], info.OS)
+	offset += len(info.OS)
+
+	// Arch
+	buf[offset] = uint8(len(info.Arch))
+	offset++
+	copy(buf[offset:], info.Arch)
+	offset += len(info.Arch)
+
+	// Version
+	buf[offset] = uint8(len(info.Version))
+	offset++
+	copy(buf[offset:], info.Version)
+	offset += len(info.Version)
+
+	// StartTime
+	binary.BigEndian.PutUint64(buf[offset:], uint64(info.StartTime))
+	offset += 8
+
+	// IPAddresses
+	buf[offset] = uint8(len(info.IPAddresses))
+	offset++
+	for _, ip := range info.IPAddresses {
+		buf[offset] = uint8(len(ip))
+		offset++
+		copy(buf[offset:], ip)
+		offset += len(ip)
+	}
+
+	// Peers
+	buf[offset] = uint8(len(peers))
+	offset++
+	for _, peer := range peers {
+		copy(buf[offset:], peer.PeerID[:])
+		offset += 16
+		buf[offset] = uint8(len(peer.Transport))
+		offset++
+		copy(buf[offset:], peer.Transport)
+		offset += len(peer.Transport)
+		binary.BigEndian.PutUint64(buf[offset:], uint64(peer.RTTMs))
+		offset += 8
+		if peer.IsDialer {
+			buf[offset] = 1
+		} else {
+			buf[offset] = 0
+		}
+		offset++
+	}
+
+	// PublicKey
+	copy(buf[offset:], info.PublicKey[:])
+
+	return buf
+}
+
+// DecodeNodeInfo decodes just the NodeInfo portion from bytes.
+// This is the inverse of EncodeNodeInfo, used after decryption.
+func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
+	if len(buf) < 5+EphemeralKeySize {
+		return nil, fmt.Errorf("%w: NodeInfo too short", ErrInvalidFrame)
+	}
+
+	info := &NodeInfo{}
+	offset := 0
+
+	// DisplayName
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo displayName length missing", ErrInvalidFrame)
+	}
+	displayNameLen := int(buf[offset])
+	offset++
+	if offset+displayNameLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo displayName truncated", ErrInvalidFrame)
+	}
+	info.DisplayName = string(buf[offset : offset+displayNameLen])
+	offset += displayNameLen
+
+	// Hostname
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo hostname length missing", ErrInvalidFrame)
+	}
+	hostnameLen := int(buf[offset])
+	offset++
+	if offset+hostnameLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo hostname truncated", ErrInvalidFrame)
+	}
+	info.Hostname = string(buf[offset : offset+hostnameLen])
+	offset += hostnameLen
+
+	// OS
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo os length missing", ErrInvalidFrame)
+	}
+	osLen := int(buf[offset])
+	offset++
+	if offset+osLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo os truncated", ErrInvalidFrame)
+	}
+	info.OS = string(buf[offset : offset+osLen])
+	offset += osLen
+
+	// Arch
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo arch length missing", ErrInvalidFrame)
+	}
+	archLen := int(buf[offset])
+	offset++
+	if offset+archLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo arch truncated", ErrInvalidFrame)
+	}
+	info.Arch = string(buf[offset : offset+archLen])
+	offset += archLen
+
+	// Version
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo version length missing", ErrInvalidFrame)
+	}
+	versionLen := int(buf[offset])
+	offset++
+	if offset+versionLen > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo version truncated", ErrInvalidFrame)
+	}
+	info.Version = string(buf[offset : offset+versionLen])
+	offset += versionLen
+
+	// StartTime
+	if offset+8 > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo startTime truncated", ErrInvalidFrame)
+	}
+	info.StartTime = int64(binary.BigEndian.Uint64(buf[offset:]))
+	offset += 8
+
+	// IPAddresses
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo ipCount missing", ErrInvalidFrame)
+	}
+	ipCount := int(buf[offset])
+	offset++
+	info.IPAddresses = make([]string, ipCount)
+	for i := 0; i < ipCount; i++ {
+		if offset >= len(buf) {
+			return nil, fmt.Errorf("%w: NodeInfo ip length missing", ErrInvalidFrame)
+		}
+		ipLen := int(buf[offset])
+		offset++
+		if offset+ipLen > len(buf) {
+			return nil, fmt.Errorf("%w: NodeInfo ip truncated", ErrInvalidFrame)
+		}
+		info.IPAddresses[i] = string(buf[offset : offset+ipLen])
+		offset += ipLen
+	}
+
+	// Peers
+	if offset >= len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo peerCount missing", ErrInvalidFrame)
+	}
+	peerCount := int(buf[offset])
+	offset++
+	if peerCount > MaxPeersInNodeInfo {
+		peerCount = MaxPeersInNodeInfo
+	}
+	info.Peers = make([]PeerConnectionInfo, 0, peerCount)
+	for i := 0; i < peerCount; i++ {
+		if offset+16 > len(buf) {
+			break
+		}
+		var peer PeerConnectionInfo
+		copy(peer.PeerID[:], buf[offset:offset+16])
+		offset += 16
+
+		if offset >= len(buf) {
+			break
+		}
+		transportLen := int(buf[offset])
+		offset++
+		if offset+transportLen > len(buf) {
+			break
+		}
+		peer.Transport = string(buf[offset : offset+transportLen])
+		offset += transportLen
+
+		if offset+8 > len(buf) {
+			break
+		}
+		peer.RTTMs = int64(binary.BigEndian.Uint64(buf[offset:]))
+		offset += 8
+
+		if offset >= len(buf) {
+			break
+		}
+		peer.IsDialer = buf[offset] != 0
+		offset++
+
+		info.Peers = append(info.Peers, peer)
+	}
+
+	// PublicKey
+	if offset+EphemeralKeySize > len(buf) {
+		return nil, fmt.Errorf("%w: NodeInfo publicKey missing", ErrInvalidFrame)
+	}
+	copy(info.PublicKey[:], buf[offset:offset+EphemeralKeySize])
+
+	return info, nil
+}
+
+// EncodePath encodes a path (slice of AgentIDs) to bytes.
+// This is used for encryption - the returned bytes can be encrypted with the management key.
+func EncodePath(path []identity.AgentID) []byte {
+	buf := make([]byte, 1+len(path)*16)
+	buf[0] = uint8(len(path))
+	offset := 1
+	for _, id := range path {
+		copy(buf[offset:], id[:])
+		offset += 16
+	}
+	return buf
+}
+
+// DecodePath decodes a path from bytes.
+// This is the inverse of EncodePath, used after decryption.
+func DecodePath(buf []byte) ([]identity.AgentID, error) {
+	if len(buf) < 1 {
+		return nil, fmt.Errorf("%w: Path too short", ErrInvalidFrame)
+	}
+
+	pathLen := int(buf[0])
+	if len(buf) < 1+pathLen*16 {
+		return nil, fmt.Errorf("%w: Path truncated", ErrInvalidFrame)
+	}
+
+	path := make([]identity.AgentID, pathLen)
+	offset := 1
+	for i := 0; i < pathLen; i++ {
+		copy(path[i][:], buf[offset:offset+16])
+		offset += 16
+	}
+
+	return path, nil
+}
+
+// NodeInfoAdvertise is the payload for NODE_INFO_ADVERTISE frames.
+// Used to announce node metadata to all agents in the mesh.
+type NodeInfoAdvertise struct {
+	OriginAgent identity.AgentID   // Agent advertising its info
+	Sequence    uint64             // Monotonically increasing sequence
+	Info        NodeInfo           // Node metadata (may be decrypted from EncryptedInfo)
+	EncInfo     *EncryptedData     // Encrypted NodeInfo data (nil if not using encryption)
+	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
+}
+
+// Encode serializes NodeInfoAdvertise to bytes.
+// New format (v2) with encryption support:
+//   OriginAgent(16) + Sequence(8) + EncryptedData(flag+len+data) + SeenByLen(1) + SeenBy(N*16)
+// Where EncryptedData contains NodeInfo (plaintext or encrypted blob).
+func (n *NodeInfoAdvertise) Encode() []byte {
+	// Prepare NodeInfo data (encrypted or plaintext)
+	var encData *EncryptedData
+	if n.EncInfo != nil {
+		// Use pre-computed encrypted data
+		encData = n.EncInfo
+	} else {
+		// Encode NodeInfo as plaintext
+		encData = &EncryptedData{
+			Encrypted: false,
+			Data:      EncodeNodeInfo(&n.Info),
+		}
+	}
+
+	// Calculate size
+	encDataBytes := EncodeEncryptedData(encData)
+	size := 16 + 8 + len(encDataBytes) + 1 + len(n.SeenBy)*16
+
+	buf := make([]byte, size)
+	offset := 0
+
 	// OriginAgent
 	copy(buf[offset:], n.OriginAgent[:])
 	offset += 16
@@ -913,49 +1246,9 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 	binary.BigEndian.PutUint64(buf[offset:], n.Sequence)
 	offset += 8
 
-	// DisplayName
-	buf[offset] = uint8(len(n.Info.DisplayName))
-	offset++
-	copy(buf[offset:], n.Info.DisplayName)
-	offset += len(n.Info.DisplayName)
-
-	// Hostname
-	buf[offset] = uint8(len(n.Info.Hostname))
-	offset++
-	copy(buf[offset:], n.Info.Hostname)
-	offset += len(n.Info.Hostname)
-
-	// OS
-	buf[offset] = uint8(len(n.Info.OS))
-	offset++
-	copy(buf[offset:], n.Info.OS)
-	offset += len(n.Info.OS)
-
-	// Arch
-	buf[offset] = uint8(len(n.Info.Arch))
-	offset++
-	copy(buf[offset:], n.Info.Arch)
-	offset += len(n.Info.Arch)
-
-	// Version
-	buf[offset] = uint8(len(n.Info.Version))
-	offset++
-	copy(buf[offset:], n.Info.Version)
-	offset += len(n.Info.Version)
-
-	// StartTime
-	binary.BigEndian.PutUint64(buf[offset:], uint64(n.Info.StartTime))
-	offset += 8
-
-	// IPAddresses
-	buf[offset] = uint8(len(n.Info.IPAddresses))
-	offset++
-	for _, ip := range n.Info.IPAddresses {
-		buf[offset] = uint8(len(ip))
-		offset++
-		copy(buf[offset:], ip)
-		offset += len(ip)
-	}
+	// EncryptedData (contains NodeInfo, encrypted or plaintext)
+	copy(buf[offset:], encDataBytes)
+	offset += len(encDataBytes)
 
 	// SeenBy
 	buf[offset] = uint8(len(n.SeenBy))
@@ -965,39 +1258,14 @@ func (n *NodeInfoAdvertise) Encode() []byte {
 		offset += 16
 	}
 
-	// Peers (appended after SeenBy for backward compatibility)
-	buf[offset] = uint8(len(peers))
-	offset++
-	for _, peer := range peers {
-		// PeerID
-		copy(buf[offset:], peer.PeerID[:])
-		offset += 16
-		// Transport
-		buf[offset] = uint8(len(peer.Transport))
-		offset++
-		copy(buf[offset:], peer.Transport)
-		offset += len(peer.Transport)
-		// RTTMs
-		binary.BigEndian.PutUint64(buf[offset:], uint64(peer.RTTMs))
-		offset += 8
-		// IsDialer
-		if peer.IsDialer {
-			buf[offset] = 1
-		} else {
-			buf[offset] = 0
-		}
-		offset++
-	}
-
-	// PublicKey (agent's static X25519 public key)
-	copy(buf[offset:], n.Info.PublicKey[:])
-
 	return buf
 }
 
 // DecodeNodeInfoAdvertise deserializes NodeInfoAdvertise from bytes.
+// Supports new format (v2) with encryption:
+//   OriginAgent(16) + Sequence(8) + EncryptedData(flag+len+data) + SeenByLen(1) + SeenBy(N*16)
 func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
-	if len(buf) < 30+EphemeralKeySize { // Minimum: 16 + 8 + 1 + 1 + 1 + 1 + 1 + 8 + 1 + 1 + 32 = 62
+	if len(buf) < 28 { // Minimum: 16 + 8 + 3 (encData min) + 1 (seenByLen)
 		return nil, fmt.Errorf("%w: NodeInfoAdvertise too short", ErrInvalidFrame)
 	}
 
@@ -1012,92 +1280,23 @@ func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
 	n.Sequence = binary.BigEndian.Uint64(buf[offset:])
 	offset += 8
 
-	// DisplayName
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise displayName length missing", ErrInvalidFrame)
+	// EncryptedData (contains NodeInfo, encrypted or plaintext)
+	encData, consumed, err := DecodeEncryptedData(buf[offset:])
+	if err != nil {
+		return nil, err
 	}
-	displayNameLen := int(buf[offset])
-	offset++
-	if offset+displayNameLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise displayName truncated", ErrInvalidFrame)
-	}
-	n.Info.DisplayName = string(buf[offset : offset+displayNameLen])
-	offset += displayNameLen
+	offset += consumed
+	n.EncInfo = encData
 
-	// Hostname
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise hostname length missing", ErrInvalidFrame)
-	}
-	hostnameLen := int(buf[offset])
-	offset++
-	if offset+hostnameLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise hostname truncated", ErrInvalidFrame)
-	}
-	n.Info.Hostname = string(buf[offset : offset+hostnameLen])
-	offset += hostnameLen
-
-	// OS
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise os length missing", ErrInvalidFrame)
-	}
-	osLen := int(buf[offset])
-	offset++
-	if offset+osLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise os truncated", ErrInvalidFrame)
-	}
-	n.Info.OS = string(buf[offset : offset+osLen])
-	offset += osLen
-
-	// Arch
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise arch length missing", ErrInvalidFrame)
-	}
-	archLen := int(buf[offset])
-	offset++
-	if offset+archLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise arch truncated", ErrInvalidFrame)
-	}
-	n.Info.Arch = string(buf[offset : offset+archLen])
-	offset += archLen
-
-	// Version
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise version length missing", ErrInvalidFrame)
-	}
-	versionLen := int(buf[offset])
-	offset++
-	if offset+versionLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise version truncated", ErrInvalidFrame)
-	}
-	n.Info.Version = string(buf[offset : offset+versionLen])
-	offset += versionLen
-
-	// StartTime
-	if offset+8 > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise startTime truncated", ErrInvalidFrame)
-	}
-	n.Info.StartTime = int64(binary.BigEndian.Uint64(buf[offset:]))
-	offset += 8
-
-	// IPAddresses
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise ipCount missing", ErrInvalidFrame)
-	}
-	ipCount := int(buf[offset])
-	offset++
-	n.Info.IPAddresses = make([]string, ipCount)
-	for i := 0; i < ipCount; i++ {
-		if offset >= len(buf) {
-			return nil, fmt.Errorf("%w: NodeInfoAdvertise ip length missing", ErrInvalidFrame)
+	// If not encrypted, decode NodeInfo immediately
+	if !encData.Encrypted {
+		info, err := DecodeNodeInfo(encData.Data)
+		if err != nil {
+			return nil, fmt.Errorf("decode NodeInfo: %w", err)
 		}
-		ipLen := int(buf[offset])
-		offset++
-		if offset+ipLen > len(buf) {
-			return nil, fmt.Errorf("%w: NodeInfoAdvertise ip truncated", ErrInvalidFrame)
-		}
-		n.Info.IPAddresses[i] = string(buf[offset : offset+ipLen])
-		offset += ipLen
+		n.Info = *info
 	}
+	// If encrypted, Info stays empty - caller must decrypt using SealedBox
 
 	// SeenBy
 	if offset >= len(buf) {
@@ -1113,60 +1312,6 @@ func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
 		copy(n.SeenBy[i][:], buf[offset:offset+16])
 		offset += 16
 	}
-
-	// Peers (optional, for backward compatibility with older agents)
-	// Check if there's remaining data after SeenBy
-	if offset < len(buf) {
-		peerCount := int(buf[offset])
-		offset++
-		if peerCount > MaxPeersInNodeInfo {
-			peerCount = MaxPeersInNodeInfo
-		}
-		n.Info.Peers = make([]PeerConnectionInfo, 0, peerCount)
-		for i := 0; i < peerCount; i++ {
-			// PeerID (16 bytes)
-			if offset+16 > len(buf) {
-				break // Truncated, stop parsing peers
-			}
-			var peer PeerConnectionInfo
-			copy(peer.PeerID[:], buf[offset:offset+16])
-			offset += 16
-
-			// Transport (1 byte len + string)
-			if offset >= len(buf) {
-				break
-			}
-			transportLen := int(buf[offset])
-			offset++
-			if offset+transportLen > len(buf) {
-				break
-			}
-			peer.Transport = string(buf[offset : offset+transportLen])
-			offset += transportLen
-
-			// RTTMs (8 bytes)
-			if offset+8 > len(buf) {
-				break
-			}
-			peer.RTTMs = int64(binary.BigEndian.Uint64(buf[offset:]))
-			offset += 8
-
-			// IsDialer (1 byte)
-			if offset >= len(buf) {
-				break
-			}
-			peer.IsDialer = buf[offset] != 0
-			offset++
-
-			n.Info.Peers = append(n.Info.Peers, peer)
-		}
-	}
-
-	// PublicKey (agent's static X25519 public key)
-	if offset+EphemeralKeySize > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise publicKey missing", ErrInvalidFrame)
-	}
-	copy(n.Info.PublicKey[:], buf[offset:offset+EphemeralKeySize])
 
 	return n, nil
 }

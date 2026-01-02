@@ -338,7 +338,7 @@ func TestBuildConfig(t *testing.T) {
 				tc.dataDir, "", tc.transport, tc.listenAddr, tc.listenPath,
 				tc.tlsConfig, tc.peers, tc.socks5Config, tc.exitConfig,
 				tc.healthEnabled, tc.controlEnabled, tc.logLevel,
-				config.RPCConfig{}, config.FileTransferConfig{},
+				config.RPCConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 			)
 
 			if cfg == nil {
@@ -471,7 +471,7 @@ func TestBuildConfigLogFormat(t *testing.T) {
 		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",
-		config.RPCConfig{}, config.FileTransferConfig{},
+		config.RPCConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 
 	// Verify LogFormat is always set to "text"
@@ -488,7 +488,7 @@ func TestBuildConfigDefaults(t *testing.T) {
 		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
 		false, false, "info",
-		config.RPCConfig{}, config.FileTransferConfig{},
+		config.RPCConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 
 	// Verify default values from config.Default() are preserved

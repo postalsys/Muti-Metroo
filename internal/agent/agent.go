@@ -98,6 +98,7 @@ type Agent struct {
 	healthServer  *health.Server
 	controlServer *control.Server
 	rpcExecutor   *rpc.Executor
+	sealedBox     *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	// File transfer (stream-based)
 	fileStreamHandler  *filetransfer.StreamHandler
@@ -219,10 +220,32 @@ func (a *Agent) initComponents() error {
 	peerCfg.OnPeerDisconnect = a.handlePeerDisconnect
 	a.peerMgr = peer.NewManager(peerCfg)
 
+	// Initialize management key encryption (sealed box) if configured
+	if a.cfg.HasManagementKey() {
+		pubKey, err := a.cfg.GetManagementPublicKey()
+		if err != nil {
+			return fmt.Errorf("get management public key: %w", err)
+		}
+		if a.cfg.CanDecryptManagement() {
+			privKey, err := a.cfg.GetManagementPrivateKey()
+			if err != nil {
+				return fmt.Errorf("get management private key: %w", err)
+			}
+			a.sealedBox = crypto.NewSealedBoxWithPrivate(pubKey, privKey)
+			a.logger.Info("management key encryption enabled (can decrypt)")
+		} else {
+			a.sealedBox = crypto.NewSealedBox(pubKey)
+			a.logger.Info("management key encryption enabled (encrypt only)")
+		}
+		// Pass sealed box to routing manager for decryption attempts
+		a.routeMgr.SetSealedBox(a.sealedBox)
+	}
+
 	// Initialize flooder (needs peer manager for sending)
 	floodCfg := flood.DefaultFloodConfig()
 	floodCfg.LocalDisplayName = a.cfg.Agent.DisplayName
 	floodCfg.Logger = a.logger
+	floodCfg.SealedBox = a.sealedBox // Pass sealed box for encryption
 	a.flooder = flood.NewFlooder(floodCfg, a.id, a.routeMgr, a.peerMgr)
 
 	// Initialize SOCKS5 server if enabled
@@ -284,8 +307,9 @@ func (a *Agent) initComponents() error {
 		}
 		provider := &agentStatsProvider{agent: a}
 		a.healthServer = health.NewServer(healthCfg, provider)
-		a.healthServer.SetRemoteProvider(a)      // Enable remote metrics via control channel
+		a.healthServer.SetRemoteProvider(a)        // Enable remote metrics via control channel
 		a.healthServer.SetRouteAdvertiseTrigger(a) // Enable route advertisement trigger
+		a.healthServer.SetSealedBox(a.sealedBox)   // Enable management key decrypt checks
 	}
 
 	// Initialize control server if enabled
@@ -1439,13 +1463,15 @@ func (a *Agent) handleRouteAdvertise(peerID identity.AgentID, frame *protocol.Fr
 		return
 	}
 
+	// Log with available info (path may be encrypted)
+	encrypted := adv.EncPath != nil && adv.EncPath.Encrypted
 	a.logger.Debug("received route advertisement",
 		logging.KeyPeerID, peerID.ShortString(),
 		"origin", adv.OriginAgent.ShortString(),
 		logging.KeyCount, len(adv.Routes),
-		logging.KeyHops, len(adv.Path))
+		"encrypted", encrypted)
 
-	a.flooder.HandleRouteAdvertise(peerID, adv.OriginAgent, adv.OriginDisplayName, adv.Sequence, adv.Routes, adv.Path, adv.SeenBy)
+	a.flooder.HandleRouteAdvertise(peerID, adv.OriginAgent, adv.OriginDisplayName, adv.Sequence, adv.Routes, adv.EncPath, adv.SeenBy)
 }
 
 // handleRouteWithdraw processes a route withdrawal.
@@ -1468,13 +1494,14 @@ func (a *Agent) handleNodeInfoAdvertise(peerID identity.AgentID, frame *protocol
 		return
 	}
 
+	// Log with available info (may be encrypted)
+	encrypted := adv.EncInfo != nil && adv.EncInfo.Encrypted
 	a.logger.Debug("received node info advertisement",
 		logging.KeyPeerID, peerID.ShortString(),
 		"origin", adv.OriginAgent.ShortString(),
-		"display_name", adv.Info.DisplayName,
-		"hostname", adv.Info.Hostname)
+		"encrypted", encrypted)
 
-	a.flooder.HandleNodeInfoAdvertise(peerID, adv.OriginAgent, adv.Sequence, &adv.Info, adv.SeenBy)
+	a.flooder.HandleNodeInfoAdvertise(peerID, adv.OriginAgent, adv.Sequence, adv.EncInfo, adv.SeenBy)
 }
 
 // handleKeepalive processes a keepalive.

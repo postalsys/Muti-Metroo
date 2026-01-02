@@ -2,6 +2,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -17,6 +18,7 @@ type Config struct {
 	Agent        AgentConfig        `yaml:"agent"`
 	Protocol     ProtocolConfig     `yaml:"protocol"`
 	TLS          GlobalTLSConfig    `yaml:"tls"`
+	Management   ManagementConfig   `yaml:"management"`
 	Listeners    []ListenerConfig   `yaml:"listeners"`
 	Peers        []PeerConfig       `yaml:"peers"`
 	SOCKS5       SOCKS5Config       `yaml:"socks5"`
@@ -111,6 +113,77 @@ func (g *GlobalTLSConfig) HasCert() bool {
 // HasKey returns true if private key is configured (either file or PEM).
 func (g *GlobalTLSConfig) HasKey() bool {
 	return g.Key != "" || g.KeyPEM != ""
+}
+
+// ManagementConfig configures management key encryption for mesh metadata.
+// When enabled, NodeInfo and route paths are encrypted so only operators
+// with the private key can view topology details. This protects against
+// blue team discovery of mesh topology from compromised agents.
+type ManagementConfig struct {
+	// PublicKey is the management public key (hex-encoded, 64 characters).
+	// When set, NodeInfo and route paths are encrypted before flooding.
+	// All agents in the mesh should have the same public key.
+	PublicKey string `yaml:"public_key"`
+
+	// PrivateKey is the management private key (hex-encoded, 64 characters).
+	// Only set on operator/management nodes that need to view topology.
+	// NEVER distribute to field agents.
+	PrivateKey string `yaml:"private_key"`
+}
+
+// KeySize is the size of X25519 keys in bytes.
+const KeySize = 32
+
+// HasManagementKey returns true if management encryption is configured.
+func (c *Config) HasManagementKey() bool {
+	return c.Management.PublicKey != ""
+}
+
+// GetManagementPublicKey returns the parsed management public key.
+// Returns an error if the key is not configured or invalid.
+func (c *Config) GetManagementPublicKey() ([KeySize]byte, error) {
+	var key [KeySize]byte
+	if c.Management.PublicKey == "" {
+		return key, fmt.Errorf("management public key not configured")
+	}
+
+	decoded, err := hex.DecodeString(c.Management.PublicKey)
+	if err != nil {
+		return key, fmt.Errorf("invalid management public key hex: %w", err)
+	}
+
+	if len(decoded) != KeySize {
+		return key, fmt.Errorf("management public key must be %d bytes, got %d", KeySize, len(decoded))
+	}
+
+	copy(key[:], decoded)
+	return key, nil
+}
+
+// GetManagementPrivateKey returns the parsed management private key.
+// Returns an error if the key is not configured or invalid.
+func (c *Config) GetManagementPrivateKey() ([KeySize]byte, error) {
+	var key [KeySize]byte
+	if c.Management.PrivateKey == "" {
+		return key, fmt.Errorf("management private key not configured")
+	}
+
+	decoded, err := hex.DecodeString(c.Management.PrivateKey)
+	if err != nil {
+		return key, fmt.Errorf("invalid management private key hex: %w", err)
+	}
+
+	if len(decoded) != KeySize {
+		return key, fmt.Errorf("management private key must be %d bytes, got %d", KeySize, len(decoded))
+	}
+
+	copy(key[:], decoded)
+	return key, nil
+}
+
+// CanDecryptManagement returns true if management private key is configured.
+func (c *Config) CanDecryptManagement() bool {
+	return c.Management.PrivateKey != ""
 }
 
 // AgentConfig contains agent identity settings.
@@ -619,6 +692,11 @@ func (c *Config) Validate() error {
 		errs = append(errs, "limits.buffer_size must be at least 1024")
 	}
 
+	// Validate management key configuration
+	if err := c.validateManagementKeys(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("validation errors:\n  - %s", strings.Join(errs, "\n  - "))
 	}
@@ -636,6 +714,32 @@ func (c *Config) validateGlobalTLS() error {
 	// Check for partial cert/key configuration
 	if c.TLS.HasCert() != c.TLS.HasKey() {
 		return fmt.Errorf("tls.cert and tls.key must both be specified or both be empty")
+	}
+
+	return nil
+}
+
+// validateManagementKeys validates the management key configuration.
+func (c *Config) validateManagementKeys() error {
+	// If no public key, nothing to validate
+	if c.Management.PublicKey == "" {
+		// But warn if private key is set without public key
+		if c.Management.PrivateKey != "" {
+			return fmt.Errorf("management.private_key requires management.public_key to be set")
+		}
+		return nil
+	}
+
+	// Validate public key format
+	if _, err := c.GetManagementPublicKey(); err != nil {
+		return fmt.Errorf("management.public_key: %w", err)
+	}
+
+	// Validate private key format if set
+	if c.Management.PrivateKey != "" {
+		if _, err := c.GetManagementPrivateKey(); err != nil {
+			return fmt.Errorf("management.private_key: %w", err)
+		}
 	}
 
 	return nil
@@ -818,6 +922,11 @@ func (c *Config) Redacted() *Config {
 		redacted.FileTransfer.PasswordHash = redactedValue
 	}
 
+	// Redact management private key
+	if redacted.Management.PrivateKey != "" {
+		redacted.Management.PrivateKey = redactedValue
+	}
+
 	return redacted
 }
 
@@ -844,6 +953,11 @@ func (c *Config) HasSensitiveData() bool {
 
 	// Check FileTransfer password hash
 	if c.FileTransfer.PasswordHash != "" {
+		return true
+	}
+
+	// Check management private key
+	if c.Management.PrivateKey != "" {
 		return true
 	}
 

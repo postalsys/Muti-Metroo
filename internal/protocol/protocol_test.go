@@ -1321,3 +1321,230 @@ func TestPeerHello_WithDisplayName(t *testing.T) {
 		t.Errorf("DisplayName = %s, want %s", decoded.DisplayName, original.DisplayName)
 	}
 }
+
+func TestEncryptedData_EncodeDecode(t *testing.T) {
+	tests := []struct {
+		name      string
+		encrypted bool
+		data      []byte
+	}{
+		{"empty_plaintext", false, []byte{}},
+		{"short_plaintext", false, []byte("hello")},
+		{"long_plaintext", false, bytes.Repeat([]byte("A"), 1000)},
+		{"encrypted_blob", true, bytes.Repeat([]byte{0xFF}, 60)}, // Simulates sealed box overhead
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			original := &EncryptedData{
+				Encrypted: tc.encrypted,
+				Data:      tc.data,
+			}
+
+			encoded := EncodeEncryptedData(original)
+
+			// Verify format: flag(1) + len(2) + data
+			if len(encoded) != 3+len(tc.data) {
+				t.Errorf("encoded length = %d, want %d", len(encoded), 3+len(tc.data))
+			}
+
+			decoded, consumed, err := DecodeEncryptedData(encoded)
+			if err != nil {
+				t.Fatalf("DecodeEncryptedData() error = %v", err)
+			}
+
+			if consumed != len(encoded) {
+				t.Errorf("consumed = %d, want %d", consumed, len(encoded))
+			}
+
+			if decoded.Encrypted != tc.encrypted {
+				t.Errorf("Encrypted = %v, want %v", decoded.Encrypted, tc.encrypted)
+			}
+
+			if !bytes.Equal(decoded.Data, tc.data) {
+				t.Errorf("Data mismatch")
+			}
+		})
+	}
+}
+
+func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
+	original := &NodeInfo{
+		DisplayName: "test-agent",
+		Hostname:    "server-01.local",
+		OS:          "linux",
+		Arch:        "amd64",
+		Version:     "1.0.0",
+		StartTime:   1703001234,
+		IPAddresses: []string{"192.168.1.100", "10.0.0.5"},
+		Peers: []PeerConnectionInfo{
+			{Transport: "quic", RTTMs: 15, IsDialer: true},
+			{Transport: "h2", RTTMs: 25, IsDialer: false},
+		},
+	}
+	copy(original.PublicKey[:], bytes.Repeat([]byte{0xAB}, EphemeralKeySize))
+
+	encoded := EncodeNodeInfo(original)
+	decoded, err := DecodeNodeInfo(encoded)
+	if err != nil {
+		t.Fatalf("DecodeNodeInfo() error = %v", err)
+	}
+
+	if decoded.DisplayName != original.DisplayName {
+		t.Errorf("DisplayName = %s, want %s", decoded.DisplayName, original.DisplayName)
+	}
+	if decoded.Hostname != original.Hostname {
+		t.Errorf("Hostname = %s, want %s", decoded.Hostname, original.Hostname)
+	}
+	if decoded.OS != original.OS {
+		t.Errorf("OS = %s, want %s", decoded.OS, original.OS)
+	}
+	if decoded.Arch != original.Arch {
+		t.Errorf("Arch = %s, want %s", decoded.Arch, original.Arch)
+	}
+	if decoded.Version != original.Version {
+		t.Errorf("Version = %s, want %s", decoded.Version, original.Version)
+	}
+	if decoded.StartTime != original.StartTime {
+		t.Errorf("StartTime = %d, want %d", decoded.StartTime, original.StartTime)
+	}
+	if len(decoded.IPAddresses) != len(original.IPAddresses) {
+		t.Errorf("IPAddresses count = %d, want %d", len(decoded.IPAddresses), len(original.IPAddresses))
+	}
+	if len(decoded.Peers) != len(original.Peers) {
+		t.Errorf("Peers count = %d, want %d", len(decoded.Peers), len(original.Peers))
+	}
+	if decoded.PublicKey != original.PublicKey {
+		t.Errorf("PublicKey mismatch")
+	}
+}
+
+func TestEncodePath_DecodePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		pathLen  int
+	}{
+		{"empty", 0},
+		{"one", 1},
+		{"few", 3},
+		{"many", 10},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Generate path
+			path := make([]identity.AgentID, tc.pathLen)
+			for i := 0; i < tc.pathLen; i++ {
+				id, _ := identity.NewAgentID()
+				path[i] = id
+			}
+
+			encoded := EncodePath(path)
+			decoded, err := DecodePath(encoded)
+			if err != nil {
+				t.Fatalf("DecodePath() error = %v", err)
+			}
+
+			if len(decoded) != len(path) {
+				t.Errorf("path length = %d, want %d", len(decoded), len(path))
+			}
+
+			for i := range path {
+				if decoded[i] != path[i] {
+					t.Errorf("path[%d] mismatch", i)
+				}
+			}
+		})
+	}
+}
+
+func TestNodeInfoAdvertise_WithEncryption(t *testing.T) {
+	agentID, _ := identity.NewAgentID()
+
+	// Create NodeInfoAdvertise with encrypted data
+	original := &NodeInfoAdvertise{
+		OriginAgent: agentID,
+		Sequence:    12345,
+		EncInfo: &EncryptedData{
+			Encrypted: true,
+			Data:      bytes.Repeat([]byte{0xDE, 0xAD}, 100), // Simulates encrypted blob
+		},
+		SeenBy: []identity.AgentID{agentID},
+	}
+
+	encoded := original.Encode()
+	decoded, err := DecodeNodeInfoAdvertise(encoded)
+	if err != nil {
+		t.Fatalf("DecodeNodeInfoAdvertise() error = %v", err)
+	}
+
+	if decoded.OriginAgent != original.OriginAgent {
+		t.Errorf("OriginAgent mismatch")
+	}
+	if decoded.Sequence != original.Sequence {
+		t.Errorf("Sequence = %d, want %d", decoded.Sequence, original.Sequence)
+	}
+	if decoded.EncInfo == nil {
+		t.Fatal("EncInfo is nil")
+	}
+	if !decoded.EncInfo.Encrypted {
+		t.Error("EncInfo.Encrypted = false, want true")
+	}
+	if !bytes.Equal(decoded.EncInfo.Data, original.EncInfo.Data) {
+		t.Error("EncInfo.Data mismatch")
+	}
+	if len(decoded.SeenBy) != len(original.SeenBy) {
+		t.Errorf("SeenBy length = %d, want %d", len(decoded.SeenBy), len(original.SeenBy))
+	}
+}
+
+func TestRouteAdvertise_WithEncryptedPath(t *testing.T) {
+	agentID, _ := identity.NewAgentID()
+
+	// Create RouteAdvertise with encrypted path
+	original := &RouteAdvertise{
+		OriginAgent:       agentID,
+		OriginDisplayName: "exit-node",
+		Sequence:          54321,
+		Routes: []Route{
+			{AddressFamily: AddrFamilyIPv4, PrefixLength: 24, Prefix: []byte{10, 0, 0, 0}, Metric: 5},
+		},
+		EncPath: &EncryptedData{
+			Encrypted: true,
+			Data:      bytes.Repeat([]byte{0xBE, 0xEF}, 50), // Simulates encrypted path
+		},
+		SeenBy: []identity.AgentID{agentID},
+	}
+
+	encoded := original.Encode()
+	decoded, err := DecodeRouteAdvertise(encoded)
+	if err != nil {
+		t.Fatalf("DecodeRouteAdvertise() error = %v", err)
+	}
+
+	if decoded.OriginAgent != original.OriginAgent {
+		t.Errorf("OriginAgent mismatch")
+	}
+	if decoded.OriginDisplayName != original.OriginDisplayName {
+		t.Errorf("OriginDisplayName = %s, want %s", decoded.OriginDisplayName, original.OriginDisplayName)
+	}
+	if decoded.Sequence != original.Sequence {
+		t.Errorf("Sequence = %d, want %d", decoded.Sequence, original.Sequence)
+	}
+	if len(decoded.Routes) != len(original.Routes) {
+		t.Errorf("Routes count = %d, want %d", len(decoded.Routes), len(original.Routes))
+	}
+	if decoded.EncPath == nil {
+		t.Fatal("EncPath is nil")
+	}
+	if !decoded.EncPath.Encrypted {
+		t.Error("EncPath.Encrypted = false, want true")
+	}
+	if !bytes.Equal(decoded.EncPath.Data, original.EncPath.Data) {
+		t.Error("EncPath.Data mismatch")
+	}
+	// When encrypted, Path should be nil (caller must decrypt)
+	if decoded.Path != nil {
+		t.Error("Path should be nil when encrypted")
+	}
+}

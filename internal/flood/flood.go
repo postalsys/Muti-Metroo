@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/logging"
 	"github.com/postalsys/muti-metroo/internal/protocol"
@@ -56,6 +57,10 @@ type FloodConfig struct {
 
 	// Logger for logging
 	Logger *slog.Logger
+
+	// SealedBox for management key encryption (nil if not configured)
+	// When set, NodeInfo and route paths are encrypted before flooding
+	SealedBox *crypto.SealedBox
 }
 
 // DefaultFloodConfig returns sensible defaults.
@@ -84,6 +89,7 @@ type Flooder struct {
 	routeMgr         *routing.Manager
 	sender           PeerSender
 	logger           *slog.Logger
+	sealedBox        *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	mu        sync.RWMutex
 	seenCache map[AdvertisementKey]*SeenAdvertisement
@@ -112,6 +118,7 @@ func NewFlooder(cfg FloodConfig, localID identity.AgentID, routeMgr *routing.Man
 		routeMgr:          routeMgr,
 		sender:            sender,
 		logger:            logger,
+		sealedBox:         cfg.SealedBox,
 		seenCache:         make(map[AdvertisementKey]*SeenAdvertisement),
 		nodeInfoSeenCache: make(map[NodeInfoKey]*SeenNodeInfo),
 		stopCh:            make(chan struct{}),
@@ -132,7 +139,7 @@ func (f *Flooder) HandleRouteAdvertise(
 	originDisplayName string,
 	sequence uint64,
 	routes []protocol.Route,
-	path []identity.AgentID,
+	encPath *protocol.EncryptedData,
 	seenBy []identity.AgentID,
 ) bool {
 	key := AdvertisementKey{
@@ -171,6 +178,28 @@ func (f *Flooder) HandleRouteAdvertise(
 		}
 	}
 
+	// Decode path from advertisement
+	// Note: Paths are sent as plaintext for routing (not encrypted)
+	// because transit agents need the path to forward STREAM_OPEN frames.
+	// Path hiding happens at the API layer, not on the wire.
+	var path []identity.AgentID
+	if encPath != nil {
+		if encPath.Encrypted {
+			// Legacy: try to decrypt if we have the private key
+			// (for backwards compatibility with old encrypted paths)
+			if f.sealedBox != nil && f.sealedBox.CanDecrypt() {
+				decrypted, err := f.sealedBox.Open(encPath.Data)
+				if err == nil {
+					path, _ = protocol.DecodePath(decrypted)
+				}
+			}
+			// If we can't decrypt, path remains nil (routing will fail)
+		} else {
+			// Plaintext - decode directly (normal case)
+			path, _ = protocol.DecodePath(encPath.Data)
+		}
+	}
+
 	// Convert protocol routes to routing entries
 	entries := make([]routing.RouteEntry, 0, len(routes))
 	for _, r := range routes {
@@ -199,12 +228,12 @@ func (f *Flooder) HandleRouteAdvertise(
 		}
 	}
 
-	// Process in routing manager
-	f.routeMgr.ProcessRouteAdvertise(fromPeer, originAgent, sequence, entries, path)
+	// Process in routing manager (path may be nil if encrypted and can't decrypt)
+	f.routeMgr.ProcessRouteAdvertise(fromPeer, originAgent, sequence, entries, path, encPath)
 
-	// Flood to other peers
+	// Flood to other peers (forward encrypted path as-is)
 	newSeenBy := append(seenBy, f.localID)
-	f.floodAdvertisement(fromPeer, originAgent, originDisplayName, sequence, routes, path, newSeenBy)
+	f.floodAdvertisementEncrypted(fromPeer, originAgent, originDisplayName, sequence, routes, encPath, newSeenBy)
 
 	return true
 }
@@ -281,25 +310,42 @@ func (f *Flooder) HandleRouteWithdraw(
 	return true
 }
 
-// floodAdvertisement sends a route advertisement to all peers except the source.
-func (f *Flooder) floodAdvertisement(
+// floodAdvertisementEncrypted sends a route advertisement to all peers except the source.
+// For plaintext paths, it prepends the local agent ID to the path before forwarding.
+// For encrypted paths (legacy), it forwards as-is since we can't modify encrypted data.
+func (f *Flooder) floodAdvertisementEncrypted(
 	fromPeer identity.AgentID,
 	originAgent identity.AgentID,
 	originDisplayName string,
 	sequence uint64,
 	routes []protocol.Route,
-	path []identity.AgentID,
+	encPath *protocol.EncryptedData,
 	seenBy []identity.AgentID,
 ) {
 	peers := f.sender.GetPeerIDs()
 
-	// Build the advertise payload
+	// Extend the path if it's plaintext (normal case)
+	// For encrypted paths (legacy), forward as-is
+	fwdEncPath := encPath
+	if encPath != nil && !encPath.Encrypted {
+		// Decode existing path, prepend our ID, re-encode
+		existingPath, _ := protocol.DecodePath(encPath.Data)
+		newPath := make([]identity.AgentID, len(existingPath)+1)
+		newPath[0] = f.localID
+		copy(newPath[1:], existingPath)
+		fwdEncPath = &protocol.EncryptedData{
+			Encrypted: false,
+			Data:      protocol.EncodePath(newPath),
+		}
+	}
+
+	// Build the advertise payload with extended path
 	adv := &protocol.RouteAdvertise{
 		OriginAgent:       originAgent,
 		OriginDisplayName: originDisplayName,
 		Sequence:          sequence,
 		Routes:            routes,
-		Path:              append([]identity.AgentID{f.localID}, path...), // Prepend ourselves
+		EncPath:           fwdEncPath,
 		SeenBy:            seenBy,
 	}
 
@@ -409,13 +455,24 @@ func (f *Flooder) AnnounceLocalRoutes() {
 		})
 	}
 
+	// Build path data (always plaintext - needed for multi-hop routing)
+	// Note: Path encryption was removed because transit agents need the path
+	// to forward STREAM_OPEN frames. Path hiding happens at the API layer.
+	path := []identity.AgentID{f.localID}
+	pathBytes := protocol.EncodePath(path)
+	encPath := &protocol.EncryptedData{
+		Encrypted: false,
+		Data:      pathBytes,
+	}
+
 	// Build advertisement
 	adv := &protocol.RouteAdvertise{
 		OriginAgent:       f.localID,
 		OriginDisplayName: f.localDisplayName,
 		Sequence:          seq,
 		Routes:            routes,
-		Path:              []identity.AgentID{f.localID},
+		Path:              path,    // Keep for backwards compat
+		EncPath:           encPath, // Encrypted path for wire format
 		SeenBy:            []identity.AgentID{f.localID},
 	}
 
@@ -674,7 +731,7 @@ func (f *Flooder) HandleNodeInfoAdvertise(
 	fromPeer identity.AgentID,
 	originAgent identity.AgentID,
 	sequence uint64,
-	info *protocol.NodeInfo,
+	encInfo *protocol.EncryptedData,
 	seenBy []identity.AgentID,
 ) bool {
 	key := NodeInfoKey{
@@ -708,36 +765,35 @@ func (f *Flooder) HandleNodeInfoAdvertise(
 		}
 	}
 
-	// Store the node info in the routing manager
-	if f.routeMgr.SetNodeInfo(originAgent, info, sequence) {
+	// Store the node info in the routing manager (handles decryption if possible)
+	if f.routeMgr.SetNodeInfoEncrypted(originAgent, encInfo, sequence) {
 		f.logger.Debug("stored node info",
 			"origin", originAgent.ShortString(),
-			"display_name", info.DisplayName,
-			"hostname", info.Hostname)
+			"encrypted", encInfo.Encrypted)
 	}
 
-	// Flood to other peers
+	// Flood to other peers (forward encrypted data as-is)
 	newSeenBy := append(seenBy, f.localID)
-	f.floodNodeInfo(fromPeer, originAgent, sequence, info, newSeenBy)
+	f.floodNodeInfoEncrypted(fromPeer, originAgent, sequence, encInfo, newSeenBy)
 
 	return true
 }
 
-// floodNodeInfo sends node info advertisement to all peers except the source.
-func (f *Flooder) floodNodeInfo(
+// floodNodeInfoEncrypted sends encrypted node info advertisement to all peers except the source.
+func (f *Flooder) floodNodeInfoEncrypted(
 	fromPeer identity.AgentID,
 	originAgent identity.AgentID,
 	sequence uint64,
-	info *protocol.NodeInfo,
+	encInfo *protocol.EncryptedData,
 	seenBy []identity.AgentID,
 ) {
 	peers := f.sender.GetPeerIDs()
 
-	// Build the node info advertise payload
+	// Build the node info advertise payload with encrypted data
 	adv := &protocol.NodeInfoAdvertise{
 		OriginAgent: originAgent,
 		Sequence:    sequence,
-		Info:        *info,
+		EncInfo:     encInfo,
 		SeenBy:      seenBy,
 	}
 
@@ -785,14 +841,39 @@ func (f *Flooder) AnnounceLocalNodeInfo(info *protocol.NodeInfo) {
 	seq := f.nodeInfoSeq
 	f.nodeInfoMu.Unlock()
 
-	// Store our own info in the routing manager
+	// Store our own info in the routing manager (plaintext for local access)
 	f.routeMgr.SetNodeInfo(f.localID, info, seq)
+
+	// Build encrypted data for flooding
+	var encInfo *protocol.EncryptedData
+	infoBytes := protocol.EncodeNodeInfo(info)
+
+	if f.sealedBox != nil {
+		// Encrypt NodeInfo for flooding
+		encrypted, err := f.sealedBox.Seal(infoBytes)
+		if err != nil {
+			f.logger.Debug("failed to encrypt node info",
+				logging.KeyError, err)
+			return
+		}
+		encInfo = &protocol.EncryptedData{
+			Encrypted: true,
+			Data:      encrypted,
+		}
+	} else {
+		// No encryption - send plaintext
+		encInfo = &protocol.EncryptedData{
+			Encrypted: false,
+			Data:      infoBytes,
+		}
+	}
 
 	// Build the advertisement
 	adv := &protocol.NodeInfoAdvertise{
 		OriginAgent: f.localID,
 		Sequence:    seq,
-		Info:        *info,
+		Info:        *info, // Keep for backwards compat in Encode()
+		EncInfo:     encInfo,
 		SeenBy:      []identity.AgentID{f.localID},
 	}
 
@@ -814,28 +895,26 @@ func (f *Flooder) AnnounceLocalNodeInfo(info *protocol.NodeInfo) {
 	f.logger.Debug("announced local node info",
 		"display_name", info.DisplayName,
 		"hostname", info.Hostname,
-		"sequence", seq)
+		"sequence", seq,
+		"encrypted", encInfo.Encrypted)
 }
 
 // SendNodeInfoToNewPeer sends all known node info to a newly connected peer.
 func (f *Flooder) SendNodeInfoToNewPeer(peerID identity.AgentID) {
-	allNodeInfo := f.routeMgr.GetAllNodeInfo()
-	if len(allNodeInfo) == 0 {
+	allEntries := f.routeMgr.GetAllNodeInfoEntries()
+	if len(allEntries) == 0 {
 		return
 	}
 
-	for agentID, info := range allNodeInfo {
-		if info == nil {
+	for agentID, entry := range allEntries {
+		if entry == nil || entry.EncInfo == nil {
 			continue
 		}
 
-		// Get the sequence number for this node info
-		seq := f.routeMgr.GetNodeInfoSequence(agentID)
-
 		adv := &protocol.NodeInfoAdvertise{
 			OriginAgent: agentID,
-			Sequence:    seq,
-			Info:        *info,
+			Sequence:    entry.Sequence,
+			EncInfo:     entry.EncInfo, // Forward encrypted data as-is
 			SeenBy:      []identity.AgentID{f.localID},
 		}
 
@@ -855,7 +934,7 @@ func (f *Flooder) SendNodeInfoToNewPeer(peerID identity.AgentID) {
 
 	f.logger.Debug("sent node info table to new peer",
 		logging.KeyPeerID, peerID.ShortString(),
-		"count", len(allNodeInfo))
+		"count", len(allEntries))
 }
 
 // NodeInfoSeenCacheSize returns the current size of the node info seen cache.

@@ -4,6 +4,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,6 +64,7 @@ root privileges.`,
 	rootCmd.AddCommand(uploadCmd())
 	rootCmd.AddCommand(downloadCmd())
 	rootCmd.AddCommand(hashCmd())
+	rootCmd.AddCommand(managementKeyCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -1446,6 +1448,128 @@ Examples:
 	}
 
 	cmd.Flags().IntVar(&cost, "cost", bcrypt.DefaultCost, "bcrypt cost factor (4-31, higher = slower but more secure)")
+
+	return cmd
+}
+
+func managementKeyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "management-key",
+		Short: "Manage mesh topology encryption keys",
+		Long: `Manage X25519 keypairs for encrypting mesh topology data.
+
+When management key encryption is enabled, sensitive data like NodeInfo
+(hostnames, IPs, OS info) and route paths are encrypted before flooding
+through the mesh. Only operators with the private key can decrypt and
+view topology details.
+
+This provides cryptographic compartmentalization: if a field agent is
+compromised, the attacker only sees encrypted blobs, not the mesh topology.`,
+	}
+
+	// Add subcommands
+	cmd.AddCommand(managementKeyGenerateCmd())
+	cmd.AddCommand(managementKeyPublicCmd())
+
+	return cmd
+}
+
+func managementKeyGenerateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate a new management keypair",
+		Long: `Generate a new X25519 keypair for management key encryption.
+
+The generated keys should be distributed as follows:
+  - Public key: Add to ALL agent configs (field agents and operators)
+  - Private key: Add ONLY to operator/management node configs
+
+Example output can be copied directly into your config.yaml:
+
+  management:
+    public_key: "<public key hex>"
+    private_key: "<private key hex>"  # Only on operator nodes!`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Generate keypair using the identity package
+			keypair, err := identity.NewKeypair()
+			if err != nil {
+				return fmt.Errorf("failed to generate keypair: %w", err)
+			}
+
+			pubKeyHex := hex.EncodeToString(keypair.PublicKey[:])
+			privKeyHex := hex.EncodeToString(keypair.PrivateKey[:])
+
+			fmt.Println("=== Management Keypair Generated ===")
+			fmt.Println()
+			fmt.Println("Public Key (add to ALL agent configs):")
+			fmt.Printf("  %s\n", pubKeyHex)
+			fmt.Println()
+			fmt.Println("Private Key (add ONLY to operator configs - KEEP SECRET!):")
+			fmt.Printf("  %s\n", privKeyHex)
+			fmt.Println()
+			fmt.Println("Config snippet for field agents:")
+			fmt.Println("  management:")
+			fmt.Printf("    public_key: \"%s\"\n", pubKeyHex)
+			fmt.Println()
+			fmt.Println("Config snippet for operator nodes:")
+			fmt.Println("  management:")
+			fmt.Printf("    public_key: \"%s\"\n", pubKeyHex)
+			fmt.Printf("    private_key: \"%s\"\n", privKeyHex)
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+func managementKeyPublicCmd() *cobra.Command {
+	var privateKey string
+
+	cmd := &cobra.Command{
+		Use:   "public",
+		Short: "Derive public key from private key",
+		Long: `Derive the public key from an existing management private key.
+
+This is useful if you've lost the public key but still have the private key,
+or to verify that your keypair is consistent.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if privateKey == "" {
+				// Interactive prompt
+				fmt.Print("Enter private key (hex): ")
+				pkBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Println()
+				if err != nil {
+					return fmt.Errorf("failed to read private key: %w", err)
+				}
+				privateKey = string(pkBytes)
+			}
+
+			// Decode private key
+			privBytes, err := hex.DecodeString(strings.TrimSpace(privateKey))
+			if err != nil {
+				return fmt.Errorf("invalid private key hex: %w", err)
+			}
+
+			if len(privBytes) != 32 {
+				return fmt.Errorf("private key must be 32 bytes (64 hex chars), got %d bytes", len(privBytes))
+			}
+
+			// Use identity package to derive public key
+			var privKey [32]byte
+			copy(privKey[:], privBytes)
+
+			pubKey := identity.DerivePublicKey(privKey)
+			pubKeyHex := hex.EncodeToString(pubKey[:])
+
+			fmt.Println("Public Key:")
+			fmt.Printf("  %s\n", pubKeyHex)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&privateKey, "private", "", "Private key in hex format")
 
 	return cmd
 }

@@ -292,6 +292,100 @@ Operator -> Ingress -> Transit1 -> Transit2 -> Exit -> Target
 
 Each hop only sees adjacent peers, not the full path.
 
+## Management Key Encryption
+
+Management key encryption provides cryptographic compartmentalization of mesh topology data. When enabled, sensitive metadata (NodeInfo, route paths) is encrypted with a management public key. Only operators with the corresponding private key can decrypt and view topology details. Compromised field agents see only opaque encrypted blobs.
+
+### Threat Model
+
+**Protected against:**
+- Blue team captures agent, enables dashboard -> sees encrypted data only
+- Blue team dumps agent memory -> no private key present
+- Blue team analyzes network traffic -> NodeInfo/paths encrypted
+
+**Not protected against:**
+- Traffic analysis (connection patterns still visible)
+- Agent ID correlation (IDs remain plaintext for routing)
+- Compromise of operator machine with private key
+
+### Generating Management Keys
+
+Use the CLI to generate a new management keypair:
+
+```bash
+muti-metroo management-key generate
+```
+
+Output:
+```
+Management Public Key: a1b2c3d4e5f6789...  (64 hex chars)
+Management Private Key: e5f6a7b8c9d0...    (64 hex chars)
+
+Add to ALL agent configs:
+  management:
+    public_key: "a1b2c3d4e5f6789..."
+
+Add to OPERATOR config only:
+  management:
+    private_key: "e5f6a7b8c9d0..."
+```
+
+### Configuration
+
+**All field agents (encrypt only):**
+
+```yaml
+management:
+  public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+```
+
+**Operator nodes (can decrypt):**
+
+```yaml
+management:
+  public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+  private_key: "e5f6a7b8c9d012345678901234567890123456789012345678901234567890ef"
+```
+
+### What Gets Protected
+
+| Data | Encrypted | Plaintext | Reason |
+|------|-----------|-----------|--------|
+| NodeInfo (hostname, OS, IPs) | Yes | | System identification |
+| NodeInfo (peers, public key) | Yes | | Topology exposure |
+| Agent IDs | | Yes | Required for routing |
+| Route Paths | | Yes | Required for multi-hop routing |
+| Route CIDRs/Metrics | | Yes | Required for routing |
+| SeenBy lists | | Yes | Required for loop prevention |
+
+**Note on Route Paths**: Route paths are kept in plaintext on the wire because transit agents need them to forward streams correctly. However, without the management private key, agents cannot decrypt the NodeInfo which contains the meaningful system identification (hostnames, OS details, IP addresses). Path entries only show opaque 128-bit agent IDs.
+
+### API Behavior
+
+When the dashboard or topology API is accessed on a node without the private key, the API returns limited information:
+- Local agent info is visible (the agent knows its own identity)
+- Remote agent display names come from decrypted NodeInfo - without the key, only short IDs are shown
+- Route paths show agent IDs but not human-readable names
+
+Operators with the private key see full topology details with all display names resolved.
+
+### Key Distribution
+
+**CRITICAL: Never distribute the private key to field agents.**
+
+Recommended workflow:
+1. Generate keypair on secure operator machine
+2. Distribute **public key only** to all agents via config
+3. Keep private key on operator nodes that need topology visibility
+4. Store private key backup securely offline
+
+### Setup Wizard
+
+The setup wizard (`muti-metroo init`) includes a management key step:
+- Skip (not recommended for red team ops)
+- Generate new keypair (prints both keys, asks if operator node)
+- Enter existing public key (for deploying to mesh)
+
 ## Detection Avoidance
 
 ### What Defenders Look For

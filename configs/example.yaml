@@ -258,3 +258,29 @@ rpc:
                                # Generate: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
                                # Or use: muti-metroo hash-password <password>
   timeout: 60s                 # Default command execution timeout
+
+# ------------------------------------------------------------------------------
+# Management Key Encryption
+# Encrypt mesh topology data for OPSEC protection
+# ------------------------------------------------------------------------------
+management:
+  # Management public key (64-character hex string)
+  # When set, NodeInfo and route paths are encrypted before flooding
+  # All agents in mesh should have the SAME public key
+  # Generate with: muti-metroo management-key generate
+  public_key: ""
+
+  # Management private key (64-character hex string)
+  # Only set on operator/management nodes that need to view topology
+  # NEVER distribute to field agents
+  # When set, this node can decrypt NodeInfo and view mesh topology
+  private_key: ""
+
+# Example: Field agent (encrypt only, cannot view topology)
+# management:
+#   public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+
+# Example: Operator node (can decrypt and view topology)
+# management:
+#   public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+#   private_key: "e5f6a7b8c9d012345678901234567890123456789012345678901234567890ef"

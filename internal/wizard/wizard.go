@@ -2,6 +2,7 @@
 package wizard
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -113,11 +114,17 @@ func (w *Wizard) Run() (*Result, error) {
 		return nil, err
 	}
 
+	// Step 11: Management key encryption
+	managementConfig, err := w.askManagementKey()
+	if err != nil {
+		return nil, err
+	}
+
 	// Build configuration
 	cfg := w.buildConfig(
 		dataDir, displayName, transport, listenAddr, listenPath,
 		tlsConfig, peers, socks5Config, exitConfig,
-		healthEnabled, controlEnabled, logLevel, rpcConfig, fileTransferConfig,
+		healthEnabled, controlEnabled, logLevel, rpcConfig, fileTransferConfig, managementConfig,
 	)
 
 	// Initialize identity
@@ -1277,6 +1284,216 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 	return cfg, nil
 }
 
+func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
+	cfg := config.ManagementConfig{}
+	var choice string
+
+	// Use existing config defaults if available
+	if w.existingCfg != nil && w.existingCfg.Management.PublicKey != "" {
+		// If there's an existing management key, offer to keep it
+		var keepExisting bool
+		keepForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewNote().
+					Title("Management Key Encryption (OPSEC Protection)").
+					Description("Existing management key configuration found."),
+
+				huh.NewConfirm().
+					Title("Keep existing management key?").
+					Description("Current public key: " + w.existingCfg.Management.PublicKey[:16] + "...").
+					Value(&keepExisting),
+			),
+		).WithTheme(w.theme)
+
+		if err := keepForm.Run(); err != nil {
+			return cfg, err
+		}
+
+		if keepExisting {
+			return w.existingCfg.Management, nil
+		}
+	}
+
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().
+				Title("Management Key Encryption (OPSEC Protection)").
+				Description("Encrypt mesh topology data so only operators can view it.\nCompromised agents will only see encrypted blobs.\n\nThis is recommended for red team operations."),
+
+			huh.NewSelect[string]().
+				Title("Management Key Setup").
+				Options(
+					huh.NewOption("Skip (not recommended for red team ops)", "skip"),
+					huh.NewOption("Generate new management keypair", "generate"),
+					huh.NewOption("Enter existing public key", "existing"),
+				).
+				Value(&choice),
+		),
+	).WithTheme(w.theme)
+
+	if err := form.Run(); err != nil {
+		return cfg, err
+	}
+
+	switch choice {
+	case "skip":
+		return cfg, nil
+
+	case "generate":
+		keypair, err := identity.NewKeypair()
+		if err != nil {
+			return cfg, fmt.Errorf("failed to generate management keypair: %w", err)
+		}
+
+		cfg.PublicKey = hex.EncodeToString(keypair.PublicKey[:])
+
+		// Ask if this is an operator node
+		var isOperator bool
+		operatorForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewNote().
+					Title("Operator Node").
+					Description("Operator nodes can view mesh topology data.\nField agents should NOT have the private key."),
+
+				huh.NewConfirm().
+					Title("Is this an operator/management node?").
+					Description("Only operator nodes should have the private key").
+					Value(&isOperator),
+			),
+		).WithTheme(w.theme)
+
+		if err := operatorForm.Run(); err != nil {
+			return cfg, err
+		}
+
+		if isOperator {
+			cfg.PrivateKey = hex.EncodeToString(keypair.PrivateKey[:])
+		}
+
+		// Always show the private key so operator can save it
+		warningStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("208"))
+
+		keyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("42"))
+
+		fmt.Println()
+		fmt.Println(warningStyle.Render("=== SAVE THIS MANAGEMENT KEYPAIR ==="))
+		fmt.Println()
+		fmt.Println("Public Key (add to ALL agent configs):")
+		fmt.Println(keyStyle.Render("  " + hex.EncodeToString(keypair.PublicKey[:])))
+		fmt.Println()
+		fmt.Println("Private Key (add to OPERATOR config only, keep secure!):")
+		fmt.Println(keyStyle.Render("  " + hex.EncodeToString(keypair.PrivateKey[:])))
+		fmt.Println()
+
+		if isOperator {
+			fmt.Println("[INFO] Private key will be included in this config.")
+		} else {
+			fmt.Println("[INFO] Private key NOT included in this config (field agent).")
+		}
+		fmt.Println()
+
+	case "existing":
+		var pubKey string
+		inputForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Management Public Key").
+					Description("64-character hex string from operator").
+					Placeholder("a1b2c3d4e5f6...").
+					Value(&pubKey).
+					Validate(func(s string) error {
+						s = strings.TrimSpace(s)
+						s = strings.TrimPrefix(s, "0x")
+						s = strings.TrimPrefix(s, "0X")
+						if len(s) != 64 {
+							return fmt.Errorf("public key must be 64 hex characters (got %d)", len(s))
+						}
+						if _, err := hex.DecodeString(s); err != nil {
+							return fmt.Errorf("invalid hex string: %v", err)
+						}
+						return nil
+					}),
+			),
+		).WithTheme(w.theme)
+
+		if err := inputForm.Run(); err != nil {
+			return cfg, err
+		}
+
+		// Normalize the key
+		pubKey = strings.TrimSpace(pubKey)
+		pubKey = strings.TrimPrefix(pubKey, "0x")
+		pubKey = strings.TrimPrefix(pubKey, "0X")
+		cfg.PublicKey = pubKey
+
+		// Ask if this is an operator node with the private key
+		var hasPrivateKey bool
+		privKeyForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title("Do you have the private key?").
+					Description("Only operator nodes should have the private key").
+					Value(&hasPrivateKey),
+			),
+		).WithTheme(w.theme)
+
+		if err := privKeyForm.Run(); err != nil {
+			return cfg, err
+		}
+
+		if hasPrivateKey {
+			var privKey string
+			privInputForm := huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Management Private Key").
+						Description("64-character hex string").
+						EchoMode(huh.EchoModePassword).
+						Value(&privKey).
+						Validate(func(s string) error {
+							s = strings.TrimSpace(s)
+							s = strings.TrimPrefix(s, "0x")
+							s = strings.TrimPrefix(s, "0X")
+							if len(s) != 64 {
+								return fmt.Errorf("private key must be 64 hex characters (got %d)", len(s))
+							}
+							if _, err := hex.DecodeString(s); err != nil {
+								return fmt.Errorf("invalid hex string: %v", err)
+							}
+							return nil
+						}),
+				),
+			).WithTheme(w.theme)
+
+			if err := privInputForm.Run(); err != nil {
+				return cfg, err
+			}
+
+			// Normalize
+			privKey = strings.TrimSpace(privKey)
+			privKey = strings.TrimPrefix(privKey, "0x")
+			privKey = strings.TrimPrefix(privKey, "0X")
+			cfg.PrivateKey = privKey
+
+			// Verify keys match
+			privKeyBytes, _ := hex.DecodeString(privKey)
+			var privKeyArr [32]byte
+			copy(privKeyArr[:], privKeyBytes)
+			derivedPub := identity.DerivePublicKey(privKeyArr)
+			derivedPubHex := hex.EncodeToString(derivedPub[:])
+
+			if derivedPubHex != cfg.PublicKey {
+				return cfg, fmt.Errorf("private key does not match public key")
+			}
+		}
+	}
+
+	return cfg, nil
+}
+
 func (w *Wizard) buildConfig(
 	dataDir, displayName, transport, listenAddr, listenPath string,
 	tlsConfig config.GlobalTLSConfig,
@@ -1287,6 +1504,7 @@ func (w *Wizard) buildConfig(
 	logLevel string,
 	rpcConfig config.RPCConfig,
 	fileTransferConfig config.FileTransferConfig,
+	managementConfig config.ManagementConfig,
 ) *config.Config {
 	cfg := config.Default()
 
@@ -1334,6 +1552,9 @@ func (w *Wizard) buildConfig(
 
 	// File Transfer
 	cfg.FileTransfer = fileTransferConfig
+
+	// Management Key Encryption
+	cfg.Management = managementConfig
 
 	return cfg
 }
@@ -1421,6 +1642,15 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 		} else {
 			fmt.Println("                 [WARNING] All paths allowed!")
 		}
+	}
+
+	if cfg.Management.PublicKey != "" {
+		if cfg.Management.PrivateKey != "" {
+			fmt.Printf("  Management:   enabled (operator node, can decrypt)\n")
+		} else {
+			fmt.Printf("  Management:   enabled (field agent, encrypt only)\n")
+		}
+		fmt.Printf("                public key: %s...\n", cfg.Management.PublicKey[:16])
 	}
 
 	fmt.Println()

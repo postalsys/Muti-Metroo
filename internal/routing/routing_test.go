@@ -493,7 +493,7 @@ func TestManager_ProcessRouteAdvertise(t *testing.T) {
 		{Network: MustParseCIDR("172.16.0.0/12"), Metric: 5},
 	}
 
-	accepted := mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil)
+	accepted := mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil, nil)
 	if len(accepted) != 2 {
 		t.Errorf("ProcessRouteAdvertise accepted %d routes, want 2", len(accepted))
 	}
@@ -517,7 +517,7 @@ func TestManager_ProcessRouteWithdraw(t *testing.T) {
 	entries := []RouteEntry{
 		{Network: MustParseCIDR("10.0.0.0/8"), Metric: 10},
 	}
-	mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil)
+	mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil, nil)
 
 	// Withdraw
 	removed := mgr.ProcessRouteWithdraw(peerID, entries)
@@ -540,7 +540,7 @@ func TestManager_HandlePeerDisconnect(t *testing.T) {
 		{Network: MustParseCIDR("10.0.0.0/8"), Metric: 10},
 		{Network: MustParseCIDR("172.16.0.0/12"), Metric: 5},
 	}
-	mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil)
+	mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil, nil)
 
 	count := mgr.HandlePeerDisconnect(peerID)
 	if count != 2 {
@@ -556,7 +556,7 @@ func TestManager_LookupNextHop(t *testing.T) {
 	entries := []RouteEntry{
 		{Network: MustParseCIDR("10.0.0.0/8"), Metric: 10},
 	}
-	mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil)
+	mgr.ProcessRouteAdvertise(peerID, peerID, 1, entries, nil, nil)
 
 	nextHop, found := mgr.LookupNextHop(net.ParseIP("10.1.2.3"))
 	if !found {
@@ -614,7 +614,7 @@ func TestManager_GetRoutesToAdvertise(t *testing.T) {
 	// Add route from peer1
 	mgr.ProcessRouteAdvertise(peer1, peer1, 1, []RouteEntry{
 		{Network: MustParseCIDR("172.16.0.0/12"), Metric: 5},
-	}, nil)
+	}, nil, nil)
 
 	// Get routes to advertise to peer1 (should exclude route learned from peer1)
 	entries := mgr.GetRoutesToAdvertise(peer1)
