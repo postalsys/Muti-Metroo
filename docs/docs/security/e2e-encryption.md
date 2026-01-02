@@ -35,9 +35,22 @@ All stream data is encrypted automatically using modern cryptography:
 
 End-to-end encryption is enabled automatically. There is no configuration to set up - it just works.
 
+### Key Generation
+
+Each agent automatically generates an X25519 keypair on first start:
+
+| File | Purpose | Permissions |
+|------|---------|-------------|
+| `{data_dir}/agent_key` | Private key (never shared) | 0600 (owner only) |
+| `{data_dir}/agent_key.pub` | Public key (distributed to peers) | 0644 (world readable) |
+
+The keypair is persistent - once generated, it's reused on subsequent starts. The public key is automatically distributed to other agents via NodeInfo advertisements, so peers can encrypt data destined for this agent.
+
+### Stream Encryption Flow
+
 When a stream is opened:
 1. Ingress and exit agents exchange ephemeral public keys
-2. Both derive a shared secret
+2. Both derive a shared secret using X25519 ECDH
 3. All stream data is encrypted with ChaCha20-Poly1305
 4. Transit agents forward encrypted data unchanged
 
