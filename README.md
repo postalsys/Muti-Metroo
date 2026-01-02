@@ -57,21 +57,22 @@ The wizard guides you through:
 - **SOCKS5 settings**: Configure proxy authentication (for ingress nodes)
 - **Exit routes**: Define allowed destination networks (for exit nodes)
 - **Advanced options**: Logging, health checks, control socket
-- **Service installation**: Install as system service (Linux/Windows, requires root/admin)
+- **Service installation**: Install as system service (Linux/macOS/Windows, requires root/admin)
 
 The wizard generates a complete `config.yaml` and initializes your agent identity.
 
 ### Service Installation
 
-When running the setup wizard as root (Linux) or Administrator (Windows), you'll be offered to install Muti Metroo as a system service:
+When running the setup wizard as root (Linux/macOS) or Administrator (Windows), you'll be offered to install Muti Metroo as a system service:
 
 - **Linux**: Creates a systemd service that starts on boot
+- **macOS**: Creates a launchd daemon that starts on boot
 - **Windows**: Registers a Windows service that starts automatically
 
 To uninstall the service:
 
 ```bash
-# Linux (as root)
+# Linux/macOS (as root)
 sudo muti-metroo uninstall
 
 # Windows (as Administrator)
@@ -85,6 +86,12 @@ Service management commands:
 systemctl status muti-metroo    # Check status
 journalctl -u muti-metroo -f    # View logs
 systemctl restart muti-metroo   # Restart
+
+# macOS (launchd)
+launchctl list com.muti-metroo  # Check status
+tail -f /path/to/working/dir/muti-metroo.log  # View logs
+launchctl stop com.muti-metroo  # Stop
+launchctl start com.muti-metroo # Start
 
 # Windows
 sc query muti-metroo            # Check status
@@ -265,7 +272,7 @@ An agent can serve multiple roles simultaneously:
 | `wizard` | Interactive setup wizard with modern terminal UI |
 | `health` | Health check HTTP server, Prometheus metrics, remote agent APIs, pprof, dashboard |
 | `control` | Unix socket control server for CLI commands |
-| `service` | Cross-platform service management (systemd on Linux, Windows Service) |
+| `service` | Cross-platform service management (systemd on Linux, launchd on macOS, Windows Service) |
 | `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
 | `sysinfo` | System information collection for node info advertisements |
@@ -327,7 +334,7 @@ docker run -v $(pwd)/config.yaml:/app/config.yaml \
 - **Frame Size**: Max 16 KB payload
 - **Buffer Size**: 256 KB per stream default
 - **Timeouts**: Handshake 10s, Stream open 30s, Idle stream 5m
-- **Keepalive**: Every 30s idle, 90s timeout
+- **Keepalive**: Configurable idle threshold (default 5m), 90s timeout
 - **Reconnection**: Exponential backoff 1s->60s with 20% jitter
 - **Protocol Version**: 0x01
 

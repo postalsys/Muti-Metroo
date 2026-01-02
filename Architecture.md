@@ -1,7 +1,7 @@
 # Mesh Agent Network Architecture
 
-**Version:** 2.1
-**Date:** December 2024
+**Version:** 2.2
+**Date:** January 2026
 
 ---
 
@@ -1499,6 +1499,16 @@ agent:
   log_format: "text"  # text, json
 
 # ------------------------------------------------------------------------------
+# Protocol Identifiers (OPSEC)
+# Customize identifiers that appear in network traffic
+# Set values to empty strings to disable custom identifiers
+# ------------------------------------------------------------------------------
+protocol:
+  alpn: "muti-metroo/1"              # ALPN for QUIC/TLS (empty to disable)
+  http_header: "X-Muti-Metroo-Protocol"  # HTTP/2 header (empty to disable)
+  ws_subprotocol: "muti-metroo/1"    # WebSocket subprotocol (empty to disable)
+
+# ------------------------------------------------------------------------------
 # Transport Listeners
 # ------------------------------------------------------------------------------
 listeners:
@@ -1639,6 +1649,13 @@ http:
   read_timeout: 10s
   write_timeout: 10s
 
+  # Endpoint control flags
+  minimal: false     # When true, only /health, /healthz, /ready are enabled
+  metrics: true      # /metrics endpoint
+  pprof: false       # /debug/pprof/* endpoints (disable in production)
+  dashboard: true    # /ui/*, /api/* endpoints
+  remote_api: true   # /agents/*, /metrics/{id} endpoints
+
 # ------------------------------------------------------------------------------
 # Control Socket
 # ------------------------------------------------------------------------------
@@ -1663,6 +1680,23 @@ file_transfer:
   max_file_size: 524288000      # Maximum file size in bytes (500 MB)
   allowed_paths: []             # Allowed path prefixes (empty = all absolute paths)
   password_hash: ""             # bcrypt hash of file transfer password
+
+# ------------------------------------------------------------------------------
+# Management Key Encryption
+# Encrypt mesh topology data for OPSEC protection
+# ------------------------------------------------------------------------------
+management:
+  # Management public key (64-character hex string)
+  # When set, NodeInfo and route paths are encrypted before flooding
+  # All agents in mesh should have the SAME public key
+  # Generate with: muti-metroo management-key generate
+  public_key: ""
+
+  # Management private key (64-character hex string)
+  # Only set on operator/management nodes that need to view topology
+  # NEVER distribute to field agents
+  # When set, this node can decrypt NodeInfo and view mesh topology
+  private_key: ""
 ```
 
 ### 13.2 Environment Variable Substitution
@@ -1714,8 +1748,23 @@ muti-metroo rpc -a 192.168.1.10:8080 abc123def456 hostname
 muti-metroo rpc -p secret abc123def456 whoami
 echo "hello" | muti-metroo rpc abc123def456 cat
 
+# File transfer
+muti-metroo upload <target-agent-id> <local-path> <remote-path>
+muti-metroo download <target-agent-id> <remote-path> <local-path>
+
+# Password hash generation (for SOCKS5, RPC, file transfer auth)
+muti-metroo hash                     # Interactive prompt
+muti-metroo hash "password"          # From argument
+muti-metroo hash --cost 12           # Custom bcrypt cost
+
+# Management key encryption
+muti-metroo management-key generate  # Generate keypair
+muti-metroo management-key public --private <key>  # Derive public from private
+
 # Service management
-muti-metroo uninstall --name muti-metroo
+muti-metroo service install -c /path/to/config.yaml
+muti-metroo service uninstall
+muti-metroo service status
 ```
 
 ---
@@ -2001,6 +2050,7 @@ The agent can be installed as a system service.
 
 **Supported Platforms:**
 - Linux (systemd)
+- macOS (launchd)
 - Windows (Service Control Manager)
 
 **Linux Installation:**
@@ -2027,6 +2077,27 @@ systemctl status muti-metroo
 
 # View logs
 journalctl -u muti-metroo -f
+```
+
+**macOS Installation:**
+```bash
+# Via setup wizard
+sudo muti-metroo setup
+
+# Manual installation handled by wizard
+# Creates /Library/LaunchDaemons/com.muti-metroo.plist
+```
+
+**macOS Service Management:**
+```bash
+# Load/start service
+sudo launchctl load -w /Library/LaunchDaemons/com.muti-metroo.plist
+
+# Unload/stop service
+sudo launchctl unload -w /Library/LaunchDaemons/com.muti-metroo.plist
+
+# View logs
+tail -f /path/to/working/dir/muti-metroo.log
 ```
 
 ### 16.3 Setup Wizard
@@ -2118,67 +2189,87 @@ muti-metroo/
 ├── internal/
 │   ├── agent/
 │   │   ├── agent.go                # Main agent orchestration
-│   │   └── options.go              # Agent options
+│   │   └── agent_test.go           # Agent tests
 │   │
 │   ├── config/
 │   │   ├── config.go               # Configuration parsing and validation
 │   │   └── config_test.go          # Configuration tests
 │   │
 │   ├── identity/
-│   │   └── identity.go             # AgentID generation/storage
+│   │   ├── identity.go             # AgentID generation/storage
+│   │   ├── keypair.go              # X25519 keypair for E2E encryption
+│   │   ├── identity_test.go        # Identity tests
+│   │   └── keypair_test.go         # Keypair tests
+│   │
+│   ├── crypto/
+│   │   ├── crypto.go               # E2E encryption: X25519 + ChaCha20-Poly1305
+│   │   ├── sealed.go               # Sealed box for management key encryption
+│   │   ├── crypto_test.go          # Crypto tests
+│   │   └── sealed_test.go          # Sealed box tests
 │   │
 │   ├── transport/
 │   │   ├── transport.go            # Transport interface
 │   │   ├── quic.go                 # QUIC implementation
 │   │   ├── h2.go                   # HTTP/2 implementation
 │   │   ├── ws.go                   # WebSocket implementation
-│   │   └── tls.go                  # TLS helpers
+│   │   ├── tls.go                  # TLS helpers
+│   │   ├── transport_test.go       # Transport tests
+│   │   ├── h2_test.go              # HTTP/2 tests
+│   │   └── ws_test.go              # WebSocket tests
 │   │
 │   ├── peer/
 │   │   ├── manager.go              # Peer lifecycle management
 │   │   ├── connection.go           # Single peer connection
 │   │   ├── handshake.go            # PEER_HELLO handling
-│   │   └── reconnect.go            # Reconnection logic
+│   │   ├── reconnect.go            # Reconnection logic
+│   │   ├── peer_test.go            # Peer tests
+│   │   └── handshake_test.go       # Handshake tests
 │   │
 │   ├── protocol/
 │   │   ├── frame.go                # Frame encode/decode
-│   │   ├── types.go                # Message type definitions
-│   │   ├── reader.go               # Frame reader
-│   │   └── writer.go               # Frame writer
+│   │   ├── types.go                # Frame types, flags, error codes
+│   │   └── protocol_test.go        # Protocol tests
 │   │
 │   ├── stream/
-│   │   ├── manager.go              # Stream lifecycle
-│   │   ├── forward.go              # Forward table
-│   │   └── virtual.go              # Virtual stream abstraction
+│   │   ├── manager.go              # Stream lifecycle and forward table
+│   │   └── stream_test.go          # Stream tests
 │   │
 │   ├── routing/
 │   │   ├── table.go                # Route table
-│   │   └── manager.go              # Route management
+│   │   ├── manager.go              # Route management
+│   │   └── routing_test.go         # Routing tests
 │   │
 │   ├── flood/
-│   │   └── flood.go                # Flood protocol (advertise/withdraw)
+│   │   ├── flood.go                # Flood protocol (advertise/withdraw)
+│   │   └── flood_test.go           # Flood tests
 │   │
 │   ├── socks5/
 │   │   ├── server.go               # SOCKS5 server
-│   │   └── auth.go                 # Authentication
+│   │   ├── handler.go              # SOCKS5 command handler
+│   │   ├── auth.go                 # Authentication
+│   │   └── socks5_test.go          # SOCKS5 tests
 │   │
 │   ├── exit/
 │   │   ├── handler.go              # Exit handler
-│   │   └── dns.go                  # DNS resolution
+│   │   ├── dns.go                  # DNS resolution
+│   │   └── exit_test.go            # Exit tests
 │   │
 │   ├── certutil/
-│   │   └── certutil.go             # Certificate generation and management
+│   │   ├── certutil.go             # Certificate generation and management
+│   │   └── certutil_test.go        # Certificate tests
 │   │
 │   ├── metrics/
 │   │   ├── metrics.go              # Prometheus metrics definitions
 │   │   └── metrics_test.go         # Metrics tests
 │   │
 │   ├── health/
-│   │   └── server.go               # Health check HTTP server
+│   │   ├── server.go               # Health check HTTP server
+│   │   └── server_test.go          # Health server tests
 │   │
 │   ├── control/
 │   │   ├── server.go               # Control socket server
-│   │   └── client.go               # Control socket client
+│   │   ├── client.go               # Control socket client
+│   │   └── control_test.go         # Control tests
 │   │
 │   ├── wizard/
 │   │   ├── wizard.go               # Setup wizard implementation
@@ -2187,6 +2278,7 @@ muti-metroo/
 │   ├── service/
 │   │   ├── service.go              # Service management interface
 │   │   ├── service_linux.go        # Linux systemd implementation
+│   │   ├── service_darwin.go       # macOS launchd implementation
 │   │   ├── service_windows.go      # Windows service implementation
 │   │   ├── service_other.go        # Stub for unsupported platforms
 │   │   └── service_test.go         # Service tests
@@ -2194,11 +2286,14 @@ muti-metroo/
 │   ├── rpc/
 │   │   ├── rpc.go                  # RPC executor with whitelist and auth
 │   │   ├── chunked.go              # Chunked payload for large transfers
-│   │   └── metrics.go              # RPC Prometheus metrics
+│   │   ├── metrics.go              # RPC Prometheus metrics
+│   │   └── rpc_test.go             # RPC tests
 │   │
 │   ├── filetransfer/
-│   │   ├── transfer.go             # File upload/download with compression
-│   │   └── transfer_test.go        # File transfer tests
+│   │   ├── stream.go               # Stream-based file transfer protocol
+│   │   ├── tar.go                  # Directory tar/untar with gzip compression
+│   │   ├── stream_test.go          # Stream transfer tests
+│   │   └── tar_test.go             # Tar archive tests
 │   │
 │   ├── sysinfo/
 │   │   └── sysinfo.go              # System info for node advertisements
@@ -2209,16 +2304,20 @@ muti-metroo/
 │   │   └── static/                 # Dashboard HTML/CSS/JS
 │   │
 │   ├── logging/
-│   │   └── logging.go              # Structured logging utilities
+│   │   ├── logging.go              # Structured logging utilities
+│   │   └── logging_test.go         # Logging tests
 │   │
 │   ├── recovery/
-│   │   └── recovery.go             # Panic recovery utilities
+│   │   ├── recovery.go             # Panic recovery utilities
+│   │   └── recovery_test.go        # Recovery tests
 │   │
 │   ├── chaos/
-│   │   └── chaos.go                # Fault injection for testing
+│   │   ├── chaos.go                # Fault injection for testing
+│   │   └── chaos_test.go           # Chaos testing tests
 │   │
 │   ├── loadtest/
-│   │   └── loadtest.go             # Load testing utilities
+│   │   ├── loadtest.go             # Load testing utilities
+│   │   └── loadtest_test.go        # Load test tests
 │   │
 │   └── integration/
 │       ├── chain_test.go           # Multi-agent chain tests
