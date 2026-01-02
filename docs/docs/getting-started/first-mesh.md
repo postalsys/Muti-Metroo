@@ -36,7 +36,7 @@ flowchart LR
 
 ## Prerequisites
 
-- Muti Metroo built (`make build`)
+- Muti Metroo [installed](/getting-started/installation)
 - Two machines or terminals (can use same machine with different ports)
 - Network connectivity between agents
 

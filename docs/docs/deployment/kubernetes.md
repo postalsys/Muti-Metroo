@@ -19,6 +19,24 @@ Deploy Muti Metroo on Kubernetes.
 
 ## Container Image
 
+### Create Dockerfile
+
+Create a Dockerfile using the pre-built binary (see [Docker Deployment](docker) for the Dockerfile):
+
+```dockerfile
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates wget
+
+ARG TARGETARCH
+RUN wget -O /usr/local/bin/muti-metroo \
+    https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-${TARGETARCH} && \
+    chmod +x /usr/local/bin/muti-metroo
+
+WORKDIR /app
+ENTRYPOINT ["muti-metroo"]
+CMD ["run", "-c", "/app/config.yaml"]
+```
+
 ### Build and Push
 
 ```bash

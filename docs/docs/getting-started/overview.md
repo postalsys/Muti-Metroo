@@ -15,9 +15,7 @@ Welcome to Muti Metroo! This guide will help you get up and running with your fi
 
 Before you begin, ensure you have:
 
-- **Go 1.23 or later** (for building from source)
-- **Git** (for cloning the repository)
-- **Make** (optional, for convenience commands)
+- **Muti Metroo binary** - [Download for your platform](/download)
 - **Basic networking knowledge** (understanding of TCP/IP, CIDR notation)
 
 ## Choose Your Path
@@ -29,8 +27,6 @@ Depending on your goals, choose the best starting point:
 Want to quickly try Muti Metroo? Use the **Interactive Setup Wizard**:
 
 ```bash
-# Build and run the wizard
-make build
 muti-metroo setup
 ```
 
@@ -55,19 +51,11 @@ muti-metroo run -c ./config.yaml
 
 [Go to Quick Start](quick-start)
 
-### Docker Development
+### Docker Deployment
 
-Using Docker for development or testing? Start with **Docker Compose**:
+For containerized deployments, see the **Docker guide**:
 
-```bash
-# Start a 3-agent test mesh
-docker compose build
-docker compose up -d agent1 agent2 agent3
-```
-
-**Time: 5 minutes**
-
-[Go to Docker Setup](../deployment/docker)
+[Go to Docker Deployment](../deployment/docker)
 
 ## What You Will Learn
 
@@ -82,7 +70,7 @@ By the end of the Getting Started guides, you will:
 
 ## Next Steps
 
-1. **[Installation](installation)** - Build from source or use Docker
+1. **[Installation](installation)** - Download binaries for your platform
 2. **[Quick Start](quick-start)** - Manual configuration walkthrough
 3. **[Interactive Setup](interactive-setup)** - Guided wizard
 4. **[Your First Mesh](first-mesh)** - Connect multiple agents

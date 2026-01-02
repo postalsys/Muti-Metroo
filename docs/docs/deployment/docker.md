@@ -13,34 +13,33 @@ Deploy Muti Metroo using Docker and Docker Compose.
 
 ## Docker Image
 
+### Create Dockerfile
+
+Create a Dockerfile using the pre-built binary:
+
+```dockerfile
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates wget
+
+# Download the binary (adjust URL for your platform)
+ARG TARGETARCH
+RUN wget -O /usr/local/bin/muti-metroo \
+    https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-${TARGETARCH} && \
+    chmod +x /usr/local/bin/muti-metroo
+
+WORKDIR /app
+ENTRYPOINT ["muti-metroo"]
+CMD ["run", "-c", "/app/config.yaml"]
+```
+
 ### Build Image
 
 ```bash
-# From repository root
+# Build for current platform
 docker build -t muti-metroo .
 
-# With version tag
+# Build with version tag
 docker build -t muti-metroo:v1.0.0 .
-```
-
-### Dockerfile
-
-The included Dockerfile uses multi-stage build:
-
-```dockerfile
-# Build stage
-FROM golang:1.23-alpine AS builder
-WORKDIR /build
-COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o muti-metroo ./cmd/muti-metroo
-
-# Runtime stage
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /app
-COPY --from=builder /build/muti-metroo .
-ENTRYPOINT ["./muti-metroo"]
-CMD ["run", "-c", "/app/config.yaml"]
 ```
 
 ## Running a Single Container
@@ -97,7 +96,7 @@ version: '3.8'
 
 services:
   agent:
-    build: .
+    image: muti-metroo
     restart: unless-stopped
     ports:
       - "1080:1080"       # SOCKS5
@@ -111,6 +110,10 @@ services:
       - LOG_LEVEL=info
 ```
 
+:::note
+Build your image first with `docker build -t muti-metroo .` before running docker compose.
+:::
+
 ### Multi-Agent Testbed
 
 ```yaml
@@ -120,7 +123,7 @@ version: '3.8'
 services:
   # Ingress agent
   agent1:
-    build: .
+    image: muti-metroo
     restart: unless-stopped
     ports:
       - "1081:1080"
@@ -135,7 +138,7 @@ services:
 
   # Transit agent
   agent2:
-    build: .
+    image: muti-metroo
     restart: unless-stopped
     ports:
       - "1082:1080"
@@ -150,7 +153,7 @@ services:
 
   # Exit agent
   agent3:
-    build: .
+    image: muti-metroo
     restart: unless-stopped
     ports:
       - "1083:1080"
@@ -173,7 +176,7 @@ networks:
 ```yaml
 services:
   agent:
-    build: .
+    image: muti-metroo
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
       interval: 30s
@@ -234,12 +237,9 @@ peers:
 
 ## Docker Commands
 
-### Build and Start
+### Start
 
 ```bash
-# Build images
-docker compose build
-
 # Start all agents
 docker compose up -d
 

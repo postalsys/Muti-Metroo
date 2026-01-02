@@ -39,34 +39,9 @@ muti-metroo --version
 
 See the [Download page](/download) for platform-specific instructions.
 
-## Docker Installation
+## Docker Deployment
 
-### Build Docker Image
-
-```bash
-# Build the image
-docker build -t muti-metroo .
-
-# Or use Docker Compose
-docker compose build
-```
-
-### Run with Docker
-
-```bash
-docker run -d --name muti-metroo \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/certs:/app/certs \
-  -p 1080:1080 \
-  -p 4433:4433/udp \
-  -p 8080:8080 \
-  muti-metroo
-```
-
-### Docker Compose
-
-See [Docker Deployment](../deployment/docker) for complete Docker Compose setup.
+For containerized deployments, see [Docker Deployment](../deployment/docker) for Docker Compose setup and configuration examples.
 
 ## System Service Installation
 
