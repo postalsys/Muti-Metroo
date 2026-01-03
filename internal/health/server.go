@@ -990,6 +990,7 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", localName))
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
 		w.Header().Set("X-File-Mode", fmt.Sprintf("%04o", info.Mode().Perm()))
+		w.Header().Set("X-Original-Size", fmt.Sprintf("%d", info.Size()))
 
 		f, err := os.Open(localPath)
 		if err != nil {
