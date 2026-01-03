@@ -217,6 +217,112 @@ func TestCreatePartialFile(t *testing.T) {
 	}
 }
 
+func TestOpenPartialFileForAppend(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "testfile.bin")
+
+	// Create partial file with some data
+	partialPath := GetPartialPath(filePath)
+	initialData := []byte("initial data")
+	if err := os.WriteFile(partialPath, initialData, 0644); err != nil {
+		t.Fatalf("failed to create partial file: %v", err)
+	}
+
+	// Create info file
+	info := &PartialInfo{
+		OriginalSize: 100,
+		BytesWritten: int64(len(initialData)),
+		SourcePath:   "/remote/file.bin",
+	}
+	if err := WritePartialInfo(filePath, info); err != nil {
+		t.Fatalf("failed to write partial info: %v", err)
+	}
+
+	// Open for append
+	f, err := OpenPartialFileForAppend(filePath)
+	if err != nil {
+		t.Fatalf("OpenPartialFileForAppend failed: %v", err)
+	}
+
+	// Write more data
+	moreData := []byte(" more data")
+	n, err := f.Write(moreData)
+	if err != nil {
+		t.Fatalf("failed to write: %v", err)
+	}
+	if n != len(moreData) {
+		t.Errorf("wrote %d bytes, want %d", n, len(moreData))
+	}
+	f.Close()
+
+	// Verify combined content
+	content, err := os.ReadFile(partialPath)
+	if err != nil {
+		t.Fatalf("failed to read partial file: %v", err)
+	}
+	expected := "initial data more data"
+	if string(content) != expected {
+		t.Errorf("content = %q, want %q", string(content), expected)
+	}
+}
+
+func TestOpenPartialFileForAppend_NoPartialFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "nonexistent.bin")
+
+	_, err := OpenPartialFileForAppend(filePath)
+	if err == nil {
+		t.Error("expected error for nonexistent partial file")
+	}
+}
+
+func TestUpdatePartialProgress(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "testfile.bin")
+
+	// Create initial info
+	info := &PartialInfo{
+		OriginalSize: 1000,
+		BytesWritten: 100,
+		StartedAt:    time.Now(),
+		SourcePath:   "/remote/file.bin",
+	}
+	if err := WritePartialInfo(filePath, info); err != nil {
+		t.Fatalf("failed to write initial info: %v", err)
+	}
+
+	// Update progress
+	if err := UpdatePartialProgress(filePath, 500); err != nil {
+		t.Fatalf("UpdatePartialProgress failed: %v", err)
+	}
+
+	// Verify updated info
+	updatedInfo, err := ReadPartialInfo(filePath)
+	if err != nil {
+		t.Fatalf("failed to read updated info: %v", err)
+	}
+	if updatedInfo.BytesWritten != 500 {
+		t.Errorf("BytesWritten = %d, want 500", updatedInfo.BytesWritten)
+	}
+	// Other fields should be preserved
+	if updatedInfo.OriginalSize != 1000 {
+		t.Errorf("OriginalSize = %d, want 1000", updatedInfo.OriginalSize)
+	}
+	if updatedInfo.SourcePath != "/remote/file.bin" {
+		t.Errorf("SourcePath = %q, want /remote/file.bin", updatedInfo.SourcePath)
+	}
+}
+
+func TestUpdatePartialProgress_NoInfoFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "nonexistent.bin")
+
+	err := UpdatePartialProgress(filePath, 100)
+	if err == nil {
+		t.Error("expected error for nonexistent info file")
+	}
+}
+
 func TestFinalizePartial(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "testfile.bin")

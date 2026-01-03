@@ -93,6 +93,7 @@ func NewRateLimitedWriter(ctx context.Context, w io.Writer, bytesPerSecond int64
 
 // Write implements io.Writer with rate limiting.
 // It waits for tokens from the rate limiter before writing data.
+// Large writes are broken into chunks not exceeding the burst size.
 func (w *RateLimitedWriter) Write(p []byte) (int, error) {
 	// First, check if context is cancelled
 	select {
@@ -101,11 +102,33 @@ func (w *RateLimitedWriter) Write(p []byte) (int, error) {
 	default:
 	}
 
-	// Wait for rate limiter to allow this many bytes
-	if err := w.limiter.WaitN(w.ctx, len(p)); err != nil {
-		return 0, err
+	const burstSize = 16 * 1024
+	totalWritten := 0
+
+	for len(p) > 0 {
+		// Determine chunk size (at most burstSize)
+		chunkSize := len(p)
+		if chunkSize > burstSize {
+			chunkSize = burstSize
+		}
+
+		// Wait for rate limiter to allow this chunk
+		if err := w.limiter.WaitN(w.ctx, chunkSize); err != nil {
+			return totalWritten, err
+		}
+
+		// Write chunk to the underlying writer
+		n, err := w.w.Write(p[:chunkSize])
+		totalWritten += n
+		if err != nil {
+			return totalWritten, err
+		}
+		if n < chunkSize {
+			return totalWritten, io.ErrShortWrite
+		}
+
+		p = p[chunkSize:]
 	}
 
-	// Write to the underlying writer
-	return w.w.Write(p)
+	return totalWritten, nil
 }

@@ -122,3 +122,55 @@ func TestRateLimitedWriter_Write(t *testing.T) {
 		t.Error("data mismatch")
 	}
 }
+
+func TestRateLimitedWriter_ContextCancellation(t *testing.T) {
+	var buf bytes.Buffer
+
+	ctx, cancel := context.WithCancel(context.Background())
+	limited := NewRateLimitedWriter(ctx, &buf, 100) // Very slow rate
+
+	// Cancel context immediately
+	cancel()
+
+	// Write should fail with context error
+	data := make([]byte, 1024)
+	_, err := limited.Write(data)
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestRateLimitedWriter_RateLimiting(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Create 32KB of data (larger than the 16KB burst)
+	data := make([]byte, 32*1024)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	// Limit to 8KB/s
+	rateLimit := int64(8 * 1024)
+	limited := NewRateLimitedWriter(context.Background(), &buf, rateLimit)
+
+	start := time.Now()
+	// Write directly - the writer handles chunking internally
+	n, err := limited.Write(data)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != len(data) {
+		t.Errorf("expected %d bytes written, got %d", len(data), n)
+	}
+	if !bytes.Equal(buf.Bytes(), data) {
+		t.Error("data mismatch")
+	}
+
+	// After the 16KB burst, we have 16KB remaining at 8KB/s = 2 seconds
+	// Use 1 second threshold to avoid flaky tests
+	if elapsed < 1*time.Second {
+		t.Errorf("expected at least 1s for rate limiting, got %v", elapsed)
+	}
+}

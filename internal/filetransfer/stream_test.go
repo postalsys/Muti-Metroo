@@ -517,6 +517,144 @@ func TestProgressWriter(t *testing.T) {
 	}
 }
 
+func TestStreamHandler_ReadFileForDownloadAtOffset(t *testing.T) {
+	h := NewStreamHandler(StreamConfig{Enabled: true})
+
+	t.Run("read from offset uncompressed", func(t *testing.T) {
+		srcDir := t.TempDir()
+		srcPath := filepath.Join(srcDir, "test.txt")
+		content := []byte("0123456789abcdef")
+		os.WriteFile(srcPath, content, 0644)
+
+		// Read from offset 5
+		r, size, mode, isDir, err := h.ReadFileForDownloadAtOffset(srcPath, 5, false)
+		if err != nil {
+			t.Fatalf("ReadFileForDownloadAtOffset failed: %v", err)
+		}
+
+		if size != 11 { // 16 - 5 = 11 remaining bytes
+			t.Errorf("size = %d, want 11", size)
+		}
+		if mode != 0644 {
+			t.Errorf("mode = %o, want %o", mode, 0644)
+		}
+		if isDir {
+			t.Error("isDir = true, want false")
+		}
+
+		data, err := readAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != "56789abcdef" {
+			t.Errorf("content = %q, want %q", string(data), "56789abcdef")
+		}
+	})
+
+	t.Run("read from offset compressed", func(t *testing.T) {
+		srcDir := t.TempDir()
+		srcPath := filepath.Join(srcDir, "test.txt")
+		content := []byte("0123456789abcdefghijklmnop")
+		os.WriteFile(srcPath, content, 0644)
+
+		// Read from offset 10 with compression
+		r, size, _, _, err := h.ReadFileForDownloadAtOffset(srcPath, 10, true)
+		if err != nil {
+			t.Fatalf("ReadFileForDownloadAtOffset failed: %v", err)
+		}
+
+		// Size is unknown when compressed
+		if size != -1 {
+			t.Errorf("size = %d, want -1 (unknown)", size)
+		}
+
+		// Read and decompress
+		compressed, err := readAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		gzr, err := gzip.NewReader(bytes.NewReader(compressed))
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := readAll(gzr)
+		gzr.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if string(data) != "abcdefghijklmnop" {
+			t.Errorf("content = %q, want %q", string(data), "abcdefghijklmnop")
+		}
+	})
+
+	t.Run("read from zero offset", func(t *testing.T) {
+		srcDir := t.TempDir()
+		srcPath := filepath.Join(srcDir, "test.txt")
+		content := []byte("hello world")
+		os.WriteFile(srcPath, content, 0644)
+
+		r, size, _, _, err := h.ReadFileForDownloadAtOffset(srcPath, 0, false)
+		if err != nil {
+			t.Fatalf("ReadFileForDownloadAtOffset failed: %v", err)
+		}
+
+		if size != int64(len(content)) {
+			t.Errorf("size = %d, want %d", size, len(content))
+		}
+
+		data, err := readAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != string(content) {
+			t.Errorf("content = %q, want %q", string(data), string(content))
+		}
+	})
+
+	t.Run("directory not supported", func(t *testing.T) {
+		srcDir := t.TempDir()
+
+		_, _, _, _, err := h.ReadFileForDownloadAtOffset(srcDir, 0, false)
+		if err == nil {
+			t.Error("expected error for directory")
+		}
+		if !bytes.Contains([]byte(err.Error()), []byte("not supported for directories")) {
+			t.Errorf("error = %q, expected to contain 'not supported for directories'", err.Error())
+		}
+	})
+
+	t.Run("negative offset", func(t *testing.T) {
+		srcDir := t.TempDir()
+		srcPath := filepath.Join(srcDir, "test.txt")
+		os.WriteFile(srcPath, []byte("hello"), 0644)
+
+		_, _, _, _, err := h.ReadFileForDownloadAtOffset(srcPath, -1, false)
+		if err == nil {
+			t.Error("expected error for negative offset")
+		}
+	})
+
+	t.Run("offset exceeds file size", func(t *testing.T) {
+		srcDir := t.TempDir()
+		srcPath := filepath.Join(srcDir, "test.txt")
+		os.WriteFile(srcPath, []byte("hello"), 0644)
+
+		_, _, _, _, err := h.ReadFileForDownloadAtOffset(srcPath, 100, false)
+		if err == nil {
+			t.Error("expected error for offset exceeding file size")
+		}
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		_, _, _, _, err := h.ReadFileForDownloadAtOffset("/nonexistent/path", 0, false)
+		if err == nil {
+			t.Error("expected error for nonexistent path")
+		}
+	})
+}
+
 // Helper function to read all data from a reader
 func readAll(r interface{}) ([]byte, error) {
 	switch v := r.(type) {
@@ -526,7 +664,10 @@ func readAll(r interface{}) ([]byte, error) {
 		return data, err
 	case *os.File:
 		defer v.Close()
-		return os.ReadFile(v.Name())
+		// Read from current position, not from beginning
+		var buf bytes.Buffer
+		_, err := buf.ReadFrom(v)
+		return buf.Bytes(), err
 	default:
 		var buf bytes.Buffer
 		_, err := buf.ReadFrom(r.(interface{ Read([]byte) (int, error) }))
