@@ -27,7 +27,6 @@ type Config struct {
 	Connections  ConnectionsConfig  `yaml:"connections"`
 	Limits       LimitsConfig       `yaml:"limits"`
 	HTTP         HTTPConfig         `yaml:"http"`
-	Control      ControlConfig      `yaml:"control"`
 	RPC          RPCConfig          `yaml:"rpc"`
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
 }
@@ -447,12 +446,6 @@ func (h HTTPConfig) RemoteAPIEnabled() bool {
 	return h.RemoteAPI == nil || *h.RemoteAPI
 }
 
-// ControlConfig defines control socket settings.
-type ControlConfig struct {
-	Enabled    bool   `yaml:"enabled"`
-	SocketPath string `yaml:"socket_path"`
-}
-
 // RPCConfig defines remote procedure call settings.
 type RPCConfig struct {
 	// Enabled controls whether RPC is available on this agent.
@@ -549,10 +542,6 @@ func Default() *Config {
 			Address:      ":8080",
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
-		},
-		Control: ControlConfig{
-			Enabled:    false,
-			SocketPath: "./data/control.sock",
 		},
 		RPC: RPCConfig{
 			Enabled:   false,

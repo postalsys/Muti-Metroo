@@ -22,7 +22,7 @@ agent:
   display_name: "My Agent"      # Shown in dashboard and logs
 
   # Data directory
-  data_dir: "./data"            # For agent_id file and control socket
+  data_dir: "./data"            # For agent_id file
 
   # Logging
   log_level: "info"             # debug, info, warn, error
@@ -107,7 +107,6 @@ agent:
 
 Contents:
 - `agent_id` - Agent identity file
-- `control.sock` - Unix socket for CLI (if enabled)
 
 ### Permissions
 

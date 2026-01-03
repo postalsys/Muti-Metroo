@@ -161,11 +161,6 @@ http:
   dashboard: true              # /ui/*, /api/* endpoints
   remote_api: true             # /agents/*, /metrics/{id} endpoints
 
-# Control socket
-control:
-  enabled: true
-  socket_path: "./data/control.sock"
-
 # RPC (remote commands)
 rpc:
   enabled: false

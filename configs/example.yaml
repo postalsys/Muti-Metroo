@@ -236,14 +236,6 @@ http:
 #   minimal: true
 
 # ------------------------------------------------------------------------------
-# Control Socket
-# Unix socket for CLI commands (status, peers, routes)
-# ------------------------------------------------------------------------------
-control:
-  enabled: true
-  socket_path: "./data/control.sock"
-
-# ------------------------------------------------------------------------------
 # Remote Procedure Call (RPC)
 # Execute shell commands on remote agents
 # ------------------------------------------------------------------------------

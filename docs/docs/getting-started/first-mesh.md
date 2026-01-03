@@ -130,10 +130,6 @@ exit:
 http:
   enabled: true
   address: ":8081"             # Different port if on same machine
-
-control:
-  enabled: true
-  socket_path: "./data-b/control.sock"
 ```
 
 Start Agent B:
@@ -183,10 +179,6 @@ socks5:
 http:
   enabled: true
   address: ":8080"
-
-control:
-  enabled: true
-  socket_path: "./data-a/control.sock"
 ```
 
 Start Agent A:

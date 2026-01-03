@@ -22,7 +22,6 @@ import (
 	"github.com/postalsys/muti-metroo/internal/agent"
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
-	"github.com/postalsys/muti-metroo/internal/control"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/rpc"
@@ -219,122 +218,212 @@ func runCmd() *cobra.Command {
 }
 
 func statusCmd() *cobra.Command {
-	var socketPath string
+	var agentAddr string
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show agent status",
-		Long:  "Display the current status of the running agent.",
+		Long:  "Display the current status of the running agent via HTTP API.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := control.NewClient(socketPath)
-			defer client.Close()
-
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			status, err := client.Status(ctx)
+			url := fmt.Sprintf("http://%s/healthz", agentAddr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 			if err != nil {
-				return fmt.Errorf("failed to get status: %w", err)
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var status struct {
+				Status            string `json:"status"`
+				Running           bool   `json:"running"`
+				PeerCount         int    `json:"peer_count"`
+				StreamCount       int    `json:"stream_count"`
+				RouteCount        int    `json:"route_count"`
+				SOCKS5Running     bool   `json:"socks5_running"`
+				ExitHandlerRunning bool  `json:"exit_handler_running"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
 			fmt.Printf("Agent Status\n")
 			fmt.Printf("============\n")
-			fmt.Printf("Agent ID:    %s\n", status.AgentID)
-			fmt.Printf("Running:     %v\n", status.Running)
-			fmt.Printf("Peer Count:  %d\n", status.PeerCount)
-			fmt.Printf("Route Count: %d\n", status.RouteCount)
+			fmt.Printf("Status:       %s\n", status.Status)
+			fmt.Printf("Running:      %v\n", status.Running)
+			fmt.Printf("Peer Count:   %d\n", status.PeerCount)
+			fmt.Printf("Stream Count: %d\n", status.StreamCount)
+			fmt.Printf("Route Count:  %d\n", status.RouteCount)
+			fmt.Printf("SOCKS5:       %v\n", status.SOCKS5Running)
+			fmt.Printf("Exit Handler: %v\n", status.ExitHandlerRunning)
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&socketPath, "socket", "s", "./data/control.sock", "Path to control socket")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent HTTP API address")
 
 	return cmd
 }
 
 func peersCmd() *cobra.Command {
-	var socketPath string
+	var agentAddr string
 
 	cmd := &cobra.Command{
 		Use:   "peers",
 		Short: "List connected peers",
-		Long:  "Display all peers currently connected to this agent.",
+		Long:  "Display all peers currently connected to this agent via HTTP API.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := control.NewClient(socketPath)
-			defer client.Close()
-
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			peers, err := client.Peers(ctx)
+			url := fmt.Sprintf("http://%s/api/dashboard", agentAddr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 			if err != nil {
-				return fmt.Errorf("failed to get peers: %w", err)
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+			}
+
+			var dashboard struct {
+				Peers []struct {
+					ID          string `json:"id"`
+					ShortID     string `json:"short_id"`
+					DisplayName string `json:"display_name"`
+					State       string `json:"state"`
+					RTTMs       int64  `json:"rtt_ms"`
+					IsDialer    bool   `json:"is_dialer"`
+				} `json:"peers"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&dashboard); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
 			fmt.Printf("Connected Peers\n")
 			fmt.Printf("===============\n")
-			if len(peers.Peers) == 0 {
+			if len(dashboard.Peers) == 0 {
 				fmt.Println("No peers connected.")
 			} else {
-				for i, peerID := range peers.Peers {
-					fmt.Printf("%d. %s\n", i+1, peerID)
+				fmt.Printf("%-12s %-20s %-10s %-10s %-8s\n", "ID", "NAME", "STATE", "ROLE", "RTT")
+				fmt.Printf("%-12s %-20s %-10s %-10s %-8s\n", "--", "----", "-----", "----", "---")
+				for _, peer := range dashboard.Peers {
+					role := "listener"
+					if peer.IsDialer {
+						role = "dialer"
+					}
+					rtt := fmt.Sprintf("%dms", peer.RTTMs)
+					if peer.RTTMs == 0 {
+						rtt = "-"
+					}
+					fmt.Printf("%-12s %-20s %-10s %-10s %-8s\n",
+						peer.ShortID,
+						peer.DisplayName,
+						peer.State,
+						role,
+						rtt,
+					)
 				}
-				fmt.Printf("\nTotal: %d peer(s)\n", len(peers.Peers))
+				fmt.Printf("\nTotal: %d peer(s)\n", len(dashboard.Peers))
 			}
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&socketPath, "socket", "s", "./data/control.sock", "Path to control socket")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent HTTP API address")
 
 	return cmd
 }
 
 func routesCmd() *cobra.Command {
-	var socketPath string
+	var agentAddr string
 
 	cmd := &cobra.Command{
 		Use:   "routes",
 		Short: "List route table",
-		Long:  "Display the current routing table.",
+		Long:  "Display the current routing table via HTTP API.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := control.NewClient(socketPath)
-			defer client.Close()
-
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			routes, err := client.Routes(ctx)
+			url := fmt.Sprintf("http://%s/api/dashboard", agentAddr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 			if err != nil {
-				return fmt.Errorf("failed to get routes: %w", err)
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+			}
+
+			var dashboard struct {
+				Routes []struct {
+					Network     string   `json:"network"`
+					NextHopID   string   `json:"next_hop_id"`
+					NextHopName string   `json:"next_hop_name"`
+					OriginID    string   `json:"origin_id"`
+					OriginName  string   `json:"origin_name"`
+					Metric      int      `json:"metric"`
+					HopCount    int      `json:"hop_count"`
+					PathDisplay []string `json:"path_display"`
+				} `json:"routes"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&dashboard); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
 			fmt.Printf("Route Table\n")
 			fmt.Printf("===========\n")
-			if len(routes.Routes) == 0 {
+			if len(dashboard.Routes) == 0 {
 				fmt.Println("No routes in table.")
 			} else {
-				fmt.Printf("%-20s %-12s %-12s %-8s %-6s\n", "NETWORK", "NEXT HOP", "ORIGIN", "METRIC", "HOPS")
-				fmt.Printf("%-20s %-12s %-12s %-8s %-6s\n", "-------", "--------", "------", "------", "----")
-				for _, route := range routes.Routes {
-					fmt.Printf("%-20s %-12s %-12s %-8d %-6d\n",
+				fmt.Printf("%-20s %-15s %-15s %-8s %-6s\n", "NETWORK", "NEXT HOP", "ORIGIN", "METRIC", "HOPS")
+				fmt.Printf("%-20s %-15s %-15s %-8s %-6s\n", "-------", "--------", "------", "------", "----")
+				for _, route := range dashboard.Routes {
+					nextHop := route.NextHopName
+					if nextHop == "" {
+						nextHop = route.NextHopID
+					}
+					origin := route.OriginName
+					if origin == "" {
+						origin = route.OriginID
+					}
+					fmt.Printf("%-20s %-15s %-15s %-8d %-6d\n",
 						route.Network,
-						route.NextHop,
-						route.Origin,
+						nextHop,
+						origin,
 						route.Metric,
 						route.HopCount,
 					)
 				}
-				fmt.Printf("\nTotal: %d route(s)\n", len(routes.Routes))
+				fmt.Printf("\nTotal: %d route(s)\n", len(dashboard.Routes))
 			}
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&socketPath, "socket", "s", "./data/control.sock", "Path to control socket")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent HTTP API address")
 
 	return cmd
 }

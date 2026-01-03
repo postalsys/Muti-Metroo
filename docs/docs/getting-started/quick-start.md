@@ -86,15 +86,10 @@ socks5:
   enabled: true
   address: "127.0.0.1:1080"
 
-# HTTP API (health checks, metrics)
+# HTTP API (health checks, metrics, CLI)
 http:
   enabled: true
   address: ":8080"
-
-# Control socket for CLI
-control:
-  enabled: true
-  socket_path: "./data/control.sock"
 ```
 
 ## Step 4: Run the Agent
@@ -216,10 +211,6 @@ exit:
 http:
   enabled: true
   address: ":8080"
-
-control:
-  enabled: true
-  socket_path: "./data/control.sock"
 ```
 
 ## Next Steps

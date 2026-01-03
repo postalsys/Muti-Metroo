@@ -153,7 +153,6 @@ An agent can serve multiple roles simultaneously:
 | `certutil` | TLS certificate generation and management - CA, server, client, peer certs |
 | `chaos` | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing |
 | `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
-| `control` | Unix socket control interface for CLI status commands |
 | `crypto` | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation |
 | `exit` | Exit node handler - TCP dial, route-based access control, E2E decryption |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
@@ -203,8 +202,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `exit`: Exit node routes (DNS config reserved for future use)
 - `routing`: Advertisement intervals, node info interval, TTL, max hops
 - `limits`: Stream limits and buffer sizes
-- `http`: HTTP API server with granular endpoint control (health, metrics, dashboard, remote APIs)
-- `control`: Unix socket for CLI commands
+- `http`: HTTP API server with granular endpoint control (health, metrics, dashboard, remote APIs, CLI)
 - `rpc`: Remote command execution (disabled by default)
 - `file_transfer`: File upload/download (disabled by default)
 - `management`: Management key encryption for topology compartmentalization

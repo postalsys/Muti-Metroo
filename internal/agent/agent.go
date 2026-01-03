@@ -23,7 +23,6 @@ import (
 
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
-	"github.com/postalsys/muti-metroo/internal/control"
 	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/exit"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
@@ -94,10 +93,9 @@ type Agent struct {
 	streamMgr           *stream.Manager
 	flooder             *flood.Flooder
 	socks5Srv           *socks5.Server
-	exitHandler         *exit.Handler
-	healthServer  *health.Server
-	controlServer *control.Server
-	rpcExecutor   *rpc.Executor
+	exitHandler  *exit.Handler
+	healthServer *health.Server
+	rpcExecutor  *rpc.Executor
 	sealedBox     *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	// File transfer (stream-based)
@@ -312,16 +310,6 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetSealedBox(a.sealedBox)   // Enable management key decrypt checks
 	}
 
-	// Initialize control server if enabled
-	if a.cfg.Control.Enabled {
-		controlCfg := control.ServerConfig{
-			SocketPath:   a.cfg.Control.SocketPath,
-			ReadTimeout:  10 * time.Second,
-			WriteTimeout: 10 * time.Second,
-		}
-		a.controlServer = control.NewServer(controlCfg, a)
-	}
-
 	// Initialize RPC executor
 	rpcCfg := rpc.Config{
 		Enabled:      a.cfg.RPC.Enabled,
@@ -461,19 +449,6 @@ func (a *Agent) Start() error {
 		}
 		a.logger.Info("HTTP server started",
 			logging.KeyAddress, a.healthServer.Address())
-	}
-
-	// Start control server if enabled
-	if a.controlServer != nil {
-		if err := a.controlServer.Start(); err != nil {
-			a.logger.Error("failed to start control server",
-				"socket_path", a.cfg.Control.SocketPath,
-				logging.KeyError, err)
-			a.running.Store(false)
-			return fmt.Errorf("start control server: %w", err)
-		}
-		a.logger.Info("control server started",
-			"socket_path", a.controlServer.SocketPath())
 	}
 
 	a.logger.Info("agent started",
@@ -863,10 +838,6 @@ func (a *Agent) Stop() error {
 		}
 
 		// Stop components in reverse order
-		if a.controlServer != nil {
-			a.controlServer.Stop()
-		}
-
 		if a.healthServer != nil {
 			a.healthServer.Stop()
 		}
@@ -1948,8 +1919,25 @@ func (a *Agent) getLocalPeers() ([]byte, bool) {
 
 // getLocalRoutes returns the routing table.
 func (a *Agent) getLocalRoutes() ([]byte, bool) {
-	routeInfo := a.GetRouteInfo()
-	data, err := json.Marshal(routeInfo)
+	routes := a.routeMgr.Table().GetAllRoutes()
+	type routeInfo struct {
+		Network  string `json:"network"`
+		NextHop  string `json:"next_hop"`
+		Origin   string `json:"origin"`
+		Metric   int    `json:"metric"`
+		HopCount int    `json:"hop_count"`
+	}
+	info := make([]routeInfo, len(routes))
+	for i, r := range routes {
+		info[i] = routeInfo{
+			Network:  r.Network.String(),
+			NextHop:  r.NextHop.ShortString(),
+			Origin:   r.OriginAgent.ShortString(),
+			Metric:   int(r.Metric),
+			HopCount: len(r.Path),
+		}
+	}
+	data, err := json.Marshal(info)
 	if err != nil {
 		return []byte(err.Error()), false
 	}
@@ -2534,22 +2522,6 @@ func (a *Agent) GetKnownAgentIDs() []identity.AgentID {
 	}
 
 	return result
-}
-
-// GetRouteInfo returns route information for the control interface.
-func (a *Agent) GetRouteInfo() []control.RouteInfo {
-	routes := a.routeMgr.Table().GetAllRoutes()
-	info := make([]control.RouteInfo, len(routes))
-	for i, r := range routes {
-		info[i] = control.RouteInfo{
-			Network:  r.Network.String(),
-			NextHop:  r.NextHop.ShortString(),
-			Origin:   r.OriginAgent.ShortString(),
-			Metric:   int(r.Metric),
-			HopCount: len(r.Path),
-		}
-	}
-	return info
 }
 
 // GetPeerDetails returns detailed information about connected peers.

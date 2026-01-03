@@ -92,11 +92,10 @@ func TestBuildConfig(t *testing.T) {
 		listenPath     string
 		tlsConfig      config.GlobalTLSConfig
 		peers          []config.PeerConfig
-		socks5Config   config.SOCKS5Config
-		exitConfig     config.ExitConfig
-		healthEnabled  bool
-		controlEnabled bool
-		logLevel       string
+		socks5Config  config.SOCKS5Config
+		exitConfig    config.ExitConfig
+		healthEnabled bool
+		logLevel      string
 		validate       func(*testing.T, *config.Config)
 	}{
 		{
@@ -109,12 +108,11 @@ func TestBuildConfig(t *testing.T) {
 				Cert: "/certs/server.crt",
 				Key:  "/certs/server.key",
 			},
-			peers:          nil,
-			socks5Config:   config.SOCKS5Config{Enabled: false},
-			exitConfig:     config.ExitConfig{Enabled: false},
-			healthEnabled:  true,
-			controlEnabled: true,
-			logLevel:       "info",
+			peers:         nil,
+			socks5Config:  config.SOCKS5Config{Enabled: false},
+			exitConfig:    config.ExitConfig{Enabled: false},
+			healthEnabled: true,
+			logLevel:      "info",
 			validate: func(t *testing.T, cfg *config.Config) {
 				if cfg.Agent.DataDir != "/data" {
 					t.Errorf("DataDir = %q, want %q", cfg.Agent.DataDir, "/data")
@@ -140,12 +138,6 @@ func TestBuildConfig(t *testing.T) {
 				if cfg.HTTP.Address != ":8080" {
 					t.Errorf("HTTP.Address = %q, want %q", cfg.HTTP.Address, ":8080")
 				}
-				if !cfg.Control.Enabled {
-					t.Error("Control.Enabled = false, want true")
-				}
-				if cfg.Control.SocketPath != "/data/control.sock" {
-					t.Errorf("Control.SocketPath = %q, want %q", cfg.Control.SocketPath, "/data/control.sock")
-				}
 			},
 		},
 		{
@@ -158,12 +150,11 @@ func TestBuildConfig(t *testing.T) {
 				Cert: "cert.pem",
 				Key:  "key.pem",
 			},
-			peers:          nil,
-			socks5Config:   config.SOCKS5Config{Enabled: false},
-			exitConfig:     config.ExitConfig{Enabled: false},
-			healthEnabled:  false,
-			controlEnabled: false,
-			logLevel:       "debug",
+			peers:         nil,
+			socks5Config:  config.SOCKS5Config{Enabled: false},
+			exitConfig:    config.ExitConfig{Enabled: false},
+			healthEnabled: false,
+			logLevel:      "debug",
 			validate: func(t *testing.T, cfg *config.Config) {
 				if cfg.Listeners[0].Transport != "h2" {
 					t.Errorf("Transport = %q, want %q", cfg.Listeners[0].Transport, "h2")
@@ -177,9 +168,6 @@ func TestBuildConfig(t *testing.T) {
 				if cfg.HTTP.Enabled {
 					t.Error("HTTP.Enabled = true, want false")
 				}
-				if cfg.Control.Enabled {
-					t.Error("Control.Enabled = true, want false")
-				}
 			},
 		},
 		{
@@ -192,12 +180,11 @@ func TestBuildConfig(t *testing.T) {
 				Cert: "ws.crt",
 				Key:  "ws.key",
 			},
-			peers:          nil,
-			socks5Config:   config.SOCKS5Config{Enabled: false},
-			exitConfig:     config.ExitConfig{Enabled: false},
-			healthEnabled:  true,
-			controlEnabled: true,
-			logLevel:       "warn",
+			peers:         nil,
+			socks5Config:  config.SOCKS5Config{Enabled: false},
+			exitConfig:    config.ExitConfig{Enabled: false},
+			healthEnabled: true,
+			logLevel:      "warn",
 			validate: func(t *testing.T, cfg *config.Config) {
 				if cfg.Listeners[0].Transport != "ws" {
 					t.Errorf("Transport = %q, want %q", cfg.Listeners[0].Transport, "ws")
@@ -226,10 +213,9 @@ func TestBuildConfig(t *testing.T) {
 					},
 				},
 			},
-			exitConfig:     config.ExitConfig{Enabled: false},
-			healthEnabled:  false,
-			controlEnabled: false,
-			logLevel:       "info",
+			exitConfig:    config.ExitConfig{Enabled: false},
+			healthEnabled: false,
+			logLevel:      "info",
 			validate: func(t *testing.T, cfg *config.Config) {
 				if !cfg.SOCKS5.Enabled {
 					t.Error("SOCKS5.Enabled = false, want true")
@@ -268,9 +254,8 @@ func TestBuildConfig(t *testing.T) {
 					Timeout: 10 * time.Second,
 				},
 			},
-			healthEnabled:  false,
-			controlEnabled: false,
-			logLevel:       "info",
+			healthEnabled: false,
+			logLevel:      "info",
 			validate: func(t *testing.T, cfg *config.Config) {
 				if !cfg.Exit.Enabled {
 					t.Error("Exit.Enabled = false, want true")
@@ -307,11 +292,10 @@ func TestBuildConfig(t *testing.T) {
 					Path:      "/mesh",
 				},
 			},
-			socks5Config:   config.SOCKS5Config{Enabled: false},
-			exitConfig:     config.ExitConfig{Enabled: false},
-			healthEnabled:  false,
-			controlEnabled: false,
-			logLevel:       "info",
+			socks5Config:  config.SOCKS5Config{Enabled: false},
+			exitConfig:    config.ExitConfig{Enabled: false},
+			healthEnabled: false,
+			logLevel:      "info",
 			validate: func(t *testing.T, cfg *config.Config) {
 				if len(cfg.Peers) != 2 {
 					t.Fatalf("Peers count = %d, want 2", len(cfg.Peers))
@@ -337,7 +321,7 @@ func TestBuildConfig(t *testing.T) {
 			cfg := w.buildConfig(
 				tc.dataDir, "", tc.transport, tc.listenAddr, tc.listenPath,
 				tc.tlsConfig, tc.peers, tc.socks5Config, tc.exitConfig,
-				tc.healthEnabled, tc.controlEnabled, tc.logLevel,
+				tc.healthEnabled, tc.logLevel,
 				config.RPCConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 			)
 
@@ -470,7 +454,7 @@ func TestBuildConfigLogFormat(t *testing.T) {
 		"/data", "", "quic", "0.0.0.0:4433", "",
 		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
-		false, false, "info",
+		false, "info",
 		config.RPCConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 
@@ -487,7 +471,7 @@ func TestBuildConfigDefaults(t *testing.T) {
 		"/data", "", "quic", "0.0.0.0:4433", "",
 		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
-		false, false, "info",
+		false, "info",
 		config.RPCConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 

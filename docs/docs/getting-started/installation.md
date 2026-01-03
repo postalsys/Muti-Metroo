@@ -96,7 +96,6 @@ After installation, you will typically have:
   config.yaml              # Main configuration file
 /var/lib/muti-metroo/      # Data directory (Linux)
   agent_id                 # Agent identity file
-  control.sock             # Control socket
 /var/log/muti-metroo/      # Logs (if using file logging)
 ```
 
@@ -107,7 +106,6 @@ For development:
 ./data/                    # Data directory
   agent_id                 # Agent identity (128-bit hex)
   keypair.json             # E2E encryption keypair
-  control.sock             # Control socket (when running)
 ./certs/                   # TLS certificates
   ca.crt                   # Certificate Authority
   ca.key                   # CA private key

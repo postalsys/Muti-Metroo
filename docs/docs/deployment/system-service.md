@@ -151,10 +151,6 @@ socks5:
 http:
   enabled: true
   address: "127.0.0.1:8080"
-
-control:
-  enabled: true
-  socket_path: "/var/lib/muti-metroo/control.sock"
 ```
 
 ## Windows Service
@@ -364,10 +360,6 @@ socks5:
 http:
   enabled: true
   address: "127.0.0.1:8080"
-
-control:
-  enabled: true
-  socket_path: "/var/lib/muti-metroo/control.sock"
 ```
 
 ## Security Considerations

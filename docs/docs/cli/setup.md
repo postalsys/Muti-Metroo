@@ -27,7 +27,7 @@ Guides you through:
 5. Peer connections
 6. SOCKS5 configuration (if ingress)
 7. Exit routes (if exit)
-8. Advanced options (logging, HTTP API, control socket)
+8. Advanced options (logging, HTTP API)
 9. Service installation (if root/admin)
 
 ## Output

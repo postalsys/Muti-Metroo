@@ -97,7 +97,7 @@ func (w *Wizard) Run() (*Result, error) {
 	}
 
 	// Step 8: Advanced options
-	healthEnabled, controlEnabled, logLevel, err := w.askAdvancedOptions()
+	healthEnabled, logLevel, err := w.askAdvancedOptions()
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (w *Wizard) Run() (*Result, error) {
 	cfg := w.buildConfig(
 		dataDir, displayName, transport, listenAddr, listenPath,
 		tlsConfig, peers, socks5Config, exitConfig,
-		healthEnabled, controlEnabled, logLevel, rpcConfig, fileTransferConfig, managementConfig,
+		healthEnabled, logLevel, rpcConfig, fileTransferConfig, managementConfig,
 	)
 
 	// Initialize identity
@@ -936,15 +936,13 @@ func (w *Wizard) askExitConfig() (config.ExitConfig, error) {
 	return cfg, nil
 }
 
-func (w *Wizard) askAdvancedOptions() (healthEnabled, controlEnabled bool, logLevel string, err error) {
+func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err error) {
 	healthEnabled = true
-	controlEnabled = true
 	logLevel = "info"
 
 	// Use existing config defaults if available
 	if w.existingCfg != nil {
 		healthEnabled = w.existingCfg.HTTP.Enabled
-		controlEnabled = w.existingCfg.Control.Enabled
 		logLevel = w.existingCfg.Agent.LogLevel
 	}
 
@@ -966,13 +964,8 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled, controlEnabled bool, logLe
 
 			huh.NewConfirm().
 				Title("Enable health check endpoint?").
-				Description("HTTP endpoint for monitoring (/health, /healthz)").
+				Description("HTTP endpoint for monitoring (/health, /healthz) and CLI commands").
 				Value(&healthEnabled),
-
-			huh.NewConfirm().
-				Title("Enable control socket?").
-				Description("Unix socket for CLI commands (status, peers, routes)").
-				Value(&controlEnabled),
 		),
 	).WithTheme(w.theme)
 
@@ -1500,7 +1493,7 @@ func (w *Wizard) buildConfig(
 	peers []config.PeerConfig,
 	socks5Config config.SOCKS5Config,
 	exitConfig config.ExitConfig,
-	healthEnabled, controlEnabled bool,
+	healthEnabled bool,
 	logLevel string,
 	rpcConfig config.RPCConfig,
 	fileTransferConfig config.FileTransferConfig,
@@ -1539,12 +1532,6 @@ func (w *Wizard) buildConfig(
 	cfg.HTTP.Enabled = healthEnabled
 	if healthEnabled {
 		cfg.HTTP.Address = ":8080"
-	}
-
-	// Control
-	cfg.Control.Enabled = controlEnabled
-	if controlEnabled {
-		cfg.Control.SocketPath = filepath.Join(dataDir, "control.sock")
 	}
 
 	// RPC

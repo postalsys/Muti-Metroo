@@ -90,8 +90,8 @@ Multiple agents can advertise the same route for redundancy:
 ### CLI
 
 ```bash
-# View local routes via control socket
-muti-metroo routes -s ./data/control.sock
+# View local routes via HTTP API
+muti-metroo routes
 ```
 
 ### HTTP API
