@@ -108,11 +108,11 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Logging functions
-log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_info() { echo -e "${BLUE}[INFO]${NC} $*" >&2; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" >&2; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*" >&2; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
-log_step() { echo -e "${CYAN}==>${NC} $*"; }
+log_step() { echo -e "${CYAN}==>${NC} $*" >&2; }
 
 # Check prerequisites
 check_prerequisites() {
@@ -546,7 +546,7 @@ upload_all_assets() {
 # Update version in download page before building docs
 update_download_version() {
     local version="$1"
-    local download_page="$DOCS_DIR/docs/download.md"
+    local download_page="$DOCS_DIR/docs/download.mdx"
 
     log_step "Updating version in download page..."
 
@@ -560,8 +560,8 @@ update_download_version() {
         return 1
     fi
 
-    # Update the version line in download.md
-    sed -i.bak "s/Current Version: \*\*v[0-9]*\.[0-9]*\.[0-9]*\*\*/Current Version: **v$version**/" "$download_page"
+    # Update the version line in download.mdx
+    sed -i.bak "s/Current Version: v[0-9]*\.[0-9]*\.[0-9]*/Current Version: v$version/" "$download_page"
     rm -f "$download_page.bak"
 
     log_success "Updated download page to v$version"
