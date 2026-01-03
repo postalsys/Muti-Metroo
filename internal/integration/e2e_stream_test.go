@@ -317,7 +317,10 @@ func (a *MeshAgent) addressToString(addrType uint8, addr []byte) string {
 			return net.IP(addr[:16]).String()
 		}
 	case protocol.AddrTypeDomain:
-		return string(addr)
+		// Domain addresses have length prefix byte that needs to be skipped
+		if len(addr) > 0 {
+			return string(addr[1:])
+		}
 	}
 	return ""
 }

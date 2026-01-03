@@ -183,12 +183,28 @@ func (s *Stream) PushData(data []byte) error {
 }
 
 // Read reads data from the stream.
+// Prioritizes reading buffered data before returning EOF on close.
 func (s *Stream) Read(ctx context.Context) ([]byte, error) {
+	// First, try to read any buffered data without blocking
+	select {
+	case data := <-s.readBuffer:
+		return data, nil
+	default:
+		// No data immediately available, continue to blocking select
+	}
+
+	// Wait for data, close, or context cancellation
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-s.closed:
-		return nil, io.EOF
+		// Stream closed - drain any remaining buffered data first
+		select {
+		case data := <-s.readBuffer:
+			return data, nil
+		default:
+			return nil, io.EOF
+		}
 	case data := <-s.readBuffer:
 		return data, nil
 	}
@@ -218,6 +234,12 @@ func (s *Stream) IsClosed() bool {
 	default:
 		return false
 	}
+}
+
+// ReadBuffer returns the read buffer channel for direct access.
+// Use this sparingly - prefer using Read() instead.
+func (s *Stream) ReadBuffer() <-chan []byte {
+	return s.readBuffer
 }
 
 // Done returns a channel that's closed when the stream closes.

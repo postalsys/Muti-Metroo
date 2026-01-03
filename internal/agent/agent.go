@@ -1210,7 +1210,10 @@ func addressToString(addrType uint8, addr []byte) string {
 			return net.IP(addr[:16]).String()
 		}
 	case protocol.AddrTypeDomain:
-		return string(addr)
+		// Domain addresses have length prefix byte that needs to be skipped
+		if len(addr) > 0 {
+			return string(addr[1:])
+		}
 	}
 	return ""
 }
@@ -3092,10 +3095,13 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferUpload, 0, 5*time.Minute)
 
 	// Build and send STREAM_OPEN
+	// Domain addresses need length prefix byte
+	domainAddr := protocol.FileTransferUpload
+	domainBytes := append([]byte{byte(len(domainAddr))}, []byte(domainAddr)...)
 	openPayload := &protocol.StreamOpen{
 		RequestID:     pending.RequestID,
 		AddressType:   protocol.AddrTypeDomain,
-		Address:       []byte(protocol.FileTransferUpload),
+		Address:       domainBytes,
 		Port:          0,
 		RemainingPath: remainingPath,
 	}
@@ -3266,10 +3272,13 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferDownload, 0, 5*time.Minute)
 
 	// Build and send STREAM_OPEN
+	// Domain addresses need length prefix byte
+	downloadDomainAddr := protocol.FileTransferDownload
+	downloadDomainBytes := append([]byte{byte(len(downloadDomainAddr))}, []byte(downloadDomainAddr)...)
 	openPayload := &protocol.StreamOpen{
 		RequestID:     pending.RequestID,
 		AddressType:   protocol.AddrTypeDomain,
-		Address:       []byte(protocol.FileTransferDownload),
+		Address:       downloadDomainBytes,
 		Port:          0,
 		RemainingPath: remainingPath,
 	}
@@ -3473,20 +3482,28 @@ func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, local
 		select {
 		case <-ctx.Done():
 			return totalReceived, ctx.Err()
-		case <-s.Done():
-			// Stream closed
-			break
 		default:
 		}
 
 		data, err := s.ReadWithTimeout(30 * time.Second)
 		if err != nil {
 			if err == io.EOF {
+				// Normal end of stream - all data received
 				break
 			}
-			// Check if stream is half-closed
-			if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
-				break
+			// Context timeout but stream closed - try to drain remaining data
+			if s.IsClosed() {
+				// Try one more non-blocking read to drain any remaining buffered data
+				for {
+					select {
+					case remaining := <-s.ReadBuffer():
+						dataBuf.Write(remaining)
+						totalReceived += int64(len(remaining))
+					default:
+						// No more data
+						goto done
+					}
+				}
 			}
 			return totalReceived, fmt.Errorf("read stream: %w", err)
 		}
@@ -3501,12 +3518,8 @@ func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, local
 		if progress != nil {
 			progress(totalReceived, totalSize)
 		}
-
-		// Check if remote finished writing
-		if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
-			break
-		}
 	}
+done:
 
 	// Decompress if needed and write to file
 	var reader io.Reader = &dataBuf
@@ -3537,18 +3550,28 @@ func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream
 		select {
 		case <-ctx.Done():
 			return totalReceived, ctx.Err()
-		case <-s.Done():
-			break
 		default:
 		}
 
 		data, err := s.ReadWithTimeout(30 * time.Second)
 		if err != nil {
 			if err == io.EOF {
+				// Normal end of stream - all data received
 				break
 			}
-			if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
-				break
+			// Context timeout but stream closed - try to drain remaining data
+			if s.IsClosed() {
+				// Try one more non-blocking read to drain any remaining buffered data
+				for {
+					select {
+					case remaining := <-s.ReadBuffer():
+						dataBuf.Write(remaining)
+						totalReceived += int64(len(remaining))
+					default:
+						// No more data
+						goto doneDir
+					}
+				}
 			}
 			return totalReceived, fmt.Errorf("read stream: %w", err)
 		}
@@ -3563,11 +3586,8 @@ func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream
 		if progress != nil {
 			progress(totalReceived, totalSize)
 		}
-
-		if s.State() == stream.StateHalfClosedRemote || s.State() == stream.StateClosed {
-			break
-		}
 	}
+doneDir:
 
 	// Extract tar.gz to directory
 	if err := filetransfer.UntarDirectory(&dataBuf, localPath); err != nil {

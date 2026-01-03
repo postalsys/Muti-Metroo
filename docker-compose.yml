@@ -69,6 +69,23 @@ services:
       - "8083:8080"   # Health/Metrics
     networks:
       - mesh
+    depends_on:
+      - agent4
+
+  agent4:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: muti-metroo-agent4
+    hostname: agent4
+    volumes:
+      - ./testbed/agent4/data:/app/data
+      - ./testbed/agent4/config.yaml:/app/config.yaml:ro
+      - ./testbed/certs:/app/certs:ro
+    ports:
+      - "8084:8080"   # Health/Metrics
+    networks:
+      - mesh
 
   # Target server for testing
   target:
