@@ -95,6 +95,7 @@
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
   font-weight: 600;
+  line-height: 1.5;
   text-decoration: none;
   border-radius: 8px;
   border: 2px solid var(--ifm-color-primary);
@@ -102,7 +103,9 @@
   background-color: transparent;
   transition: all 0.2s ease;
   min-width: 200px;
+  min-height: 52px;
   text-align: center;
+  box-sizing: border-box;
 }
 
 .download-button:hover {
