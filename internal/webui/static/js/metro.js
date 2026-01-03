@@ -155,15 +155,15 @@ class MetroMap {
         const usedPositions = new Set();
 
         // Preferred directions for subway layout (45 and 90 degree angles)
-        // Order matters: prefer south/east first for tree-like structures
+        // Order matters: prefer east first for left-to-right tree layout
         const directions = [
-            { dx: 0, dy: 1 },   // South
+            { dx: 1, dy: 0 },   // East (primary direction)
             { dx: 1, dy: 1 },   // Southeast
-            { dx: -1, dy: 1 },  // Southwest
-            { dx: 1, dy: 0 },   // East
-            { dx: -1, dy: 0 },  // West
-            { dx: 0, dy: -1 },  // North
             { dx: 1, dy: -1 },  // Northeast
+            { dx: 0, dy: 1 },   // South
+            { dx: 0, dy: -1 },  // North
+            { dx: -1, dy: 0 },  // West
+            { dx: -1, dy: 1 },  // Southwest
             { dx: -1, dy: -1 }, // Northwest
         ];
 
@@ -203,9 +203,9 @@ class MetroMap {
                     }
 
                     if (!found) {
-                        // Fallback: find any free position at distance 2
-                        for (let dy = 1; dy <= 3; dy++) {
-                            for (let dx = -2; dx <= 2; dx++) {
+                        // Fallback: find any free position extending right
+                        for (let dx = 1; dx <= 3; dx++) {
+                            for (let dy = -2; dy <= 2; dy++) {
                                 newX = current.x + dx;
                                 newY = current.y + dy;
                                 const posKey = `${newX},${newY}`;
@@ -264,10 +264,11 @@ class MetroMap {
         });
 
         // Assign label positions based on neighbor positions
+        // For horizontal layout, prefer above/below to avoid overlapping horizontal connections
         this.agents.forEach(agent => {
             const pos = positions.get(agent.short_id);
             if (!pos) {
-                agent.labelPos = 'below';
+                agent.labelPos = 'above';
                 return;
             }
 
@@ -286,16 +287,17 @@ class MetroMap {
             });
 
             // Choose label position to avoid overlapping connections
-            if (!hasBelow) {
-                agent.labelPos = 'below';
-            } else if (!hasAbove) {
+            // For horizontal layout, prefer above/below since connections run horizontally
+            if (!hasAbove) {
                 agent.labelPos = 'above';
-            } else if (!hasRight) {
-                agent.labelPos = 'right';
+            } else if (!hasBelow) {
+                agent.labelPos = 'below';
             } else if (!hasLeft) {
                 agent.labelPos = 'left';
+            } else if (!hasRight) {
+                agent.labelPos = 'right';
             } else {
-                agent.labelPos = 'below';
+                agent.labelPos = 'above';
             }
         });
     }
@@ -428,12 +430,12 @@ class MetroMap {
             return `M${x1},${y1} L${x2},${y2}`;
         }
 
-        // Create angular path - vertical first (tree goes down), then diagonal
+        // Create angular path - horizontal first (tree goes right), then diagonal
         const diagonalLength = Math.min(Math.abs(dx), Math.abs(dy));
 
-        // Go vertical first, then diagonal to destination
-        const midY = y1 + (Math.abs(dy) - diagonalLength) * Math.sign(dy);
-        return `M${x1},${y1} V${midY} L${x2},${y2}`;
+        // Go horizontal first, then diagonal to destination
+        const midX = x1 + (Math.abs(dx) - diagonalLength) * Math.sign(dx);
+        return `M${x1},${y1} H${midX} L${x2},${y2}`;
     }
 
     renderStation(agent) {
