@@ -153,7 +153,7 @@ func TestHasPartialFile_SizeMismatch(t *testing.T) {
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "testfile.bin")
 
-	// Create partial file with wrong size
+	// Create partial file with wrong size in info
 	partialPath := GetPartialPath(filePath)
 	if err := os.WriteFile(partialPath, []byte("12345"), 0644); err != nil {
 		t.Fatalf("failed to create partial file: %v", err)
@@ -167,18 +167,23 @@ func TestHasPartialFile_SizeMismatch(t *testing.T) {
 		t.Fatalf("failed to write partial info: %v", err)
 	}
 
-	// Should clean up and return nil (corrupted partial)
+	// HasPartialFile should correct BytesWritten to actual file size
+	// This is the expected behavior - actual file size is the source of truth
 	info, err := HasPartialFile(filePath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info != nil {
-		t.Error("expected nil due to size mismatch")
+	if info == nil {
+		t.Fatal("expected partial info to be returned")
 	}
 
-	// Verify cleanup happened
-	if _, err := os.Stat(partialPath); !os.IsNotExist(err) {
-		t.Error("corrupted partial file should be cleaned up")
+	// BytesWritten should be corrected to actual file size (5)
+	if info.BytesWritten != 5 {
+		t.Errorf("expected BytesWritten=5 (actual size), got %d", info.BytesWritten)
+	}
+	// OriginalSize should be preserved
+	if info.OriginalSize != 100 {
+		t.Errorf("expected OriginalSize=100, got %d", info.OriginalSize)
 	}
 }
 

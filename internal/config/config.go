@@ -474,9 +474,19 @@ type FileTransferConfig struct {
 	// Default is 500MB (500 * 1024 * 1024).
 	MaxFileSize int64 `yaml:"max_file_size"`
 
-	// AllowedPaths contains path prefixes that are allowed for file operations.
-	// Empty list means all absolute paths are allowed.
-	// Example: ["/tmp", "/home/user/uploads"]
+	// AllowedPaths controls which paths are allowed for file operations.
+	// This works consistently with RPC whitelist:
+	//   - Empty list []: No paths are allowed (feature is effectively disabled)
+	//   - ["*"]: All absolute paths are allowed
+	//   - Specific paths: Only listed paths/patterns are allowed
+	//
+	// Supports glob patterns:
+	//   - "/tmp": Exact prefix - allows /tmp and any path under /tmp
+	//   - "/tmp/*": Single-level glob - allows /tmp/file.txt, /tmp/subdir
+	//   - "/tmp/**": Recursive glob - allows any path under /tmp
+	//   - "/home/*/uploads": Pattern matching - allows /home/alice/uploads
+	//
+	// Example: ["/tmp", "/home/*/uploads"]
 	AllowedPaths []string `yaml:"allowed_paths"`
 
 	// PasswordHash is the bcrypt hash of the file transfer password.
@@ -551,7 +561,7 @@ func Default() *Config {
 		FileTransfer: FileTransferConfig{
 			Enabled:      false,
 			MaxFileSize:  500 * 1024 * 1024, // 500 MB
-			AllowedPaths: []string{},        // Empty = all absolute paths allowed
+			AllowedPaths: []string{},        // Empty = no paths allowed (must configure explicitly)
 		},
 	}
 }

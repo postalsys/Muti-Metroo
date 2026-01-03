@@ -150,11 +150,55 @@ Resume is not supported for directory transfers. If a directory transfer is inte
 
 ## Security
 
-Access control via:
+### Access Control
 
-1. **allowed_paths**: Only allow uploads to specific directories
+1. **enabled flag**: Disable completely if not needed
 2. **password_hash**: Require password for all transfers
-3. **enabled flag**: Disable completely if not needed
+3. **allowed_paths**: Control which paths can be accessed
+
+### Path Configuration
+
+The `allowed_paths` setting works consistently with the RPC `whitelist`:
+
+| Configuration | Behavior |
+|--------------|----------|
+| `[]` (empty) | No paths allowed - feature effectively disabled |
+| `["*"]` | All absolute paths allowed |
+| `["/tmp", "/data"]` | Only specified paths/prefixes allowed |
+
+:::warning Breaking Change
+Empty `allowed_paths: []` now blocks all paths (previously allowed all). Use `allowed_paths: ["*"]` to allow all paths.
+:::
+
+### Glob Pattern Support
+
+Patterns support glob syntax for flexible path matching:
+
+```yaml
+file_transfer:
+  enabled: true
+  allowed_paths:
+    # Exact prefix - allows /tmp and everything under it
+    - /tmp
+
+    # Recursive glob - same as prefix, explicitly matches subdirectories
+    - /data/**
+
+    # Wildcard in path - matches any username
+    - /home/*/uploads
+
+    # Extension matching - only .log files in /var/log
+    - /var/log/*.log
+```
+
+### Pattern Examples
+
+| Pattern | Matches | Does Not Match |
+|---------|---------|----------------|
+| `/tmp` | `/tmp`, `/tmp/file.txt`, `/tmp/a/b/c` | `/tmpevil`, `/etc` |
+| `/tmp/**` | `/tmp`, `/tmp/file.txt`, `/tmp/a/b/c` | `/tmpevil` |
+| `/home/*/uploads` | `/home/alice/uploads`, `/home/bob/uploads/doc.pdf` | `/home/uploads` |
+| `/var/log/*.log` | `/var/log/syslog.log` | `/var/log/app/error.log` |
 
 ## Related
 

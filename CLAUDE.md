@@ -575,9 +575,10 @@ muti-metroo upload -a 192.168.1.10:8080 abc123def456 ./file.txt /tmp/file.txt
 file_transfer:
   enabled: true                    # Enable/disable file transfer
   max_file_size: 0                 # Max file size in bytes (0 = unlimited)
-  allowed_paths:                   # Allowed path prefixes (empty = all absolute paths)
-    - /tmp
-    - /home/user/uploads
+  allowed_paths:                   # Works like RPC whitelist:
+    - /tmp                         # - Empty [] = no paths allowed
+    - /data/**                     # - ["*"] = all paths allowed
+    - /home/*/uploads              # - Supports glob patterns
   password_hash: "bcrypt..."       # bcrypt hash of password (optional)
 ```
 

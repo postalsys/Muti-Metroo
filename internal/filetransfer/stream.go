@@ -39,7 +39,7 @@ type TransferResult struct {
 type StreamConfig struct {
 	Enabled      bool
 	MaxFileSize  int64    // 0 = unlimited
-	AllowedPaths []string // Empty = all absolute paths allowed
+	AllowedPaths []string // Empty = no paths allowed, ["*"] = all paths, otherwise glob patterns
 	PasswordHash string   // bcrypt hash
 	Compression  bool     // Whether to compress data (default true)
 }
@@ -207,6 +207,15 @@ func isPathUnderPrefix(path, prefix string) bool {
 }
 
 // validatePath checks if the path is allowed.
+// The AllowedPaths configuration works as follows:
+//   - Empty list: No paths are allowed (feature disabled)
+//   - ["*"]: All absolute paths are allowed
+//   - Specific paths: Only listed paths/patterns are allowed
+//
+// Patterns support glob syntax (using filepath.Match):
+//   - "/tmp/*": Any file directly in /tmp
+//   - "/tmp/**": Any file in /tmp or subdirectories (recursive)
+//   - "/home/*/uploads": uploads directory for any user
 func (h *StreamHandler) validatePath(path string) error {
 	// Check for null bytes and dangerous characters first (before any processing)
 	if containsDangerousChars(path) {
@@ -226,21 +235,68 @@ func (h *StreamHandler) validatePath(path string) error {
 		return fmt.Errorf("directory traversal not allowed")
 	}
 
-	// Check allowed paths with proper prefix matching
-	if len(h.cfg.AllowedPaths) > 0 {
-		allowed := false
-		for _, prefix := range h.cfg.AllowedPaths {
-			if isPathUnderPrefix(normalizedPath, prefix) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return fmt.Errorf("path not in allowed list: %s", path)
+	// Empty list = no paths allowed (consistent with RPC whitelist)
+	if len(h.cfg.AllowedPaths) == 0 {
+		return fmt.Errorf("no paths are allowed (allowed_paths is empty)")
+	}
+
+	// Check for wildcard - allows all absolute paths
+	for _, pattern := range h.cfg.AllowedPaths {
+		if pattern == "*" {
+			return nil
 		}
 	}
 
-	return nil
+	// Check allowed paths with prefix matching and glob support
+	for _, pattern := range h.cfg.AllowedPaths {
+		if isPathAllowed(normalizedPath, pattern) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("path not in allowed list: %s", path)
+}
+
+// isPathAllowed checks if a path matches an allowed pattern.
+// Supports:
+//   - Exact prefix matching: "/tmp" allows "/tmp" and "/tmp/foo"
+//   - Glob patterns: "/tmp/*.txt" allows "/tmp/file.txt"
+//   - Recursive glob: "/tmp/**" allows any path under /tmp
+func isPathAllowed(path, pattern string) bool {
+	// Normalize the pattern
+	cleanPattern := normalizePath(pattern)
+
+	// Check for recursive glob pattern "**"
+	if strings.HasSuffix(cleanPattern, "/**") {
+		// Get the base directory
+		baseDir := strings.TrimSuffix(cleanPattern, "/**")
+		return isPathUnderPrefix(path, baseDir)
+	}
+
+	// Check if pattern contains glob characters
+	if strings.ContainsAny(cleanPattern, "*?[") {
+		// Use filepath.Match for glob patterns
+		matched, err := filepath.Match(cleanPattern, path)
+		if err == nil && matched {
+			return true
+		}
+
+		// Also check if any parent matches (for patterns like "/tmp/*")
+		// This allows "/tmp/*" to match "/tmp/foo/bar" by checking "/tmp/foo"
+		dir := path
+		for dir != "/" && dir != "." {
+			matched, err := filepath.Match(cleanPattern, dir)
+			if err == nil && matched {
+				return true
+			}
+			dir = filepath.Dir(dir)
+		}
+
+		return false
+	}
+
+	// No glob characters - use prefix matching
+	return isPathUnderPrefix(path, cleanPattern)
 }
 
 // WriteUploadedFile writes uploaded data from a reader to the specified path.

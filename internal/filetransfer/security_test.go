@@ -20,6 +20,7 @@ func TestAuthBypass_EmptyPasswordWhenRequired(t *testing.T) {
 
 	h := NewStreamHandler(StreamConfig{
 		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Allow all paths for this test
 		PasswordHash: string(hash),
 	})
 
@@ -118,7 +119,8 @@ func TestAuthBypass_PathTraversal(t *testing.T) {
 // TestAuthBypass_RelativePath tests that relative paths are rejected.
 func TestAuthBypass_RelativePath(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled: true,
+		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Allow all paths for this test
 	})
 
 	testCases := []struct {
@@ -200,8 +202,9 @@ func TestAuthBypass_AllowedPathsBypass(t *testing.T) {
 // TestAuthBypass_SizeLimit tests file size limit enforcement.
 func TestAuthBypass_SizeLimit(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled:     true,
-		MaxFileSize: 1024, // 1KB limit
+		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Allow all paths for this test
+		MaxFileSize:  1024,          // 1KB limit
 	})
 
 	testCases := []struct {
@@ -239,7 +242,8 @@ func TestAuthBypass_SizeLimit(t *testing.T) {
 // TestAuthBypass_DisabledTransfer tests that disabled transfer rejects all.
 func TestAuthBypass_DisabledTransfer(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled: false, // Disabled!
+		Enabled:      false,       // Disabled!
+		AllowedPaths: []string{},  // Empty list would also block, but Enabled=false is checked first
 	})
 
 	err := h.ValidateUploadMetadata(&TransferMetadata{
@@ -258,7 +262,8 @@ func TestAuthBypass_DisabledTransfer(t *testing.T) {
 // TestAuthBypass_DownloadNonexistent tests download of nonexistent paths.
 func TestAuthBypass_DownloadNonexistent(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled: true,
+		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Allow all paths for this test
 	})
 
 	err := h.ValidateDownloadMetadata(&TransferMetadata{
@@ -312,7 +317,8 @@ func TestAuthBypass_SymlinkEscape(t *testing.T) {
 // TestAuthBypass_SpecialFiles tests handling of special file paths.
 func TestAuthBypass_SpecialFiles(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled: true,
+		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Allow all paths for this test
 	})
 
 	testCases := []struct {
@@ -393,7 +399,8 @@ func TestAuthBypass_ConcurrentValidation(t *testing.T) {
 // TestAuthBypass_LargeFilename tests handling of extremely long filenames.
 func TestAuthBypass_LargeFilename(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled: true,
+		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Allow all paths for this test
 	})
 
 	// Create a very long filename
@@ -450,7 +457,8 @@ func TestAuthBypass_UnicodePathTraversal(t *testing.T) {
 // TestAuthBypass_MetadataInjection tests injection via other metadata fields.
 func TestAuthBypass_MetadataInjection(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled: true,
+		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Allow all paths for this test
 	})
 
 	testCases := []struct {
@@ -490,7 +498,7 @@ func TestAuthBypass_MetadataInjection(t *testing.T) {
 
 // TestAuthBypass_WriteToReadOnly tests writing to read-only locations.
 func TestAuthBypass_WriteToReadOnly(t *testing.T) {
-	h := NewStreamHandler(StreamConfig{Enabled: true})
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{"*"}})
 
 	// Create a read-only directory
 	tmpDir := t.TempDir()
@@ -510,6 +518,177 @@ func TestAuthBypass_WriteToReadOnly(t *testing.T) {
 		// Expected to fail for non-root
 		t.Logf("Write to read-only correctly failed: %v", err)
 	}
+}
+
+// TestAllowedPaths_EmptyList tests that empty allowed_paths blocks all paths.
+func TestAllowedPaths_EmptyList(t *testing.T) {
+	h := NewStreamHandler(StreamConfig{
+		Enabled:      true,
+		AllowedPaths: []string{}, // Empty = no paths allowed
+	})
+
+	testCases := []struct {
+		name string
+		path string
+	}{
+		{"tmp path", "/tmp/file.txt"},
+		{"home path", "/home/user/file.txt"},
+		{"etc path", "/etc/config"},
+		{"root path", "/file.txt"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := h.ValidateUploadMetadata(&TransferMetadata{
+				Path: tc.path,
+			})
+			if err == nil {
+				t.Errorf("expected error for path %q with empty allowed_paths", tc.path)
+			}
+			if !strings.Contains(err.Error(), "no paths are allowed") {
+				t.Errorf("expected 'no paths are allowed' error, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestAllowedPaths_Wildcard tests that ["*"] allows all absolute paths.
+func TestAllowedPaths_Wildcard(t *testing.T) {
+	h := NewStreamHandler(StreamConfig{
+		Enabled:      true,
+		AllowedPaths: []string{"*"}, // Wildcard = all paths allowed
+	})
+
+	testCases := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{"tmp path", "/tmp/file.txt", false},
+		{"home path", "/home/user/file.txt", false},
+		{"etc path", "/etc/config", false},
+		{"root path", "/file.txt", false},
+		{"deep nested", "/a/b/c/d/e/f/g.txt", false},
+
+		// Still reject relative paths
+		{"relative", "file.txt", true},
+		{"relative dot", "./file.txt", true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := h.ValidateUploadMetadata(&TransferMetadata{
+				Path: tc.path,
+			})
+			gotErr := err != nil
+			if gotErr != tc.wantErr {
+				t.Errorf("path=%q: gotErr=%v, wantErr=%v, error=%v",
+					tc.path, gotErr, tc.wantErr, err)
+			}
+		})
+	}
+}
+
+// TestAllowedPaths_GlobPatterns tests glob pattern matching.
+func TestAllowedPaths_GlobPatterns(t *testing.T) {
+	h := NewStreamHandler(StreamConfig{
+		Enabled: true,
+		AllowedPaths: []string{
+			"/tmp/**",           // Recursive glob
+			"/home/*/uploads",   // Wildcard in path
+			"/var/log/*.log",    // Single level glob with extension
+			"/data",             // Simple prefix
+		},
+	})
+
+	testCases := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		// /tmp/** - recursive glob
+		{"tmp root", "/tmp", false},
+		{"tmp file", "/tmp/file.txt", false},
+		{"tmp nested", "/tmp/foo/bar/baz.txt", false},
+
+		// /home/*/uploads - wildcard in path
+		{"home alice uploads", "/home/alice/uploads", false},
+		{"home bob uploads", "/home/bob/uploads", false},
+		{"home alice uploads file", "/home/alice/uploads/doc.pdf", false},
+
+		// /var/log/*.log - single level with extension
+		{"var log syslog", "/var/log/syslog.log", false},
+		{"var log nested (not allowed)", "/var/log/app/error.log", true}, // Not a direct child
+
+		// /data - simple prefix
+		{"data root", "/data", false},
+		{"data file", "/data/file.txt", false},
+		{"data nested", "/data/subdir/file.txt", false},
+
+		// Not allowed paths
+		{"etc passwd", "/etc/passwd", true},
+		{"root secret", "/root/secret", true},
+		{"usr bin", "/usr/bin/ls", true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := h.ValidateUploadMetadata(&TransferMetadata{
+				Path: tc.path,
+			})
+			gotErr := err != nil
+			if gotErr != tc.wantErr {
+				t.Errorf("path=%q: gotErr=%v, wantErr=%v, error=%v",
+					tc.path, gotErr, tc.wantErr, err)
+			}
+		})
+	}
+}
+
+// TestAllowedPaths_ConsistentWithRPC tests that behavior matches RPC whitelist.
+func TestAllowedPaths_ConsistentWithRPC(t *testing.T) {
+	// This test documents the consistency between file transfer allowed_paths
+	// and RPC whitelist behavior:
+	// - Empty list = nothing allowed (secure by default)
+	// - ["*"] = everything allowed
+	// - Specific items = only those allowed
+
+	t.Run("empty list blocks all", func(t *testing.T) {
+		h := NewStreamHandler(StreamConfig{
+			Enabled:      true,
+			AllowedPaths: []string{},
+		})
+		err := h.ValidateUploadMetadata(&TransferMetadata{Path: "/tmp/file.txt"})
+		if err == nil {
+			t.Error("empty allowed_paths should block all paths")
+		}
+	})
+
+	t.Run("wildcard allows all", func(t *testing.T) {
+		h := NewStreamHandler(StreamConfig{
+			Enabled:      true,
+			AllowedPaths: []string{"*"},
+		})
+		err := h.ValidateUploadMetadata(&TransferMetadata{Path: "/any/path/at/all"})
+		if err != nil {
+			t.Errorf("wildcard should allow all paths: %v", err)
+		}
+	})
+
+	t.Run("specific paths restrict access", func(t *testing.T) {
+		h := NewStreamHandler(StreamConfig{
+			Enabled:      true,
+			AllowedPaths: []string{"/tmp"},
+		})
+		// Allowed
+		if err := h.ValidateUploadMetadata(&TransferMetadata{Path: "/tmp/file.txt"}); err != nil {
+			t.Errorf("/tmp/file.txt should be allowed: %v", err)
+		}
+		// Not allowed
+		if err := h.ValidateUploadMetadata(&TransferMetadata{Path: "/etc/passwd"}); err == nil {
+			t.Error("/etc/passwd should not be allowed")
+		}
+	})
 }
 
 // TestAuthBypass_TarSlipAttack tests tar slip vulnerability (zip slip for tar).

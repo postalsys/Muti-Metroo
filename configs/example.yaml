@@ -252,6 +252,22 @@ rpc:
   timeout: 60s                 # Default command execution timeout
 
 # ------------------------------------------------------------------------------
+# File Transfer
+# Upload/download files to/from remote agents
+# ------------------------------------------------------------------------------
+file_transfer:
+  enabled: false               # Disabled by default for security
+  max_file_size: 524288000     # 500 MB (0 = unlimited)
+  allowed_paths: []            # Empty = no paths allowed; ["*"] = all paths
+  # allowed_paths:             # Path prefixes and glob patterns
+  #   - /tmp                   # Prefix: allows /tmp and everything under it
+  #   - /data/**               # Recursive glob: any path under /data
+  #   - /home/*/uploads        # Wildcard: uploads dir for any user
+  #   - /var/log/*.log         # Extension: only .log files in /var/log
+  password_hash: ""            # bcrypt hash of file transfer password
+                               # Generate with: muti-metroo hash <password>
+
+# ------------------------------------------------------------------------------
 # Management Key Encryption
 # Encrypt mesh topology data for OPSEC protection
 # ------------------------------------------------------------------------------

@@ -23,7 +23,8 @@ func TestStreamHandler_ValidateUploadMetadata(t *testing.T) {
 		{
 			name: "valid upload",
 			cfg: StreamConfig{
-				Enabled: true,
+				Enabled:      true,
+				AllowedPaths: []string{"*"}, // Allow all paths
 			},
 			meta: &TransferMetadata{
 				Path: "/tmp/test.txt",
@@ -46,6 +47,7 @@ func TestStreamHandler_ValidateUploadMetadata(t *testing.T) {
 			name: "auth required",
 			cfg: StreamConfig{
 				Enabled:      true,
+				AllowedPaths: []string{"*"},
 				PasswordHash: string(hash),
 			},
 			meta: &TransferMetadata{
@@ -58,6 +60,7 @@ func TestStreamHandler_ValidateUploadMetadata(t *testing.T) {
 			name: "auth failed",
 			cfg: StreamConfig{
 				Enabled:      true,
+				AllowedPaths: []string{"*"},
 				PasswordHash: string(hash),
 			},
 			meta: &TransferMetadata{
@@ -71,6 +74,7 @@ func TestStreamHandler_ValidateUploadMetadata(t *testing.T) {
 			name: "auth success",
 			cfg: StreamConfig{
 				Enabled:      true,
+				AllowedPaths: []string{"*"},
 				PasswordHash: string(hash),
 			},
 			meta: &TransferMetadata{
@@ -82,7 +86,8 @@ func TestStreamHandler_ValidateUploadMetadata(t *testing.T) {
 		{
 			name: "relative path",
 			cfg: StreamConfig{
-				Enabled: true,
+				Enabled:      true,
+				AllowedPaths: []string{"*"},
 			},
 			meta: &TransferMetadata{
 				Path: "relative/path.txt",
@@ -116,8 +121,9 @@ func TestStreamHandler_ValidateUploadMetadata(t *testing.T) {
 		{
 			name: "file too large",
 			cfg: StreamConfig{
-				Enabled:     true,
-				MaxFileSize: 100,
+				Enabled:      true,
+				AllowedPaths: []string{"*"},
+				MaxFileSize:  100,
 			},
 			meta: &TransferMetadata{
 				Path: "/tmp/test.txt",
@@ -129,8 +135,9 @@ func TestStreamHandler_ValidateUploadMetadata(t *testing.T) {
 		{
 			name: "directory size not checked",
 			cfg: StreamConfig{
-				Enabled:     true,
-				MaxFileSize: 100,
+				Enabled:      true,
+				AllowedPaths: []string{"*"},
+				MaxFileSize:  100,
 			},
 			meta: &TransferMetadata{
 				Path:        "/tmp/testdir",
