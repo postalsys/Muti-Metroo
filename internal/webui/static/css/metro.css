@@ -3,7 +3,7 @@
 /* Connection Lines */
 .connection {
     fill: none;
-    stroke-width: 6;
+    stroke-width: 8;
     stroke-linecap: round;
     stroke-linejoin: round;
 }
@@ -17,7 +17,7 @@
 }
 
 .connection:hover {
-    stroke-width: 8;
+    stroke-width: 10;
     filter: drop-shadow(0 0 4px currentColor);
 }
 
@@ -77,7 +77,7 @@
 /* Station Labels */
 .station-label {
     font-family: 'Segoe UI', 'Roboto', sans-serif;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
     fill: #f5ebe0;
     text-anchor: middle;

@@ -8,9 +8,9 @@ class MetroMap {
         this.agents = new Map();
         this.connections = [];
         this.routes = []; // Route data for showing exit CIDRs
-        this.gridSize = 120;
-        this.stationRadius = 10;
-        this.localStationRadius = 14;
+        this.gridSize = 200;
+        this.stationRadius = 14;
+        this.localStationRadius = 18;
         this.lastTopologyHash = null;
         this.positionCache = new Map(); // Cache positions by agent ID
 
@@ -126,8 +126,40 @@ class MetroMap {
         // Calculate layout using tree-based approach
         this.calculateTreeLayout();
 
+        // Adjust viewBox to fit content
+        this.fitViewBoxToContent();
+
         // Render
         this.render();
+    }
+
+    fitViewBoxToContent() {
+        if (this.agents.size === 0) return;
+
+        // Calculate bounds of all agents
+        let minX = Infinity, maxX = -Infinity;
+        let minY = Infinity, maxY = -Infinity;
+
+        this.agents.forEach(agent => {
+            minX = Math.min(minX, agent.x);
+            maxX = Math.max(maxX, agent.x);
+            minY = Math.min(minY, agent.y);
+            maxY = Math.max(maxY, agent.y);
+        });
+
+        // Add padding for labels and station circles
+        const padding = 100;
+        minX -= padding;
+        maxX += padding;
+        minY -= padding;
+        maxY += padding;
+
+        // Calculate content dimensions
+        const contentWidth = maxX - minX;
+        const contentHeight = Math.max(maxY - minY, 150); // Minimum height for horizontal layouts
+
+        // Set viewBox to fit content
+        this.svg.setAttribute('viewBox', `${minX} ${minY} ${contentWidth} ${contentHeight}`);
     }
 
     calculateTreeLayout() {
