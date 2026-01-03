@@ -89,23 +89,21 @@
 
 /* Download button styles */
 .download-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.75rem 1.5rem;
+  display: inline-block;
+  padding: 12px 24px;
   font-size: 1rem;
   font-weight: 600;
-  line-height: 1.5;
-  text-decoration: none;
+  line-height: 1.25;
+  text-decoration: none !important;
   border-radius: 8px;
   border: 2px solid var(--ifm-color-primary);
   color: var(--ifm-color-primary);
   background-color: transparent;
   transition: all 0.2s ease;
   min-width: 200px;
-  min-height: 52px;
   text-align: center;
   box-sizing: border-box;
+  vertical-align: middle;
 }
 
 .download-button:hover {
@@ -128,6 +126,7 @@
 .download-button-group {
   display: flex;
   flex-wrap: wrap;
+  align-items: stretch;
   gap: 1rem;
   margin: 1.5rem 0;
 }
