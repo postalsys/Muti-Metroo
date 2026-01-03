@@ -46,10 +46,14 @@ muti-metroo cert agent --days 90
 #!/bin/bash
 # rotate-cert.sh
 CERT_DIR="/etc/muti-metroo/certs"
+CA_DIR="/etc/muti-metroo/ca"  # CA stored separately
 DAYS_LEFT=$(( ($(date -d "$(openssl x509 -enddate -noout -in $CERT_DIR/agent.crt | cut -d= -f2)" +%s) - $(date +%s)) / 86400 ))
 
 if [ $DAYS_LEFT -lt 30 ]; then
-    muti-metroo cert agent -n "$(hostname)" -o "$CERT_DIR"
+    muti-metroo cert agent -n "$(hostname)" \
+      --ca "$CA_DIR/ca.crt" \
+      --ca-key "$CA_DIR/ca.key" \
+      -o "$CERT_DIR"
     systemctl restart muti-metroo
 fi
 ```

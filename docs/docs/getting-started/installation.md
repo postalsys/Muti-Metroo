@@ -125,8 +125,11 @@ muti-metroo init -d ./data
 cat ./data/agent_id
 
 # Generate test certificates
-muti-metroo cert ca -n "Test CA"
-muti-metroo cert agent -n "test-agent"
+muti-metroo cert ca -n "Test CA" -o ./certs
+muti-metroo cert agent -n "test-agent" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
+  -o ./certs
 
 # Verify certificates (output file uses common name)
 muti-metroo cert info ./certs/test-agent.crt

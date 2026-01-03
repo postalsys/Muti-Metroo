@@ -37,8 +37,10 @@ All peer connections require TLS. Generate a Certificate Authority and agent cer
 # Create Certificate Authority
 muti-metroo cert ca -n "My Mesh CA" -o ./certs
 
-# Generate agent certificate
+# Generate agent certificate (signed by the CA)
 muti-metroo cert agent -n "my-agent" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
   --dns "agent1.example.com" \
   --ip "192.168.1.10" \
   -o ./certs

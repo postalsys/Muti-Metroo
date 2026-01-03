@@ -105,19 +105,29 @@ Ext Key Usage: ServerAuth, ClientAuth
 
 ```bash
 # Generate CA
-muti-metroo cert ca -n "Mesh CA"
+muti-metroo cert ca -n "Mesh CA" -o ./certs
 
-# Generate agent cert with DNS names and IP addresses
+# Generate agent cert (signed by CA)
 muti-metroo cert agent -n "agent-1" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
   --dns agent1.example.com \
-  --ip 192.168.1.10
+  --ip 192.168.1.10 \
+  -o ./certs
 
-# Generate client cert
-muti-metroo cert client -n "admin"
+# Generate client cert (signed by CA)
+muti-metroo cert client -n "admin" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
+  -o ./certs
 
 # View cert info
 muti-metroo cert info ./certs/agent-1.crt
 ```
+
+:::tip Default Paths
+The `--ca` and `--ca-key` flags default to `./certs/ca.crt` and `./certs/ca.key`. If your CA files are there, you can omit these flags.
+:::
 
 ## Certificate Types
 

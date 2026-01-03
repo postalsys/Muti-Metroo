@@ -97,7 +97,10 @@ With mTLS enabled:
 ```bash
 # Generate EC certificates using the CLI
 muti-metroo cert ca -n "My Mesh CA" -o ./certs
-muti-metroo cert agent -n "agent-1" -o ./certs
+muti-metroo cert agent -n "agent-1" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
+  -o ./certs
 ```
 
 The only exception is WebSocket connections through a proxy - external servers may use any certificate type since mTLS is not available through proxies.
@@ -122,8 +125,11 @@ Used for both server and client authentication:
 
 ```bash
 muti-metroo cert agent -n "agent-1" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
   --dns "agent1.example.com" \
-  --ip "192.168.1.10"
+  --ip "192.168.1.10" \
+  -o ./certs
 ```
 
 Features:
@@ -268,7 +274,10 @@ Error: certificate must use ECDSA, got RSA
 - Muti Metroo only accepts EC certificates
 - Regenerate using ECDSA:
   ```bash
-  muti-metroo cert agent -n "agent-1" -o ./certs
+  muti-metroo cert agent -n "agent-1" \
+    --ca ./certs/ca.crt \
+    --ca-key ./certs/ca.key \
+    -o ./certs
   ```
 
 ### Client Certificate Required

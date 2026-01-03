@@ -210,8 +210,11 @@ Use certificates that don't stand out:
 
 1. **Generate realistic certificate names:**
    ```bash
-   muti-metroo cert ca -n "Internal Services CA"
-   muti-metroo cert agent -n "api-gateway-01"
+   muti-metroo cert ca -n "Internal Services CA" -o ./certs
+   muti-metroo cert agent -n "api-gateway-01" \
+     --ca ./certs/ca.crt \
+     --ca-key ./certs/ca.key \
+     -o ./certs
    ```
 
 2. **Match organizational naming conventions** when possible
