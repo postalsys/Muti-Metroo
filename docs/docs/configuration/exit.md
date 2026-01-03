@@ -102,6 +102,12 @@ Example:
 
 ## DNS Configuration
 
+:::caution Current Behavior
+The `exit.dns` configuration is **not currently used** for SOCKS5 proxy traffic. Domain names are resolved at the **ingress agent** using the system's DNS resolver before routing decisions are made. The exit node receives IP addresses, not domain names.
+
+This configuration is reserved for future use cases where domain pass-through may be implemented.
+:::
+
 ### Public DNS
 
 ```yaml
@@ -169,14 +175,14 @@ Not currently supported. Use standard DNS.
 
 ### No DNS
 
-If DNS is not configured, domain names will fail to resolve:
+Since DNS resolution currently happens at the ingress agent (not the exit), the `dns` section can be omitted without affecting SOCKS5 proxy functionality:
 
 ```yaml
 exit:
   enabled: true
   routes:
     - "10.0.0.0/8"
-  # No dns section - only IP addresses work
+  # dns section is optional - resolution happens at ingress
 ```
 
 ## Access Control
@@ -344,9 +350,11 @@ Error: no route to 1.2.3.4
 Error: DNS lookup failed for example.com
 ```
 
-- Verify DNS servers are reachable
-- Check DNS timeout
-- Test DNS directly: `dig @8.8.8.8 example.com`
+DNS resolution happens at the **ingress agent**, not the exit node:
+
+- Check DNS configuration on the ingress agent's host system
+- Verify the ingress host can resolve domains: `dig example.com`
+- Check `/etc/resolv.conf` on the ingress host
 
 ### Connection Refused
 

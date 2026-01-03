@@ -12,7 +12,7 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 - End-to-end encryption: X25519 key exchange + ChaCha20-Poly1305 (transit cannot decrypt)
 - Multiple transport layers: QUIC/TLS 1.3, HTTP/2, and WebSocket
 - SOCKS5 proxy ingress with optional authentication
-- CIDR-based exit routing with DNS resolution
+- CIDR-based exit routing (DNS resolved at ingress agent)
 - Multi-hop path routing via flood-based route propagation
 - Stream multiplexing with half-close support
 
@@ -141,9 +141,9 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@target-host
 
 ### Agent Roles
 An agent can serve multiple roles simultaneously:
-- **Ingress**: SOCKS5 listener, initiates virtual streams, performs route lookup
+- **Ingress**: SOCKS5 listener, DNS resolution, initiates virtual streams, performs route lookup
 - **Transit**: Forwards streams between peers, participates in route flooding
-- **Exit**: Opens real TCP connections, advertises CIDR routes, handles DNS
+- **Exit**: Opens real TCP connections, advertises CIDR routes
 
 ### Package Structure (`internal/`)
 
@@ -155,7 +155,7 @@ An agent can serve multiple roles simultaneously:
 | `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
 | `control` | Unix socket control interface for CLI status commands |
 | `crypto` | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation |
-| `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control, E2E decryption |
+| `exit` | Exit node handler - TCP dial, route-based access control, E2E decryption |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
 | `flood` | Route propagation via flooding with loop prevention and seen-cache |
 | `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC, pprof, dashboard |
@@ -200,7 +200,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `listeners`: Transport listeners (QUIC on :4433)
 - `peers`: Outbound peer connections with TLS config
 - `socks5`: Ingress proxy settings
-- `exit`: Exit node routes and DNS settings
+- `exit`: Exit node routes (DNS config reserved for future use)
 - `routing`: Advertisement intervals, node info interval, TTL, max hops
 - `limits`: Stream limits and buffer sizes
 - `http`: HTTP API server with granular endpoint control (health, metrics, dashboard, remote APIs)

@@ -42,13 +42,18 @@ curl -X POST http://localhost:8080/routes/advertise
 
 ## DNS Resolution
 
-Exit nodes resolve domain names to IP addresses:
+DNS resolution happens at the **ingress agent**, not at the exit node:
 
 1. Client connects via SOCKS5 with domain (e.g., example.com)
-2. Exit node receives STREAM_OPEN with domain
-3. Exit performs DNS lookup using configured servers
-4. Opens TCP connection to resolved IP
-5. Returns STREAM_OPEN_ACK
+2. **Ingress agent** resolves domain using the system's DNS resolver
+3. Ingress performs route lookup using the resolved IP address
+4. Ingress sends STREAM_OPEN with the **IP address** to the exit node
+5. Exit opens TCP connection to the IP
+6. Returns STREAM_OPEN_ACK
+
+:::note
+The `exit.dns` configuration is reserved for future use but is not currently active for SOCKS5 traffic. Domain names are always resolved at the ingress agent using the host system's DNS configuration.
+:::
 
 ## Route Selection
 
