@@ -86,3 +86,66 @@
 [data-theme='dark'] .hero--primary .button--outline:hover {
   background-color: rgba(245, 235, 224, 0.1);
 }
+
+/* Download button styles */
+.download-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 8px;
+  border: 2px solid var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
+  background-color: transparent;
+  transition: all 0.2s ease;
+  min-width: 200px;
+  text-align: center;
+}
+
+.download-button:hover {
+  background-color: var(--ifm-color-primary);
+  color: #fff;
+  text-decoration: none;
+}
+
+.download-button--primary {
+  background-color: var(--ifm-color-primary);
+  color: #fff;
+}
+
+.download-button--primary:hover {
+  background-color: var(--ifm-color-primary-dark);
+  border-color: var(--ifm-color-primary-dark);
+  color: #fff;
+}
+
+.download-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+/* Dark mode adjustments for download buttons */
+[data-theme='dark'] .download-button {
+  border-color: var(--ifm-color-primary);
+  color: var(--ifm-color-primary);
+}
+
+[data-theme='dark'] .download-button:hover {
+  background-color: var(--ifm-color-primary);
+  color: #1a1a1a;
+}
+
+[data-theme='dark'] .download-button--primary {
+  background-color: var(--ifm-color-primary);
+  color: #1a1a1a;
+}
+
+[data-theme='dark'] .download-button--primary:hover {
+  background-color: var(--ifm-color-primary-light);
+  border-color: var(--ifm-color-primary-light);
+}
