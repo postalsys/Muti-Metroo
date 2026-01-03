@@ -81,6 +81,22 @@ type RemoteMetricsProvider interface {
 	// DownloadFile downloads a file or directory from a remote agent via stream-based transfer.
 	// remotePath is the path on the remote agent, localPath is the local destination.
 	DownloadFile(ctx context.Context, targetID identity.AgentID, remotePath, localPath string, opts TransferOptions, progress FileTransferProgress) error
+
+	// DownloadFileStream opens a streaming download from a remote agent.
+	// Returns a reader that streams file data directly without writing to disk.
+	// The caller must call Close() on the result when done.
+	DownloadFileStream(ctx context.Context, targetID identity.AgentID, remotePath string, opts TransferOptions) (*DownloadStreamResult, error)
+}
+
+// DownloadStreamResult contains the result of a streaming download request.
+type DownloadStreamResult struct {
+	Reader       io.ReadCloser
+	Size         int64  // Size of the (possibly compressed) data stream
+	OriginalSize int64  // Original uncompressed file size
+	Mode         uint32 // File permission mode
+	IsDirectory  bool   // True if downloading a directory (tar.gz)
+	Compressed   bool   // True if data is gzip compressed
+	Close        func() // Cleanup function to call when done
 }
 
 // TransferOptions contains options for file upload/download operations.
@@ -880,20 +896,11 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 		return
 	}
 
-	// Create temp file/directory for download
-	tmpDir, err := os.MkdirTemp("", "download-*")
-	if err != nil {
-		http.Error(w, "failed to create temp directory: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer os.RemoveAll(tmpDir)
-
 	// Use the basename of the remote path as local filename
 	localName := filepath.Base(req.Path)
 	if localName == "" || localName == "." || localName == "/" {
 		localName = "download"
 	}
-	localPath := filepath.Join(tmpDir, localName)
 
 	// Build transfer options
 	opts := TransferOptions{
@@ -903,11 +910,11 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 		OriginalSize: req.OriginalSize,
 	}
 
-	// Perform stream-based download
+	// Perform streaming download directly (no temp file)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute) // 30 minute timeout
 	defer cancel()
 
-	err = s.remoteProvider.DownloadFile(ctx, targetID, req.Path, localPath, opts, nil)
+	result, err := s.remoteProvider.DownloadFileStream(ctx, targetID, req.Path, opts)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
@@ -917,89 +924,32 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 		})
 		return
 	}
-
-	// Check if it's a file or directory
-	info, err := os.Stat(localPath)
-	if err != nil {
-		http.Error(w, "failed to stat downloaded file: "+err.Error(), http.StatusInternalServerError)
-		return
+	defer result.Reader.Close()
+	if result.Close != nil {
+		defer result.Close()
 	}
 
-	if info.IsDir() {
-		// For directories, create tar.gz and stream back
+	// Set headers based on result type
+	if result.IsDirectory {
+		// For directories, stream compressed tar data directly
 		w.Header().Set("Content-Type", "application/gzip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", localName+".tar.gz"))
-
-		// Stream tar.gz directly to response
-		gzw := gzip.NewWriter(w)
-		defer gzw.Close()
-
-		tw := tar.NewWriter(gzw)
-		defer tw.Close()
-
-		// Walk the directory and add files to tar
-		filepath.Walk(localPath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			// Get relative path
-			relPath, err := filepath.Rel(localPath, path)
-			if err != nil {
-				return err
-			}
-			if relPath == "." {
-				return nil
-			}
-
-			// Create tar header
-			header, err := tar.FileInfoHeader(info, "")
-			if err != nil {
-				return err
-			}
-			header.Name = filepath.ToSlash(relPath)
-
-			// Handle symlinks
-			if info.Mode()&os.ModeSymlink != 0 {
-				link, err := os.Readlink(path)
-				if err != nil {
-					return err
-				}
-				header.Linkname = link
-			}
-
-			if err := tw.WriteHeader(header); err != nil {
-				return err
-			}
-
-			// Write file content
-			if info.Mode().IsRegular() {
-				f, err := os.Open(path)
-				if err != nil {
-					return err
-				}
-				defer f.Close()
-				io.Copy(tw, f)
-			}
-
-			return nil
-		})
 	} else {
 		// For files, stream directly
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", localName))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
-		w.Header().Set("X-File-Mode", fmt.Sprintf("%04o", info.Mode().Perm()))
-		w.Header().Set("X-Original-Size", fmt.Sprintf("%d", info.Size()))
+		w.Header().Set("X-File-Mode", fmt.Sprintf("%04o", result.Mode))
+		w.Header().Set("X-Original-Size", fmt.Sprintf("%d", result.OriginalSize))
+		// Note: We don't set Content-Length because the stream is decompressed
+		// and we don't know the final size until we've read it all
+	}
 
-		f, err := os.Open(localPath)
-		if err != nil {
-			http.Error(w, "failed to open downloaded file: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer f.Close()
-
-		io.Copy(w, f)
+	// Stream data directly to response
+	_, err = io.Copy(w, result.Reader)
+	if err != nil {
+		// Can't return error via HTTP at this point since we already started streaming
+		// The connection will just be broken
+		return
 	}
 }
 

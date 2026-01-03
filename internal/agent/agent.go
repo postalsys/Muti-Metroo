@@ -3372,6 +3372,215 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 	return nil
 }
 
+// DownloadFileStream opens a streaming download from a remote agent.
+// Returns a reader that streams file data directly without writing to disk.
+// The caller must call Close() on the result when done.
+func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentID, remotePath string, opts health.TransferOptions) (*health.DownloadStreamResult, error) {
+	// Check if file transfer is enabled locally
+	if a.fileStreamHandler == nil {
+		return nil, fmt.Errorf("file transfer is disabled")
+	}
+
+	// Find path to target agent
+	nextHop, remainingPath, conn, err := a.findPathToAgent(targetID)
+	if err != nil {
+		return nil, fmt.Errorf("no route to agent %s: %w", targetID.ShortString(), err)
+	}
+
+	// Allocate stream ID
+	streamID := conn.NextStreamID()
+
+	// Create pending stream (5 min timeout for large files)
+	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferDownload, 0, 5*time.Minute)
+
+	// Build and send STREAM_OPEN
+	downloadDomainAddr := protocol.FileTransferDownload
+	downloadDomainBytes := append([]byte{byte(len(downloadDomainAddr))}, []byte(downloadDomainAddr)...)
+	openPayload := &protocol.StreamOpen{
+		RequestID:     pending.RequestID,
+		AddressType:   protocol.AddrTypeDomain,
+		Address:       downloadDomainBytes,
+		Port:          0,
+		RemainingPath: remainingPath,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		return nil, fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for STREAM_OPEN_ACK
+	var openResult *stream.StreamOpenResult
+	select {
+	case result := <-pending.ResultCh:
+		if result.Error != nil {
+			return nil, fmt.Errorf("stream open failed: %w", result.Error)
+		}
+		openResult = result
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	// Send request metadata (path to download)
+	meta := &filetransfer.TransferMetadata{
+		Path:         remotePath,
+		Password:     opts.Password,
+		Compress:     true,
+		RateLimit:    opts.RateLimit,
+		Offset:       opts.Offset,
+		OriginalSize: opts.OriginalSize,
+	}
+
+	metaData, err := filetransfer.EncodeMetadata(meta)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return nil, fmt.Errorf("encode metadata: %w", err)
+	}
+
+	if err := a.WriteStreamData(nextHop, streamID, metaData, 0); err != nil {
+		return nil, fmt.Errorf("send metadata: %w", err)
+	}
+
+	// Wait for response metadata (first data frame)
+	s := openResult.Stream
+	responseData, err := s.ReadWithTimeout(30 * time.Second)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return nil, fmt.Errorf("read response metadata: %w", err)
+	}
+
+	responseMeta, err := filetransfer.ParseMetadata(responseData)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return nil, fmt.Errorf("parse response metadata: %w", err)
+	}
+
+	a.logger.Info("file download stream started",
+		"target", targetID.ShortString(),
+		"remote_path", remotePath,
+		"size", responseMeta.Size,
+		"original_size", responseMeta.OriginalSize,
+		"is_directory", responseMeta.IsDirectory,
+		"compressed", responseMeta.Compress)
+
+	// Create a stream reader that reads from the stream
+	reader := &streamReader{
+		stream:     s,
+		ctx:        ctx,
+		compressed: responseMeta.Compress,
+	}
+
+	// Cleanup function to close the stream when done
+	cleanup := func() {
+		a.WriteStreamClose(nextHop, streamID)
+	}
+
+	return &health.DownloadStreamResult{
+		Reader:       reader,
+		Size:         responseMeta.Size,
+		OriginalSize: responseMeta.OriginalSize,
+		Mode:         responseMeta.Mode,
+		IsDirectory:  responseMeta.IsDirectory,
+		Compressed:   responseMeta.Compress,
+		Close:        cleanup,
+	}, nil
+}
+
+// streamReader wraps a stream for io.Reader interface.
+type streamReader struct {
+	stream     *stream.Stream
+	ctx        context.Context
+	compressed bool
+	gzReader   io.ReadCloser
+	buffer     []byte
+	bufOffset  int
+	eof        bool
+}
+
+func (r *streamReader) Read(p []byte) (int, error) {
+	// If we have a gzip reader, read from it
+	if r.gzReader != nil {
+		return r.gzReader.Read(p)
+	}
+
+	// If we have buffered data, return it first
+	if r.bufOffset < len(r.buffer) {
+		n := copy(p, r.buffer[r.bufOffset:])
+		r.bufOffset += n
+		return n, nil
+	}
+
+	if r.eof {
+		return 0, io.EOF
+	}
+
+	// Read from stream
+	data, err := r.stream.ReadWithTimeout(30 * time.Second)
+	if err != nil {
+		if err == io.EOF {
+			r.eof = true
+		}
+		return 0, err
+	}
+
+	// If compressed and this is the first read, set up gzip reader
+	if r.compressed && r.gzReader == nil {
+		// We need to create a gzip reader, but it needs an io.Reader
+		// Create a pipe to feed data to the gzip reader
+		pr, pw := io.Pipe()
+
+		// Start goroutine to feed data to the pipe
+		go func() {
+			// Write the first chunk
+			pw.Write(data)
+
+			// Continue reading from stream and writing to pipe
+			for {
+				chunk, err := r.stream.ReadWithTimeout(30 * time.Second)
+				if err != nil {
+					if err == io.EOF {
+						pw.Close()
+					} else {
+						pw.CloseWithError(err)
+					}
+					return
+				}
+				if _, err := pw.Write(chunk); err != nil {
+					pw.CloseWithError(err)
+					return
+				}
+			}
+		}()
+
+		gzr, err := gzip.NewReader(pr)
+		if err != nil {
+			pr.Close()
+			return 0, fmt.Errorf("create gzip reader: %w", err)
+		}
+		r.gzReader = gzr
+		return r.gzReader.Read(p)
+	}
+
+	// Not compressed, return data directly
+	r.buffer = data
+	r.bufOffset = 0
+	n := copy(p, r.buffer)
+	r.bufOffset = n
+	return n, nil
+}
+
+func (r *streamReader) Close() error {
+	if r.gzReader != nil {
+		return r.gzReader.Close()
+	}
+	return nil
+}
+
 // findPathToAgent finds the next hop and remaining path to reach a specific agent by ID.
 // Returns: nextHop ID, remaining path (for STREAM_OPEN), peer connection, error.
 func (a *Agent) findPathToAgent(targetID identity.AgentID) (identity.AgentID, []identity.AgentID, *peer.Connection, error) {

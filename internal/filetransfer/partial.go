@@ -135,11 +135,13 @@ func HasPartialFile(path string) (*PartialInfo, error) {
 		return nil, nil
 	}
 
-	// Verify the partial file size matches the info
-	if partialInfo.Size() != info.BytesWritten {
-		// Size mismatch - partial file is corrupted, clean up
-		CleanupPartial(path)
-		return nil, nil
+	// Use actual file size for BytesWritten - this handles the case where
+	// the process was killed before UpdatePartialProgress could run.
+	// The partial file's actual size is the authoritative source of truth.
+	actualSize := partialInfo.Size()
+	if actualSize != info.BytesWritten {
+		// Update BytesWritten to match actual file size
+		info.BytesWritten = actualSize
 	}
 
 	return info, nil
