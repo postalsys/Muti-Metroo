@@ -23,6 +23,9 @@ type TransferMetadata struct {
 	Password    string `json:"password,omitempty"`     // Authentication password
 	Compress    bool   `json:"compress"`               // Whether data is gzip compressed
 	Checksum    string `json:"checksum,omitempty"`     // Optional SHA256 checksum (hex)
+	RateLimit   int64  `json:"rate_limit,omitempty"`   // Max bytes per second (0 = unlimited)
+	Offset      int64  `json:"offset,omitempty"`       // Resume from this byte offset (uncompressed)
+	OriginalSize int64 `json:"original_size,omitempty"` // Expected file size for resume validation
 }
 
 // TransferResult is sent back after a transfer completes (in download response metadata).
@@ -346,6 +349,72 @@ func (h *StreamHandler) ReadFileForDownload(path string, compress bool) (io.Read
 
 	// Return uncompressed file
 	return f, info.Size(), uint32(info.Mode().Perm()), false, nil
+}
+
+// ReadFileForDownloadAtOffset creates a reader starting at the given byte offset.
+// This is used for resuming downloads. The offset is in uncompressed bytes.
+// The function seeks to the offset in the original file and starts a fresh gzip stream.
+// Directories (tar archives) do not support resume - returns error if isDirectory.
+// Returns: reader, remainingSize (-1 if compressed), mode, isDirectory, error
+func (h *StreamHandler) ReadFileForDownloadAtOffset(path string, offset int64, compress bool) (io.Reader, int64, uint32, bool, error) {
+	path = filepath.Clean(path)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, 0, 0, false, fmt.Errorf("path not found: %w", err)
+	}
+
+	if info.IsDir() {
+		// Directories don't support resume
+		return nil, 0, 0, true, fmt.Errorf("resume not supported for directories")
+	}
+
+	// Validate offset
+	if offset < 0 {
+		return nil, 0, 0, false, fmt.Errorf("invalid offset: %d", offset)
+	}
+	if offset > info.Size() {
+		return nil, 0, 0, false, fmt.Errorf("offset %d exceeds file size %d", offset, info.Size())
+	}
+
+	// Open file and seek to offset
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, 0, false, fmt.Errorf("failed to open file: %w", err)
+	}
+
+	if offset > 0 {
+		if _, err := f.Seek(offset, 0); err != nil {
+			f.Close()
+			return nil, 0, 0, false, fmt.Errorf("failed to seek to offset: %w", err)
+		}
+	}
+
+	remainingSize := info.Size() - offset
+
+	if compress {
+		// Create a pipe for compressed data
+		// Start a fresh gzip stream from the current file position
+		pr, pw := io.Pipe()
+
+		go func() {
+			gzw := gzip.NewWriter(pw)
+			_, copyErr := io.Copy(gzw, f)
+			f.Close()
+			gzw.Close()
+			if copyErr != nil {
+				pw.CloseWithError(copyErr)
+			} else {
+				pw.Close()
+			}
+		}()
+
+		// Size is unknown when compressed
+		return pr, -1, uint32(info.Mode().Perm()), false, nil
+	}
+
+	// Return uncompressed file (already seeked to offset)
+	return f, remainingSize, uint32(info.Mode().Perm()), false, nil
 }
 
 // ParseMetadata parses transfer metadata from JSON bytes.

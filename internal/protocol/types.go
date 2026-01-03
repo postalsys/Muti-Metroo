@@ -76,6 +76,7 @@ const (
 	ErrFileNotFound       uint16 = 16
 	ErrWriteFailed        uint16 = 17
 	ErrGeneralFailure     uint16 = 18
+	ErrResumeFailed       uint16 = 19  // File changed since partial transfer, resume not possible
 )
 
 // Protocol constants
@@ -182,6 +183,8 @@ func ErrorCodeName(code uint16) string {
 		return "WRITE_FAILED"
 	case ErrGeneralFailure:
 		return "GENERAL_FAILURE"
+	case ErrResumeFailed:
+		return "RESUME_FAILED"
 	default:
 		return "UNKNOWN"
 	}

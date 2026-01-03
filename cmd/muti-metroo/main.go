@@ -987,6 +987,8 @@ func uploadCmd() *cobra.Command {
 		agentAddr string
 		password  string
 		timeout   int
+		rateLimit string
+		resume    bool
 	)
 
 	cmd := &cobra.Command{
@@ -1014,7 +1016,13 @@ Examples:
   muti-metroo upload -a 192.168.1.10:8080 abc123def456 config.yaml /etc/app/config.yaml
 
   # With password authentication
-  muti-metroo upload -p secret abc123def456 ./data.bin /home/user/data.bin`,
+  muti-metroo upload -p secret abc123def456 ./data.bin /home/user/data.bin
+
+  # Rate-limited upload (100 KB/s)
+  muti-metroo upload --rate-limit 100KB abc123def456 ./large.iso /tmp/large.iso
+
+  # Resume an interrupted upload
+  muti-metroo upload --resume abc123def456 ./huge.iso /tmp/huge.iso`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetID := args[0]
@@ -1043,20 +1051,37 @@ Examples:
 				return fmt.Errorf("cannot access local path: %w", err)
 			}
 
+			// Parse rate limit
+			var rateLimitBytes int64
+			if rateLimit != "" {
+				rateLimitBytes, err = filetransfer.ParseSize(rateLimit)
+				if err != nil {
+					return fmt.Errorf("invalid rate limit: %w", err)
+				}
+			}
+
+			// Resume not supported for directories
+			if resume && info.IsDir() {
+				fmt.Println("Warning: Resume not supported for directory uploads, starting fresh")
+				resume = false
+			}
+
 			isDirectory := info.IsDir()
-			return uploadFile(agentAddr, targetID, absLocalPath, remotePath, password, timeout, isDirectory)
+			return uploadFile(agentAddr, targetID, absLocalPath, remotePath, password, timeout, isDirectory, rateLimitBytes, resume)
 		},
 	}
 
 	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "File transfer password for authentication")
 	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
+	cmd.Flags().StringVar(&rateLimit, "rate-limit", "", "Maximum transfer speed (e.g., 100KB, 1MB, 10MiB)")
+	cmd.Flags().BoolVar(&resume, "resume", false, "Resume interrupted transfer if possible")
 
 	return cmd
 }
 
 // uploadFile uploads a file or directory via multipart form streaming.
-func uploadFile(agentAddr, targetID, localPath, remotePath, password string, timeout int, isDirectory bool) error {
+func uploadFile(agentAddr, targetID, localPath, remotePath, password string, timeout int, isDirectory bool, rateLimit int64, resume bool) error {
 	info, err := os.Stat(localPath)
 	if err != nil {
 		return fmt.Errorf("cannot access local path: %w", err)
@@ -1081,6 +1106,14 @@ func uploadFile(agentAddr, targetID, localPath, remotePath, password string, tim
 		}
 		if isDirectory {
 			writer.WriteField("directory", "true")
+		}
+		if rateLimit > 0 {
+			writer.WriteField("rate_limit", fmt.Sprintf("%d", rateLimit))
+		}
+		if resume {
+			writer.WriteField("resume", "true")
+			// Also include original file size for validation
+			writer.WriteField("original_size", fmt.Sprintf("%d", info.Size()))
 		}
 
 		// Create file part
@@ -1184,6 +1217,8 @@ func downloadCmd() *cobra.Command {
 		agentAddr string
 		password  string
 		timeout   int
+		rateLimit string
+		resume    bool
 	)
 
 	cmd := &cobra.Command{
@@ -1211,7 +1246,13 @@ Examples:
   muti-metroo download -a 192.168.1.10:8080 abc123def456 /etc/app/config.yaml config.yaml
 
   # With password authentication
-  muti-metroo download -p secret abc123def456 /home/user/data.bin ./data.bin`,
+  muti-metroo download -p secret abc123def456 /home/user/data.bin ./data.bin
+
+  # Rate-limited download (1 MB/s)
+  muti-metroo download --rate-limit 1MB abc123def456 /data/backup.tar.gz ./backup.tar.gz
+
+  # Resume an interrupted download
+  muti-metroo download --resume abc123def456 /data/large.iso ./large.iso`,
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetID := args[0]
@@ -1234,27 +1275,59 @@ Examples:
 				return fmt.Errorf("failed to resolve local path: %w", err)
 			}
 
-			return downloadFile(agentAddr, targetID, remotePath, absLocalPath, password, timeout)
+			// Parse rate limit
+			var rateLimitBytes int64
+			if rateLimit != "" {
+				rateLimitBytes, err = filetransfer.ParseSize(rateLimit)
+				if err != nil {
+					return fmt.Errorf("invalid rate limit: %w", err)
+				}
+			}
+
+			return downloadFile(agentAddr, targetID, remotePath, absLocalPath, password, timeout, rateLimitBytes, resume)
 		},
 	}
 
 	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "File transfer password for authentication")
 	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
+	cmd.Flags().StringVar(&rateLimit, "rate-limit", "", "Maximum transfer speed (e.g., 100KB, 1MB, 10MiB)")
+	cmd.Flags().BoolVar(&resume, "resume", false, "Resume interrupted transfer if possible")
 
 	return cmd
 }
 
 // downloadFile downloads a file or directory via streaming.
-func downloadFile(agentAddr, targetID, remotePath, localPath, password string, timeout int) error {
+func downloadFile(agentAddr, targetID, remotePath, localPath, password string, timeout int, rateLimit int64, resume bool) error {
 	fmt.Printf("Downloading %s:%s to %s\n", targetID[:12], remotePath, localPath)
 
+	// Check for existing partial file if resume is requested
+	var offset int64
+	var originalSize int64
+	if resume {
+		partialInfo, err := filetransfer.HasPartialFile(localPath)
+		if err != nil {
+			fmt.Printf("Warning: failed to check partial file: %v\n", err)
+		} else if partialInfo != nil {
+			offset = partialInfo.BytesWritten
+			originalSize = partialInfo.OriginalSize
+			fmt.Printf("Resuming from offset %d (of %d bytes)\n", offset, originalSize)
+		}
+	}
+
 	// Build request
-	reqBody := map[string]string{
+	reqBody := map[string]interface{}{
 		"path": remotePath,
 	}
 	if password != "" {
 		reqBody["password"] = password
+	}
+	if rateLimit > 0 {
+		reqBody["rate_limit"] = rateLimit
+	}
+	if offset > 0 {
+		reqBody["offset"] = offset
+		reqBody["original_size"] = originalSize
 	}
 
 	reqJSON, err := json.Marshal(reqBody)
@@ -1275,7 +1348,11 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	fmt.Print("Downloading... ")
+	if offset > 0 {
+		fmt.Print("Resuming... ")
+	} else {
+		fmt.Print("Downloading... ")
+	}
 
 	// Send request
 	client := &http.Client{}
@@ -1311,6 +1388,12 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 		strings.HasSuffix(resp.Header.Get("Content-Disposition"), ".tar.gz\"")
 
 	if isTarGz {
+		// Directories don't support resume
+		if offset > 0 {
+			fmt.Println("FAILED")
+			return fmt.Errorf("resume not supported for directory downloads")
+		}
+
 		// Extract tar.gz to directory
 		if err := os.MkdirAll(localPath, 0755); err != nil {
 			fmt.Println("FAILED")
@@ -1332,20 +1415,7 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 
-		f, err := os.Create(localPath)
-		if err != nil {
-			fmt.Println("FAILED")
-			return fmt.Errorf("failed to create file: %w", err)
-		}
-
-		written, err := io.Copy(f, resp.Body)
-		f.Close()
-		if err != nil {
-			fmt.Println("FAILED")
-			return fmt.Errorf("failed to write file: %w", err)
-		}
-
-		// Restore file mode from header
+		// Get file mode from header
 		var mode os.FileMode = 0644 // default
 		if modeStr := resp.Header.Get("X-File-Mode"); modeStr != "" {
 			var modeVal uint32
@@ -1353,13 +1423,68 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 				mode = os.FileMode(modeVal)
 			}
 		}
-		if err := os.Chmod(localPath, mode); err != nil {
-			// Non-fatal, just log
-			fmt.Printf("Warning: failed to set file mode: %v\n", err)
+
+		// Get original file size from header (for progress tracking)
+		var totalSize int64
+		if sizeStr := resp.Header.Get("X-Original-Size"); sizeStr != "" {
+			fmt.Sscanf(sizeStr, "%d", &totalSize)
+		}
+
+		var f *os.File
+		var written int64
+
+		if offset > 0 {
+			// Resume: open partial file for appending
+			f, err = filetransfer.OpenPartialFileForAppend(localPath)
+			if err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to open partial file: %w", err)
+			}
+			written = offset // Start counting from offset
+		} else {
+			// New download: create partial file
+			if totalSize > 0 {
+				f, err = filetransfer.CreatePartialFile(localPath, totalSize, remotePath, mode)
+			} else {
+				// No size info, create directly
+				f, err = os.Create(filetransfer.GetPartialPath(localPath))
+			}
+			if err != nil {
+				fmt.Println("FAILED")
+				return fmt.Errorf("failed to create file: %w", err)
+			}
+			if totalSize > 0 {
+				// Partial info already created by CreatePartialFile
+			}
+		}
+
+		// Copy data to file
+		newBytes, err := io.Copy(f, resp.Body)
+		f.Close()
+		written += newBytes
+
+		if err != nil {
+			// Update partial info with progress so far
+			if totalSize > 0 {
+				filetransfer.UpdatePartialProgress(localPath, written)
+			}
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+
+		// Finalize: rename partial to final
+		if err := filetransfer.FinalizePartial(localPath, mode); err != nil {
+			fmt.Println("FAILED")
+			return fmt.Errorf("failed to finalize file: %w", err)
 		}
 
 		fmt.Println("OK")
-		fmt.Printf("Downloaded %d bytes to %s (mode: %04o)\n", written, localPath, mode)
+		if offset > 0 {
+			fmt.Printf("Resumed and downloaded %d bytes (total %d bytes) to %s (mode: %04o)\n",
+				newBytes, written, localPath, mode)
+		} else {
+			fmt.Printf("Downloaded %d bytes to %s (mode: %04o)\n", written, localPath, mode)
+		}
 	}
 
 	return nil

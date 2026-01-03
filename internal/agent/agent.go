@@ -2903,23 +2903,81 @@ func (a *Agent) sendFileDownload(fts *fileTransferStream) {
 		return
 	}
 
-	// Read file from disk
-	reader, size, mode, isDir, err := a.fileStreamHandler.ReadFileForDownload(fts.Meta.Path, fts.Meta.Compress)
-	if err != nil {
-		a.logger.Error("file download read failed",
-			logging.KeyStreamID, fts.StreamID,
-			logging.KeyError, err)
-		a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrFileNotFound, err.Error())
-		return
+	var reader io.Reader
+	var size int64
+	var mode uint32
+	var isDir bool
+	var err error
+	var originalSize int64
+
+	// Check if this is a resume request
+	if fts.Meta.Offset > 0 {
+		// Validate that file hasn't changed
+		info, statErr := os.Stat(fts.Meta.Path)
+		if statErr != nil {
+			a.logger.Error("file download stat failed",
+				logging.KeyStreamID, fts.StreamID,
+				logging.KeyError, statErr)
+			a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrFileNotFound, statErr.Error())
+			return
+		}
+
+		originalSize = info.Size()
+
+		// If original size was provided and doesn't match, reject resume
+		if fts.Meta.OriginalSize > 0 && info.Size() != fts.Meta.OriginalSize {
+			a.logger.Warn("file changed since partial download, rejecting resume",
+				logging.KeyStreamID, fts.StreamID,
+				"expected_size", fts.Meta.OriginalSize,
+				"actual_size", info.Size())
+			a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrResumeFailed, "file size changed")
+			return
+		}
+
+		// Use offset-aware reader
+		reader, size, mode, isDir, err = a.fileStreamHandler.ReadFileForDownloadAtOffset(
+			fts.Meta.Path, fts.Meta.Offset, fts.Meta.Compress)
+		if err != nil {
+			a.logger.Error("file download read at offset failed",
+				logging.KeyStreamID, fts.StreamID,
+				"offset", fts.Meta.Offset,
+				logging.KeyError, err)
+			a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrGeneralFailure, err.Error())
+			return
+		}
+	} else {
+		// Normal download from beginning
+		reader, size, mode, isDir, err = a.fileStreamHandler.ReadFileForDownload(fts.Meta.Path, fts.Meta.Compress)
+		if err != nil {
+			a.logger.Error("file download read failed",
+				logging.KeyStreamID, fts.StreamID,
+				logging.KeyError, err)
+			a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrFileNotFound, err.Error())
+			return
+		}
+
+		// Get original size for non-resume downloads
+		if !isDir {
+			if info, err := os.Stat(fts.Meta.Path); err == nil {
+				originalSize = info.Size()
+			}
+		}
+	}
+
+	// Apply rate limiting if requested
+	if fts.Meta.RateLimit > 0 {
+		ctx := context.Background() // TODO: use proper context with cancellation
+		reader = filetransfer.NewRateLimitedReader(ctx, reader, fts.Meta.RateLimit)
 	}
 
 	// Send response metadata as first data frame
 	respMeta := &filetransfer.TransferMetadata{
-		Path:        fts.Meta.Path,
-		Mode:        mode,
-		Size:        size,
-		IsDirectory: isDir,
-		Compress:    fts.Meta.Compress,
+		Path:         fts.Meta.Path,
+		Mode:         mode,
+		Size:         size,
+		IsDirectory:  isDir,
+		Compress:     fts.Meta.Compress,
+		OriginalSize: originalSize, // Include original size for resume tracking
 	}
 	metaData, err := filetransfer.EncodeMetadata(respMeta)
 	if err != nil {
@@ -2933,6 +2991,8 @@ func (a *Agent) sendFileDownload(fts *fileTransferStream) {
 	a.logger.Info("file download started",
 		"path", fts.Meta.Path,
 		"size", size,
+		"offset", fts.Meta.Offset,
+		"rate_limit", fts.Meta.RateLimit,
 		"is_directory", isDir)
 
 	// Stream file data in chunks
@@ -3007,7 +3067,7 @@ func (a *Agent) getFileTransferStream(streamID uint64) *fileTransferStream {
 
 // UploadFile uploads a local file or directory to a remote agent via stream-based transfer.
 // The transfer uses the mesh network to reach the target agent.
-func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, localPath, remotePath string, password string, progress health.FileTransferProgress) error {
+func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, localPath, remotePath string, opts health.TransferOptions, progress health.FileTransferProgress) error {
 	// Check if file transfer is enabled locally (for validation config)
 	if a.fileStreamHandler == nil {
 		return fmt.Errorf("file transfer is disabled")
@@ -3073,8 +3133,9 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 		Mode:        fileMode,
 		Size:        fileSize,
 		IsDirectory: isDirectory,
-		Password:    password,
+		Password:    opts.Password,
 		Compress:    true,
+		RateLimit:   opts.RateLimit,
 	}
 
 	// Send metadata as first data frame
@@ -3104,8 +3165,14 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 			}
 		}()
 
+		// Apply rate limiting if requested
+		var reader io.Reader = pr
+		if opts.RateLimit > 0 {
+			reader = filetransfer.NewRateLimitedReader(ctx, pr, opts.RateLimit)
+		}
+
 		// Stream tar data in chunks
-		written, err = a.streamFileContent(ctx, nextHop, streamID, pr, -1, progress)
+		written, err = a.streamFileContent(ctx, nextHop, streamID, reader, -1, progress)
 		if err != nil {
 			pr.Close()
 			return fmt.Errorf("stream directory: %w", err)
@@ -3132,13 +3199,26 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 					pw.Close()
 				}
 			}()
-			written, err = a.streamFileContent(ctx, nextHop, streamID, pr, -1, progress)
+
+			// Apply rate limiting if requested
+			var reader io.Reader = pr
+			if opts.RateLimit > 0 {
+				reader = filetransfer.NewRateLimitedReader(ctx, pr, opts.RateLimit)
+			}
+
+			written, err = a.streamFileContent(ctx, nextHop, streamID, reader, -1, progress)
 			if err != nil {
 				pr.Close()
 				return fmt.Errorf("stream file: %w", err)
 			}
 		} else {
-			written, err = a.streamFileContent(ctx, nextHop, streamID, f, fileSize, progress)
+			// Apply rate limiting if requested
+			var reader io.Reader = f
+			if opts.RateLimit > 0 {
+				reader = filetransfer.NewRateLimitedReader(ctx, f, opts.RateLimit)
+			}
+
+			written, err = a.streamFileContent(ctx, nextHop, streamID, reader, fileSize, progress)
 			if err != nil {
 				return fmt.Errorf("stream file: %w", err)
 			}
@@ -3167,7 +3247,7 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 }
 
 // DownloadFile downloads a file or directory from a remote agent via stream-based transfer.
-func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, remotePath, localPath string, password string, progress health.FileTransferProgress) error {
+func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, remotePath, localPath string, opts health.TransferOptions, progress health.FileTransferProgress) error {
 	// Check if file transfer is enabled locally
 	if a.fileStreamHandler == nil {
 		return fmt.Errorf("file transfer is disabled")
@@ -3218,9 +3298,12 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 
 	// Send request metadata (path to download)
 	meta := &filetransfer.TransferMetadata{
-		Path:     remotePath,
-		Password: password,
-		Compress: true,
+		Path:         remotePath,
+		Password:     opts.Password,
+		Compress:     true,
+		RateLimit:    opts.RateLimit,
+		Offset:       opts.Offset,
+		OriginalSize: opts.OriginalSize,
 	}
 
 	metaData, err := filetransfer.EncodeMetadata(meta)

@@ -76,11 +76,19 @@ type RemoteMetricsProvider interface {
 
 	// UploadFile uploads a file or directory to a remote agent via stream-based transfer.
 	// localPath is the local file/directory path, remotePath is the destination on the remote agent.
-	UploadFile(ctx context.Context, targetID identity.AgentID, localPath, remotePath string, password string, progress FileTransferProgress) error
+	UploadFile(ctx context.Context, targetID identity.AgentID, localPath, remotePath string, opts TransferOptions, progress FileTransferProgress) error
 
 	// DownloadFile downloads a file or directory from a remote agent via stream-based transfer.
 	// remotePath is the path on the remote agent, localPath is the local destination.
-	DownloadFile(ctx context.Context, targetID identity.AgentID, remotePath, localPath string, password string, progress FileTransferProgress) error
+	DownloadFile(ctx context.Context, targetID identity.AgentID, remotePath, localPath string, opts TransferOptions, progress FileTransferProgress) error
+}
+
+// TransferOptions contains options for file upload/download operations.
+type TransferOptions struct {
+	Password     string // Authentication password
+	RateLimit    int64  // Max bytes per second (0 = unlimited)
+	Offset       int64  // Resume from this byte offset (for downloads)
+	OriginalSize int64  // Expected file size for resume validation
 }
 
 // PeerDetails contains detailed information about a connected peer.
@@ -738,6 +746,20 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, target
 	password := r.FormValue("password")
 	isDirectory := r.FormValue("directory") == "true"
 
+	// Parse rate limit
+	var rateLimit int64
+	if rl := r.FormValue("rate_limit"); rl != "" {
+		fmt.Sscanf(rl, "%d", &rateLimit)
+	}
+
+	// Parse resume options
+	resumeUpload := r.FormValue("resume") == "true"
+	var originalSize int64
+	if os := r.FormValue("original_size"); os != "" {
+		fmt.Sscanf(os, "%d", &originalSize)
+	}
+	_ = resumeUpload // TODO: implement upload resume on server side
+
 	// Get uploaded file
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -791,11 +813,18 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, target
 		localPath = tmpDir
 	}
 
+	// Build transfer options
+	opts := TransferOptions{
+		Password:     password,
+		RateLimit:    rateLimit,
+		OriginalSize: originalSize,
+	}
+
 	// Perform stream-based upload
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute) // 30 minute timeout for large files
 	defer cancel()
 
-	err = s.remoteProvider.UploadFile(ctx, targetID, localPath, remotePath, password, nil)
+	err = s.remoteProvider.UploadFile(ctx, targetID, localPath, remotePath, opts, nil)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
@@ -835,8 +864,11 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 
 	// Parse request
 	var req struct {
-		Path     string `json:"path"`
-		Password string `json:"password,omitempty"`
+		Path         string `json:"path"`
+		Password     string `json:"password,omitempty"`
+		RateLimit    int64  `json:"rate_limit,omitempty"`
+		Offset       int64  `json:"offset,omitempty"`
+		OriginalSize int64  `json:"original_size,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
@@ -863,11 +895,19 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 	}
 	localPath := filepath.Join(tmpDir, localName)
 
+	// Build transfer options
+	opts := TransferOptions{
+		Password:     req.Password,
+		RateLimit:    req.RateLimit,
+		Offset:       req.Offset,
+		OriginalSize: req.OriginalSize,
+	}
+
 	// Perform stream-based download
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute) // 30 minute timeout
 	defer cancel()
 
-	err = s.remoteProvider.DownloadFile(ctx, targetID, req.Path, localPath, req.Password, nil)
+	err = s.remoteProvider.DownloadFile(ctx, targetID, req.Path, localPath, opts, nil)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
