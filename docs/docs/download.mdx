@@ -6,7 +6,7 @@ description: Download Muti Metroo binaries for your platform
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
-import BrowserOnly from '@docusaurus/BrowserOnly';
+import React, {useEffect} from 'react';
 
 export const DownloadButton = ({href, children, primary}) => (
   <a
@@ -25,30 +25,28 @@ export const DownloadButtonGroup = ({children}) => (
 );
 
 export const OSDetector = () => {
-  const detectOS = () => {
-    if (typeof window === 'undefined') return null;
-    const ua = navigator.userAgent.toLowerCase();
-    const platform = navigator.platform?.toLowerCase() || '';
+  useEffect(() => {
+    const detectOS = () => {
+      const ua = navigator.userAgent.toLowerCase();
+      const platform = navigator.platform?.toLowerCase() || '';
+      if (ua.includes('win')) return 'windows';
+      if (ua.includes('mac') || platform.includes('mac')) return 'macos';
+      if (ua.includes('linux') || platform.includes('linux')) return 'linux';
+      return null;
+    };
 
-    if (ua.includes('win')) return 'windows';
-    if (ua.includes('mac') || platform.includes('mac')) return 'macos';
-    if (ua.includes('linux') || platform.includes('linux')) return 'linux';
-    return null;
-  };
-
-  const selectTab = (os) => {
+    const os = detectOS();
     if (!os) return;
 
-    // Find and click the appropriate tab
-    setTimeout(() => {
-      const tabMap = {
-        'macos': 'macOS',
-        'linux': 'Linux',
-        'windows': 'Windows'
-      };
-      const tabLabel = tabMap[os];
-      if (!tabLabel) return;
+    const tabMap = {
+      'macos': 'macOS',
+      'linux': 'Linux',
+      'windows': 'Windows'
+    };
+    const tabLabel = tabMap[os];
+    if (!tabLabel) return;
 
+    setTimeout(() => {
       const tabs = document.querySelectorAll('[role="tab"]');
       tabs.forEach(tab => {
         if (tab.textContent === tabLabel) {
@@ -56,11 +54,6 @@ export const OSDetector = () => {
         }
       });
     }, 100);
-  };
-
-  React.useEffect(() => {
-    const os = detectOS();
-    selectTab(os);
   }, []);
 
   return null;
@@ -68,9 +61,7 @@ export const OSDetector = () => {
 
 # Download Muti Metroo
 
-<BrowserOnly>
-  {() => <OSDetector />}
-</BrowserOnly>
+<OSDetector />
 
 **Current Version: v1.0.7**
 
