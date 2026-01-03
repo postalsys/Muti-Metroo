@@ -64,6 +64,22 @@ When a stream is opened:
 
 ChaCha20-Poly1305 is highly optimized and runs at several GB/s on modern CPUs.
 
+## E2E vs Management Encryption
+
+Muti Metroo uses two separate encryption systems:
+
+| Feature | E2E Encryption | Management Encryption |
+|---------|----------------|----------------------|
+| **Purpose** | Protect stream payload data | Protect mesh topology metadata |
+| **What's encrypted** | Application data in streams | NodeInfo (hostnames, IPs, OS) |
+| **Key type** | Per-agent persistent keypair | Shared across all agents |
+| **Automatic** | Yes, always on | No, requires configuration |
+| **Algorithm** | X25519 + ChaCha20-Poly1305 | X25519 + ChaCha20-Poly1305 (sealed boxes) |
+
+Both systems use the same cryptographic primitives but serve different purposes. E2E encryption protects your traffic; management encryption protects your infrastructure topology.
+
+See [Red Team Operations](red-team-operations#management-key-encryption) for management encryption details.
+
 ## Threat Protection
 
 ### Protected Against

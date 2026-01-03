@@ -294,7 +294,7 @@ Each hop only sees adjacent peers, not the full path.
 
 ## Management Key Encryption
 
-Management key encryption provides cryptographic compartmentalization of mesh topology data. When enabled, sensitive metadata (NodeInfo, route paths) is encrypted with a management public key. Only operators with the corresponding private key can decrypt and view topology details. Compromised field agents see only opaque encrypted blobs.
+Management key encryption provides cryptographic compartmentalization of mesh topology data. When enabled, NodeInfo (hostnames, OS details, IP addresses, peer lists) is encrypted with a management public key using sealed boxes. Only operators with the corresponding private key can decrypt and view topology details. Compromised field agents see only opaque encrypted blobs containing 60 bytes of overhead (ephemeral public key + nonce + authentication tag) plus encrypted content.
 
 ### Threat Model
 
@@ -393,6 +393,28 @@ Recommended workflow:
 2. Distribute **public key only** to all agents via config
 3. Keep private key on operator nodes that need topology visibility
 4. Store private key backup securely offline
+
+### Key Management Best Practices
+
+**Backup:**
+- Store private key in a secure offline location (encrypted USB, password manager)
+- Keep at least two copies in separate secure locations
+- Never store private key in version control or shared drives
+
+**Rotation:**
+- Currently, all agents must use the same management key
+- To rotate keys, generate a new keypair and redeploy configs to all agents
+- Rotation requires a coordinated update across the entire mesh
+
+**Compromise Response:**
+If the management private key is compromised:
+1. The attacker can decrypt topology metadata (NodeInfo) from captured traffic
+2. Generate a new keypair immediately
+3. Redeploy all agents with the new public key
+4. The old key cannot decrypt new traffic after rotation
+
+**Per-Environment Keys:**
+For large operations, consider separate management keys per environment or engagement to limit blast radius if a key is compromised.
 
 ### Setup Wizard
 
