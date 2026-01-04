@@ -26,6 +26,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/rpc"
 	"github.com/postalsys/muti-metroo/internal/service"
+	"github.com/postalsys/muti-metroo/internal/shell"
 	"github.com/postalsys/muti-metroo/internal/wizard"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
@@ -60,6 +61,7 @@ root privileges.`,
 	rootCmd.AddCommand(routesCmd())
 	rootCmd.AddCommand(serviceCmd())
 	rootCmd.AddCommand(rpcCmd())
+	rootCmd.AddCommand(shellCmd())
 	rootCmd.AddCommand(uploadCmd())
 	rootCmd.AddCommand(downloadCmd())
 	rootCmd.AddCommand(hashCmd())
@@ -1067,6 +1069,114 @@ Examples:
 	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "RPC password for authentication")
 	cmd.Flags().IntVarP(&timeout, "timeout", "t", 60, "Command timeout in seconds")
+
+	return cmd
+}
+
+func shellCmd() *cobra.Command {
+	var (
+		agentAddr  string
+		password   string
+		timeout    int
+		streamMode bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "shell [flags] <target-agent-id> [command] [args...]",
+		Short: "Open an interactive shell or run streaming commands on a remote agent",
+		Long: `Open an interactive shell session or run streaming commands on a remote agent.
+
+By default, shell opens an interactive TTY session suitable for programs like
+vim, top, or bash. Use --stream for non-interactive streaming mode suitable
+for commands like 'journalctl -f' or 'tail -f'.
+
+Interactive mode (default):
+  - Allocates a PTY on the remote agent
+  - Supports terminal resize (SIGWINCH)
+  - Suitable for interactive programs (vim, less, bash, etc.)
+
+Streaming mode (--stream):
+  - No PTY allocation
+  - Separate stdout/stderr streams
+  - Suitable for long-running commands with continuous output
+
+Examples:
+  # Interactive bash shell
+  muti-metroo shell abc123def456 bash
+
+  # Interactive vim
+  muti-metroo shell abc123def456 vim /etc/config.yaml
+
+  # Streaming journalctl
+  muti-metroo shell --stream abc123def456 journalctl -u muti-metroo -f
+
+  # Streaming tail
+  muti-metroo shell --stream abc123def456 tail -f /var/log/syslog
+
+  # With password authentication
+  muti-metroo shell -p secret abc123def456 bash
+
+  # Via a different agent
+  muti-metroo shell -a 192.168.1.10:8080 abc123def456 top`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetID := args[0]
+			var command string
+			var cmdArgs []string
+
+			if len(args) > 1 {
+				command = args[1]
+				cmdArgs = args[2:]
+			} else {
+				// Default to shell if no command specified
+				command = "bash"
+			}
+
+			// Validate target agent ID
+			if _, err := identity.ParseAgentID(targetID); err != nil {
+				return fmt.Errorf("invalid agent ID '%s': %w", targetID, err)
+			}
+
+			// Create shell client
+			client := shell.NewClient(shell.ClientConfig{
+				AgentAddr:   agentAddr,
+				TargetID:    targetID,
+				Interactive: !streamMode,
+				Password:    password,
+				Command:     command,
+				Args:        cmdArgs,
+				Timeout:     timeout,
+			})
+
+			// Run the shell session
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Handle interrupt signals
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			go func() {
+				<-sigCh
+				cancel()
+			}()
+
+			exitCode, err := client.Run(ctx)
+			if err != nil {
+				return err
+			}
+
+			if exitCode != 0 {
+				os.Exit(exitCode)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
+	cmd.Flags().StringVarP(&password, "password", "p", "", "Shell password for authentication")
+	cmd.Flags().IntVarP(&timeout, "timeout", "t", 0, "Session timeout in seconds (0 = no timeout)")
+	cmd.Flags().BoolVar(&streamMode, "stream", false, "Non-interactive streaming mode (no PTY)")
 
 	return cmd
 }

@@ -35,6 +35,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/recovery"
 	"github.com/postalsys/muti-metroo/internal/routing"
 	"github.com/postalsys/muti-metroo/internal/rpc"
+	"github.com/postalsys/muti-metroo/internal/shell"
 	"github.com/postalsys/muti-metroo/internal/socks5"
 	"github.com/postalsys/muti-metroo/internal/stream"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
@@ -102,6 +103,9 @@ type Agent struct {
 	fileStreamHandler  *filetransfer.StreamHandler
 	fileStreamsMu      sync.RWMutex
 	fileStreams        map[uint64]*fileTransferStream // StreamID -> active transfer
+
+	// Shell (stream-based)
+	shellHandler *shell.Handler
 
 	// Relay stream tracking
 	relayMu          sync.RWMutex
@@ -328,6 +332,26 @@ func (a *Agent) initComponents() error {
 		Compression:  true, // Default to compression
 	}
 	a.fileStreamHandler = filetransfer.NewStreamHandler(ftStreamCfg)
+
+	// Initialize shell handler
+	shellCfg := shell.Config{
+		Enabled: a.cfg.Shell.Enabled,
+		Streaming: shell.StreamingConfig{
+			Enabled:     a.cfg.Shell.Streaming.Enabled,
+			MaxDuration: a.cfg.Shell.Streaming.MaxDuration,
+		},
+		Interactive: shell.InteractiveConfig{
+			Enabled:         a.cfg.Shell.Interactive.Enabled,
+			AllowedCommands: a.cfg.Shell.Interactive.AllowedCommands,
+		},
+		PasswordHash: a.cfg.Shell.PasswordHash,
+		MaxSessions:  a.cfg.Shell.MaxSessions,
+		Whitelist:    a.cfg.Shell.Whitelist,
+	}
+	shellExecutor := shell.NewExecutor(shellCfg)
+	// Set fallback to RPC whitelist and password if shell-specific ones are not set
+	shellExecutor.SetRPCFallback(a.cfg.RPC.Whitelist, a.cfg.RPC.PasswordHash)
+	a.shellHandler = shell.NewHandler(shellExecutor, a, a.logger)
 
 	return nil
 }
@@ -1068,7 +1092,7 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 
 	// Check if we are the exit node (path is empty or we're the target)
 	if len(open.RemainingPath) == 0 || (len(open.RemainingPath) == 1 && open.RemainingPath[0] == a.id) {
-		// Check if this is a file transfer stream
+		// Check if this is a file transfer or shell stream
 		if open.AddressType == protocol.AddrTypeDomain {
 			destAddr := addressToString(open.AddressType, open.Address)
 			if destAddr == protocol.FileTransferUpload {
@@ -1077,6 +1101,15 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 			}
 			if destAddr == protocol.FileTransferDownload {
 				a.handleFileDownloadStreamOpen(peerID, frame.StreamID, open.RequestID)
+				return
+			}
+			// Shell streams
+			if destAddr == protocol.ShellStream {
+				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, false)
+				return
+			}
+			if destAddr == protocol.ShellInteractive {
+				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, true)
 				return
 			}
 		}
@@ -1311,6 +1344,12 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 		return
 	}
 
+	// Check if this is a shell stream
+	if a.shellHandler != nil {
+		a.shellHandler.HandleStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags)
+		// Note: shellHandler tracks its own streams and will ignore unknown stream IDs
+	}
+
 	a.streamMgr.HandleStreamData(frame.StreamID, frame.Flags, frame.Payload)
 }
 
@@ -1362,6 +1401,11 @@ func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame
 	if a.getFileTransferStream(frame.StreamID) != nil {
 		a.cleanupFileTransferStream(frame.StreamID)
 		return
+	}
+
+	// Check if this is a shell stream
+	if a.shellHandler != nil {
+		a.shellHandler.HandleStreamClose(frame.StreamID)
 	}
 
 	a.streamMgr.HandleStreamClose(frame.StreamID)
@@ -2769,6 +2813,31 @@ func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID u
 
 	// Send ACK to accept the stream (metadata will come in first data frame)
 	// File transfers use internal protocol and don't use E2E encryption
+	var zeroKey [crypto.KeySize]byte
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, zeroKey)
+}
+
+// handleShellStreamOpen handles a shell stream open request.
+func (a *Agent) handleShellStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, interactive bool) {
+	modeStr := "streaming"
+	if interactive {
+		modeStr = "interactive"
+	}
+	a.logger.Debug("shell stream open",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, streamID,
+		logging.KeyRequestID, requestID,
+		"mode", modeStr)
+
+	// Delegate to shell handler
+	errCode := a.shellHandler.HandleStreamOpen(peerID, streamID, requestID, interactive)
+	if errCode != 0 {
+		a.WriteStreamOpenErr(peerID, streamID, requestID, errCode, protocol.ErrorCodeName(errCode))
+		return
+	}
+
+	// Send ACK to accept the stream (metadata will come in first data frame)
+	// Shell streams use internal protocol and don't use E2E encryption
 	var zeroKey [crypto.KeySize]byte
 	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, zeroKey)
 }

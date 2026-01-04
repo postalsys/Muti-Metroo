@@ -246,7 +246,8 @@ type Server struct {
 	provider       StatsProvider
 	remoteProvider RemoteMetricsProvider
 	routeTrigger   RouteAdvertiseTrigger
-	sealedBox      *crypto.SealedBox // For checking decrypt capability
+	shellProvider  ShellProvider         // For shell WebSocket sessions
+	sealedBox      *crypto.SealedBox     // For checking decrypt capability
 	server         *http.Server
 	listener       net.Listener
 	running        atomic.Bool
@@ -623,6 +624,12 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 			s.handleFileDownload(w, r, targetID)
 			return
 		}
+	}
+
+	// Check if this is a shell WebSocket request
+	if len(parts) > 1 && parts[1] == "shell" {
+		s.handleShellWebSocket(w, r, targetID)
+		return
 	}
 
 	// For non-RPC requests, only allow GET

@@ -76,7 +76,11 @@ const (
 	ErrFileNotFound       uint16 = 16
 	ErrWriteFailed        uint16 = 17
 	ErrGeneralFailure     uint16 = 18
-	ErrResumeFailed       uint16 = 19  // File changed since partial transfer, resume not possible
+	ErrResumeFailed       uint16 = 19 // File changed since partial transfer, resume not possible
+	ErrShellDisabled      uint16 = 20 // Shell feature is disabled
+	ErrShellAuthFailed    uint16 = 21 // Shell authentication failed
+	ErrPTYFailed          uint16 = 22 // PTY allocation failed
+	ErrCommandNotAllowed  uint16 = 23 // Command not in whitelist
 )
 
 // Protocol constants
@@ -104,6 +108,15 @@ const (
 
 	// FileTransferDownload is the domain address for file download streams
 	FileTransferDownload = "file:download"
+)
+
+// Shell stream addresses (used with AddrTypeDomain)
+const (
+	// ShellStream is the domain address for streaming command execution (no PTY)
+	ShellStream = "shell:stream"
+
+	// ShellInteractive is the domain address for interactive PTY sessions
+	ShellInteractive = "shell:tty"
 )
 
 // FrameTypeName returns a human-readable name for a frame type.
@@ -185,6 +198,14 @@ func ErrorCodeName(code uint16) string {
 		return "GENERAL_FAILURE"
 	case ErrResumeFailed:
 		return "RESUME_FAILED"
+	case ErrShellDisabled:
+		return "SHELL_DISABLED"
+	case ErrShellAuthFailed:
+		return "SHELL_AUTH_FAILED"
+	case ErrPTYFailed:
+		return "PTY_FAILED"
+	case ErrCommandNotAllowed:
+		return "COMMAND_NOT_ALLOWED"
 	default:
 		return "UNKNOWN"
 	}
