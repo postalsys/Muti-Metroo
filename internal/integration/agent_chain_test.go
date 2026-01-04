@@ -20,13 +20,14 @@ import (
 
 // AgentChain represents a chain of 4 agents: A-B-C-D.
 type AgentChain struct {
-	Agents       [4]*agent.Agent
-	DataDirs     [4]string
-	Addresses    [4]string
-	TLSCerts     [4]CertPair
-	HTTPAddrs    [4]string // HTTP health server addresses (set after start)
-	ShellConfig  *config.ShellConfig
-	EnableHTTP   bool // Enable HTTP server on agent A
+	Agents             [4]*agent.Agent
+	DataDirs           [4]string
+	Addresses          [4]string
+	TLSCerts           [4]CertPair
+	HTTPAddrs          [4]string // HTTP health server addresses (set after start)
+	ShellConfig        *config.ShellConfig
+	FileTransferConfig *config.FileTransferConfig
+	EnableHTTP         bool // Enable HTTP server on agent A
 }
 
 // CertPair holds TLS certificate and key file paths.
@@ -150,6 +151,11 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 		// Enable shell on exit node if configured
 		if c.ShellConfig != nil {
 			cfg.Shell = *c.ShellConfig
+		}
+
+		// Enable file transfer on exit node if configured
+		if c.FileTransferConfig != nil {
+			cfg.FileTransfer = *c.FileTransferConfig
 		}
 	}
 
