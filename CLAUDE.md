@@ -163,12 +163,11 @@ An agent can serve multiple roles simultaneously:
 | `exit`         | Exit node handler - TCP dial, route-based access control, E2E decryption                    |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
 | `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |
-| `health`       | Health check HTTP server, Prometheus metrics, remote agent metrics, pprof, dashboard        |
+| `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
 | `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
 | `integration`  | Integration tests for multi-agent mesh scenarios                                            |
 | `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
 | `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys                   |
-| `metrics`      | Prometheus metrics - peers, streams, routing, SOCKS5, exit, protocol stats                  |
 | `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff                 |
 | `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types                   |
 | `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                          |
@@ -238,10 +237,9 @@ http:
   enabled: true
   address: ":8080"
   minimal: false # When true, only /health, /healthz, /ready are enabled
-  metrics: true # /metrics endpoint
   pprof: false # /debug/pprof/* endpoints (disable in production)
   dashboard: true # /ui/*, /api/* endpoints
-  remote_api: true # /agents/*, /metrics/{id} endpoints
+  remote_api: true # /agents/* endpoints
 ```
 
 Disabled endpoints return HTTP 404 and log access attempts at debug level.
@@ -353,7 +351,6 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/health`  | GET    | Basic health check, returns "OK"                                 |
 | `/healthz` | GET    | Detailed health with JSON stats (peer count, stream count, etc.) |
 | `/ready`   | GET    | Readiness probe for Kubernetes                                   |
-| `/metrics` | GET    | Local Prometheus metrics                                         |
 
 ### Web Dashboard
 
@@ -364,18 +361,17 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/api/dashboard` | GET    | Dashboard overview (agent info, stats, peers, routes) |
 | `/api/nodes`     | GET    | Detailed node info listing for all known agents       |
 
-### Distributed Metrics & Status
+### Distributed Status
 
-| Endpoint                           | Method | Description                                                    |
-| ---------------------------------- | ------ | -------------------------------------------------------------- |
-| `/metrics/{agent-id}`              | GET    | Fetch Prometheus metrics from remote agent via control channel |
-| `/agents`                          | GET    | List all known agents in the mesh                              |
-| `/agents/{agent-id}`               | GET    | Get status from specific agent                                 |
-| `/agents/{agent-id}/routes`        | GET    | Get route table from specific agent                            |
-| `/agents/{agent-id}/peers`         | GET    | Get peer list from specific agent                              |
-| `/agents/{agent-id}/shell`         | GET    | WebSocket shell access on remote agent                         |
-| `/agents/{agent-id}/file/upload`   | POST   | Upload file to remote agent                                    |
-| `/agents/{agent-id}/file/download` | POST   | Download file from remote agent                                |
+| Endpoint                           | Method | Description                            |
+| ---------------------------------- | ------ | -------------------------------------- |
+| `/agents`                          | GET    | List all known agents in the mesh      |
+| `/agents/{agent-id}`               | GET    | Get status from specific agent         |
+| `/agents/{agent-id}/routes`        | GET    | Get route table from specific agent    |
+| `/agents/{agent-id}/peers`         | GET    | Get peer list from specific agent      |
+| `/agents/{agent-id}/shell`         | GET    | WebSocket shell access on remote agent |
+| `/agents/{agent-id}/file/upload`   | POST   | Upload file to remote agent            |
+| `/agents/{agent-id}/file/download` | POST   | Download file from remote agent        |
 
 ### Management
 
@@ -622,72 +618,14 @@ Response: Binary file data with headers:
 - **Permissions**: File mode is preserved during transfer
 - **Authentication**: bcrypt password hashing
 
-## Prometheus Metrics
+## Design Decisions
 
-All metrics are prefixed with `muti_metroo_`. Available at `/metrics` endpoint.
+### No Prometheus Metrics
 
-### Connection Metrics
+Muti Metroo intentionally does not include Prometheus metrics functionality. In red team exercises:
 
-| Metric                   | Type    | Labels                   | Description                        |
-| ------------------------ | ------- | ------------------------ | ---------------------------------- |
-| `peers_connected`        | Gauge   | -                        | Currently connected peers          |
-| `peers_total`            | Counter | -                        | Total peer connections established |
-| `peer_connections_total` | Counter | `transport`, `direction` | Connections by transport type      |
-| `peer_disconnects_total` | Counter | `reason`                 | Disconnections by reason           |
+- Agents are deployed ad hoc and are short-lived (lasting only for the duration of the exercise)
+- Setting up monitoring or alerting infrastructure is not practical or necessary
+- Operational simplicity is prioritized over observability
 
-### Stream Metrics
-
-| Metric                        | Type      | Labels       | Description              |
-| ----------------------------- | --------- | ------------ | ------------------------ |
-| `streams_active`              | Gauge     | -            | Currently active streams |
-| `streams_opened_total`        | Counter   | -            | Total streams opened     |
-| `streams_closed_total`        | Counter   | -            | Total streams closed     |
-| `stream_open_latency_seconds` | Histogram | -            | Stream open latency      |
-| `stream_errors_total`         | Counter   | `error_type` | Stream errors by type    |
-
-### Data Transfer Metrics
-
-| Metric                  | Type    | Labels       | Description             |
-| ----------------------- | ------- | ------------ | ----------------------- |
-| `bytes_sent_total`      | Counter | `type`       | Bytes sent by type      |
-| `bytes_received_total`  | Counter | `type`       | Bytes received by type  |
-| `frames_sent_total`     | Counter | `frame_type` | Frames sent by type     |
-| `frames_received_total` | Counter | `frame_type` | Frames received by type |
-
-### Routing Metrics
-
-| Metric                        | Type      | Labels | Description                     |
-| ----------------------------- | --------- | ------ | ------------------------------- |
-| `routes_total`                | Gauge     | -      | Routes in routing table         |
-| `route_advertises_total`      | Counter   | -      | Route advertisements processed  |
-| `route_withdrawals_total`     | Counter   | -      | Route withdrawals processed     |
-| `route_flood_latency_seconds` | Histogram | -      | Route flood propagation latency |
-
-### SOCKS5 Metrics
-
-| Metric                           | Type      | Labels | Description               |
-| -------------------------------- | --------- | ------ | ------------------------- |
-| `socks5_connections_active`      | Gauge     | -      | Active SOCKS5 connections |
-| `socks5_connections_total`       | Counter   | -      | Total SOCKS5 connections  |
-| `socks5_auth_failures_total`     | Counter   | -      | Authentication failures   |
-| `socks5_connect_latency_seconds` | Histogram | -      | Connect request latency   |
-
-### Exit Handler Metrics
-
-| Metric                     | Type      | Labels       | Description             |
-| -------------------------- | --------- | ------------ | ----------------------- |
-| `exit_connections_active`  | Gauge     | -            | Active exit connections |
-| `exit_connections_total`   | Counter   | -            | Total exit connections  |
-| `exit_dns_queries_total`   | Counter   | -            | DNS queries performed   |
-| `exit_dns_latency_seconds` | Histogram | -            | DNS query latency       |
-| `exit_errors_total`        | Counter   | `error_type` | Exit errors by type     |
-
-### Protocol Metrics
-
-| Metric                      | Type      | Labels       | Description               |
-| --------------------------- | --------- | ------------ | ------------------------- |
-| `handshake_latency_seconds` | Histogram | -            | Peer handshake latency    |
-| `handshake_errors_total`    | Counter   | `error_type` | Handshake errors by type  |
-| `keepalives_sent_total`     | Counter   | -            | Keepalives sent           |
-| `keepalives_received_total` | Counter   | -            | Keepalives received       |
-| `keepalive_rtt_seconds`     | Histogram | -            | Keepalive round-trip time |
+**Do not add metrics functionality to this codebase.**

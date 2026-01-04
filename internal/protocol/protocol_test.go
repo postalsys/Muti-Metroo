@@ -1078,7 +1078,7 @@ func TestControlRequest_EncodeDecode(t *testing.T) {
 
 	original := &ControlRequest{
 		RequestID:   12345,
-		ControlType: ControlTypeMetrics,
+		ControlType: ControlTypeStatus,
 		TargetAgent: target,
 		Path:        []identity.AgentID{path1, path2},
 		Data:        []byte("request payload data"),
@@ -1169,9 +1169,9 @@ func TestDecodeControlRequest_TooShort(t *testing.T) {
 func TestControlResponse_EncodeDecode(t *testing.T) {
 	original := &ControlResponse{
 		RequestID:   12345,
-		ControlType: ControlTypeMetrics,
+		ControlType: ControlTypeStatus,
 		Success:     true,
-		Data:        []byte("prometheus metrics data here"),
+		Data:        []byte("status data here"),
 	}
 
 	data := original.Encode()
@@ -1216,7 +1216,7 @@ func TestControlResponse_Failure(t *testing.T) {
 func TestControlResponse_EmptyData(t *testing.T) {
 	original := &ControlResponse{
 		RequestID:   1,
-		ControlType: ControlTypeMetrics,
+		ControlType: ControlTypeStatus,
 		Success:     true,
 		Data:        []byte{},
 	}
@@ -1248,7 +1248,7 @@ func TestControlResponse_DataTruncation(t *testing.T) {
 
 	original := &ControlResponse{
 		RequestID:   1,
-		ControlType: ControlTypeMetrics,
+		ControlType: ControlTypeStatus,
 		Success:     true,
 		Data:        largeData,
 	}

@@ -22,18 +22,18 @@ const (
 	FrameKeepalive    uint8 = 0x22 // Liveness probe
 	FrameKeepaliveAck uint8 = 0x23 // Liveness response
 
-	// Mesh control frames (for remote metrics/status)
-	FrameControlRequest  uint8 = 0x24 // Request metrics/status from remote agent
-	FrameControlResponse uint8 = 0x25 // Response with metrics/status data
+	// Mesh control frames (for remote status queries)
+	FrameControlRequest  uint8 = 0x24 // Request status from remote agent
+	FrameControlResponse uint8 = 0x25 // Response with status data
 )
 
 // Control request types
 const (
-	ControlTypeMetrics uint8 = 0x01 // Request Prometheus metrics
-	ControlTypeStatus  uint8 = 0x02 // Request agent status
-	ControlTypePeers   uint8 = 0x03 // Request peer list
-	ControlTypeRoutes  uint8 = 0x04 // Request route table
-	ControlTypeRPC     uint8 = 0x05 // Remote procedure call (shell command)
+	// 0x01 reserved (previously used for metrics)
+	ControlTypeStatus uint8 = 0x02 // Request agent status
+	ControlTypePeers  uint8 = 0x03 // Request peer list
+	ControlTypeRoutes uint8 = 0x04 // Request route table
+	ControlTypeRPC    uint8 = 0x05 // Remote procedure call (shell command)
 	// 0x06 and 0x07 reserved (previously used for legacy file transfer)
 )
 

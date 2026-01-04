@@ -69,7 +69,6 @@ http:
   address: "127.0.0.1:8080"
 
   # Disable information-leaking endpoints
-  metrics: false     # Prometheus metrics expose internals
   pprof: false       # Go profiling - never in production
   dashboard: false   # Web UI shows topology
   remote_api: false  # Remote agent APIs
@@ -150,7 +149,6 @@ exit:
 http:
   enabled: true
   address: "127.0.0.1:8080"
-  metrics: true      # Keep for operational awareness
   pprof: false
   dashboard: false
   remote_api: false
@@ -439,7 +437,7 @@ The setup wizard (`muti-metroo init`) includes a management key step:
 | X-Muti-Metroo-Protocol header | Set `protocol.http_header: ""` |
 | WebSocket subprotocol | Set `protocol.ws_subprotocol: ""` |
 | Unusual certificate CNs | Use realistic naming |
-| /metrics, /debug endpoints | Set `http.minimal: true` |
+| /debug endpoints | Set `http.minimal: true` |
 | Consistent beaconing intervals | Adjust keepalive timing |
 | Binary strings | Rename binary, strip if needed |
 

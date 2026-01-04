@@ -198,7 +198,7 @@ nginx example:
 ```nginx
 server {
     listen 443 ssl;
-    server_name metrics.example.com;
+    server_name api.example.com;
 
     auth_basic "Restricted";
     auth_basic_user_file /etc/nginx/.htpasswd;
@@ -247,23 +247,6 @@ socks5:
   auth:
     enabled: true              # And authenticated
 ```
-
-### Monitoring
-
-Track authentication failures:
-
-```bash
-# Check SOCKS5 auth failures
-curl http://localhost:8080/metrics | grep socks5_auth_failures
-
-# Check shell auth failures
-curl http://localhost:8080/metrics | grep shell.*auth_failed
-```
-
-Alert on:
-- Spike in auth failures (brute force attempt)
-- Auth failures from unexpected IPs
-- Successful auth at unusual times
 
 ## Troubleshooting
 

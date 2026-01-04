@@ -83,16 +83,6 @@ Get peer list from specific agent.
 }
 ```
 
-## GET /agents/\{agent-id\}/metrics
-
-Get Prometheus metrics from specific agent.
-
-**Response:** Prometheus text format
-
-```bash
-curl http://localhost:8080/agents/abc123.../metrics
-```
-
 ## POST /agents/\{agent-id\}/file/upload
 
 Upload file to remote agent.

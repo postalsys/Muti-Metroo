@@ -104,7 +104,7 @@ management:
 ### What Gets Protected
 
 - **Encrypted**: NodeInfo (hostname, OS, IP addresses, peer lists)
-- **Plaintext**: Agent IDs, route CIDRs, metrics (required for routing)
+- **Plaintext**: Agent IDs, route CIDRs (required for routing)
 
 Without the private key, agents see only opaque 128-bit agent IDs instead of meaningful system identification.
 

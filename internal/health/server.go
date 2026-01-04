@@ -19,8 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
 	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
@@ -39,8 +37,8 @@ type StatsProvider interface {
 // FileTransferProgress is a callback for reporting file transfer progress.
 type FileTransferProgress func(bytesTransferred, totalBytes int64)
 
-// RemoteMetricsProvider provides the ability to fetch metrics from remote agents.
-type RemoteMetricsProvider interface {
+// RemoteStatusProvider provides the ability to fetch status from remote agents.
+type RemoteStatusProvider interface {
 	// ID returns the local agent's ID.
 	ID() identity.AgentID
 
@@ -214,16 +212,13 @@ type ServerConfig struct {
 	// Endpoint group toggles. Disabled endpoints return 404 with logging.
 	// /health, /healthz, /ready are always enabled.
 
-	// EnableMetrics enables the /metrics endpoint
-	EnableMetrics bool
-
 	// EnablePprof enables the /debug/pprof/* endpoints
 	EnablePprof bool
 
 	// EnableDashboard enables the /ui/*, /api/* endpoints
 	EnableDashboard bool
 
-	// EnableRemoteAPI enables the /agents/*, /metrics/{id}, /routes/advertise endpoints
+	// EnableRemoteAPI enables the /agents/*, /routes/advertise endpoints
 	EnableRemoteAPI bool
 }
 
@@ -233,7 +228,6 @@ func DefaultServerConfig() ServerConfig {
 		Address:         ":8080",
 		ReadTimeout:     10 * time.Second,
 		WriteTimeout:    10 * time.Second,
-		EnableMetrics:   true,
 		EnablePprof:     true,
 		EnableDashboard: true,
 		EnableRemoteAPI: true,
@@ -244,7 +238,7 @@ func DefaultServerConfig() ServerConfig {
 type Server struct {
 	cfg            ServerConfig
 	provider       StatsProvider
-	remoteProvider RemoteMetricsProvider
+	remoteProvider RemoteStatusProvider
 	routeTrigger   RouteAdvertiseTrigger
 	shellProvider  ShellProvider         // For shell WebSocket sessions
 	sealedBox      *crypto.SealedBox     // For checking decrypt capability
@@ -276,21 +270,12 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/ready", s.handleReady)
 
-	// Prometheus metrics endpoint (local)
-	if cfg.EnableMetrics {
-		mux.Handle("/metrics", promhttp.Handler())
-	} else {
-		mux.HandleFunc("/metrics", disabledHandler("metrics"))
-	}
-
-	// Remote API endpoints: /metrics/{id}, /agents, /agents/*, /routes/advertise
+	// Remote API endpoints: /agents, /agents/*, /routes/advertise
 	if cfg.EnableRemoteAPI {
-		mux.HandleFunc("/metrics/", s.handleRemoteMetrics)
 		mux.HandleFunc("/agents", s.handleListAgents)
 		mux.HandleFunc("/agents/", s.handleAgentInfo)
 		mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
 	} else {
-		mux.HandleFunc("/metrics/", disabledHandler("remote_metrics"))
 		mux.HandleFunc("/agents", disabledHandler("agents"))
 		mux.HandleFunc("/agents/", disabledHandler("agents"))
 		mux.HandleFunc("/routes/advertise", disabledHandler("routes_advertise"))
@@ -344,9 +329,9 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	return s
 }
 
-// SetRemoteProvider sets the remote metrics provider.
+// SetRemoteProvider sets the remote status provider.
 // This is called after the agent is initialized.
-func (s *Server) SetRemoteProvider(provider RemoteMetricsProvider) {
+func (s *Server) SetRemoteProvider(provider RemoteStatusProvider) {
 	s.remoteProvider = provider
 }
 
@@ -489,61 +474,6 @@ func (s *Server) Handler() http.Handler {
 	return s.server.Handler
 }
 
-// handleRemoteMetrics handles fetching metrics from remote agents.
-// URL format: /metrics/{agent-id}
-func (s *Server) handleRemoteMetrics(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if s.remoteProvider == nil {
-		http.Error(w, "remote metrics not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Parse agent ID from path: /metrics/{agent-id}
-	path := strings.TrimPrefix(r.URL.Path, "/metrics/")
-	if path == "" || path == "/" {
-		http.Error(w, "agent ID required: /metrics/{agent-id}", http.StatusBadRequest)
-		return
-	}
-
-	// Parse the agent ID
-	targetID, err := identity.ParseAgentID(path)
-	if err != nil {
-		http.Error(w, "invalid agent ID format", http.StatusBadRequest)
-		return
-	}
-
-	// Check if target is local agent
-	if targetID == s.remoteProvider.ID() {
-		// Redirect to local metrics
-		promhttp.Handler().ServeHTTP(w, r)
-		return
-	}
-
-	// Fetch metrics from remote agent
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	resp, err := s.remoteProvider.SendControlRequest(ctx, targetID, protocol.ControlTypeMetrics)
-	if err != nil {
-		http.Error(w, "failed to fetch metrics: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-
-	if !resp.Success {
-		http.Error(w, "remote agent error: "+string(resp.Data), http.StatusBadGateway)
-		return
-	}
-
-	// Return the metrics in Prometheus text format
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write(resp.Data)
-}
-
 // handleListAgents lists all known agents in the mesh.
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -639,8 +569,6 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 			controlType = protocol.ControlTypeRoutes
 		case "peers":
 			controlType = protocol.ControlTypePeers
-		case "metrics":
-			controlType = protocol.ControlTypeMetrics
 		}
 	}
 
@@ -659,12 +587,7 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine content type based on control type
-	if controlType == protocol.ControlTypeMetrics {
-		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-	} else {
-		w.Header().Set("Content-Type", "application/json")
-	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp.Data)
 }

@@ -257,40 +257,36 @@ curl http://exit:8080/health
 
 # Check peer connectivity
 curl http://ingress1:8080/healthz | jq '.peers'
+
+# Check routes
+curl http://ingress1:8080/healthz | jq '.routes'
 ```
 
-### Key Metrics
+### Key Indicators
 
 Monitor these for HA:
 
-| Metric | Alert Condition |
-|--------|-----------------|
-| `peers_connected` | < expected count |
-| `routes_total` | < expected count |
-| `peer_disconnects_total` | Spike in rate |
-| `stream_errors_total` | Spike in rate |
+| Indicator | Check Method | Alert Condition |
+|-----------|--------------|-----------------|
+| Peer count | `curl /healthz \| jq '.peers'` | < expected count |
+| Route count | `curl /healthz \| jq '.routes'` | < expected count |
+| Health status | `curl /health` | Not "OK" |
 
-### Prometheus Alert Rules
+### External Monitoring
 
-```yaml
-groups:
-  - name: muti-metroo
-    rules:
-      - alert: PeerDisconnected
-        expr: muti_metroo_peers_connected < 2
-        for: 1m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Muti Metroo has fewer than 2 peers connected"
+Use external monitoring tools to check agent health:
 
-      - alert: NoRoutes
-        expr: muti_metroo_routes_total == 0
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Muti Metroo has no routes in routing table"
+```bash
+#!/bin/bash
+# ha-check.sh - Run via cron or monitoring system
+AGENTS=("ingress1:8080" "ingress2:8080" "exit:8080")
+
+for agent in "${AGENTS[@]}"; do
+    if ! curl -sf "http://$agent/health" > /dev/null; then
+        echo "ALERT: Agent $agent is not healthy"
+        # Send alert to your monitoring system
+    fi
+done
 ```
 
 ## Reconnection Tuning
@@ -351,6 +347,5 @@ chaosMonkey.DisconnectRandomPeer()
 
 ## Next Steps
 
-- [Monitoring](../features/metrics-monitoring) - Set up monitoring
 - [Troubleshooting](../troubleshooting/connectivity) - Debug connectivity
 - [Deployment Scenarios](scenarios) - More deployment patterns

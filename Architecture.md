@@ -47,7 +47,7 @@ This document describes the architecture for a userspace mesh networking agent t
 | **Automatic recovery**    | Reconnect on failure, re-advertise routes                   |
 | **Low latency**           | Suitable for interactive applications (SSH)                 |
 | **High throughput**       | Capable of streaming video                                  |
-| **Production ready**      | Prometheus metrics, health checks, service management       |
+| **Production ready**      | Health checks, service management                           |
 
 ### 1.3 Target Scale
 
@@ -216,10 +216,10 @@ An agent can serve one or more roles simultaneously:
 │  ┌───────────────────────────────────────────────────────────────────────┐ │
 │  │                       OBSERVABILITY LAYER                              │ │
 │  │                                                                        │ │
-│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐           │ │
-│  │  │    Metrics     │  │  Health Check  │  │   Control API  │           │ │
-│  │  │  (Prometheus)  │  │    (HTTP)      │  │ (Unix Socket)  │           │ │
-│  │  └────────────────┘  └────────────────┘  └────────────────┘           │ │
+│  │  ┌──────────────────────────────┐  ┌────────────────┐                 │ │
+│  │  │         Health Check        │  │   Control API  │                 │ │
+│  │  │           (HTTP)            │  │ (Unix Socket)  │                 │ │
+│  │  └──────────────────────────────┘  └────────────────┘                 │ │
 │  │                                                                        │ │
 │  └───────────────────────────────────────────────────────────────────────┘ │
 │                                                                             │
@@ -240,7 +240,6 @@ An agent can serve one or more roles simultaneously:
 | **HTTP/2 Transport**    | TCP streaming for direct connections                    |
 | **WebSocket Transport** | HTTP/1.1 WebSocket for proxy traversal                  |
 | **SOCKS5 Server**       | Accept client connections, initiate streams             |
-| **Metrics**             | Prometheus metrics for monitoring                       |
 | **Health Check**        | HTTP endpoints for liveness/readiness probes            |
 | **Control API**         | Unix socket API for management commands                 |
 
@@ -667,7 +666,7 @@ All communication uses a consistent framing protocol:
 │  │ 0x21 │ PEER_HELLO_ACK     │ Acceptor    │ Handshake response          │ │
 │  │ 0x22 │ KEEPALIVE          │ Either      │ Liveness probe              │ │
 │  │ 0x23 │ KEEPALIVE_ACK      │ Either      │ Liveness response           │ │
-│  │ 0x24 │ CONTROL_REQUEST    │ Either      │ Request metrics/status/RPC  │ │
+│  │ 0x24 │ CONTROL_REQUEST    │ Either      │ Request status/RPC          │ │
 │  │ 0x25 │ CONTROL_RESPONSE   │ Either      │ Response with data          │ │
 │  └──────┴────────────────────┴─────────────┴─────────────────────────────┘ │
 │                                                                             │
@@ -675,7 +674,6 @@ All communication uses a consistent framing protocol:
 │  ┌──────┬────────────────────┬──────────────────────────────────────────┐  │
 │  │ Type │ Name               │ Purpose                                  │  │
 │  ├──────┼────────────────────┼──────────────────────────────────────────┤  │
-│  │ 0x01 │ METRICS            │ Request Prometheus metrics               │  │
 │  │ 0x02 │ STATUS             │ Request agent status                     │  │
 │  │ 0x03 │ PEERS              │ Request peer list                        │  │
 │  │ 0x04 │ ROUTES             │ Request route table                      │  │
@@ -1651,10 +1649,9 @@ http:
 
   # Endpoint control flags
   minimal: false     # When true, only /health, /healthz, /ready are enabled
-  metrics: true      # /metrics endpoint
   pprof: false       # /debug/pprof/* endpoints (disable in production)
   dashboard: true    # /ui/*, /api/* endpoints
-  remote_api: true   # /agents/*, /metrics/{id} endpoints
+  remote_api: true   # /agents/* endpoints
 
 # ------------------------------------------------------------------------------
 # Control Socket
@@ -1862,80 +1859,7 @@ config.Redacted()     // Returns copy with redacted values
 
 ## 15. Observability
 
-### 15.1 Prometheus Metrics
-
-The agent exposes Prometheus metrics at `/metrics` endpoint when health server is enabled.
-
-**Metric Namespace:** `muti_metroo`
-
-**Connection Metrics:**
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `peers_connected` | Gauge | - | Current connected peer count |
-| `peers_total` | Counter | - | Total peer connections established |
-| `peer_connections_total` | Counter | transport, direction | Connections by transport |
-| `peer_disconnects_total` | Counter | reason | Disconnections by reason |
-
-**Stream Metrics:**
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `streams_active` | Gauge | - | Currently active streams |
-| `streams_opened_total` | Counter | - | Total streams opened |
-| `streams_closed_total` | Counter | - | Total streams closed |
-| `stream_open_latency_seconds` | Histogram | - | Stream open latency |
-| `stream_errors_total` | Counter | error_type | Stream errors |
-
-**Data Transfer Metrics:**
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `bytes_sent_total` | Counter | type | Bytes sent |
-| `bytes_received_total` | Counter | type | Bytes received |
-| `frames_sent_total` | Counter | frame_type | Frames sent |
-| `frames_received_total` | Counter | frame_type | Frames received |
-
-**Routing Metrics:**
-| Metric | Type | Description |
-|--------|------|-------------|
-| `routes_total` | Gauge | Routes in table |
-| `route_advertises_total` | Counter | Route advertisements sent |
-| `route_withdrawals_total` | Counter | Route withdrawals sent |
-| `route_flood_latency_seconds` | Histogram | Flood propagation latency |
-
-**SOCKS5 Metrics:**
-| Metric | Type | Description |
-|--------|------|-------------|
-| `socks5_connections_active` | Gauge | Active SOCKS5 connections |
-| `socks5_connections_total` | Counter | Total SOCKS5 connections |
-| `socks5_auth_failures_total` | Counter | Authentication failures |
-| `socks5_connect_latency_seconds` | Histogram | Connection latency |
-
-**Exit Handler Metrics:**
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `exit_connections_active` | Gauge | - | Active exit connections |
-| `exit_connections_total` | Counter | - | Total exit connections |
-| `exit_dns_queries_total` | Counter | - | DNS queries made |
-| `exit_dns_latency_seconds` | Histogram | - | DNS resolution latency |
-| `exit_errors_total` | Counter | error_type | Exit handler errors |
-
-**RPC Metrics:**
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `rpc_calls_total` | Counter | result, command | Total RPC calls by result |
-| `rpc_call_duration_seconds` | Histogram | command | RPC call duration |
-| `rpc_bytes_received_total` | Counter | - | Bytes received in requests |
-| `rpc_bytes_sent_total` | Counter | - | Bytes sent in responses |
-
-**Protocol Metrics:**
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `handshake_latency_seconds` | Histogram | - | Peer handshake latency |
-| `handshake_errors_total` | Counter | error_type | Handshake failures |
-| `keepalives_sent_total` | Counter | - | Keepalives sent |
-| `keepalives_received_total` | Counter | - | Keepalives received |
-| `keepalive_rtt_seconds` | Histogram | - | Keepalive RTT |
-
-### 15.2 HTTP API Endpoints
+### 15.1 HTTP API Endpoints
 
 HTTP endpoints are exposed when `http.enabled: true`:
 
@@ -1945,7 +1869,6 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/health` | GET | Basic liveness probe (returns "OK") |
 | `/healthz` | GET | Detailed health with JSON stats |
 | `/ready` | GET | Readiness probe (returns "READY") |
-| `/metrics` | GET | Local Prometheus metrics |
 
 **Web Dashboard:**
 | Endpoint | Method | Description |
@@ -1955,10 +1878,9 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/api/dashboard` | GET | Dashboard overview (agent info, stats, peers, routes) |
 | `/api/nodes` | GET | Detailed node info listing for all known agents |
 
-**Distributed Metrics & Status:**
+**Distributed Status:**
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/metrics/{agent-id}` | GET | Fetch Prometheus metrics from remote agent via control channel |
 | `/agents` | GET | List all known agents in the mesh |
 | `/agents/{agent-id}` | GET | Get status from specific agent |
 | `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
@@ -1994,7 +1916,7 @@ HTTP endpoints are exposed when `http.enabled: true`:
 }
 ```
 
-### 15.3 Structured Logging
+### 15.2 Structured Logging
 
 Logging uses Go's `slog` package with configurable levels and formats.
 
@@ -2258,10 +2180,6 @@ muti-metroo/
 │   │   ├── certutil.go             # Certificate generation and management
 │   │   └── certutil_test.go        # Certificate tests
 │   │
-│   ├── metrics/
-│   │   ├── metrics.go              # Prometheus metrics definitions
-│   │   └── metrics_test.go         # Metrics tests
-│   │
 │   ├── health/
 │   │   ├── server.go               # Health check HTTP server
 │   │   └── server_test.go          # Health server tests
@@ -2286,7 +2204,6 @@ muti-metroo/
 │   ├── rpc/
 │   │   ├── rpc.go                  # RPC executor with whitelist and auth
 │   │   ├── chunked.go              # Chunked payload for large transfers
-│   │   ├── metrics.go              # RPC Prometheus metrics
 │   │   └── rpc_test.go             # RPC tests
 │   │
 │   ├── filetransfer/
@@ -2348,7 +2265,6 @@ muti-metroo/
 | `gopkg.in/yaml.v3`                  | Configuration parsing          |
 | `github.com/spf13/cobra`            | CLI framework                  |
 | `log/slog`                          | Structured logging (stdlib)    |
-| `github.com/prometheus/client_golang` | Prometheus metrics           |
 | `github.com/charmbracelet/huh`      | Interactive setup wizard TUI   |
 | `github.com/charmbracelet/lipgloss` | Terminal styling               |
 
@@ -2472,7 +2388,6 @@ muti-metroo/
 │  │  • CIDR matching                                                    │   │
 │  │  • Configuration parsing and validation                             │   │
 │  │  • Certificate generation                                           │   │
-│  │  • Metrics recording                                                │   │
 │  │  • Wizard config building                                           │   │
 │  │  • Service unit generation                                          │   │
 │  │  • Handshake failure scenarios                                      │   │
@@ -2509,7 +2424,6 @@ make test-coverage
 
 # Run specific package tests
 go test -v ./internal/config/...
-go test -v ./internal/metrics/...
 
 # Run single test
 go test -v -run TestHandshake_Success ./internal/peer/
@@ -2540,7 +2454,7 @@ docker run --rm muti-metroo-test
 | 0x21 | PEER_HELLO_ACK    | Handshake response      |
 | 0x22 | KEEPALIVE         | Liveness probe          |
 | 0x23 | KEEPALIVE_ACK     | Liveness response       |
-| 0x24 | CONTROL_REQUEST   | Request metrics/status  |
+| 0x24 | CONTROL_REQUEST   | Request status/RPC      |
 | 0x25 | CONTROL_RESPONSE  | Response with data      |
 
 ### Error Codes

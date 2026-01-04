@@ -75,7 +75,7 @@ If exit role is selected:
 ### 8. Advanced Options
 
 - **Logging**: Level (debug/info/warn/error) and format (text/json)
-- **HTTP API**: Health checks, metrics, dashboard
+- **HTTP API**: Health checks and dashboard
 - **Control socket**: Unix socket for CLI commands
 - **Remote shell**: Remote command execution (disabled by default)
 - **File transfer**: File upload/download (disabled by default)

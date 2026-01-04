@@ -408,18 +408,9 @@ type HTTPConfig struct {
 	// Endpoint group controls. All default to true when http.enabled=true.
 	// Use pointer types to distinguish between "not set" (nil = use default) and "explicitly false".
 	// Disabled endpoints return 404 and log access attempts.
-	Metrics   *bool `yaml:"metrics"`    // /metrics - Prometheus metrics endpoint
 	Pprof     *bool `yaml:"pprof"`      // /debug/pprof/* - Go profiling endpoints
 	Dashboard *bool `yaml:"dashboard"`  // /ui/*, /api/* - Web dashboard and API
-	RemoteAPI *bool `yaml:"remote_api"` // /agents/*, /metrics/{id} - Distributed mesh APIs
-}
-
-// MetricsEnabled returns whether the /metrics endpoint is enabled.
-func (h HTTPConfig) MetricsEnabled() bool {
-	if h.Minimal {
-		return false
-	}
-	return h.Metrics == nil || *h.Metrics
+	RemoteAPI *bool `yaml:"remote_api"` // /agents/* - Distributed mesh APIs
 }
 
 // PprofEnabled returns whether the /debug/pprof/* endpoints are enabled.
@@ -438,7 +429,7 @@ func (h HTTPConfig) DashboardEnabled() bool {
 	return h.Dashboard == nil || *h.Dashboard
 }
 
-// RemoteAPIEnabled returns whether the /agents/* and /metrics/{id} endpoints are enabled.
+// RemoteAPIEnabled returns whether the /agents/* endpoints are enabled.
 func (h HTTPConfig) RemoteAPIEnabled() bool {
 	if h.Minimal {
 		return false

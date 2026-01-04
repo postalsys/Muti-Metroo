@@ -156,10 +156,9 @@ http:
   read_timeout: 10s
   write_timeout: 10s
   minimal: false               # When true, only health endpoints enabled
-  metrics: true                # /metrics endpoint
   pprof: false                 # /debug/pprof/* endpoints
   dashboard: true              # /ui/*, /api/* endpoints
-  remote_api: true             # /agents/*, /metrics/{id} endpoints
+  remote_api: true             # /agents/* endpoints
 
 # Shell (remote commands)
 shell:

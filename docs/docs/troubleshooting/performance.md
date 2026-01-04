@@ -11,48 +11,23 @@ sidebar_position: 3
 
 Diagnose and optimize performance issues.
 
-## Performance Metrics
-
-### Key Metrics to Monitor
-
-```bash
-# Get all metrics
-curl http://localhost:8080/metrics
-
-# Key performance metrics:
-# - Stream latency
-# - Throughput
-# - Active connections
-# - Buffer usage
-```
-
-| Metric | What It Tells You |
-|--------|-------------------|
-| `stream_open_latency_seconds` | Time to establish streams |
-| `bytes_sent_total` | Data throughput |
-| `streams_active` | Current load |
-| `keepalive_rtt_seconds` | Network latency |
-
 ## High Latency
 
 ### Symptoms
 
 - Slow page loads
 - SSH feels sluggish
-- High `stream_open_latency_seconds`
+- Stream open timeouts
 
 ### Diagnosis
 
 ```bash
-# Check stream open latency
-curl http://localhost:8080/metrics | grep stream_open_latency
-
-# Check keepalive RTT
-curl http://localhost:8080/metrics | grep keepalive_rtt
-
 # Count hops
 curl http://localhost:8080/healthz | jq '.routes'
 # Look at metric values - each increment is one hop
+
+# Check logs for latency issues
+journalctl -u muti-metroo | grep -i "latency\|timeout"
 ```
 
 ### Solutions
@@ -87,19 +62,17 @@ connections:
 ### Symptoms
 
 - Slow file transfers
-- Low `bytes_sent_total` rate
+- Low throughput
 - Buffering on streams
 
 ### Diagnosis
 
 ```bash
-# Check throughput
-curl http://localhost:8080/metrics | grep bytes
+# Check network speed between hops
+iperf3 -c peer-address -p 5201
 
-# Check for throttling
-curl http://localhost:8080/metrics | grep stream
-
-# Check buffer status (if available)
+# Check logs for buffer issues
+journalctl -u muti-metroo | grep -i "buffer\|throttle"
 ```
 
 ### Solutions
@@ -146,8 +119,8 @@ Small frequent transfers have more overhead. Batch data when possible.
 ps aux | grep muti-metroo
 cat /proc/$(pgrep muti-metroo)/status | grep -i mem
 
-# Check stream count
-curl http://localhost:8080/metrics | grep streams_active
+# Check stream count via health endpoint
+curl http://localhost:8080/healthz | jq '.streams'
 ```
 
 ### Calculation
@@ -239,7 +212,7 @@ CPU-bound workloads benefit from faster cores.
 ```bash
 # Check connection count
 netstat -an | grep 4433 | wc -l
-curl http://localhost:8080/metrics | grep peers_connected
+curl http://localhost:8080/healthz | jq '.peers'
 ```
 
 **Solutions:**
@@ -254,8 +227,8 @@ limits:
 Frequent connect/disconnect wastes resources.
 
 ```bash
-# Check reconnection rate
-curl http://localhost:8080/metrics | grep peer_disconnects
+# Check logs for reconnection patterns
+journalctl -u muti-metroo | grep -i "disconnect\|reconnect"
 ```
 
 **Solutions:**

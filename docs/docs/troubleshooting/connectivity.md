@@ -295,10 +295,10 @@ Error: stream open timeout
 
 ### Streams Dying
 
-**Check stream metrics:**
+**Check logs for stream issues:**
 
 ```bash
-curl http://localhost:8080/metrics | grep stream
+journalctl -u muti-metroo | grep -i "stream"
 ```
 
 **Common causes:**

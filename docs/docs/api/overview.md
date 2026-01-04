@@ -29,7 +29,6 @@ http:
 | Category | Purpose |
 |----------|---------|
 | [Health](health) | Health checks and readiness probes |
-| [Metrics](metrics) | Prometheus metrics (local and remote) |
 | [Agents](agents) | Remote agent status and management |
 | [Routes](routes) | Route management and triggers |
 | [Shell](shell) | Remote shell access (interactive and streaming) |
@@ -45,7 +44,6 @@ Most endpoints require no authentication. Shell and file transfer endpoints requ
 - **JSON**: Most endpoints return JSON
 - **Plain text**: Health checks return plain text
 - **Binary**: File downloads return binary data
-- **Prometheus**: Metrics endpoint returns Prometheus format
 
 ## Error Responses
 

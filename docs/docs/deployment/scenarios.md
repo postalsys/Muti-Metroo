@@ -417,7 +417,6 @@ Both relays connect to the same exit agent. Routes are learned from both, with t
 - [ ] Generate agent certificates for all nodes
 - [ ] Plan network topology and routes
 - [ ] Configure firewall rules
-- [ ] Set up monitoring (Prometheus, etc.)
 
 ### Deployment
 
@@ -429,7 +428,7 @@ Both relays connect to the same exit agent. Routes are learned from both, with t
 
 ### Post-Deployment
 
-- [ ] Monitor metrics and logs
+- [ ] Monitor logs
 - [ ] Set up alerting for certificate expiration
 - [ ] Document the topology
 - [ ] Plan certificate rotation

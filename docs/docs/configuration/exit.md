@@ -322,16 +322,6 @@ routing:
   max_hops: 16              # Maximum path length
 ```
 
-## Metrics
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `muti_metroo_exit_connections_active` | Gauge | Active connections |
-| `muti_metroo_exit_connections_total` | Counter | Total connections |
-| `muti_metroo_exit_dns_queries_total` | Counter | DNS queries |
-| `muti_metroo_exit_dns_latency_seconds` | Histogram | DNS latency |
-| `muti_metroo_exit_errors_total` | Counter | Errors by type |
-
 ## Troubleshooting
 
 ### No Route Found
@@ -380,8 +370,7 @@ Error: destination not in allowed routes
 1. **Principle of least privilege**: Only advertise necessary routes
 2. **Avoid `0.0.0.0/0`** unless you need full internet access
 3. **Use internal DNS** for private networks
-4. **Monitor exit traffic** via metrics
-5. **Consider network segmentation**: Different exits for different trust levels
+4. **Consider network segmentation**: Different exits for different trust levels
 
 ## Related
 

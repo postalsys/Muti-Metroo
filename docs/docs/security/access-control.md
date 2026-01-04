@@ -301,19 +301,6 @@ file_transfer:
 
 ## Monitoring Access
 
-### Metrics
-
-```bash
-# SOCKS5 auth failures
-curl http://localhost:8080/metrics | grep socks5_auth_failures
-
-# Shell rejections
-curl http://localhost:8080/metrics | grep shell.*rejected
-
-# Exit connection errors
-curl http://localhost:8080/metrics | grep exit_errors
-```
-
 ### Logging
 
 Enable debug logging for access issues:

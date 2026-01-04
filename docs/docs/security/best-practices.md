@@ -60,15 +60,18 @@ fi
 
 ### Monitor Certificate Expiration
 
-```yaml
-# Prometheus alert rule
-- alert: CertificateExpiringSoon
-  expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 14
-  for: 1h
-  labels:
-    severity: warning
-  annotations:
-    summary: "Certificate expires in less than 14 days"
+Set up certificate expiration monitoring using external tools or scripts:
+
+```bash
+#!/bin/bash
+# check-cert-expiry.sh
+CERT="/etc/muti-metroo/certs/agent.crt"
+DAYS_LEFT=$(( ($(date -d "$(openssl x509 -enddate -noout -in $CERT | cut -d= -f2)" +%s) - $(date +%s)) / 86400 ))
+
+if [ $DAYS_LEFT -lt 14 ]; then
+    echo "WARNING: Certificate expires in $DAYS_LEFT days"
+    exit 1
+fi
 ```
 
 ## Authentication Hardening
@@ -237,20 +240,6 @@ shell:
 agent:
   log_level: "info"
   log_format: "json"    # For log aggregation
-```
-
-### Monitor Security Metrics
-
-```yaml
-# Alert on suspicious activity
-alerts:
-  - auth_failures_high:
-      expr: rate(muti_metroo_socks5_auth_failures_total[5m]) > 10
-      severity: warning
-
-  - shell_rejections_high:
-      expr: rate(muti_metroo_shell_calls_total{result="rejected"}[5m]) > 5
-      severity: warning
 ```
 
 ### Retain Audit Logs

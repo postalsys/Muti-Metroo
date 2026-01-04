@@ -1317,14 +1317,14 @@ func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
 }
 
 // ============================================================================
-// Control frames (for remote metrics/status)
+// Control frames (for remote status queries)
 // ============================================================================
 
 // ControlRequest is the payload for CONTROL_REQUEST frames.
-// Used to request metrics, status, or other information from remote agents.
+// Used to request status or other information from remote agents.
 type ControlRequest struct {
 	RequestID   uint64             // Unique request ID for correlation
-	ControlType uint8              // Type of control request (ControlTypeMetrics, etc.)
+	ControlType uint8              // Type of control request (ControlTypeStatus, etc.)
 	TargetAgent identity.AgentID   // Target agent to forward request to (zero = this agent)
 	Path        []identity.AgentID // Remaining path to target
 	Data        []byte             // Optional request data (e.g., RPC request payload)

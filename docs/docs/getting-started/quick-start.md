@@ -88,7 +88,7 @@ socks5:
   enabled: true
   address: "127.0.0.1:1080"
 
-# HTTP API (health checks, metrics, CLI)
+# HTTP API (health checks, dashboard)
 http:
   enabled: true
   address: ":8080"
@@ -125,9 +125,6 @@ curl http://localhost:8080/health
 # Get detailed status
 curl http://localhost:8080/healthz
 # Output: {"status":"healthy","agent_id":"a1b2c3d4...","peers":0,"streams":0,"routes":0}
-
-# View metrics
-curl http://localhost:8080/metrics | head -20
 ```
 
 ## Step 6: Test SOCKS5 Proxy

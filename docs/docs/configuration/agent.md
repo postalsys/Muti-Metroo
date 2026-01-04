@@ -85,7 +85,7 @@ agent:
 Used in:
 - Web dashboard
 - Node info advertisements
-- Logs and metrics
+- Logs
 
 Supports Unicode:
 

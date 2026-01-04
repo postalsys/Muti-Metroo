@@ -328,16 +328,6 @@ http://localhost:8080/ui/
 
 See [Web Dashboard](../features/web-dashboard).
 
-### Can I get Prometheus metrics?
-
-Yes. Metrics are available at:
-
-```
-http://localhost:8080/metrics
-```
-
-See [Metrics](../features/metrics-monitoring).
-
 ## Next Steps
 
 - [Common Issues](common-issues)

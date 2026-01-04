@@ -120,5 +120,4 @@ No additional configuration required.
 
 - [API - Dashboard](../api/dashboard) - Dashboard API reference
 - [API - Health](../api/health) - Health endpoints
-- [Features - Metrics](metrics-monitoring) - Prometheus metrics
-- [Deployment - Docker](../deployment/docker) - Running with monitoring
+- [Deployment - Docker](../deployment/docker) - Running with Docker

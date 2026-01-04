@@ -393,4 +393,3 @@ docker compose exec agent1 chown -R 1000:1000 /app/data
 
 - [Kubernetes Deployment](kubernetes) - Deploy on K8s
 - [System Service](system-service) - Native installation
-- [Monitoring](../features/metrics-monitoring) - Prometheus setup

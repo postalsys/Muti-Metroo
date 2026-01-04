@@ -247,5 +247,4 @@ http:
 ## Related
 
 - [Troubleshooting - Performance](../troubleshooting/performance) - Performance issues
-- [Features - Metrics](../features/metrics-monitoring) - Prometheus metrics
 - [API - Health](health) - Health check endpoints

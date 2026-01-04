@@ -304,7 +304,7 @@ E = Exit (has exit routes)
 2. **Place transit in DMZ**: Transit agents don't need to access sensitive resources
 3. **Use specific routes**: Avoid `0.0.0.0/0` on exits unless necessary
 4. **Separate concerns**: Don't combine ingress and exit on the same agent in production
-5. **Monitor all roles**: Enable HTTP API for metrics on every agent
+5. **Enable HTTP API**: Enable HTTP API for health checks and dashboard on every agent
 
 ## Next Steps
 

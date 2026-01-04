@@ -338,24 +338,6 @@ spec:
     - {} # Allow all egress (for exit traffic)
 ```
 
-### ServiceMonitor (Prometheus)
-
-```yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: muti-metroo
-  namespace: muti-metroo
-spec:
-  selector:
-    matchLabels:
-      app: muti-metroo
-  endpoints:
-    - port: http
-      path: /metrics
-      interval: 30s
-```
-
 ## Helm Chart
 
 ### values.yaml
@@ -397,9 +379,6 @@ resources:
     cpu: 100m
     memory: 128Mi
 
-monitoring:
-  enabled: true
-  serviceMonitor: true
 ```
 
 ## High Availability
@@ -490,4 +469,3 @@ kubectl exec deployment/muti-metroo -n muti-metroo -- env | grep -i tls
 
 - [System Service](system-service) - Native installation
 - [High Availability](high-availability) - Redundancy patterns
-- [Monitoring](../features/metrics-monitoring) - Prometheus integration

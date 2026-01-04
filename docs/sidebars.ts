@@ -54,7 +54,6 @@ const sidebars: SidebarsConfig = {
         'features/file-transfer',
         'features/shell',
         'features/web-dashboard',
-        'features/metrics-monitoring',
       ],
     },
     {
@@ -104,7 +103,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'api/overview',
         'api/health',
-        'api/metrics',
         'api/agents',
         'api/routes',
         'api/shell',

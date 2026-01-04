@@ -18,9 +18,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/common/expfmt"
-
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/crypto"
@@ -303,14 +300,13 @@ func (a *Agent) initComponents() error {
 			Address:         a.cfg.HTTP.Address,
 			ReadTimeout:     a.cfg.HTTP.ReadTimeout,
 			WriteTimeout:    a.cfg.HTTP.WriteTimeout,
-			EnableMetrics:   a.cfg.HTTP.MetricsEnabled(),
 			EnablePprof:     a.cfg.HTTP.PprofEnabled(),
 			EnableDashboard: a.cfg.HTTP.DashboardEnabled(),
 			EnableRemoteAPI: a.cfg.HTTP.RemoteAPIEnabled(),
 		}
 		provider := &agentStatsProvider{agent: a}
 		a.healthServer = health.NewServer(healthCfg, provider)
-		a.healthServer.SetRemoteProvider(a)        // Enable remote metrics via control channel
+		a.healthServer.SetRemoteProvider(a)        // Enable remote status via control channel
 		a.healthServer.SetRouteAdvertiseTrigger(a) // Enable route advertisement trigger
 		a.healthServer.SetSealedBox(a.sealedBox)   // Enable management key decrypt checks
 		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
@@ -1656,8 +1652,6 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 	var success bool
 
 	switch req.ControlType {
-	case protocol.ControlTypeMetrics:
-		data, success = a.getLocalMetrics()
 	case protocol.ControlTypeStatus:
 		data, success = a.getLocalStatus()
 	case protocol.ControlTypePeers:
@@ -1921,16 +1915,6 @@ func (a *Agent) SendControlRequestWithData(ctx context.Context, targetID identit
 	}
 }
 
-// getLocalMetrics collects Prometheus metrics from this agent.
-func (a *Agent) getLocalMetrics() ([]byte, bool) {
-	// Use prometheus client to gather metrics
-	metrics, err := a.gatherPrometheusMetrics()
-	if err != nil {
-		return []byte(err.Error()), false
-	}
-	return metrics, true
-}
-
 // getLocalStatus returns the agent's status as JSON.
 func (a *Agent) getLocalStatus() ([]byte, bool) {
 	stats := a.Stats()
@@ -1988,25 +1972,6 @@ func (a *Agent) getLocalRoutes() ([]byte, bool) {
 		return []byte(err.Error()), false
 	}
 	return data, true
-}
-
-// gatherPrometheusMetrics collects metrics in Prometheus text format.
-func (a *Agent) gatherPrometheusMetrics() ([]byte, error) {
-	// Import prometheus registry and gather metrics
-	reg := prometheus.DefaultGatherer
-	mfs, err := reg.Gather()
-	if err != nil {
-		return nil, err
-	}
-
-	var buf bytes.Buffer
-	enc := expfmt.NewEncoder(&buf, expfmt.NewFormat(expfmt.TypeTextPlain))
-	for _, mf := range mfs {
-		if err := enc.Encode(mf); err != nil {
-			return nil, err
-		}
-	}
-	return buf.Bytes(), nil
 }
 
 // handlePeerDisconnect is called when a peer connection is closed.
