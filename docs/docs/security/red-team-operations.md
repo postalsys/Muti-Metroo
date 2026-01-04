@@ -321,7 +321,7 @@ file_transfer:
   password_hash: "$2a$10$..."
   max_file_size: 0        # 0 = unlimited
   allowed_paths:
-    - "/"                 # Full filesystem (operational)
+    - "*"                 # Full filesystem (operational)
     # Or restricted:
     # - /tmp
     # - /home/*/
@@ -514,7 +514,7 @@ shell:
 file_transfer:
   enabled: true
   password_hash: "${FILE_HASH}"
-  allowed_paths: ["/"]
+  allowed_paths: ["*"]
 
 management:
   public_key: "${MGMT_PUBKEY}"
