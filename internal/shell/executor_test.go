@@ -427,11 +427,67 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("DefaultConfig().Whitelist = %v, want empty", cfg.Whitelist)
 	}
 
-	if cfg.MaxSessions != 10 {
-		t.Errorf("DefaultConfig().MaxSessions = %d, want 10", cfg.MaxSessions)
+	if cfg.MaxSessions != 0 {
+		t.Errorf("DefaultConfig().MaxSessions = %d, want 0 (unlimited)", cfg.MaxSessions)
 	}
 
 	if cfg.Timeout != 0 {
 		t.Errorf("DefaultConfig().Timeout = %v, want 0", cfg.Timeout)
+	}
+}
+
+func TestExecutor_AcquireSession_Unlimited(t *testing.T) {
+	// MaxSessions = 0 means unlimited
+	exec := NewExecutor(Config{
+		Enabled:     true,
+		MaxSessions: 0,
+	})
+
+	// Should be able to acquire many sessions without limit
+	for i := 0; i < 100; i++ {
+		if err := exec.AcquireSession(); err != nil {
+			t.Errorf("AcquireSession() error = %v at session %d, want nil (unlimited)", err, i+1)
+		}
+	}
+
+	if exec.ActiveSessions() != 100 {
+		t.Errorf("ActiveSessions() = %d, want 100", exec.ActiveSessions())
+	}
+
+	// Release all
+	for i := 0; i < 100; i++ {
+		exec.ReleaseSession()
+	}
+
+	if exec.ActiveSessions() != 0 {
+		t.Errorf("ActiveSessions() = %d after release, want 0", exec.ActiveSessions())
+	}
+}
+
+func TestExecutor_AcquireSession_Limited(t *testing.T) {
+	// MaxSessions > 0 enforces limit
+	exec := NewExecutor(Config{
+		Enabled:     true,
+		MaxSessions: 3,
+	})
+
+	// Acquire up to limit
+	for i := 0; i < 3; i++ {
+		if err := exec.AcquireSession(); err != nil {
+			t.Errorf("AcquireSession() error = %v at session %d", err, i+1)
+		}
+	}
+
+	// Fourth should fail
+	if err := exec.AcquireSession(); err == nil {
+		t.Error("AcquireSession() should fail when limit reached")
+	} else if !strings.Contains(err.Error(), "max sessions") {
+		t.Errorf("AcquireSession() error = %q, want error containing 'max sessions'", err.Error())
+	}
+
+	// Release one and try again
+	exec.ReleaseSession()
+	if err := exec.AcquireSession(); err != nil {
+		t.Errorf("AcquireSession() error = %v after release", err)
 	}
 }

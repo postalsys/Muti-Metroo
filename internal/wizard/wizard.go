@@ -977,7 +977,7 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 	cfg := config.ShellConfig{
 		Enabled:     false,
 		Whitelist:   []string{},
-		MaxSessions: 10,
+		MaxSessions: 0, // 0 = unlimited
 	}
 	var enableShell bool
 

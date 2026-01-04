@@ -249,7 +249,7 @@ shell:
   password_hash: ""            # bcrypt hash of shell password
                                # Generate with: muti-metroo hash
   timeout: 0s                  # Optional command timeout (0 = no timeout)
-  max_sessions: 10             # Max concurrent shell sessions
+  max_sessions: 0              # Max concurrent sessions (0 = unlimited)
 
 # ------------------------------------------------------------------------------
 # File Transfer

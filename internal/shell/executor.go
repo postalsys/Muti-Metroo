@@ -42,7 +42,7 @@ func DefaultConfig() Config {
 	return Config{
 		Enabled:     false,
 		Whitelist:   []string{},
-		MaxSessions: 10,
+		MaxSessions: 0, // 0 = unlimited
 	}
 }
 

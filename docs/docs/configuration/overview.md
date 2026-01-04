@@ -166,7 +166,7 @@ shell:
   whitelist: []
   password_hash: ""
   timeout: 0s                # Default command timeout (0 = no timeout)
-  max_sessions: 10           # Concurrent session limit
+  max_sessions: 0            # Concurrent session limit (0 = unlimited)
 
 # File transfer
 file_transfer:

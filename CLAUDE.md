@@ -482,7 +482,7 @@ shell:
   whitelist: [] # Commands allowed (empty = none, ["*"] = all)
   password_hash: "" # bcrypt hash of shell password
   timeout: 0s # Optional command timeout (0 = no timeout)
-  max_sessions: 10 # Max concurrent sessions
+  max_sessions: 0 # Max concurrent sessions (0 = unlimited)
 ```
 
 ### Security Features

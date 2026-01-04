@@ -27,7 +27,7 @@ shell:
   #   - hostname
   password_hash: ""           # bcrypt hash of shell password
   timeout: 0s                 # Optional command timeout (0 = no timeout)
-  max_sessions: 10            # Max concurrent sessions
+  max_sessions: 0             # Max concurrent sessions (0 = unlimited)
 ```
 
 :::tip Generate Password Hash
@@ -134,17 +134,6 @@ See [API - Shell](../api/shell) for protocol details.
 :::info Windows PTY
 Windows agents use ConPTY (Windows Pseudo Console) for interactive sessions. ConPTY is available on Windows 10 version 1809 and later.
 :::
-
-## Metrics
-
-- `muti_metroo_shell_sessions_active`: Active sessions gauge
-- `muti_metroo_shell_sessions_total`: Total sessions by type and result
-- `muti_metroo_shell_duration_seconds`: Session duration histogram
-- `muti_metroo_shell_bytes_total`: Bytes transferred by direction
-
-Type labels: `stream`, `interactive`
-Result labels: `success`, `error`, `timeout`, `rejected`
-Direction labels: `stdin`, `stdout`, `stderr`
 
 ## Related
 

@@ -553,9 +553,9 @@ func Default() *Config {
 			AllowedPaths: []string{},        // Empty = no paths allowed (must configure explicitly)
 		},
 		Shell: ShellConfig{
-			Enabled:     false,       // Disabled by default for security
-			Whitelist:   []string{},  // Empty = no commands allowed
-			MaxSessions: 10,          // Default max concurrent sessions
+			Enabled:     false,      // Disabled by default for security
+			Whitelist:   []string{}, // Empty = no commands allowed
+			MaxSessions: 0,          // 0 = unlimited (trusted network)
 		},
 	}
 }
