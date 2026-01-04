@@ -29,7 +29,7 @@ exit:
 1. Client connects to destination via SOCKS5
 2. Ingress agent routes to exit agent
 3. Exit agent checks if destination matches advertised routes
-4. If no match: `STREAM_OPEN_ERR` returned
+4. If no match: Connection rejected with error
 5. If match: Connection established
 
 ### Example Configurations

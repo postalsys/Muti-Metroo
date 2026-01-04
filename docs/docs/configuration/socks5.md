@@ -222,8 +222,8 @@ Muti Metroo supports:
 | CONNECT command | Yes |
 | BIND command | No |
 | UDP ASSOCIATE | No |
-| No Auth (0x00) | Yes |
-| Username/Password (0x02) | Yes |
+| No Authentication | Yes |
+| Username/Password | Yes |
 | IPv4 addresses | Yes |
 | IPv6 addresses | Yes |
 | Domain names | Yes |

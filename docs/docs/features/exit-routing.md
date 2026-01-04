@@ -29,7 +29,7 @@ exit:
 
 ## Route Advertisement
 
-Routes are advertised via ROUTE_ADVERTISE frames:
+Routes are propagated through the mesh:
 
 - **Periodic**: Every `routing.advertise_interval` (default 2m)
 - **On-demand**: Via HTTP API `POST /routes/advertise`
@@ -47,9 +47,9 @@ DNS resolution happens at the **ingress agent**, not at the exit node:
 1. Client connects via SOCKS5 with domain (e.g., example.com)
 2. **Ingress agent** resolves domain using the system's DNS resolver
 3. Ingress performs route lookup using the resolved IP address
-4. Ingress sends STREAM_OPEN with the **IP address** to the exit node
-5. Exit opens TCP connection to the IP
-6. Returns STREAM_OPEN_ACK
+4. Ingress opens a stream to the exit node with the **IP address**
+5. Exit opens TCP connection to the destination IP
+6. Traffic flows bidirectionally through the mesh
 
 :::note
 The `exit.dns` configuration is reserved for future use but is not currently active for SOCKS5 traffic. Domain names are always resolved at the ingress agent using the host system's DNS configuration.
@@ -77,7 +77,7 @@ exit:
     - "10.0.0.0/8"  # Only allow 10.x.x.x
 ```
 
-Connections to other IPs will be rejected with STREAM_OPEN_ERR.
+Connections to other IPs will be rejected.
 
 ## Metrics
 

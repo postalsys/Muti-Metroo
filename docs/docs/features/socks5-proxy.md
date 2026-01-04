@@ -29,7 +29,7 @@ socks5:
 
 Supports two methods:
 
-### No Authentication (Method 0x00)
+### No Authentication
 
 ```yaml
 socks5:
@@ -39,7 +39,7 @@ socks5:
     enabled: false
 ```
 
-### Username/Password (Method 0x02)
+### Username/Password
 
 ```yaml
 socks5:

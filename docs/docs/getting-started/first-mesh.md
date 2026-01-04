@@ -268,11 +268,11 @@ curl -v -x socks5://localhost:1080 https://httpbin.org/ip
 1. **Client** connects to Agent A's SOCKS5 server (port 1080)
 2. **Agent A** looks up route for destination IP
 3. **Routing table** shows 0.0.0.0/0 via Agent B
-4. **Agent A** sends STREAM_OPEN frame to Agent B
+4. **Agent A** opens a stream to Agent B
 5. **Agent B** opens TCP connection to destination
-6. **Agent B** sends STREAM_OPEN_ACK back to Agent A
-7. **Data flows** bidirectionally through STREAM_DATA frames
-8. **Connection closes** via STREAM_CLOSE
+6. **Agent B** confirms the stream is ready
+7. **Data flows** bidirectionally through the mesh
+8. **Stream closes** when the connection terminates
 
 ## Viewing the Dashboard
 

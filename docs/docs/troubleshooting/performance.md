@@ -127,9 +127,9 @@ top -p $(pgrep muti-metroo)
 
 QUIC handles packet loss better than TCP-based transports.
 
-**4. Reduce frame overhead**
+**4. Use larger data transfers**
 
-Ensure frames are at or near max size (16 KB).
+Small frequent transfers have more overhead. Batch data when possible.
 
 ## High Memory Usage
 

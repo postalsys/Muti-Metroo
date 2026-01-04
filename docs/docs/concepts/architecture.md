@@ -37,7 +37,7 @@ flowchart TB
         end
 
         subgraph Protocol[Protocol Layer]
-            Frame[Frame Encoder]
+            Encoder[Message Encoder]
             Flood[Flood Routing]
             Handshake[Handshake Handler]
             Keepalive[Keepalive Handler]
@@ -72,10 +72,10 @@ The central orchestrator that:
 
 Handles virtual streams:
 
-- Creates and tracks stream state machines
+- Creates and tracks virtual streams between ingress and exit agents
 - Manages stream multiplexing over peer connections
 - Enforces resource limits (max streams, buffer sizes)
-- Handles stream lifecycle: Open -> Data -> Half-Close -> Close
+- Handles stream lifecycle (open, data transfer, close)
 
 ### Route Manager
 
@@ -100,7 +100,7 @@ Manages peer connections:
 
 Handles communication between agents:
 
-- **Frame Processing**: Encodes and decodes messages between peers
+- **Message Processing**: Encodes and decodes messages between peers
 - **Flood Routing**: Propagates route advertisements with loop prevention
 - **Handshake**: Establishes peer connections with identity verification
 - **Keepalive**: Monitors connection health and detects failures
@@ -146,8 +146,8 @@ flowchart LR
     SOCKS5 -->|Lookup| RouteTable
     RouteTable -->|Open| StreamMgr
     StreamMgr -->|Forward| PeerMgr
-    PeerMgr -->|Frame| Transit
-    Transit -->|Frame| Exit
+    PeerMgr -->|Relay| Transit
+    Transit -->|Relay| Exit
     Exit -->|TCP| Server
 ```
 
@@ -159,9 +159,9 @@ sequenceDiagram
     participant Transit as Transit Agent
     participant Ingress as Ingress Agent
 
-    Exit->>Transit: ROUTE_ADVERTISE (metric=0)
-    Note over Transit: Update route table<br/>Increment metric<br/>Add to SeenBy
-    Transit->>Ingress: ROUTE_ADVERTISE (metric=1)
+    Exit->>Transit: Route advertisement (metric=0)
+    Note over Transit: Update route table<br/>Increment metric
+    Transit->>Ingress: Route advertisement (metric=1)
     Note over Ingress: Update route table<br/>Route now known
 ```
 
@@ -187,54 +187,6 @@ Muti Metroo uses Go's goroutine-based concurrency:
 - **Per-Stream Goroutines**: I/O relay for each active stream
 - **Background Workers**: Route advertisement, keepalive, cleanup
 
-## Package Structure
-
-| Package | Responsibility |
-|---------|----------------|
-| `agent` | Main orchestrator, lifecycle management |
-| `protocol` | Frame encoding/decoding, constants |
-| `transport` | QUIC, HTTP/2, WebSocket implementations |
-| `peer` | Peer connection lifecycle |
-| `stream` | Stream state machine and I/O |
-| `routing` | Route table and route manager |
-| `flood` | Route propagation via flooding |
-| `socks5` | SOCKS5 proxy server |
-| `exit` | Exit handler and DNS resolution |
-| `health` | HTTP API server, metrics, dashboard |
-| `identity` | Agent ID generation and storage |
-| `config` | Configuration parsing |
-| `certutil` | TLS certificate utilities |
-
-## Key Interfaces
-
-### Transport Interface
-
-```go
-type Transport interface {
-    Dial(ctx context.Context, addr string) (Connection, error)
-    Listen(addr string) (Listener, error)
-}
-```
-
-### Frame Handler
-
-```go
-type FrameHandler interface {
-    HandleFrame(peerID AgentID, frame *Frame) error
-}
-```
-
-### Route Manager
-
-```go
-type RouteManager interface {
-    AddRoute(route Route) error
-    RemoveRoute(cidr string) error
-    Lookup(ip net.IP) (*Route, error)
-    Subscribe(callback func(Route, RouteEvent))
-}
-```
-
 ## Security Model
 
 - **Transport Security**: TLS 1.3 for all peer connections
@@ -249,7 +201,7 @@ See [Security Overview](../security/overview) for details.
 | Aspect | Characteristic |
 |--------|----------------|
 | **Latency** | +1-5ms per hop (LAN), +50-200ms per hop (WAN) |
-| **Throughput** | Limited by slowest link and 16KB frame size |
+| **Throughput** | Limited by slowest link in the chain |
 | **Memory** | 256KB buffer per stream per hop |
 | **Connections** | Up to 1000 streams per peer (configurable) |
 

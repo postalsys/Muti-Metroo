@@ -196,7 +196,7 @@ exit:
     # No 0.0.0.0/0 = no internet access
 ```
 
-Connections to non-matching destinations receive `STREAM_OPEN_ERR`.
+Connections to non-matching destinations are rejected.
 
 ## Examples
 

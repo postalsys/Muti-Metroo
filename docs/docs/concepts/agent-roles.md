@@ -28,7 +28,7 @@ An **ingress agent** accepts client connections and initiates streams into the m
 - Run SOCKS5 server on configured address
 - Authenticate clients (if enabled)
 - Perform route lookup for destinations
-- Initiate STREAM_OPEN to appropriate exit node
+- Open streams to the appropriate exit node
 - Relay data between SOCKS5 client and mesh stream
 
 ### Configuration
@@ -86,9 +86,9 @@ A **transit agent** relays traffic between other agents without initiating or te
 
 ### Responsibilities
 
-- Receive frames from connected peers
-- Forward frames to next hop based on routing
-- Participate in route flooding (propagate route advertisements)
+- Receive data from connected peers
+- Forward data to next hop based on routing
+- Propagate route advertisements through the mesh
 - Provide bridging between network segments
 
 ### Configuration
@@ -157,7 +157,7 @@ An **exit agent** opens real TCP connections to external destinations.
 ### Responsibilities
 
 - Advertise CIDR routes to the mesh
-- Receive STREAM_OPEN requests
+- Accept stream open requests from ingress agents
 - Validate destination against allowed routes
 - Open TCP connections to destinations
 - Handle DNS resolution for domain names

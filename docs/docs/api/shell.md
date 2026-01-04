@@ -25,21 +25,21 @@ The WebSocket uses the `muti-shell` subprotocol.
 
 ## Message Protocol
 
-All messages are binary WebSocket frames with a 1-byte type prefix followed by the payload.
+The WebSocket uses a binary message protocol. All messages have a 1-byte type prefix followed by the payload. The CLI handles this protocol automatically - you only need to understand it if building custom integrations.
 
 ### Message Types
 
-| Type | Name | Direction | Payload |
-|------|------|-----------|---------|
-| 0x01 | META | Client -> Server | JSON metadata |
-| 0x02 | ACK | Server -> Client | JSON acknowledgment |
-| 0x03 | STDIN | Client -> Server | Raw bytes |
-| 0x04 | STDOUT | Server -> Client | Raw bytes |
-| 0x05 | STDERR | Server -> Client | Raw bytes |
-| 0x06 | RESIZE | Client -> Server | 4 bytes: rows, cols (uint16 BE) |
-| 0x07 | SIGNAL | Client -> Server | 1 byte: signal number |
-| 0x08 | EXIT | Server -> Client | 4 bytes: exit code (int32 BE) |
-| 0x09 | ERROR | Server -> Client | JSON error |
+| Name | Direction | Description |
+|------|-----------|-------------|
+| META | Client -> Server | JSON metadata to start session |
+| ACK | Server -> Client | JSON acknowledgment |
+| STDIN | Client -> Server | Keyboard input (raw bytes) |
+| STDOUT | Server -> Client | Command output (raw bytes) |
+| STDERR | Server -> Client | Error output (raw bytes, streaming mode only) |
+| RESIZE | Client -> Server | Terminal resize notification |
+| SIGNAL | Client -> Server | Signal to send (e.g., SIGINT) |
+| EXIT | Server -> Client | Process exit code |
+| ERROR | Server -> Client | JSON error message |
 
 ## Session Flow
 
@@ -132,68 +132,23 @@ Sent when:
 | 1002 | Protocol error |
 | 1011 | Internal error |
 
-## Example: JavaScript Client
+## Custom Client Integration
 
-```javascript
-const ws = new WebSocket('ws://localhost:8080/agents/abc123/shell?mode=tty', ['muti-shell']);
-ws.binaryType = 'arraybuffer';
+For custom integrations, refer to the binary protocol implementation. The message format uses a 1-byte type prefix:
 
-// Send metadata
-ws.onopen = () => {
-  const meta = {
-    command: 'bash',
-    password: 'secret',
-    tty: { rows: 24, cols: 80 }
-  };
-  const payload = new TextEncoder().encode(JSON.stringify(meta));
-  const msg = new Uint8Array(1 + payload.length);
-  msg[0] = 0x01; // META
-  msg.set(payload, 1);
-  ws.send(msg);
-};
+| Type Byte | Message |
+|-----------|---------|
+| 0x01 | META |
+| 0x02 | ACK |
+| 0x03 | STDIN |
+| 0x04 | STDOUT |
+| 0x05 | STDERR |
+| 0x06 | RESIZE (4 bytes: rows, cols as uint16 BE) |
+| 0x07 | SIGNAL (1 byte: signal number) |
+| 0x08 | EXIT (4 bytes: exit code as int32 BE) |
+| 0x09 | ERROR |
 
-// Handle messages
-ws.onmessage = (event) => {
-  const data = new Uint8Array(event.data);
-  const type = data[0];
-  const payload = data.slice(1);
-
-  switch (type) {
-    case 0x02: // ACK
-      console.log('Session started');
-      break;
-    case 0x04: // STDOUT
-      terminal.write(payload);
-      break;
-    case 0x08: // EXIT
-      const exitCode = new DataView(payload.buffer).getInt32(0, false);
-      console.log('Exit code:', exitCode);
-      break;
-    case 0x09: // ERROR
-      const error = JSON.parse(new TextDecoder().decode(payload));
-      console.error('Error:', error.message);
-      break;
-  }
-};
-
-// Send stdin
-function sendInput(text) {
-  const payload = new TextEncoder().encode(text);
-  const msg = new Uint8Array(1 + payload.length);
-  msg[0] = 0x03; // STDIN
-  msg.set(payload, 1);
-  ws.send(msg);
-}
-
-// Send resize
-function sendResize(rows, cols) {
-  const msg = new Uint8Array(5);
-  msg[0] = 0x06; // RESIZE
-  new DataView(msg.buffer).setUint16(1, rows, false);
-  new DataView(msg.buffer).setUint16(3, cols, false);
-  ws.send(msg);
-}
-```
+For a complete implementation example, see the CLI source code in the project repository.
 
 ## See Also
 
