@@ -3,7 +3,7 @@ title: shell
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
-  <img src="/img/mole-digging.png" alt="Mole accessing shell" style={{maxWidth: '180px'}} />
+  <img src="/img/mole-drilling.png" alt="Mole accessing shell" style={{maxWidth: '180px'}} />
 </div>
 
 # muti-metroo shell
