@@ -49,7 +49,7 @@ type ClientConfig struct {
 	AgentAddr string
 	// TargetID is the target agent ID
 	TargetID string
-	// Interactive enables TTY mode (default true unless --stream is specified)
+	// Interactive enables TTY mode (requires --tty flag, streaming is default)
 	Interactive bool
 	// Password is the shell authentication password
 	Password string
