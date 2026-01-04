@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/signal"
 	"sync"
 	"syscall"
 	"time"
@@ -217,7 +216,7 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 	// Handle window resize (SIGWINCH) in interactive mode
 	if c.interactive {
 		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGWINCH)
+		setupResizeSignal(sigCh)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
