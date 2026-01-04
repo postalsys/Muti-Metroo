@@ -155,6 +155,11 @@ func (f *Flooder) HandleRouteAdvertise(
 			existing.SeenAt = time.Now()
 		}
 		f.mu.Unlock()
+		f.logger.Debug("route advertisement already seen",
+			"origin", originAgent.ShortString(),
+			"sequence", sequence,
+			"from_peer", fromPeer.ShortString(),
+			"original_from", existing.SeenFrom.ShortString())
 		return false
 	}
 
@@ -164,7 +169,15 @@ func (f *Flooder) HandleRouteAdvertise(
 		SeenAt:   time.Now(),
 		SeenFrom: fromPeer,
 	}
+	cacheSize := len(f.seenCache)
 	f.mu.Unlock()
+
+	f.logger.Debug("new route advertisement received",
+		"origin", originAgent.ShortString(),
+		"sequence", sequence,
+		"from_peer", fromPeer.ShortString(),
+		"routes", len(routes),
+		"cache_size", cacheSize)
 
 	// Store display name for origin agent
 	if originDisplayName != "" {

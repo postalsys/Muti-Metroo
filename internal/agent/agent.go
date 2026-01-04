@@ -103,7 +103,9 @@ type Agent struct {
 	fileStreams        map[uint64]*fileTransferStream // StreamID -> active transfer
 
 	// Shell (stream-based)
-	shellHandler *shell.Handler
+	shellHandler        *shell.Handler
+	shellClientMu       sync.RWMutex
+	shellClientStreams  map[uint64]*health.ShellStreamAdapter // StreamID -> active client session
 
 	// Relay stream tracking
 	relayMu          sync.RWMutex
@@ -172,7 +174,8 @@ func New(cfg *config.Config) (*Agent, error) {
 		relayByDownstream: make(map[uint64]*relayStream),
 		pendingControl:    make(map[uint64]*pendingControlRequest),
 		forwardedControl:  make(map[uint64]*forwardedControlRequest),
-		fileStreams:       make(map[uint64]*fileTransferStream),
+		fileStreams:        make(map[uint64]*fileTransferStream),
+		shellClientStreams: make(map[uint64]*health.ShellStreamAdapter),
 	}
 
 	// Initialize components
@@ -310,6 +313,7 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetRemoteProvider(a)        // Enable remote metrics via control channel
 		a.healthServer.SetRouteAdvertiseTrigger(a) // Enable route advertisement trigger
 		a.healthServer.SetSealedBox(a.sealedBox)   // Enable management key decrypt checks
+		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -1324,10 +1328,15 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 		return
 	}
 
-	// Check if this is a shell stream
+	// Check if this is a shell stream (where we are the target/server)
 	if a.shellHandler != nil {
 		a.shellHandler.HandleStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags)
 		// Note: shellHandler tracks its own streams and will ignore unknown stream IDs
+	}
+
+	// Check if this is a shell client stream (where we initiated to a remote shell)
+	if a.handleShellClientData(frame.StreamID, frame.Payload, frame.Flags) {
+		return
 	}
 
 	a.streamMgr.HandleStreamData(frame.StreamID, frame.Flags, frame.Payload)
@@ -1383,9 +1392,16 @@ func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame
 		return
 	}
 
-	// Check if this is a shell stream
+	// Check if this is a shell stream (where we are the target/server)
 	if a.shellHandler != nil {
 		a.shellHandler.HandleStreamClose(frame.StreamID)
+	}
+
+	// Check if this is a shell client stream (where we initiated to a remote shell)
+	if a.handleShellClientClose(frame.StreamID) {
+		// Also clean up the stream manager entry (shell client streams are tracked in both places)
+		a.streamMgr.HandleStreamClose(frame.StreamID)
+		return
 	}
 
 	a.streamMgr.HandleStreamClose(frame.StreamID)
@@ -3726,4 +3742,171 @@ doneDir:
 	// Calculate extracted size
 	size, _ := filetransfer.CalculateDirectorySize(localPath)
 	return size, nil
+}
+
+// OpenShellStream opens a shell stream to a remote agent.
+// Implements health.ShellProvider interface.
+func (a *Agent) OpenShellStream(ctx context.Context, targetID identity.AgentID, meta *shell.ShellMeta, interactive bool) (*health.ShellSession, error) {
+	// Find route to target using existing helper
+	nextHop, remainingPath, conn, err := a.findPathToAgent(targetID)
+	if err != nil {
+		return nil, fmt.Errorf("no route to agent %s: %w", targetID.ShortString(), err)
+	}
+
+	// Determine shell address based on mode
+	destAddr := protocol.ShellStream
+	if interactive {
+		destAddr = protocol.ShellInteractive
+	}
+
+	// Allocate stream ID from connection
+	streamID := conn.NextStreamID()
+
+	// Create pending stream request
+	pending := a.streamMgr.OpenStream(streamID, nextHop, destAddr, 0, a.cfg.Limits.StreamOpenTimeout)
+
+	// Create adapter for this client session
+	adapter := health.NewShellStreamAdapter(streamID, targetID, func() {
+		a.cleanupShellClientStream(streamID)
+	})
+
+	// Register the client stream
+	a.shellClientMu.Lock()
+	a.shellClientStreams[streamID] = adapter
+	a.shellClientMu.Unlock()
+
+	// Build domain address with length prefix (same as file transfer)
+	domainBytes := append([]byte{byte(len(destAddr))}, []byte(destAddr)...)
+
+	// Build and send STREAM_OPEN
+	openPayload := &protocol.StreamOpen{
+		RequestID:     pending.RequestID,
+		AddressType:   protocol.AddrTypeDomain,
+		Address:       domainBytes,
+		Port:          0,
+		RemainingPath: remainingPath,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		a.cleanupShellClientStream(streamID)
+		return nil, fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for STREAM_OPEN_ACK
+	select {
+	case <-ctx.Done():
+		a.cleanupShellClientStream(streamID)
+		return nil, ctx.Err()
+	case result := <-pending.ResultCh:
+		if result.Error != nil {
+			a.cleanupShellClientStream(streamID)
+			return nil, result.Error
+		}
+		// Stream opened successfully
+	}
+
+	// Encode metadata with shell message format (MsgMeta prefix)
+	metaBytes, err := shell.EncodeMeta(meta)
+	if err != nil {
+		a.cleanupShellClientStream(streamID)
+		return nil, fmt.Errorf("encode shell metadata: %w", err)
+	}
+
+	// Send metadata as first data frame
+	dataFrame := &protocol.Frame{
+		Type:     protocol.FrameStreamData,
+		StreamID: streamID,
+		Payload:  metaBytes,
+	}
+	if err := a.peerMgr.SendToPeer(nextHop, dataFrame); err != nil {
+		a.cleanupShellClientStream(streamID)
+		return nil, fmt.Errorf("send metadata: %w", err)
+	}
+
+	// Store next hop for sending data
+	adapter.SetNextHop(nextHop, a.peerMgr)
+
+	// Start goroutine to forward data from adapter.Send to peer
+	go a.forwardShellClientData(streamID, nextHop, adapter)
+
+	a.logger.Debug("shell client stream opened",
+		logging.KeyStreamID, streamID,
+		"target", targetID.ShortString(),
+		"interactive", interactive)
+
+	return adapter.ToSession(), nil
+}
+
+// forwardShellClientData forwards data from the shell client adapter to the peer.
+func (a *Agent) forwardShellClientData(streamID uint64, nextHop identity.AgentID, adapter *health.ShellStreamAdapter) {
+	for {
+		data, ok := adapter.PopSend()
+		if !ok {
+			return // Adapter closed
+		}
+
+		frame := &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: streamID,
+			Payload:  data,
+		}
+		if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+			a.logger.Debug("shell client send error",
+				logging.KeyStreamID, streamID,
+				logging.KeyError, err)
+			adapter.Close()
+			return
+		}
+	}
+}
+
+// cleanupShellClientStream cleans up a shell client stream.
+// This is called from adapter.Close()'s closeFunc callback.
+func (a *Agent) cleanupShellClientStream(streamID uint64) {
+	a.shellClientMu.Lock()
+	delete(a.shellClientStreams, streamID)
+	a.shellClientMu.Unlock()
+}
+
+// handleShellClientData handles incoming data for a shell client stream.
+func (a *Agent) handleShellClientData(streamID uint64, data []byte, flags uint8) bool {
+	a.shellClientMu.RLock()
+	adapter := a.shellClientStreams[streamID]
+	a.shellClientMu.RUnlock()
+
+	if adapter == nil {
+		return false
+	}
+
+	// Push data to adapter for reading by HTTP handler
+	adapter.PushReceive(data)
+
+	// Check for exit code in flags or parse from data
+	// Exit code is sent as last frame with FIN flag
+	if flags&protocol.FlagFinWrite != 0 {
+		adapter.Close()
+	}
+
+	return true
+}
+
+// handleShellClientClose handles close of a shell client stream.
+func (a *Agent) handleShellClientClose(streamID uint64) bool {
+	a.shellClientMu.RLock()
+	adapter := a.shellClientStreams[streamID]
+	a.shellClientMu.RUnlock()
+
+	if adapter == nil {
+		return false
+	}
+
+	// adapter.Close() will call cleanupShellClientStream via closeFunc
+	adapter.Close()
+	return true
 }
