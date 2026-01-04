@@ -107,6 +107,25 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Check if running interactively (with TTY)
+is_interactive() {
+    [[ -t 0 ]]
+}
+
+# Prompt for confirmation, auto-confirm if not interactive
+confirm() {
+    local prompt="${1:-Continue?}"
+    if is_interactive; then
+        read -p "$prompt [y/N] " -n 1 -r
+        echo ""
+        [[ $REPLY =~ ^[Yy]$ ]]
+    else
+        # Non-interactive: auto-confirm
+        echo "$prompt [y/N] y (auto-confirmed, non-interactive mode)"
+        return 0
+    fi
+}
+
 # Logging functions
 log_info() { echo -e "${BLUE}[INFO]${NC} $*" >&2; }
 log_success() { echo -e "${GREEN}[SUCCESS]${NC} $*" >&2; }
@@ -153,9 +172,7 @@ check_prerequisites() {
         log_warn "Working directory has uncommitted changes"
         git status --short
         echo ""
-        read -p "Continue anyway? [y/N] " -n 1 -r
-        echo ""
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if ! confirm "Continue anyway?"; then
             exit 1
         fi
     fi
@@ -721,9 +738,7 @@ main() {
         log_warn "DRY RUN MODE - No changes will be made"
     fi
 
-    read -p "Continue? [y/N] " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if ! confirm "Continue?"; then
         log_info "Aborted"
         exit 0
     fi
