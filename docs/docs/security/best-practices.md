@@ -100,8 +100,8 @@ socks5:
   auth:
     enabled: true             # Must be authenticated
 
-# RPC should always require password
-rpc:
+# Shell should always require password
+shell:
   enabled: true
   password_hash: "$2a$12$..."   # Strong hash
   whitelist:                    # Minimal commands
@@ -164,10 +164,10 @@ exit:
     # NOT 0.0.0.0/0    # Never allow everything
 ```
 
-### Minimal RPC Whitelist
+### Minimal Shell Whitelist
 
 ```yaml
-rpc:
+shell:
   whitelist:
     - whoami          # Safe commands only
     - hostname
@@ -188,7 +188,7 @@ file_transfer:
 
 ```yaml
 # Only enable what you need
-rpc:
+shell:
   enabled: false      # Disable if not needed
 
 file_transfer:
@@ -210,8 +210,8 @@ socks5:
       - username: "${SOCKS5_USER}"
         password_hash: "${SOCKS5_PASSWORD_HASH}"
 
-rpc:
-  password_hash: "${RPC_PASSWORD_HASH}"
+shell:
+  password_hash: "${SHELL_PASSWORD_HASH}"
 ```
 
 ### Secure Secret Storage
@@ -248,8 +248,8 @@ alerts:
       expr: rate(muti_metroo_socks5_auth_failures_total[5m]) > 10
       severity: warning
 
-  - rpc_rejections_high:
-      expr: rate(muti_metroo_rpc_calls_total{result="rejected"}[5m]) > 5
+  - shell_rejections_high:
+      expr: rate(muti_metroo_shell_calls_total{result="rejected"}[5m]) > 5
       severity: warning
 ```
 
@@ -327,7 +327,7 @@ chmod 644 /etc/muti-metroo/certs/*.crt  # Certificates
 - [ ] All certificates have appropriate SANs
 - [ ] mTLS enabled
 - [ ] SOCKS5 authentication enabled
-- [ ] RPC disabled or whitelist-restricted
+- [ ] Shell disabled or whitelist-restricted
 - [ ] File transfer disabled or path-restricted
 - [ ] Exit routes minimized
 

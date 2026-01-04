@@ -240,7 +240,7 @@ type RouteManager interface {
 - **Transport Security**: TLS 1.3 for all peer connections
 - **Mutual Authentication**: Optional mTLS with client certificates
 - **Certificate Pinning**: Validate expected peer Agent IDs
-- **Authentication**: SOCKS5 username/password, RPC password hashing
+- **Authentication**: SOCKS5 username/password, shell password hashing
 
 See [Security Overview](../security/overview) for details.
 

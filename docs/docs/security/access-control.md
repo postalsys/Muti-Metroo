@@ -69,12 +69,12 @@ exit:
     # Routes propagate with metrics, internal goes to Exit 1
 ```
 
-## RPC Command Whitelist
+## Shell Command Whitelist
 
 Only whitelisted commands can be executed:
 
 ```yaml
-rpc:
+shell:
   enabled: true
   whitelist:
     - whoami
@@ -90,14 +90,14 @@ rpc:
 **Empty list (default)**: No commands allowed:
 
 ```yaml
-rpc:
+shell:
   whitelist: []
 ```
 
 **Specific commands**:
 
 ```yaml
-rpc:
+shell:
   whitelist:
     - whoami
     - hostname
@@ -106,7 +106,7 @@ rpc:
 **All commands** (DANGEROUS - testing only):
 
 ```yaml
-rpc:
+shell:
   whitelist:
     - "*"
 ```
@@ -120,7 +120,7 @@ rpc:
 ### Example Secure Whitelist
 
 ```yaml
-rpc:
+shell:
   whitelist:
     # System info
     - whoami
@@ -282,8 +282,8 @@ exit:
   routes:
     - "10.0.0.0/8"    # Internal only
 
-# Layer 5: RPC restriction
-rpc:
+# Layer 5: Shell restriction
+shell:
   enabled: true
   whitelist:
     - whoami
@@ -307,8 +307,8 @@ file_transfer:
 # SOCKS5 auth failures
 curl http://localhost:8080/metrics | grep socks5_auth_failures
 
-# RPC rejections
-curl http://localhost:8080/metrics | grep rpc.*rejected
+# Shell rejections
+curl http://localhost:8080/metrics | grep shell.*rejected
 
 # Exit connection errors
 curl http://localhost:8080/metrics | grep exit_errors
@@ -325,7 +325,7 @@ agent:
 
 Look for:
 - `SOCKS5 auth failed`
-- `RPC command rejected`
+- `shell command rejected`
 - `route not found`
 - `file transfer denied`
 

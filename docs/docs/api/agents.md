@@ -93,12 +93,6 @@ Get Prometheus metrics from specific agent.
 curl http://localhost:8080/agents/abc123.../metrics
 ```
 
-## POST /agents/\{agent-id\}/rpc
-
-Execute RPC command on remote agent.
-
-See [RPC Endpoints](rpc).
-
 ## POST /agents/\{agent-id\}/file/upload
 
 Upload file to remote agent.

@@ -161,12 +161,13 @@ http:
   dashboard: true              # /ui/*, /api/* endpoints
   remote_api: true             # /agents/*, /metrics/{id} endpoints
 
-# RPC (remote commands)
-rpc:
+# Shell (remote commands)
+shell:
   enabled: false
   whitelist: []
   password_hash: ""
-  timeout: 60s               # Default command timeout
+  timeout: 0s                # Default command timeout (0 = no timeout)
+  max_sessions: 10           # Concurrent session limit
 
 # File transfer
 file_transfer:

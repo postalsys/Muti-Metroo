@@ -27,7 +27,6 @@ type Config struct {
 	Connections  ConnectionsConfig  `yaml:"connections"`
 	Limits       LimitsConfig       `yaml:"limits"`
 	HTTP         HTTPConfig         `yaml:"http"`
-	RPC          RPCConfig          `yaml:"rpc"`
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
 	Shell        ShellConfig        `yaml:"shell"`
 }
@@ -447,25 +446,6 @@ func (h HTTPConfig) RemoteAPIEnabled() bool {
 	return h.RemoteAPI == nil || *h.RemoteAPI
 }
 
-// RPCConfig defines remote procedure call settings.
-type RPCConfig struct {
-	// Enabled controls whether RPC is available on this agent.
-	Enabled bool `yaml:"enabled"`
-
-	// Whitelist contains allowed commands. Empty list = no commands allowed.
-	// Use ["*"] to allow all commands (for testing only!).
-	// Commands should be base names only (e.g., "whoami", "ls", "ip").
-	Whitelist []string `yaml:"whitelist"`
-
-	// PasswordHash is the bcrypt hash of the RPC password.
-	// If set, all RPC requests must include the correct password.
-	// Generate with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
-	PasswordHash string `yaml:"password_hash"`
-
-	// Timeout is the default command execution timeout.
-	Timeout time.Duration `yaml:"timeout"`
-}
-
 // FileTransferConfig defines file transfer settings.
 type FileTransferConfig struct {
 	// Enabled controls whether file transfer is available on this agent.
@@ -496,46 +476,26 @@ type FileTransferConfig struct {
 	PasswordHash string `yaml:"password_hash"`
 }
 
-// ShellConfig defines interactive shell settings.
+// ShellConfig defines remote shell settings.
 type ShellConfig struct {
 	// Enabled controls whether shell is available on this agent.
 	Enabled bool `yaml:"enabled"`
 
-	// Streaming configures streaming mode (non-interactive commands like tail -f).
-	Streaming ShellStreamingConfig `yaml:"streaming"`
-
-	// Interactive configures interactive PTY mode (vim, less, bash, etc).
-	Interactive ShellInteractiveConfig `yaml:"interactive"`
-
-	// Whitelist contains allowed commands. Empty = use RPC whitelist.
+	// Whitelist contains allowed commands. Empty list = no commands allowed.
 	// Use ["*"] to allow all commands (for testing only!).
+	// Commands should be base names only (e.g., "whoami", "ls", "bash").
 	Whitelist []string `yaml:"whitelist"`
 
 	// PasswordHash is the bcrypt hash of the shell password.
-	// If empty, uses RPC password_hash if available.
+	// If set, all shell requests must include the correct password.
+	// Generate with: muti-metroo hash
 	PasswordHash string `yaml:"password_hash"`
+
+	// Timeout is the optional command timeout (0 = no timeout).
+	Timeout time.Duration `yaml:"timeout"`
 
 	// MaxSessions limits concurrent shell sessions (0 = unlimited).
 	MaxSessions int `yaml:"max_sessions"`
-}
-
-// ShellStreamingConfig contains streaming mode configuration.
-type ShellStreamingConfig struct {
-	// Enabled controls whether streaming mode is available.
-	Enabled bool `yaml:"enabled"`
-
-	// MaxDuration is the maximum session duration (0 = unlimited).
-	MaxDuration time.Duration `yaml:"max_duration"`
-}
-
-// ShellInteractiveConfig contains interactive PTY mode configuration.
-type ShellInteractiveConfig struct {
-	// Enabled controls whether interactive PTY mode is available.
-	Enabled bool `yaml:"enabled"`
-
-	// AllowedCommands overrides the whitelist for interactive mode.
-	// Empty = use main whitelist.
-	AllowedCommands []string `yaml:"allowed_commands"`
 }
 
 // Default returns a Config with default values.
@@ -596,27 +556,14 @@ func Default() *Config {
 			ReadTimeout:  10 * time.Second,
 			WriteTimeout: 10 * time.Second,
 		},
-		RPC: RPCConfig{
-			Enabled:   false,
-			Whitelist: []string{}, // Empty = no commands allowed
-			Timeout:   60 * time.Second,
-		},
 		FileTransfer: FileTransferConfig{
 			Enabled:      false,
 			MaxFileSize:  500 * 1024 * 1024, // 500 MB
 			AllowedPaths: []string{},        // Empty = no paths allowed (must configure explicitly)
 		},
 		Shell: ShellConfig{
-			Enabled: false, // Disabled by default for security
-			Streaming: ShellStreamingConfig{
-				Enabled:     true,              // Allow streaming when shell is enabled
-				MaxDuration: 24 * time.Hour,    // Default 24h max session
-			},
-			Interactive: ShellInteractiveConfig{
-				Enabled:         true,        // Allow interactive when shell is enabled
-				AllowedCommands: []string{},  // Empty = use main whitelist
-			},
-			Whitelist:   []string{},  // Empty = use RPC whitelist
+			Enabled:     false,       // Disabled by default for security
+			Whitelist:   []string{},  // Empty = no commands allowed
 			MaxSessions: 10,          // Default max concurrent sessions
 		},
 	}
@@ -967,11 +914,6 @@ func (c *Config) Redacted() *Config {
 		}
 	}
 
-	// Redact RPC password hash
-	if redacted.RPC.PasswordHash != "" {
-		redacted.RPC.PasswordHash = redactedValue
-	}
-
 	// Redact FileTransfer password hash
 	if redacted.FileTransfer.PasswordHash != "" {
 		redacted.FileTransfer.PasswordHash = redactedValue
@@ -1004,11 +946,6 @@ func (c *Config) HasSensitiveData() bool {
 		if u.Password != "" || u.PasswordHash != "" {
 			return true
 		}
-	}
-
-	// Check RPC password hash
-	if c.RPC.PasswordHash != "" {
-		return true
 	}
 
 	// Check FileTransfer password hash

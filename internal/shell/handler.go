@@ -67,14 +67,6 @@ func (h *Handler) HandleStreamOpen(peerID identity.AgentID, streamID uint64, req
 		return protocol.ErrShellDisabled
 	}
 
-	// Check if mode is enabled
-	if interactive && !h.executor.config.Interactive.Enabled {
-		return protocol.ErrShellDisabled
-	}
-	if !interactive && !h.executor.config.Streaming.Enabled {
-		return protocol.ErrShellDisabled
-	}
-
 	// Create shell stream entry
 	ss := &ShellStream{
 		StreamID:      streamID,

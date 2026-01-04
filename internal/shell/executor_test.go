@@ -7,8 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/postalsys/muti-metroo/internal/rpc"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// mustHashPassword generates a bcrypt hash for testing purposes.
+func mustHashPassword(password string) string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		panic("failed to hash password: " + err.Error())
+	}
+	return string(hash)
+}
 
 func TestNewExecutor(t *testing.T) {
 	tests := []struct {
@@ -22,47 +31,29 @@ func TestNewExecutor(t *testing.T) {
 			},
 		},
 		{
-			name: "streaming only",
+			name: "enabled with whitelist",
 			config: Config{
-				Enabled: true,
-				Streaming: StreamingConfig{
-					Enabled:     true,
-					MaxDuration: 1 * time.Hour,
-				},
-				Interactive: InteractiveConfig{
-					Enabled: false,
-				},
+				Enabled:     true,
+				Whitelist:   []string{"bash", "sh"},
 				MaxSessions: 10,
 			},
 		},
 		{
-			name: "interactive only",
+			name: "enabled with wildcard",
 			config: Config{
-				Enabled: true,
-				Streaming: StreamingConfig{
-					Enabled: false,
-				},
-				Interactive: InteractiveConfig{
-					Enabled:         true,
-					AllowedCommands: []string{"bash", "sh"},
-				},
-				MaxSessions: 5,
+				Enabled:      true,
+				Whitelist:    []string{"*"},
+				MaxSessions:  10,
+				PasswordHash: mustHashPassword("testpassword"),
 			},
 		},
 		{
-			name: "both modes",
+			name: "with timeout",
 			config: Config{
-				Enabled: true,
-				Streaming: StreamingConfig{
-					Enabled:     true,
-					MaxDuration: 24 * time.Hour,
-				},
-				Interactive: InteractiveConfig{
-					Enabled:         true,
-					AllowedCommands: []string{"*"},
-				},
-				MaxSessions:  10,
-				PasswordHash: rpc.MustHashPassword("testpassword"),
+				Enabled:     true,
+				Whitelist:   []string{"*"},
+				MaxSessions: 5,
+				Timeout:     60 * time.Second,
 			},
 		},
 	}
@@ -83,7 +74,7 @@ func TestNewExecutor(t *testing.T) {
 
 func TestExecutor_ValidateAuth(t *testing.T) {
 	password := "secretpassword"
-	hash := rpc.MustHashPassword(password)
+	hash := mustHashPassword(password)
 
 	tests := []struct {
 		name         string
@@ -134,53 +125,46 @@ func TestExecutor_ValidateAuth(t *testing.T) {
 
 func TestExecutor_IsCommandAllowed(t *testing.T) {
 	tests := []struct {
-		name        string
-		whitelist   []string
-		command     string
-		interactive bool
-		want        bool
+		name      string
+		whitelist []string
+		command   string
+		want      bool
 	}{
 		{
-			name:        "empty whitelist - nothing allowed",
-			whitelist:   []string{},
-			command:     "ls",
-			interactive: false,
-			want:        false,
+			name:      "empty whitelist - nothing allowed",
+			whitelist: []string{},
+			command:   "ls",
+			want:      false,
 		},
 		{
-			name:        "wildcard allows all",
-			whitelist:   []string{"*"},
-			command:     "anything",
-			interactive: false,
-			want:        true,
+			name:      "wildcard allows all",
+			whitelist: []string{"*"},
+			command:   "anything",
+			want:      true,
 		},
 		{
-			name:        "exact match",
-			whitelist:   []string{"ls", "cat", "echo"},
-			command:     "cat",
-			interactive: false,
-			want:        true,
+			name:      "exact match",
+			whitelist: []string{"ls", "cat", "echo"},
+			command:   "cat",
+			want:      true,
 		},
 		{
-			name:        "not in whitelist",
-			whitelist:   []string{"ls", "cat"},
-			command:     "rm",
-			interactive: false,
-			want:        false,
+			name:      "not in whitelist",
+			whitelist: []string{"ls", "cat"},
+			command:   "rm",
+			want:      false,
 		},
 		{
-			name:        "path not allowed",
-			whitelist:   []string{"bash"},
-			command:     "/bin/bash",
-			interactive: false,
-			want:        false,
+			name:      "path not allowed",
+			whitelist: []string{"bash"},
+			command:   "/bin/bash",
+			want:      false,
 		},
 		{
-			name:        "wildcard in interactive mode",
-			whitelist:   []string{"*"},
-			command:     "vim",
-			interactive: true,
-			want:        true,
+			name:      "vim allowed",
+			whitelist: []string{"vim", "bash"},
+			command:   "vim",
+			want:      true,
 		},
 	}
 
@@ -191,9 +175,9 @@ func TestExecutor_IsCommandAllowed(t *testing.T) {
 				Whitelist: tt.whitelist,
 			})
 
-			got := exec.IsCommandAllowed(tt.command, tt.interactive)
+			got := exec.IsCommandAllowed(tt.command)
 			if got != tt.want {
-				t.Errorf("IsCommandAllowed(%q, %v) = %v, want %v", tt.command, tt.interactive, got, tt.want)
+				t.Errorf("IsCommandAllowed(%q) = %v, want %v", tt.command, got, tt.want)
 			}
 		})
 	}
@@ -314,10 +298,7 @@ func TestExecutor_NewSession(t *testing.T) {
 		Enabled:     true,
 		MaxSessions: 10,
 		Whitelist:   []string{"*"},
-		Streaming: StreamingConfig{
-			Enabled:     true,
-			MaxDuration: 10 * time.Second,
-		},
+		Timeout:     10 * time.Second,
 	})
 
 	ctx := context.Background()
@@ -358,9 +339,6 @@ func TestExecutor_NewSession_NotWhitelisted(t *testing.T) {
 		Enabled:     true,
 		MaxSessions: 10,
 		Whitelist:   []string{"ls", "cat"}, // echo not allowed
-		Streaming: StreamingConfig{
-			Enabled: true,
-		},
 	})
 
 	ctx := context.Background()
@@ -384,10 +362,7 @@ func TestExecutor_NewSession_AuthRequired(t *testing.T) {
 		Enabled:      true,
 		MaxSessions:  10,
 		Whitelist:    []string{"*"},
-		PasswordHash: rpc.MustHashPassword("secret"),
-		Streaming: StreamingConfig{
-			Enabled: true,
-		},
+		PasswordHash: mustHashPassword("secret"),
 	})
 
 	ctx := context.Background()
@@ -412,9 +387,6 @@ func TestExecutor_NewSession_SessionLimit(t *testing.T) {
 		Enabled:     true,
 		MaxSessions: 1,
 		Whitelist:   []string{"*"},
-		Streaming: StreamingConfig{
-			Enabled: true,
-		},
 	})
 
 	ctx := context.Background()
@@ -451,42 +423,15 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("DefaultConfig().Enabled = true, want false")
 	}
 
-	if !cfg.Streaming.Enabled {
-		t.Error("DefaultConfig().Streaming.Enabled = false, want true")
-	}
-
-	if !cfg.Interactive.Enabled {
-		t.Error("DefaultConfig().Interactive.Enabled = false, want true")
+	if len(cfg.Whitelist) != 0 {
+		t.Errorf("DefaultConfig().Whitelist = %v, want empty", cfg.Whitelist)
 	}
 
 	if cfg.MaxSessions != 10 {
 		t.Errorf("DefaultConfig().MaxSessions = %d, want 10", cfg.MaxSessions)
 	}
-}
 
-func TestExecutor_SetRPCFallback(t *testing.T) {
-	exec := NewExecutor(Config{
-		Enabled: true,
-	})
-
-	whitelist := []string{"ls", "cat"}
-	passwordHash := rpc.MustHashPassword("test")
-
-	exec.SetRPCFallback(whitelist, passwordHash)
-
-	// Test whitelist fallback
-	if !exec.IsCommandAllowed("ls", false) {
-		t.Error("Expected 'ls' to be allowed via RPC fallback")
-	}
-	if !exec.IsCommandAllowed("cat", false) {
-		t.Error("Expected 'cat' to be allowed via RPC fallback")
-	}
-	if exec.IsCommandAllowed("echo", false) {
-		t.Error("Expected 'echo' to not be allowed")
-	}
-
-	// Test password fallback
-	if err := exec.ValidateAuth("test"); err != nil {
-		t.Errorf("ValidateAuth() error = %v with RPC fallback password", err)
+	if cfg.Timeout != 0 {
+		t.Errorf("DefaultConfig().Timeout = %v, want 0", cfg.Timeout)
 	}
 }

@@ -175,8 +175,8 @@ const config: Config = {
               to: '/features/file-transfer',
             },
             {
-              label: 'RPC',
-              to: '/features/rpc',
+              label: 'Remote Shell',
+              to: '/features/shell',
             },
           ],
         },

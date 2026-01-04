@@ -94,5 +94,4 @@ The command exits with:
 ## See Also
 
 - [Shell Feature](../features/shell) - Detailed shell documentation
-- [RPC Command](./rpc) - One-shot command execution
 - [Configuration](../configuration/overview) - Shell configuration

@@ -77,7 +77,7 @@ If exit role is selected:
 - **Logging**: Level (debug/info/warn/error) and format (text/json)
 - **HTTP API**: Health checks, metrics, dashboard
 - **Control socket**: Unix socket for CLI commands
-- **RPC**: Remote command execution (disabled by default)
+- **Remote shell**: Remote command execution (disabled by default)
 - **File transfer**: File upload/download (disabled by default)
 
 ### 9. Service Installation (Optional)

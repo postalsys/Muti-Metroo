@@ -48,17 +48,13 @@ func (e *Executor) NewPTYSession(ctx context.Context, meta *ShellMeta) (PTYSessi
 		return nil, fmt.Errorf("shell is disabled")
 	}
 
-	if !e.config.Interactive.Enabled {
-		return nil, fmt.Errorf("interactive shell is disabled")
-	}
-
 	// Validate authentication
 	if err := e.ValidateAuth(meta.Password); err != nil {
 		return nil, err
 	}
 
 	// Validate command
-	if !e.IsCommandAllowed(meta.Command, true) {
+	if !e.IsCommandAllowed(meta.Command) {
 		return nil, fmt.Errorf("command '%s' is not allowed", meta.Command)
 	}
 

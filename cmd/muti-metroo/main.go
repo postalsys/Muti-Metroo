@@ -24,7 +24,6 @@ import (
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
-	"github.com/postalsys/muti-metroo/internal/rpc"
 	"github.com/postalsys/muti-metroo/internal/service"
 	"github.com/postalsys/muti-metroo/internal/shell"
 	"github.com/postalsys/muti-metroo/internal/wizard"
@@ -60,7 +59,6 @@ root privileges.`,
 	rootCmd.AddCommand(peersCmd())
 	rootCmd.AddCommand(routesCmd())
 	rootCmd.AddCommand(serviceCmd())
-	rootCmd.AddCommand(rpcCmd())
 	rootCmd.AddCommand(shellCmd())
 	rootCmd.AddCommand(uploadCmd())
 	rootCmd.AddCommand(downloadCmd())
@@ -928,151 +926,6 @@ func certInfoCmd() *cobra.Command {
 	return cmd
 }
 
-func rpcCmd() *cobra.Command {
-	var (
-		agentAddr string
-		password  string
-		timeout   int
-	)
-
-	cmd := &cobra.Command{
-		Use:   "rpc [flags] <target-agent-id> <command> [args...]",
-		Short: "Execute a command on a remote agent",
-		Long: `Execute a shell command on a remote agent via the RPC interface.
-
-The command is sent through a local or remote agent's health HTTP server
-to the target agent identified by its agent ID.
-
-Stdin is forwarded to the remote command if provided via pipe.
-
-Examples:
-  # Run whoami on a remote agent (via localhost:8080)
-  muti-metroo rpc abc123def456 whoami
-
-  # Run with arguments
-  muti-metroo rpc abc123def456 ls -la /tmp
-
-  # Via a different agent
-  muti-metroo rpc -a 192.168.1.10:8080 abc123def456 hostname
-
-  # With password authentication
-  muti-metroo rpc -p secret abc123def456 ip addr
-
-  # Pipe stdin to remote command
-  echo "hello" | muti-metroo rpc abc123def456 cat`,
-		Args: cobra.MinimumNArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			targetID := args[0]
-			command := args[1]
-			cmdArgs := args[2:]
-
-			// Validate target agent ID
-			if _, err := identity.ParseAgentID(targetID); err != nil {
-				return fmt.Errorf("invalid agent ID '%s': %w", targetID, err)
-			}
-
-			// Read stdin if available (non-blocking check)
-			var stdinData []byte
-			stat, _ := os.Stdin.Stat()
-			if (stat.Mode() & os.ModeCharDevice) == 0 {
-				// Data is being piped in
-				var err error
-				stdinData, err = io.ReadAll(io.LimitReader(os.Stdin, rpc.MaxStdinSize))
-				if err != nil {
-					return fmt.Errorf("failed to read stdin: %w", err)
-				}
-			}
-
-			// Build request
-			reqBody := map[string]interface{}{
-				"command": command,
-				"args":    cmdArgs,
-				"timeout": timeout,
-			}
-			if password != "" {
-				reqBody["password"] = password
-			}
-			if len(stdinData) > 0 {
-				reqBody["stdin"] = rpc.EncodeBase64(stdinData)
-			}
-
-			reqJSON, err := json.Marshal(reqBody)
-			if err != nil {
-				return fmt.Errorf("failed to encode request: %w", err)
-			}
-
-			// Build URL
-			url := fmt.Sprintf("http://%s/agents/%s/rpc", agentAddr, targetID)
-
-			// Create HTTP request
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout+30)*time.Second)
-			defer cancel()
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqJSON))
-			if err != nil {
-				return fmt.Errorf("failed to create request: %w", err)
-			}
-			req.Header.Set("Content-Type", "application/json")
-
-			// Send request
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				return fmt.Errorf("failed to send request: %w", err)
-			}
-			defer resp.Body.Close()
-
-			// Read response
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return fmt.Errorf("failed to read response: %w", err)
-			}
-
-			// Parse response
-			var rpcResp rpc.Response
-			if err := json.Unmarshal(respBody, &rpcResp); err != nil {
-				return fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
-			}
-
-			// Output stdout (decode from base64 if encoded)
-			if rpcResp.Stdout != "" {
-				if decoded, err := rpc.DecodeBase64(rpcResp.Stdout); err == nil {
-					fmt.Print(string(decoded))
-				} else {
-					fmt.Print(rpcResp.Stdout)
-				}
-			}
-
-			// Output stderr to stderr (decode from base64 if encoded)
-			if rpcResp.Stderr != "" {
-				if decoded, err := rpc.DecodeBase64(rpcResp.Stderr); err == nil {
-					fmt.Fprint(os.Stderr, string(decoded))
-				} else {
-					fmt.Fprint(os.Stderr, rpcResp.Stderr)
-				}
-			}
-
-			// Output error if present
-			if rpcResp.Error != "" {
-				fmt.Fprintf(os.Stderr, "Error: %s\n", rpcResp.Error)
-			}
-
-			// Exit with remote exit code
-			if rpcResp.ExitCode != 0 {
-				os.Exit(rpcResp.ExitCode)
-			}
-
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
-	cmd.Flags().StringVarP(&password, "password", "p", "", "RPC password for authentication")
-	cmd.Flags().IntVarP(&timeout, "timeout", "t", 60, "Command timeout in seconds")
-
-	return cmd
-}
-
 func shellCmd() *cobra.Command {
 	var (
 		agentAddr  string
@@ -1699,7 +1552,7 @@ func hashCmd() *cobra.Command {
 
 The generated hash can be used in:
   - socks5.auth.users[].password_hash  (SOCKS5 proxy authentication)
-  - rpc.password_hash                   (RPC command authentication)
+  - shell.password_hash                 (Shell command authentication)
   - file_transfer.password_hash         (File transfer authentication)
 
 If no password is provided as an argument, you will be prompted to enter

@@ -158,7 +158,7 @@ Resume is not supported for directory transfers. If a directory transfer is inte
 
 ### Path Configuration
 
-The `allowed_paths` setting works consistently with the RPC `whitelist`:
+The `allowed_paths` setting works consistently with the shell `whitelist`:
 
 | Configuration | Behavior |
 |--------------|----------|

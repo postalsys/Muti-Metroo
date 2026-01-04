@@ -199,4 +199,3 @@ function sendResize(rows, cols) {
 
 - [Shell Feature](../features/shell) - Feature overview
 - [CLI - Shell](../cli/shell) - CLI reference
-- [RPC API](./rpc) - One-shot command API

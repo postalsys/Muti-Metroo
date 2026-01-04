@@ -365,20 +365,19 @@ histogram_quantile(0.99, rate(muti_metroo_handshake_latency_seconds_bucket[5m]))
 histogram_quantile(0.95, rate(muti_metroo_keepalive_rtt_seconds_bucket[5m]))
 ```
 
-## RPC Metrics
+## Shell Metrics
 
-Monitor remote command execution:
+Monitor remote shell sessions:
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `rpc_calls_total` | Counter | RPC calls by result and command |
-| `rpc_call_duration_seconds` | Histogram | RPC call duration |
-| `rpc_bytes_received_total` | Counter | Bytes received in requests |
-| `rpc_bytes_sent_total` | Counter | Bytes sent in responses |
+| `shell_sessions_active` | Gauge | Active shell sessions |
+| `shell_sessions_total` | Counter | Total shell sessions |
+| `shell_session_duration_seconds` | Histogram | Shell session duration |
+| `shell_bytes_transferred_total` | Counter | Bytes transferred in shell sessions |
 
 **Labels:**
-- `rpc_calls_total`: `result` (success, failed, rejected, auth_failed, error), `command`
-- `rpc_call_duration_seconds`: `command`
+- `shell_sessions_total`: `mode` (interactive, streaming), `result` (success, failed, rejected, auth_failed)
 
 ## Alerting Examples
 
@@ -477,9 +476,9 @@ The dashboard includes the following sections:
 - Peer Connections - inbound/outbound by transport type
 - Streams Over Time - opened vs closed stream rate
 
-**RPC Row:**
-- RPC Calls by Result - success, failed, rejected, auth_failed
-- RPC Duration - command execution time percentiles
+**Shell Row:**
+- Shell Sessions by Result - success, failed, rejected, auth_failed
+- Shell Duration - session time percentiles
 
 ### Dashboard Variables
 

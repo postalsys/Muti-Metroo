@@ -92,7 +92,7 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo cert client -n "client-1"    # Generate client certificate
 ./build/muti-metroo cert info ./certs/ca.crt     # Display certificate info
 
-# Password Hash Generation (for SOCKS5, RPC, file transfer authentication)
+# Password Hash Generation (for SOCKS5, shell, file transfer authentication)
 ./build/muti-metroo hash                         # Interactive prompt (recommended)
 ./build/muti-metroo hash "password"              # From argument
 ./build/muti-metroo hash --cost 12               # Custom cost factor
@@ -157,7 +157,7 @@ An agent can serve multiple roles simultaneously:
 | `exit` | Exit node handler - TCP dial, route-based access control, E2E decryption |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
 | `flood` | Route propagation via flooding with loop prevention and seen-cache |
-| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics/RPC, pprof, dashboard |
+| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics, pprof, dashboard |
 | `identity` | 128-bit AgentID generation, X25519 keypair storage for E2E encryption |
 | `integration` | Integration tests for multi-agent mesh scenarios |
 | `loadtest` | Load testing utilities - stream throughput, route table, connection churn |
@@ -167,8 +167,8 @@ An agent can serve multiple roles simultaneously:
 | `protocol` | Binary frame protocol - 14-byte header, encode/decode for all frame types |
 | `recovery` | Panic recovery utilities for goroutines with logging and callbacks |
 | `routing` | Route table with longest-prefix match, route manager with subscription system |
-| `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
 | `service` | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service |
+| `shell` | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
 | `socks5` | SOCKS5 server with no-auth and username/password methods |
 | `stream` | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O |
 | `sysinfo` | System information collection for node info advertisements |
@@ -203,7 +203,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `routing`: Advertisement intervals, node info interval, TTL, max hops
 - `limits`: Stream limits and buffer sizes
 - `http`: HTTP API server with granular endpoint control (health, metrics, dashboard, remote APIs, CLI)
-- `rpc`: Remote command execution (disabled by default)
+- `shell`: Remote shell access (disabled by default)
 - `file_transfer`: File upload/download (disabled by default)
 - `management`: Management key encryption for topology compartmentalization
 
@@ -360,7 +360,7 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/agents/{agent-id}` | GET | Get status from specific agent |
 | `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
 | `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
-| `/agents/{agent-id}/rpc` | POST | Execute RPC command on remote agent |
+| `/agents/{agent-id}/shell` | GET | WebSocket shell access on remote agent |
 | `/agents/{agent-id}/file/upload` | POST | Upload file to remote agent |
 | `/agents/{agent-id}/file/download` | POST | Download file from remote agent |
 
@@ -430,55 +430,50 @@ sc stop muti-metroo
 
 **Note**: Service installation requires root/administrator privileges.
 
-## Remote Procedure Call (RPC)
+## Remote Shell
 
-The RPC feature allows executing shell commands on remote agents for maintenance and diagnostics.
+The shell feature allows executing commands on remote agents with both interactive (PTY) and streaming modes.
 
 ### CLI Usage
 
 ```bash
-# Execute command on remote agent (via localhost:8080)
-muti-metroo rpc <target-agent-id> <command> [args...]
+# Interactive shell (default)
+muti-metroo shell <target-agent-id> [command] [args...]
 
 # Examples:
-muti-metroo rpc abc123def456 whoami
-muti-metroo rpc abc123def456 ls -la /tmp
-muti-metroo rpc abc123def456 ip addr show
+muti-metroo shell abc123def456 bash
+muti-metroo shell abc123def456 vim /etc/config.yaml
+muti-metroo shell abc123def456 htop
+
+# Streaming mode (for one-shot commands or continuous output)
+muti-metroo shell --stream abc123def456 whoami
+muti-metroo shell --stream abc123def456 journalctl -u muti-metroo -f
+muti-metroo shell --stream abc123def456 tail -f /var/log/syslog
 
 # Via a different agent's health server
-muti-metroo rpc -a 192.168.1.10:8080 abc123def456 hostname
+muti-metroo shell -a 192.168.1.10:8080 abc123def456 top
 
 # With password authentication
-muti-metroo rpc -p mysecret abc123def456 whoami
-
-# With custom timeout (seconds)
-muti-metroo rpc -t 120 abc123def456 long-running-script.sh
-
-# Pipe stdin to remote command
-echo "hello world" | muti-metroo rpc abc123def456 cat
-cat file.txt | muti-metroo rpc abc123def456 wc -l
+muti-metroo shell -p mysecret abc123def456 bash
 ```
 
 **Flags:**
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--agent` | `-a` | `localhost:8080` | Agent health server address |
-| `--password` | `-p` | | RPC password for authentication |
-| `--timeout` | `-t` | `60` | Command timeout in seconds |
-
-The CLI forwards stdout/stderr and exits with the remote command's exit code.
+| `--password` | `-p` | | Shell password for authentication |
+| `--timeout` | `-t` | `0` | Session timeout in seconds (0 = no timeout) |
+| `--stream` | | | Non-interactive streaming mode (no PTY) |
 
 ### Configuration
 
 ```yaml
-rpc:
-  enabled: true                    # Enable/disable RPC
-  whitelist:                       # Allowed commands (empty = none, ["*"] = all)
-    - whoami
-    - hostname
-    - ip
-  password_hash: "$2a$10$..."      # bcrypt hash of RPC password
-  timeout: 60s                     # Default command timeout
+shell:
+  enabled: false                   # Disabled by default (security)
+  whitelist: []                    # Commands allowed (empty = none, ["*"] = all)
+  password_hash: ""                # bcrypt hash of shell password
+  timeout: 0s                      # Optional command timeout (0 = no timeout)
+  max_sessions: 10                 # Max concurrent sessions
 ```
 
 ### Security Features
@@ -486,55 +481,38 @@ rpc:
 1. **Command Whitelist**: Only commands in the whitelist can be executed
    - Empty list = no commands allowed (default)
    - `["*"]` = all commands allowed (testing only!)
-   - Specific commands: `["whoami", "hostname", "ip"]`
+   - Specific commands: `["bash", "vim", "whoami"]`
 
-2. **Password Authentication**: RPC requests must include the correct password
+2. **Password Authentication**: Shell requests must include the correct password
    - Password is hashed with bcrypt and stored in config
    - Generate hash: `muti-metroo hash --cost 12`
    - Setup wizard can generate the hash automatically
 
-### HTTP API
+### Modes
 
-**Endpoint**: `POST /agents/{agent-id}/rpc`
+- **Interactive Mode** (default): Allocates a PTY for full terminal support (vim, htop, bash)
+- **Streaming Mode** (`--stream`): Non-PTY mode for one-shot commands or continuous output
 
-**Request**:
-```json
-{
-  "password": "your-rpc-password",
-  "command": "whoami",
-  "args": ["-a"],
-  "stdin": "base64-encoded-input",
-  "timeout": 30
-}
-```
+### Platform Support
 
-**Response**:
-```json
-{
-  "exit_code": 0,
-  "stdout": "base64-encoded-output",
-  "stderr": "base64-encoded-errors",
-  "error": ""
-}
-```
+| Platform | Interactive (PTY) | Streaming |
+|----------|-------------------|-----------|
+| Linux    | Yes               | Yes       |
+| macOS    | Yes               | Yes       |
+| Windows  | No                | Yes       |
 
 ### Prometheus Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `muti_metroo_rpc_calls_total` | Counter | `result`, `command` | Total RPC calls by result |
-| `muti_metroo_rpc_call_duration_seconds` | Histogram | `command` | RPC call duration |
-| `muti_metroo_rpc_bytes_received_total` | Counter | - | Bytes received in requests |
-| `muti_metroo_rpc_bytes_sent_total` | Counter | - | Bytes sent in responses |
+| `muti_metroo_shell_sessions_active` | Gauge | - | Active sessions |
+| `muti_metroo_shell_sessions_total` | Counter | `type`, `result` | Total sessions |
+| `muti_metroo_shell_duration_seconds` | Histogram | - | Session duration |
+| `muti_metroo_shell_bytes_total` | Counter | `direction` | Bytes transferred |
 
-Result labels: `success`, `failed`, `rejected`, `auth_failed`, `error`
-
-### Implementation Details
-
-- **Max stdin size**: 1 MB
-- **Max output size**: 4 MB (stdout + stderr each)
-- **Chunking**: Large payloads split into 14 KB chunks with gzip compression
-- **Timeout**: Default 60s, configurable per-request
+Type labels: `stream`, `interactive`
+Result labels: `success`, `error`, `timeout`, `rejected`
+Direction labels: `stdin`, `stdout`, `stderr`
 
 ## File Transfer
 
@@ -575,7 +553,7 @@ muti-metroo upload -a 192.168.1.10:8080 abc123def456 ./file.txt /tmp/file.txt
 file_transfer:
   enabled: true                    # Enable/disable file transfer
   max_file_size: 0                 # Max file size in bytes (0 = unlimited)
-  allowed_paths:                   # Works like RPC whitelist:
+  allowed_paths:                   # Works like shell whitelist:
     - /tmp                         # - Empty [] = no paths allowed
     - /data/**                     # - ["*"] = all paths allowed
     - /home/*/uploads              # - Supports glob patterns

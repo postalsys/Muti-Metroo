@@ -77,11 +77,11 @@ const FeatureList: FeatureItem[] = [
     title: 'Remote Operations',
     image: '/img/mole-presenting.png',
     imageAlt: 'Mole presenting',
-    link: '/features/rpc',
+    link: '/features/shell',
     description: (
       <>
-        Execute commands and transfer files across the mesh. Built-in RPC with
-        command whitelisting and authenticated file upload/download.
+        Execute commands and transfer files across the mesh. Interactive shell
+        with command whitelisting and authenticated file upload/download.
       </>
     ),
   },

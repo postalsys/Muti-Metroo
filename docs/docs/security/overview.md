@@ -41,13 +41,13 @@ All peer connections use TLS 1.3:
 | TLS | Certificates | Peer authentication |
 | mTLS | Client certs | Mutual authentication |
 | SOCKS5 | Username/password | Client authentication |
-| RPC | bcrypt password | Command authorization |
+| Shell | bcrypt password | Command authorization |
 | File Transfer | bcrypt password | Transfer authorization |
 
 ### Authorization
 
 - **Route-based ACL**: Exit only allows configured CIDRs
-- **RPC whitelist**: Only whitelisted commands allowed
+- **Shell whitelist**: Only whitelisted commands allowed
 - **File path restrictions**: Only allowed paths accessible
 
 ## Threat Model
@@ -63,7 +63,7 @@ All peer connections use TLS 1.3:
 | Man-in-the-middle | Certificate validation |
 | Unauthorized peers | mTLS authentication |
 | Unauthorized clients | SOCKS5 authentication |
-| Unauthorized commands | RPC whitelist + password |
+| Unauthorized commands | Shell whitelist + password |
 | Resource exhaustion | Connection limits |
 
 ### What Muti Metroo Does NOT Protect Against
@@ -88,7 +88,7 @@ All peer connections use TLS 1.3:
 
 - [ ] Mutual TLS enabled
 - [ ] SOCKS5 authentication enabled
-- [ ] RPC disabled or password-protected
+- [ ] Shell disabled or password-protected
 - [ ] File transfer disabled or restricted
 - [ ] Monitoring and alerting configured
 - [ ] Regular certificate rotation
@@ -107,8 +107,8 @@ All peer connections use TLS 1.3:
 ### Disable Unnecessary Features
 
 ```yaml
-# Disable RPC if not needed
-rpc:
+# Disable shell if not needed
+shell:
   enabled: false
 
 # Disable file transfer if not needed
@@ -162,7 +162,7 @@ listeners:
 |-------|-------------|
 | [E2E Encryption](e2e-encryption) | Stream payload encryption |
 | [TLS/mTLS](tls-mtls) | Certificate-based security |
-| [Authentication](authentication) | Client and RPC authentication |
+| [Authentication](authentication) | Client and shell authentication |
 | [Access Control](access-control) | Route and command restrictions |
 | [Best Practices](best-practices) | Production hardening guide |
 

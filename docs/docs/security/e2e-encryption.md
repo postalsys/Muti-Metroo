@@ -119,4 +119,4 @@ muti-metroo init -d {data_dir}
 ## Next Steps
 
 - [TLS/mTLS Configuration](tls-mtls) - Transport-layer security between peers
-- [Authentication](authentication) - SOCKS5 and RPC authentication
+- [Authentication](authentication) - SOCKS5 and shell authentication

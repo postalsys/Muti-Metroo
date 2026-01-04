@@ -17,7 +17,7 @@ Muti Metroo supports multiple authentication mechanisms for different components
 |-----------|-----------|---------|
 | Peer connections | TLS/mTLS | Agent-to-agent authentication |
 | SOCKS5 proxy | Username/password | Client authentication |
-| RPC | bcrypt password | Command authorization |
+| Shell | bcrypt password | Command authorization |
 | File transfer | bcrypt password | Transfer authorization |
 | HTTP API | None (use firewall) | Monitoring endpoints |
 
@@ -114,21 +114,21 @@ curl -x socks5://user1:password@localhost:1080 https://example.com
 ssh -o ProxyCommand='nc -x localhost:1080 -P user1 %h %p' user@host
 ```
 
-## RPC Authentication
+## Shell Authentication
 
 ### Configuration
 
 ```yaml
-rpc:
+shell:
   enabled: true
   whitelist:
-    - whoami
-    - hostname
+    - bash
+    - sh
   password_hash: "$2a$12$..."
   timeout: 60s
 ```
 
-### Generating RPC Password Hash
+### Generating Shell Password Hash
 
 Use the built-in CLI command (see [Generating Password Hashes](/cli/hash)):
 
@@ -136,20 +136,16 @@ Use the built-in CLI command (see [Generating Password Hashes](/cli/hash)):
 muti-metroo hash --cost 12
 ```
 
-### Using RPC with Authentication
+### Using Shell with Authentication
 
 CLI:
 
 ```bash
-muti-metroo rpc -p myrpcpassword agent123 whoami
-```
+# Interactive shell
+muti-metroo shell -p mypassword agent123 bash
 
-HTTP API:
-
-```bash
-curl -X POST http://localhost:8080/agents/agent123/rpc \
-  -H "Content-Type: application/json" \
-  -d '{"password":"myrpcpassword","command":"whoami"}'
+# One-shot streaming command
+muti-metroo shell --stream -p mypassword agent123 whoami
 ```
 
 ## File Transfer Authentication
@@ -224,8 +220,8 @@ socks5:
       - username: "${SOCKS5_USER}"
         password_hash: "${SOCKS5_PASSWORD_HASH}"
 
-rpc:
-  password_hash: "${RPC_PASSWORD_HASH}"
+shell:
+  password_hash: "${SHELL_PASSWORD_HASH}"
 
 file_transfer:
   password_hash: "${FILE_TRANSFER_PASSWORD_HASH}"
@@ -260,8 +256,8 @@ Track authentication failures:
 # Check SOCKS5 auth failures
 curl http://localhost:8080/metrics | grep socks5_auth_failures
 
-# Check RPC auth failures
-curl http://localhost:8080/metrics | grep rpc.*auth_failed
+# Check shell auth failures
+curl http://localhost:8080/metrics | grep shell.*auth_failed
 ```
 
 Alert on:

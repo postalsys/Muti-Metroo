@@ -26,7 +26,7 @@ The generated hash can be used in:
 | Config Field | Purpose |
 |--------------|---------|
 | `socks5.auth.users[].password_hash` | SOCKS5 proxy authentication |
-| `rpc.password_hash` | RPC command authorization |
+| `shell.password_hash` | Remote shell authorization |
 | `file_transfer.password_hash` | File transfer authorization |
 
 ## Usage
@@ -104,18 +104,18 @@ $2a$12$xYzAbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhI
 #         password_hash: "$2a$12$xYzAbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhI"
 ```
 
-### Generate Hash for RPC Authentication
+### Generate Hash for Shell Authentication
 
 ```bash
 muti-metroo hash --cost 12
 
 # Use in config.yaml
-# rpc:
+# shell:
 #   enabled: true
 #   password_hash: "$2a$12$..."
 #   whitelist:
-#     - whoami
-#     - hostname
+#     - bash
+#     - sh
 ```
 
 ### Generate Hash for File Transfer
@@ -181,7 +181,7 @@ $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
 
 2. **Use appropriate cost**: Balance security with performance. Cost 12 is recommended for production.
 
-3. **Unique passwords**: Use different passwords for different components (SOCKS5, RPC, file transfer).
+3. **Unique passwords**: Use different passwords for different components (SOCKS5, shell, file transfer).
 
 4. **Store hashes safely**: Even though hashes are one-way, treat configuration files with hashes as sensitive.
 
@@ -223,5 +223,5 @@ fmt.Println(string(hash))
 
 - [Authentication](/security/authentication) - Complete authentication guide
 - [SOCKS5 Configuration](/configuration/socks5) - SOCKS5 proxy settings
-- [RPC](/features/rpc) - Remote procedure calls
+- [Remote Shell](/features/shell) - Interactive and streaming shell
 - [File Transfer](/features/file-transfer) - File transfer feature

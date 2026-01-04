@@ -17,8 +17,8 @@ import (
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/identity"
-	"github.com/postalsys/muti-metroo/internal/rpc"
 	"github.com/postalsys/muti-metroo/internal/service"
+	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
 
@@ -102,8 +102,8 @@ func (w *Wizard) Run() (*Result, error) {
 		return nil, err
 	}
 
-	// Step 9: RPC configuration
-	rpcConfig, err := w.askRPCConfig()
+	// Step 9: Shell configuration
+	shellConfig, err := w.askShellConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (w *Wizard) Run() (*Result, error) {
 	cfg := w.buildConfig(
 		dataDir, displayName, transport, listenAddr, listenPath,
 		tlsConfig, peers, socks5Config, exitConfig,
-		healthEnabled, logLevel, rpcConfig, fileTransferConfig, managementConfig,
+		healthEnabled, logLevel, shellConfig, fileTransferConfig, managementConfig,
 	)
 
 	// Initialize identity
@@ -973,30 +973,31 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err 
 	return
 }
 
-func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
-	cfg := config.RPCConfig{
-		Enabled:   false,
-		Whitelist: []string{},
-		Timeout:   60 * time.Second,
+func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
+	cfg := config.ShellConfig{
+		Enabled:     false,
+		Whitelist:   []string{},
+		MaxSessions: 10,
 	}
-	var enableRPC bool
+	var enableShell bool
 
 	// Use existing config defaults if available
 	if w.existingCfg != nil {
-		enableRPC = w.existingCfg.RPC.Enabled
-		cfg.Timeout = w.existingCfg.RPC.Timeout
+		enableShell = w.existingCfg.Shell.Enabled
+		cfg.Timeout = w.existingCfg.Shell.Timeout
+		cfg.MaxSessions = w.existingCfg.Shell.MaxSessions
 	}
 
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
-				Title("Remote Procedure Call (RPC)").
-				Description("RPC allows executing shell commands remotely on this agent.\nCommands must be whitelisted for security."),
+				Title("Remote Shell Access").
+				Description("Shell allows executing commands remotely on this agent.\nCommands must be whitelisted for security."),
 
 			huh.NewConfirm().
-				Title("Enable RPC?").
+				Title("Enable Remote Shell?").
 				Description("Allow remote command execution (requires authentication)").
-				Value(&enableRPC),
+				Value(&enableShell),
 		),
 	).WithTheme(w.theme)
 
@@ -1004,7 +1005,7 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 		return cfg, err
 	}
 
-	if !enableRPC {
+	if !enableShell {
 		return cfg, nil
 	}
 
@@ -1015,11 +1016,11 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 	authForm := huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().
-				Title("RPC Authentication").
-				Description("Set a password to protect RPC access.\nThis password will be hashed and stored securely."),
+				Title("Shell Authentication").
+				Description("Set a password to protect shell access.\nThis password will be hashed and stored securely."),
 
 			huh.NewInput().
-				Title("RPC Password").
+				Title("Shell Password").
 				EchoMode(huh.EchoModePassword).
 				Value(&password).
 				Validate(func(s string) error {
@@ -1047,7 +1048,11 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 	}
 
 	// Hash the password
-	cfg.PasswordHash = rpc.MustHashPassword(password)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return cfg, fmt.Errorf("failed to hash password: %w", err)
+	}
+	cfg.PasswordHash = string(hash)
 
 	// Ask for whitelist
 	var whitelistChoice string
@@ -1084,8 +1089,8 @@ func (w *Wizard) askRPCConfig() (config.RPCConfig, error) {
 			huh.NewGroup(
 				huh.NewText().
 					Title("Allowed Commands").
-					Description("Enter one command per line (e.g., whoami, ip, hostname)").
-					Placeholder("whoami\nhostname\nip").
+					Description("Enter one command per line (e.g., whoami, ip, hostname, bash)").
+					Placeholder("whoami\nhostname\nbash").
 					Value(&commandsStr).
 					Validate(func(s string) error {
 						if s == "" {
@@ -1188,8 +1193,12 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 		return cfg, err
 	}
 
-	// Hash the password using bcrypt (same as RPC)
-	cfg.PasswordHash = rpc.MustHashPassword(password)
+	// Hash the password using bcrypt
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return cfg, fmt.Errorf("failed to hash password: %w", err)
+	}
+	cfg.PasswordHash = string(hash)
 
 	// Ask for max file size
 	var maxSizeMB string = "500"
@@ -1495,7 +1504,7 @@ func (w *Wizard) buildConfig(
 	exitConfig config.ExitConfig,
 	healthEnabled bool,
 	logLevel string,
-	rpcConfig config.RPCConfig,
+	shellConfig config.ShellConfig,
 	fileTransferConfig config.FileTransferConfig,
 	managementConfig config.ManagementConfig,
 ) *config.Config {
@@ -1534,8 +1543,8 @@ func (w *Wizard) buildConfig(
 		cfg.HTTP.Address = ":8080"
 	}
 
-	// RPC
-	cfg.RPC = rpcConfig
+	// Shell
+	cfg.Shell = shellConfig
 
 	// File Transfer
 	cfg.FileTransfer = fileTransferConfig
@@ -1614,9 +1623,9 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 		fmt.Printf("  HTTP API:     http://%s\n", cfg.HTTP.Address)
 	}
 
-	if cfg.RPC.Enabled {
-		fmt.Printf("  RPC:          enabled (%d commands whitelisted)\n", len(cfg.RPC.Whitelist))
-		if len(cfg.RPC.Whitelist) == 1 && cfg.RPC.Whitelist[0] == "*" {
+	if cfg.Shell.Enabled {
+		fmt.Printf("  Shell:        enabled (%d commands whitelisted)\n", len(cfg.Shell.Whitelist))
+		if len(cfg.Shell.Whitelist) == 1 && cfg.Shell.Whitelist[0] == "*" {
 			fmt.Println("                [WARNING] All commands allowed!")
 		}
 	}

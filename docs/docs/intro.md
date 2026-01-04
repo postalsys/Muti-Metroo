@@ -38,7 +38,7 @@ flowchart LR
 | **Multi-Hop Paths** | Traffic automatically finds its way through the mesh |
 | **Stream Multiplexing** | Multiple virtual streams over single connections |
 | **File Transfer** | Upload/download files and directories across the mesh |
-| **Remote Execution** | Execute commands on remote agents (RPC) |
+| **Remote Execution** | Execute commands on remote agents (interactive shell) |
 | **Web Dashboard** | Visual topology with metro map visualization |
 | **No Root Required** | Runs entirely in userspace |
 
@@ -114,7 +114,7 @@ The wizard guides you through configuring your first agent, generating TLS certi
 | [Getting Started](getting-started/overview) | Installation, setup, and your first mesh |
 | [Core Concepts](concepts/architecture) | Architecture, roles, transports, and routing |
 | [Configuration](configuration/overview) | Complete configuration reference |
-| [Features](features/socks5-proxy) | SOCKS5, exit routing, file transfer, RPC |
+| [Features](features/socks5-proxy) | SOCKS5, exit routing, file transfer, remote shell |
 | [Deployment](deployment/scenarios) | Docker, Kubernetes, and production deployment |
 | [Security](security/overview) | TLS, authentication, and best practices |
 | [CLI Reference](cli/overview) | Command-line interface documentation |

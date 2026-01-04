@@ -66,8 +66,8 @@ socks5:
       - username: "admin"
         password_hash: "${SOCKS5_PASSWORD_HASH}"
 
-rpc:
-  password_hash: "${RPC_PASSWORD_HASH}"
+shell:
+  password_hash: "${SHELL_PASSWORD_HASH}"
 
 file_transfer:
   password_hash: "${FILE_TRANSFER_PASSWORD_HASH}"

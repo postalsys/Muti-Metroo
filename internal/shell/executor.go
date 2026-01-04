@@ -21,67 +21,36 @@ type Config struct {
 	// Enabled controls whether shell is available
 	Enabled bool `yaml:"enabled"`
 
-	// Streaming configures streaming mode (non-interactive)
-	Streaming StreamingConfig `yaml:"streaming"`
-
-	// Interactive configures interactive PTY mode
-	Interactive InteractiveConfig `yaml:"interactive"`
+	// Whitelist contains allowed commands. Empty list = no commands allowed.
+	// Use ["*"] to allow all commands (for testing only!).
+	// Commands should be base names only (e.g., "whoami", "ls", "bash").
+	Whitelist []string `yaml:"whitelist"`
 
 	// PasswordHash is the bcrypt hash of the shell password.
-	// If empty, uses RPC password_hash if available.
+	// If set, all shell requests must include the correct password.
 	PasswordHash string `yaml:"password_hash"`
+
+	// Timeout is the optional command timeout (0 = no timeout).
+	Timeout time.Duration `yaml:"timeout"`
 
 	// MaxSessions limits concurrent shell sessions (0 = unlimited)
 	MaxSessions int `yaml:"max_sessions"`
-
-	// Whitelist contains allowed commands. Empty = use RPC whitelist.
-	// Use ["*"] to allow all commands (for testing only!).
-	Whitelist []string `yaml:"whitelist"`
-}
-
-// StreamingConfig contains streaming mode configuration.
-type StreamingConfig struct {
-	// Enabled controls whether streaming mode is available
-	Enabled bool `yaml:"enabled"`
-
-	// MaxDuration is the maximum session duration (0 = unlimited)
-	MaxDuration time.Duration `yaml:"max_duration"`
-}
-
-// InteractiveConfig contains interactive PTY mode configuration.
-type InteractiveConfig struct {
-	// Enabled controls whether interactive PTY mode is available
-	Enabled bool `yaml:"enabled"`
-
-	// AllowedCommands overrides the whitelist for interactive mode
-	// Empty = use main whitelist
-	AllowedCommands []string `yaml:"allowed_commands"`
 }
 
 // DefaultConfig returns default shell configuration (disabled).
 func DefaultConfig() Config {
 	return Config{
-		Enabled: false,
-		Streaming: StreamingConfig{
-			Enabled:     true,
-			MaxDuration: 24 * time.Hour,
-		},
-		Interactive: InteractiveConfig{
-			Enabled:         true,
-			AllowedCommands: []string{},
-		},
-		MaxSessions: 10,
+		Enabled:     false,
 		Whitelist:   []string{},
+		MaxSessions: 10,
 	}
 }
 
 // Executor handles shell command execution with security checks.
 type Executor struct {
-	config       Config
-	rpcWhitelist []string      // Fallback whitelist from RPC config
-	rpcPassword  string        // Fallback password hash from RPC config
-	mu           sync.Mutex
-	sessions     int           // Active session count
+	config   Config
+	mu       sync.Mutex
+	sessions int // Active session count
 }
 
 // NewExecutor creates a new shell executor.
@@ -91,31 +60,9 @@ func NewExecutor(cfg Config) *Executor {
 	}
 }
 
-// SetRPCFallback sets fallback whitelist and password from RPC config.
-func (e *Executor) SetRPCFallback(whitelist []string, passwordHash string) {
-	e.rpcWhitelist = whitelist
-	e.rpcPassword = passwordHash
-}
-
-// getWhitelist returns the effective whitelist.
-func (e *Executor) getWhitelist() []string {
-	if len(e.config.Whitelist) > 0 {
-		return e.config.Whitelist
-	}
-	return e.rpcWhitelist
-}
-
-// getPasswordHash returns the effective password hash.
-func (e *Executor) getPasswordHash() string {
-	if e.config.PasswordHash != "" {
-		return e.config.PasswordHash
-	}
-	return e.rpcPassword
-}
-
 // ValidateAuth checks if the provided password matches the configured bcrypt hash.
 func (e *Executor) ValidateAuth(password string) error {
-	hash := e.getPasswordHash()
+	hash := e.config.PasswordHash
 	if hash == "" {
 		// No password configured, authentication not required
 		return nil
@@ -137,15 +84,8 @@ func (e *Executor) ValidateAuth(password string) error {
 var dangerousArgPattern = regexp.MustCompile(`[;&|$` + "`" + `(){}[\]<>\\!*?~]`)
 
 // IsCommandAllowed checks if the command is in the whitelist.
-func (e *Executor) IsCommandAllowed(command string, interactive bool) bool {
-	var whitelist []string
-
-	// Use interactive-specific whitelist if available
-	if interactive && len(e.config.Interactive.AllowedCommands) > 0 {
-		whitelist = e.config.Interactive.AllowedCommands
-	} else {
-		whitelist = e.getWhitelist()
-	}
+func (e *Executor) IsCommandAllowed(command string) bool {
+	whitelist := e.config.Whitelist
 
 	if len(whitelist) == 0 {
 		return false
@@ -175,7 +115,7 @@ func (e *Executor) IsCommandAllowed(command string, interactive bool) bool {
 
 // ValidateArgs checks command arguments for dangerous patterns.
 func (e *Executor) ValidateArgs(args []string) error {
-	whitelist := e.getWhitelist()
+	whitelist := e.config.Whitelist
 
 	// In wildcard mode, skip argument validation
 	for _, w := range whitelist {
@@ -248,23 +188,13 @@ func (e *Executor) NewSession(ctx context.Context, meta *ShellMeta) (*Session, e
 		return nil, fmt.Errorf("shell is disabled")
 	}
 
-	interactive := meta.TTY != nil
-
-	if interactive && !e.config.Interactive.Enabled {
-		return nil, fmt.Errorf("interactive shell is disabled")
-	}
-
-	if !interactive && !e.config.Streaming.Enabled {
-		return nil, fmt.Errorf("streaming shell is disabled")
-	}
-
 	// Validate authentication
 	if err := e.ValidateAuth(meta.Password); err != nil {
 		return nil, err
 	}
 
 	// Validate command
-	if !e.IsCommandAllowed(meta.Command, interactive) {
+	if !e.IsCommandAllowed(meta.Command) {
 		return nil, fmt.Errorf("command '%s' is not allowed", meta.Command)
 	}
 
@@ -278,12 +208,12 @@ func (e *Executor) NewSession(ctx context.Context, meta *ShellMeta) (*Session, e
 		return nil, err
 	}
 
-	// Determine timeout
+	// Determine timeout (per-request timeout takes precedence, then config timeout)
 	var maxDuration time.Duration
 	if meta.Timeout > 0 {
 		maxDuration = time.Duration(meta.Timeout) * time.Second
-	} else if !interactive && e.config.Streaming.MaxDuration > 0 {
-		maxDuration = e.config.Streaming.MaxDuration
+	} else if e.config.Timeout > 0 {
+		maxDuration = e.config.Timeout
 	}
 
 	// Create context with optional timeout

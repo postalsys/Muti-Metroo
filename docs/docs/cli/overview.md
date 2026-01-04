@@ -17,7 +17,7 @@ All CLI commands that query agent state use the HTTP API to communicate with age
 | Aspect | Details |
 |--------|---------|
 | **Local queries** | `status`, `peers`, `routes` |
-| **Remote operations** | `rpc`, `upload`, `download` |
+| **Remote operations** | `shell`, `upload`, `download` |
 | **Default address** | `localhost:8080` |
 | **Configuration** | `http.address` in config |
 
@@ -32,7 +32,8 @@ muti-metroo status -a 192.168.1.10:8080
 muti-metroo peers -a 192.168.1.10:8080
 
 # Execute command on remote agent
-muti-metroo rpc <target-agent-id> whoami
+muti-metroo shell <target-agent-id> bash
+muti-metroo shell --stream <target-agent-id> whoami
 
 # Transfer files
 muti-metroo upload <target-agent-id> ./file.txt /tmp/file.txt
@@ -58,7 +59,7 @@ Available for all commands:
 | `status` | Show agent status via HTTP API |
 | `peers` | List connected peers via HTTP API |
 | `routes` | List route table via HTTP API |
-| `rpc` | Execute remote procedure call |
+| `shell` | Interactive or streaming remote shell |
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
 | `service` | Service management (install, uninstall, status) |
@@ -92,7 +93,8 @@ muti-metroo peers
 muti-metroo routes
 
 # Execute remote command
-muti-metroo rpc agent123 whoami
+muti-metroo shell agent123 bash
+muti-metroo shell --stream agent123 whoami
 
 # Upload file
 muti-metroo upload agent123 local.txt /tmp/remote.txt

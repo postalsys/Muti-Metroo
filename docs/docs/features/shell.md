@@ -1,5 +1,5 @@
 ---
-title: Interactive Shell
+title: Remote Shell
 sidebar_position: 5
 ---
 
@@ -7,55 +7,48 @@ sidebar_position: 5
   <img src="/img/mole-digging.png" alt="Mole accessing shell" style={{maxWidth: '180px'}} />
 </div>
 
-# Interactive Shell
+# Remote Shell
 
-Open interactive shell sessions or run streaming commands on remote agents. Unlike RPC which executes one-shot commands, shell supports:
+Execute shell commands on remote agents with support for both interactive and streaming modes:
 
 - **Interactive TTY**: Full terminal support for programs like vim, bash, top
 - **Streaming mode**: Continuous output for commands like `journalctl -f` or `tail -f`
+- **One-shot commands**: Quick command execution with streaming mode
 
 ## Configuration
 
 ```yaml
 shell:
   enabled: false              # Disabled by default (security)
-  streaming:
-    enabled: true             # Allow streaming mode (--stream)
-    max_duration: 24h         # Max session duration
-  interactive:
-    enabled: true             # Allow interactive TTY mode
-    allowed_commands:         # Override whitelist for interactive mode
-      - bash
-      - sh
-      - zsh
-  whitelist:                  # Commands allowed (empty = use RPC whitelist)
-    - bash
-    - vim
-    - top
-  password_hash: ""           # bcrypt hash (empty = use RPC password)
+  whitelist: []               # Commands allowed (empty = none, ["*"] = all)
+  # whitelist:
+  #   - bash
+  #   - vim
+  #   - whoami
+  #   - hostname
+  password_hash: ""           # bcrypt hash of shell password
+  timeout: 0s                 # Optional command timeout (0 = no timeout)
   max_sessions: 10            # Max concurrent sessions
 ```
 
 :::tip Generate Password Hash
-Use the built-in CLI to generate bcrypt hashes: `muti-metroo hash --cost 12`
+Use the built-in CLI to generate bcrypt hashes: `muti-metroo hash`
 
 See [CLI - hash](/cli/hash) for details.
 :::
 
 ## Security Model
 
-Shell inherits security from the RPC feature with additional controls:
-
 1. **Command Whitelist**: Only whitelisted commands can run
-   - Empty list = use RPC whitelist
-   - Interactive mode can have a separate `allowed_commands` list
+   - Empty list = no commands allowed (default)
    - `["*"]` = all commands allowed (testing only!)
+   - Commands must be base names only (no paths)
 
-2. **Password Authentication**: bcrypt-hashed password (falls back to RPC password)
+2. **Password Authentication**: bcrypt-hashed password required when configured
 
 3. **Session Limits**: Maximum concurrent sessions to prevent resource exhaustion
 
-4. **Duration Limits**: Maximum session duration for streaming mode
+4. **Argument Validation**: Dangerous shell metacharacters are blocked
 
 ## Modes
 
@@ -80,12 +73,17 @@ Non-interactive mode without PTY allocation:
 
 - Separate stdout and stderr streams
 - Suitable for long-running commands with continuous output
+- Ideal for one-shot command execution
 - No terminal control characters
 
 ```bash
+# Long-running streaming commands
 muti-metroo shell --stream abc123 journalctl -u muti-metroo -f
 muti-metroo shell --stream abc123 tail -f /var/log/syslog
-muti-metroo shell --stream abc123 watch -n 1 df -h
+
+# One-shot commands
+muti-metroo shell --stream abc123 whoami
+muti-metroo shell --stream abc123 ls -la /tmp
 ```
 
 ## CLI Usage
@@ -100,9 +98,9 @@ muti-metroo shell abc123
 muti-metroo shell abc123 bash
 muti-metroo shell abc123 vim /etc/hosts
 
-# Streaming mode
+# Streaming mode (for one-shot or long-running commands)
+muti-metroo shell --stream abc123 whoami
 muti-metroo shell --stream abc123 journalctl -f
-muti-metroo shell --stream abc123 tail -f /var/log/app.log
 
 # With password
 muti-metroo shell -p secret abc123 bash
@@ -149,20 +147,8 @@ Type labels: `stream`, `interactive`
 Result labels: `success`, `error`, `timeout`, `rejected`
 Direction labels: `stdin`, `stdout`, `stderr`
 
-## Comparison with RPC
-
-| Feature | RPC | Shell |
-|---------|-----|-------|
-| Execution model | One-shot | Streaming |
-| TTY support | No | Yes (interactive mode) |
-| stdin | Single payload | Continuous |
-| stdout/stderr | Buffered | Real-time streaming |
-| Use case | Quick commands | Long-running/interactive |
-| Protocol | HTTP POST | WebSocket |
-
 ## Related
 
 - [CLI - Shell](../cli/shell) - CLI reference
 - [API - Shell](../api/shell) - WebSocket API reference
-- [RPC Feature](./rpc) - One-shot command execution
 - [Security - Access Control](../security/access-control) - Whitelist configuration

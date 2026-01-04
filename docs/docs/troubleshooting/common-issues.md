@@ -325,7 +325,7 @@ exit:
     - "0.0.0.0/0"  # Or specific CIDR matching destination
 ```
 
-## RPC Issues
+## Shell Issues
 
 ### Command Rejected
 
@@ -336,23 +336,23 @@ Error: command not in whitelist
 **Solution:** Add command to whitelist:
 
 ```yaml
-rpc:
+shell:
   whitelist:
-    - whoami
+    - bash
     - your-command  # Add needed command
 ```
 
-### RPC Authentication Failed
+### Shell Authentication Failed
 
 ```
-Error: RPC authentication failed
+Error: shell authentication failed
 ```
 
 **Solutions:**
 
 1. Check password:
    ```bash
-   muti-metroo rpc -p correct-password agent-id whoami
+   muti-metroo shell -p correct-password agent-id bash
    ```
 
 2. Verify password hash in config matches

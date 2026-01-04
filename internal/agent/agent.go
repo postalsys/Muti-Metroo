@@ -34,7 +34,6 @@ import (
 	"github.com/postalsys/muti-metroo/internal/protocol"
 	"github.com/postalsys/muti-metroo/internal/recovery"
 	"github.com/postalsys/muti-metroo/internal/routing"
-	"github.com/postalsys/muti-metroo/internal/rpc"
 	"github.com/postalsys/muti-metroo/internal/shell"
 	"github.com/postalsys/muti-metroo/internal/socks5"
 	"github.com/postalsys/muti-metroo/internal/stream"
@@ -96,8 +95,7 @@ type Agent struct {
 	socks5Srv           *socks5.Server
 	exitHandler  *exit.Handler
 	healthServer *health.Server
-	rpcExecutor  *rpc.Executor
-	sealedBox     *crypto.SealedBox // Management key encryption (nil if not configured)
+	sealedBox    *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	// File transfer (stream-based)
 	fileStreamHandler  *filetransfer.StreamHandler
@@ -314,15 +312,6 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetSealedBox(a.sealedBox)   // Enable management key decrypt checks
 	}
 
-	// Initialize RPC executor
-	rpcCfg := rpc.Config{
-		Enabled:      a.cfg.RPC.Enabled,
-		Whitelist:    a.cfg.RPC.Whitelist,
-		PasswordHash: a.cfg.RPC.PasswordHash,
-		Timeout:      a.cfg.RPC.Timeout,
-	}
-	a.rpcExecutor = rpc.NewExecutor(rpcCfg)
-
 	// Initialize file transfer handler (stream-based)
 	ftStreamCfg := filetransfer.StreamConfig{
 		Enabled:      a.cfg.FileTransfer.Enabled,
@@ -335,22 +324,13 @@ func (a *Agent) initComponents() error {
 
 	// Initialize shell handler
 	shellCfg := shell.Config{
-		Enabled: a.cfg.Shell.Enabled,
-		Streaming: shell.StreamingConfig{
-			Enabled:     a.cfg.Shell.Streaming.Enabled,
-			MaxDuration: a.cfg.Shell.Streaming.MaxDuration,
-		},
-		Interactive: shell.InteractiveConfig{
-			Enabled:         a.cfg.Shell.Interactive.Enabled,
-			AllowedCommands: a.cfg.Shell.Interactive.AllowedCommands,
-		},
-		PasswordHash: a.cfg.Shell.PasswordHash,
-		MaxSessions:  a.cfg.Shell.MaxSessions,
+		Enabled:      a.cfg.Shell.Enabled,
 		Whitelist:    a.cfg.Shell.Whitelist,
+		PasswordHash: a.cfg.Shell.PasswordHash,
+		Timeout:      a.cfg.Shell.Timeout,
+		MaxSessions:  a.cfg.Shell.MaxSessions,
 	}
 	shellExecutor := shell.NewExecutor(shellCfg)
-	// Set fallback to RPC whitelist and password if shell-specific ones are not set
-	shellExecutor.SetRPCFallback(a.cfg.RPC.Whitelist, a.cfg.RPC.PasswordHash)
 	a.shellHandler = shell.NewHandler(shellExecutor, a, a.logger)
 
 	return nil
@@ -1660,8 +1640,6 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.getLocalPeers()
 	case protocol.ControlTypeRoutes:
 		data, success = a.getLocalRoutes()
-	case protocol.ControlTypeRPC:
-		data, success = a.handleRPCRequest(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false
@@ -1986,105 +1964,6 @@ func (a *Agent) getLocalRoutes() ([]byte, bool) {
 		return []byte(err.Error()), false
 	}
 	return data, true
-}
-
-// RPCRequestPayload is the JSON payload for RPC requests via control channel.
-type RPCRequestPayload struct {
-	Password string   `json:"password,omitempty"` // RPC password for authentication
-	Command  string   `json:"command"`            // Command to execute
-	Args     []string `json:"args,omitempty"`     // Command arguments
-	Stdin    string   `json:"stdin,omitempty"`    // Base64-encoded stdin data
-	Timeout  int      `json:"timeout,omitempty"`  // Timeout in seconds
-}
-
-// handleRPCRequest handles an RPC request from the control channel.
-func (a *Agent) handleRPCRequest(data []byte) ([]byte, bool) {
-	startTime := time.Now()
-
-	// Decode the request payload
-	var payload RPCRequestPayload
-	if err := json.Unmarshal(data, &payload); err != nil {
-		rpc.RecordError("")
-		return []byte(fmt.Sprintf("invalid request: %v", err)), false
-	}
-
-	// Record request size
-	rpc.RecordRequestSize(len(data))
-
-	// Validate authentication
-	if err := a.rpcExecutor.ValidateAuth(payload.Password); err != nil {
-		rpc.RecordAuthFailed()
-		a.logger.Warn("RPC authentication failed",
-			"command", payload.Command)
-		return []byte(fmt.Sprintf("authentication failed: %v", err)), false
-	}
-
-	// Check if command is allowed
-	if !a.rpcExecutor.IsCommandAllowed(payload.Command) {
-		rpc.RecordRejected(payload.Command)
-		a.logger.Warn("RPC command rejected",
-			"command", payload.Command)
-		return []byte(fmt.Sprintf("command '%s' not in whitelist", payload.Command)), false
-	}
-
-	// Decode stdin if provided
-	var stdin []byte
-	if payload.Stdin != "" {
-		var err error
-		stdin, err = rpc.DecodeBase64(payload.Stdin)
-		if err != nil {
-			rpc.RecordError(payload.Command)
-			return []byte(fmt.Sprintf("invalid stdin encoding: %v", err)), false
-		}
-	}
-
-	// Build RPC request
-	req := &rpc.Request{
-		Command: payload.Command,
-		Args:    payload.Args,
-		Timeout: payload.Timeout,
-	}
-
-	// Execute the command
-	ctx := context.Background()
-	resp, err := a.rpcExecutor.Execute(ctx, req, stdin)
-	if err != nil {
-		rpc.RecordError(payload.Command)
-		return []byte(fmt.Sprintf("execution error: %v", err)), false
-	}
-
-	// Encode stdout/stderr as base64
-	if resp.Stdout != "" {
-		resp.Stdout = rpc.EncodeBase64([]byte(resp.Stdout))
-	}
-	if resp.Stderr != "" {
-		resp.Stderr = rpc.EncodeBase64([]byte(resp.Stderr))
-	}
-
-	// Marshal response
-	respData, err := json.Marshal(resp)
-	if err != nil {
-		rpc.RecordError(payload.Command)
-		return []byte(fmt.Sprintf("response encoding error: %v", err)), false
-	}
-
-	// Record metrics
-	duration := time.Since(startTime).Seconds()
-	if resp.ExitCode == 0 && resp.Error == "" {
-		rpc.RecordSuccess(payload.Command, duration, len(respData))
-	} else {
-		rpc.RecordFailed(payload.Command, duration, len(respData))
-	}
-
-	a.logger.Debug("RPC command executed",
-		"command", payload.Command,
-		"exit_code", resp.ExitCode,
-		"duration", duration)
-
-	// Return success=true for valid RPC execution, even if command failed
-	// The exit_code and error in the response JSON capture execution results
-	// Only return success=false for protocol-level errors (auth, whitelist, encoding)
-	return respData, true
 }
 
 // gatherPrometheusMetrics collects metrics in Prometheus text format.

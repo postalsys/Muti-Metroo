@@ -92,64 +92,14 @@ func TestHandler_HandleStreamOpen_Disabled(t *testing.T) {
 	}
 }
 
-func TestHandler_HandleStreamOpen_StreamingDisabled(t *testing.T) {
-	writer := newMockDataWriter()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-
-	exec := NewExecutor(Config{
-		Enabled: true,
-		Streaming: StreamingConfig{
-			Enabled: false, // Streaming disabled
-		},
-	})
-
-	handler := NewHandler(exec, writer, logger)
-
-	peerID := mustNewAgentID(t)
-	streamID := uint64(1)
-	requestID := uint64(1)
-
-	// Open streaming mode should fail
-	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, false)
-	if errCode == 0 {
-		t.Error("HandleStreamOpen() should have returned error for disabled streaming")
-	}
-}
-
-func TestHandler_HandleStreamOpen_InteractiveDisabled(t *testing.T) {
-	writer := newMockDataWriter()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-
-	exec := NewExecutor(Config{
-		Enabled: true,
-		Interactive: InteractiveConfig{
-			Enabled: false, // Interactive disabled
-		},
-	})
-
-	handler := NewHandler(exec, writer, logger)
-
-	peerID := mustNewAgentID(t)
-	streamID := uint64(1)
-	requestID := uint64(1)
-
-	// Open interactive mode should fail
-	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, true)
-	if errCode == 0 {
-		t.Error("HandleStreamOpen() should have returned error for disabled interactive")
-	}
-}
-
-func TestHandler_HandleStreamOpen_Success(t *testing.T) {
+func TestHandler_HandleStreamOpen_Success_Streaming(t *testing.T) {
 	writer := newMockDataWriter()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	exec := NewExecutor(Config{
 		Enabled:     true,
 		MaxSessions: 10,
-		Streaming: StreamingConfig{
-			Enabled: true,
-		},
+		Whitelist:   []string{"*"},
 	})
 
 	handler := NewHandler(exec, writer, logger)
@@ -158,7 +108,7 @@ func TestHandler_HandleStreamOpen_Success(t *testing.T) {
 	streamID := uint64(1)
 	requestID := uint64(1)
 
-	// Open should succeed
+	// Open should succeed (streaming mode)
 	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, false)
 	if errCode != 0 {
 		t.Errorf("HandleStreamOpen() returned error code %d, want 0", errCode)
@@ -178,6 +128,41 @@ func TestHandler_HandleStreamOpen_Success(t *testing.T) {
 	}
 }
 
+func TestHandler_HandleStreamOpen_Success_Interactive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping interactive test on Windows (no PTY support)")
+	}
+
+	writer := newMockDataWriter()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	exec := NewExecutor(Config{
+		Enabled:     true,
+		MaxSessions: 10,
+		Whitelist:   []string{"*"},
+	})
+
+	handler := NewHandler(exec, writer, logger)
+
+	peerID := mustNewAgentID(t)
+	streamID := uint64(1)
+	requestID := uint64(1)
+
+	// Open should succeed (interactive mode)
+	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, true)
+	if errCode != 0 {
+		t.Errorf("HandleStreamOpen() interactive returned error code %d, want 0", errCode)
+	}
+
+	// Verify stream is tracked
+	if handler.ActiveStreams() != 1 {
+		t.Errorf("ActiveStreams() = %d, want 1", handler.ActiveStreams())
+	}
+
+	// Close the stream
+	handler.HandleStreamClose(streamID)
+}
+
 func TestHandler_StreamSessionFlow(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping streaming session test on Windows")
@@ -190,10 +175,7 @@ func TestHandler_StreamSessionFlow(t *testing.T) {
 		Enabled:     true,
 		MaxSessions: 10,
 		Whitelist:   []string{"*"},
-		Streaming: StreamingConfig{
-			Enabled:     true,
-			MaxDuration: 10 * time.Second,
-		},
+		Timeout:     10 * time.Second,
 	})
 
 	handler := NewHandler(exec, writer, logger)
@@ -271,9 +253,6 @@ func TestHandler_HandleMetadataError(t *testing.T) {
 		Enabled:     true,
 		MaxSessions: 10,
 		Whitelist:   []string{"ls", "cat"}, // echo not allowed
-		Streaming: StreamingConfig{
-			Enabled: true,
-		},
 	})
 
 	handler := NewHandler(exec, writer, logger)
@@ -326,9 +305,7 @@ func TestHandler_Close(t *testing.T) {
 	exec := NewExecutor(Config{
 		Enabled:     true,
 		MaxSessions: 10,
-		Streaming: StreamingConfig{
-			Enabled: true,
-		},
+		Whitelist:   []string{"*"},
 	})
 
 	handler := NewHandler(exec, writer, logger)

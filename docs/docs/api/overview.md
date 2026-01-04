@@ -32,13 +32,13 @@ http:
 | [Metrics](metrics) | Prometheus metrics (local and remote) |
 | [Agents](agents) | Remote agent status and management |
 | [Routes](routes) | Route management and triggers |
-| [RPC](rpc) | Remote command execution |
+| [Shell](shell) | Remote shell access (interactive and streaming) |
 | [File Transfer](file-transfer) | File upload/download |
 | [Dashboard](dashboard) | Web dashboard and topology data |
 
 ## Authentication
 
-Most endpoints require no authentication. RPC and file transfer endpoints require password authentication when configured.
+Most endpoints require no authentication. Shell and file transfer endpoints require password authentication when configured.
 
 ## Response Formats
 

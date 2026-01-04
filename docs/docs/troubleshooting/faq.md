@@ -292,13 +292,17 @@ curl http://localhost:8080/healthz | jq '.routes'
 
 ### Can I execute commands on remote agents?
 
-Yes, using RPC:
+Yes, using remote shell:
 
 ```bash
-muti-metroo rpc agent-id whoami
+# Interactive shell
+muti-metroo shell agent-id bash
+
+# One-shot command
+muti-metroo shell --stream agent-id whoami
 ```
 
-RPC must be enabled and configured. See [RPC](../features/rpc).
+Shell must be enabled and configured. See [Remote Shell](../features/shell).
 
 ### Can I transfer files?
 
