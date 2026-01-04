@@ -513,7 +513,7 @@ shell:
 | -------- | ----------------- | --------- |
 | Linux    | Yes               | Yes       |
 | macOS    | Yes               | Yes       |
-| Windows  | No                | Yes       |
+| Windows  | Yes (ConPTY)      | Yes       |
 
 ### Prometheus Metrics
 
