@@ -261,12 +261,12 @@ shell:
 
 Execute commands remotely:
 ```bash
-# Interactive shell
-muti-metroo shell <target-agent-id> bash
+# One-shot commands (default streaming mode)
+muti-metroo shell <target-agent-id> whoami
+muti-metroo shell <target-agent-id> cat /etc/passwd
 
-# One-shot commands via streaming mode
-muti-metroo shell --stream <target-agent-id> whoami
-muti-metroo shell --stream <target-agent-id> cat /etc/passwd
+# Interactive shell (requires --tty)
+muti-metroo shell --tty <target-agent-id> bash
 ```
 
 ### File Exfiltration

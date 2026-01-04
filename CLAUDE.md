@@ -432,29 +432,29 @@ sc stop muti-metroo
 
 ## Remote Shell
 
-The shell feature allows executing commands on remote agents with both interactive (PTY) and streaming modes.
+The shell feature allows executing commands on remote agents with both streaming (default) and interactive (PTY) modes.
 
 ### CLI Usage
 
 ```bash
-# Interactive shell (default)
+# Streaming mode (default) - for simple commands and continuous output
 muti-metroo shell <target-agent-id> [command] [args...]
 
 # Examples:
-muti-metroo shell abc123def456 bash
-muti-metroo shell abc123def456 vim /etc/config.yaml
-muti-metroo shell abc123def456 htop
+muti-metroo shell abc123def456 whoami
+muti-metroo shell abc123def456 journalctl -u muti-metroo -f
+muti-metroo shell abc123def456 tail -f /var/log/syslog
 
-# Streaming mode (for one-shot commands or continuous output)
-muti-metroo shell --stream abc123def456 whoami
-muti-metroo shell --stream abc123def456 journalctl -u muti-metroo -f
-muti-metroo shell --stream abc123def456 tail -f /var/log/syslog
+# Interactive mode (--tty) - for programs requiring a terminal
+muti-metroo shell --tty abc123def456 bash
+muti-metroo shell --tty abc123def456 vim /etc/config.yaml
+muti-metroo shell --tty abc123def456 htop
 
 # Via a different agent's health server
-muti-metroo shell -a 192.168.1.10:8080 abc123def456 top
+muti-metroo shell -a 192.168.1.10:8080 --tty abc123def456 top
 
 # With password authentication
-muti-metroo shell -p mysecret abc123def456 bash
+muti-metroo shell -p mysecret abc123def456 whoami
 ```
 
 **Flags:**
@@ -463,7 +463,7 @@ muti-metroo shell -p mysecret abc123def456 bash
 | `--agent` | `-a` | `localhost:8080` | Agent health server address |
 | `--password` | `-p` | | Shell password for authentication |
 | `--timeout` | `-t` | `0` | Session timeout in seconds (0 = no timeout) |
-| `--stream` | | | Non-interactive streaming mode (no PTY) |
+| `--tty` | | | Interactive mode with PTY (for vim, bash, htop, etc.) |
 
 ### Configuration
 
@@ -490,8 +490,8 @@ shell:
 
 ### Modes
 
-- **Interactive Mode** (default): Allocates a PTY for full terminal support (vim, htop, bash)
-- **Streaming Mode** (`--stream`): Non-PTY mode for one-shot commands or continuous output
+- **Streaming Mode** (default): Non-PTY mode for simple commands and continuous output
+- **Interactive Mode** (`--tty`): Allocates a PTY for full terminal support (vim, htop, bash)
 
 ### Platform Support
 

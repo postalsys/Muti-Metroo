@@ -295,11 +295,11 @@ curl http://localhost:8080/healthz | jq '.routes'
 Yes, using remote shell:
 
 ```bash
-# Interactive shell
-muti-metroo shell agent-id bash
+# Simple command (default streaming mode)
+muti-metroo shell agent-id whoami
 
-# One-shot command
-muti-metroo shell --stream agent-id whoami
+# Interactive shell (requires --tty)
+muti-metroo shell --tty agent-id bash
 ```
 
 Shell must be enabled and configured. See [Remote Shell](../features/shell).

@@ -8,7 +8,7 @@ title: shell
 
 # muti-metroo shell
 
-Open an interactive shell or run streaming commands on a remote agent.
+Run commands on a remote agent.
 
 ## Usage
 
@@ -21,60 +21,65 @@ muti-metroo shell [flags] <target-agent-id> [command] [args...]
 - `-a, --agent <addr>`: Agent HTTP API address (default: localhost:8080)
 - `-p, --password <pass>`: Shell password for authentication
 - `-t, --timeout <seconds>`: Session timeout (default: 0 = no timeout)
-- `--stream`: Non-interactive streaming mode (no PTY)
+- `--tty`: Interactive mode with PTY (for vim, bash, htop, etc.)
 
 ## Modes
 
-### Interactive Mode (Default)
+### Streaming Mode (Default)
 
-Allocates a PTY on the remote agent for full terminal support:
+Runs commands without PTY allocation. Suitable for simple commands and continuous output:
+
+```bash
+# Simple commands
+muti-metroo shell abc123 whoami
+muti-metroo shell abc123 hostname
+muti-metroo shell abc123 ls -la /tmp
+
+# Follow logs
+muti-metroo shell abc123 journalctl -u muti-metroo -f
+
+# Tail a file
+muti-metroo shell abc123 tail -f /var/log/syslog
+```
+
+### Interactive Mode (--tty)
+
+Use `--tty` for programs that require a terminal (vim, bash, htop):
 
 ```bash
 # Open bash shell
-muti-metroo shell abc123 bash
+muti-metroo shell --tty abc123 bash
 
 # Open default shell (bash)
-muti-metroo shell abc123
+muti-metroo shell --tty abc123
 
 # Run vim
-muti-metroo shell abc123 vim /etc/config.yaml
+muti-metroo shell --tty abc123 vim /etc/config.yaml
 
 # Run htop
-muti-metroo shell abc123 htop
-```
-
-### Streaming Mode
-
-Use `--stream` for commands with continuous output (no terminal features):
-
-```bash
-# Follow logs
-muti-metroo shell --stream abc123 journalctl -u muti-metroo -f
-
-# Tail a file
-muti-metroo shell --stream abc123 tail -f /var/log/syslog
-
-# Watch command
-muti-metroo shell --stream abc123 watch -n 1 df -h
+muti-metroo shell --tty abc123 htop
 ```
 
 ## Examples
 
 ```bash
-# Basic interactive shell
-muti-metroo shell abc123 bash
+# Simple command (streaming mode)
+muti-metroo shell abc123 whoami
+
+# Follow logs (streaming mode)
+muti-metroo shell abc123 journalctl -u nginx -f
+
+# Interactive shell (requires --tty)
+muti-metroo shell --tty abc123 bash
 
 # With password authentication
-muti-metroo shell -p secret abc123 bash
+muti-metroo shell -p secret abc123 whoami
 
 # Via different agent
-muti-metroo shell -a 192.168.1.10:8080 abc123 top
-
-# Streaming journalctl
-muti-metroo shell --stream abc123 journalctl -u nginx -f
+muti-metroo shell -a 192.168.1.10:8080 --tty abc123 top
 
 # With session timeout (1 hour)
-muti-metroo shell -t 3600 abc123 bash
+muti-metroo shell -t 3600 --tty abc123 bash
 ```
 
 ## Terminal Features

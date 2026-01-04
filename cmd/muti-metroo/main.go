@@ -928,46 +928,49 @@ func certInfoCmd() *cobra.Command {
 
 func shellCmd() *cobra.Command {
 	var (
-		agentAddr  string
-		password   string
-		timeout    int
-		streamMode bool
+		agentAddr string
+		password  string
+		timeout   int
+		ttyMode   bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "shell [flags] <target-agent-id> [command] [args...]",
-		Short: "Open an interactive shell or run streaming commands on a remote agent",
-		Long: `Open an interactive shell session or run streaming commands on a remote agent.
+		Short: "Run commands on a remote agent",
+		Long: `Run commands on a remote agent via shell.
 
-By default, shell opens an interactive TTY session suitable for programs like
-vim, top, or bash. Use --stream for non-interactive streaming mode suitable
-for commands like 'journalctl -f' or 'tail -f'.
+By default, shell runs in streaming mode without a PTY, suitable for simple
+commands like 'whoami', 'ls', or long-running output like 'tail -f'.
+Use --tty for interactive mode when you need a full terminal (vim, htop, bash).
 
-Interactive mode (default):
-  - Allocates a PTY on the remote agent
-  - Supports terminal resize (SIGWINCH)
-  - Suitable for interactive programs (vim, less, bash, etc.)
-
-Streaming mode (--stream):
+Streaming mode (default):
   - No PTY allocation
   - Separate stdout/stderr streams
-  - Suitable for long-running commands with continuous output
+  - Suitable for simple commands and continuous output
+
+Interactive mode (--tty):
+  - Allocates a PTY on the remote agent
+  - Supports terminal resize (SIGWINCH)
+  - Required for interactive programs (vim, less, htop, etc.)
 
 Examples:
-  # Interactive bash shell
-  muti-metroo shell abc123def456 bash
+  # Simple command (streaming mode)
+  muti-metroo shell abc123def456 whoami
 
-  # Interactive vim
-  muti-metroo shell abc123def456 vim /etc/config.yaml
+  # Long-running output (streaming mode)
+  muti-metroo shell abc123def456 tail -f /var/log/syslog
 
-  # Streaming journalctl
-  muti-metroo shell --stream abc123def456 journalctl -u muti-metroo -f
+  # Follow logs (streaming mode)
+  muti-metroo shell abc123def456 journalctl -u muti-metroo -f
 
-  # Streaming tail
-  muti-metroo shell --stream abc123def456 tail -f /var/log/syslog
+  # Interactive bash shell (requires --tty)
+  muti-metroo shell --tty abc123def456 bash
+
+  # Interactive vim (requires --tty)
+  muti-metroo shell --tty abc123def456 vim /etc/config.yaml
 
   # With password authentication
-  muti-metroo shell -p secret abc123def456 bash
+  muti-metroo shell -p secret abc123def456 whoami
 
   # Via a different agent
   muti-metroo shell -a 192.168.1.10:8080 abc123def456 top`,
@@ -994,7 +997,7 @@ Examples:
 			client := shell.NewClient(shell.ClientConfig{
 				AgentAddr:   agentAddr,
 				TargetID:    targetID,
-				Interactive: !streamMode,
+				Interactive: ttyMode,
 				Password:    password,
 				Command:     command,
 				Args:        cmdArgs,
@@ -1029,7 +1032,7 @@ Examples:
 	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "Shell password for authentication")
 	cmd.Flags().IntVarP(&timeout, "timeout", "t", 0, "Session timeout in seconds (0 = no timeout)")
-	cmd.Flags().BoolVar(&streamMode, "stream", false, "Non-interactive streaming mode (no PTY)")
+	cmd.Flags().BoolVar(&ttyMode, "tty", false, "Interactive mode with PTY (for vim, bash, htop, etc.)")
 
 	return cmd
 }

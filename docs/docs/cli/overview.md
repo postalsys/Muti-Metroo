@@ -32,8 +32,8 @@ muti-metroo status -a 192.168.1.10:8080
 muti-metroo peers -a 192.168.1.10:8080
 
 # Execute command on remote agent
-muti-metroo shell <target-agent-id> bash
-muti-metroo shell --stream <target-agent-id> whoami
+muti-metroo shell <target-agent-id> whoami
+muti-metroo shell --tty <target-agent-id> bash
 
 # Transfer files
 muti-metroo upload <target-agent-id> ./file.txt /tmp/file.txt
@@ -93,8 +93,8 @@ muti-metroo peers
 muti-metroo routes
 
 # Execute remote command
-muti-metroo shell agent123 bash
-muti-metroo shell --stream agent123 whoami
+muti-metroo shell agent123 whoami
+muti-metroo shell --tty agent123 bash
 
 # Upload file
 muti-metroo upload agent123 local.txt /tmp/remote.txt

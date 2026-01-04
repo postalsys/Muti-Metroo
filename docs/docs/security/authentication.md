@@ -141,11 +141,11 @@ muti-metroo hash --cost 12
 CLI:
 
 ```bash
-# Interactive shell
-muti-metroo shell -p mypassword agent123 bash
+# Simple command (default streaming mode)
+muti-metroo shell -p mypassword agent123 whoami
 
-# One-shot streaming command
-muti-metroo shell --stream -p mypassword agent123 whoami
+# Interactive shell (requires --tty)
+muti-metroo shell --tty -p mypassword agent123 bash
 ```
 
 ## File Transfer Authentication
