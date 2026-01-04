@@ -285,6 +285,7 @@ func (h *Handler) handleSignal(ss *ShellStream, data []byte) {
 
 // pumpStdout reads stdout and sends it to the client.
 func (h *Handler) pumpStdout(ss *ShellStream) {
+	h.logger.Debug("pumpStdout started", logging.KeyStreamID, ss.StreamID)
 	buf := make([]byte, 16*1024) // 16KB buffer
 	for {
 		ss.mu.Lock()
@@ -292,15 +293,18 @@ func (h *Handler) pumpStdout(ss *ShellStream) {
 		ss.mu.Unlock()
 
 		if session == nil {
+			h.logger.Debug("pumpStdout: session is nil", logging.KeyStreamID, ss.StreamID)
 			return
 		}
 
 		n, err := session.Stdout().Read(buf)
 		if n > 0 {
+			h.logger.Debug("pumpStdout: read data", logging.KeyStreamID, ss.StreamID, "bytes", n)
 			msg := EncodeStdout(buf[:n])
 			h.writer.WriteStreamData(ss.PeerID, ss.StreamID, msg, 0)
 		}
 		if err != nil {
+			h.logger.Debug("pumpStdout: read error, exiting", logging.KeyStreamID, ss.StreamID, logging.KeyError, err)
 			return
 		}
 	}
@@ -372,19 +376,25 @@ func (h *Handler) pumpPTYOutput(ss *ShellStream) {
 
 // waitForExit waits for the session to exit and sends the exit code.
 func (h *Handler) waitForExit(ss *ShellStream) {
+	h.logger.Debug("waitForExit started", logging.KeyStreamID, ss.StreamID)
+
 	ss.mu.Lock()
 	session := ss.Session
 	ss.mu.Unlock()
 
 	if session == nil {
+		h.logger.Debug("waitForExit: session is nil", logging.KeyStreamID, ss.StreamID)
 		return
 	}
 
+	h.logger.Debug("waitForExit: waiting for session.Done()", logging.KeyStreamID, ss.StreamID)
 	<-session.Done()
 	exitCode := session.ExitCode()
+	h.logger.Debug("waitForExit: session done", logging.KeyStreamID, ss.StreamID, "exit_code", exitCode)
 
 	h.sendExit(ss, exitCode)
 	h.closeStream(ss)
+	h.logger.Debug("waitForExit: stream closed", logging.KeyStreamID, ss.StreamID)
 }
 
 // sendAck sends an ACK message.

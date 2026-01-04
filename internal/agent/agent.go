@@ -1344,6 +1344,10 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 
 // handleStreamClose processes a stream close.
 func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame) {
+	a.logger.Debug("handleStreamClose received",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, frame.StreamID)
+
 	// Check if this is a relay stream - must check peerID to determine direction
 	a.relayMu.Lock()
 	upRelay := a.relayByUpstream[frame.StreamID]
@@ -1366,6 +1370,10 @@ func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame
 
 	// Check if close is from downstream
 	if downRelay != nil && peerID == downRelay.DownstreamPeer {
+		a.logger.Debug("handleStreamClose: forwarding from downstream to upstream",
+			logging.KeyStreamID, frame.StreamID,
+			"upstream_id", downRelay.UpstreamID,
+			"upstream_peer", downRelay.UpstreamPeer.ShortString())
 		// Close from downstream, forward to upstream and clean up
 		delete(a.relayByUpstream, downRelay.UpstreamID)
 		delete(a.relayByDownstream, frame.StreamID)
@@ -3881,9 +3889,11 @@ func (a *Agent) handleShellClientData(streamID uint64, data []byte, flags uint8)
 	a.shellClientMu.RUnlock()
 
 	if adapter == nil {
+		a.logger.Debug("handleShellClientData: no adapter", logging.KeyStreamID, streamID)
 		return false
 	}
 
+	a.logger.Debug("handleShellClientData: pushing data", logging.KeyStreamID, streamID, "bytes", len(data))
 	// Push data to adapter for reading by HTTP handler
 	adapter.PushReceive(data)
 
@@ -3903,9 +3913,11 @@ func (a *Agent) handleShellClientClose(streamID uint64) bool {
 	a.shellClientMu.RUnlock()
 
 	if adapter == nil {
+		a.logger.Debug("handleShellClientClose: no adapter found", logging.KeyStreamID, streamID)
 		return false
 	}
 
+	a.logger.Debug("handleShellClientClose: closing adapter", logging.KeyStreamID, streamID)
 	// adapter.Close() will call cleanupShellClientStream via closeFunc
 	adapter.Close()
 	return true

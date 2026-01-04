@@ -104,10 +104,39 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 	}
 	defer session.Close()
 
-	// Send ACK to client
-	ackData, _ := shell.EncodeAck(&shell.ShellAck{Success: true})
-	if err := conn.Write(ctx, websocket.MessageBinary, ackData); err != nil {
+	// Wait for remote shell's ACK or ERROR response (first message from remote)
+	// This ensures we don't tell the client "success" before remote auth is verified
+	select {
+	case <-ctx.Done():
+		conn.Close(websocket.StatusGoingAway, "context cancelled")
 		return
+	case <-session.Done:
+		// Session ended before we got ACK - send error
+		errResp := shell.ShellError{Message: "shell session ended unexpectedly"}
+		errData, _ := json.Marshal(errResp)
+		conn.Write(ctx, websocket.MessageBinary, shell.EncodeMessage(shell.MsgError, errData))
+		conn.Close(websocket.StatusInternalError, "session ended")
+		return
+	case firstMsg, ok := <-session.Receive:
+		if !ok {
+			errResp := shell.ShellError{Message: "shell session closed"}
+			errData, _ := json.Marshal(errResp)
+			conn.Write(ctx, websocket.MessageBinary, shell.EncodeMessage(shell.MsgError, errData))
+			conn.Close(websocket.StatusInternalError, "session closed")
+			return
+		}
+		// Forward the remote shell's response (ACK or ERROR) to WebSocket client
+		if err := conn.Write(ctx, websocket.MessageBinary, firstMsg); err != nil {
+			return
+		}
+		// Check if it was an error - if so, we're done
+		if len(firstMsg) > 0 {
+			msgType, _, _ := shell.DecodeMessage(firstMsg)
+			if msgType == shell.MsgError {
+				conn.Close(websocket.StatusNormalClosure, "")
+				return
+			}
+		}
 	}
 
 	// Create context that cancels when either side closes
@@ -150,9 +179,15 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 		defer wg.Done()
 		defer cancel()
 		for {
+			// First check if context is cancelled
 			select {
 			case <-sessionCtx.Done():
 				return
+			default:
+			}
+
+			// Try to read data first (prioritize data over Done to drain buffer)
+			select {
 			case data, ok := <-session.Receive:
 				if !ok {
 					return
@@ -160,11 +195,32 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 				if err := conn.Write(sessionCtx, websocket.MessageBinary, data); err != nil {
 					return
 				}
-			case <-session.Done:
-				// Send exit code
-				exitData := shell.EncodeExit(session.ExitCode)
-				conn.Write(sessionCtx, websocket.MessageBinary, exitData)
-				return
+			default:
+				// No data available, now check if session is done
+				select {
+				case <-sessionCtx.Done():
+					return
+				case data, ok := <-session.Receive:
+					if !ok {
+						return
+					}
+					if err := conn.Write(sessionCtx, websocket.MessageBinary, data); err != nil {
+						return
+					}
+				case <-session.Done:
+					// Drain any remaining data in receive buffer before exiting
+					for {
+						select {
+						case data, ok := <-session.Receive:
+							if !ok {
+								return
+							}
+							conn.Write(sessionCtx, websocket.MessageBinary, data)
+						default:
+							return
+						}
+					}
+				}
 			}
 		}
 	}()

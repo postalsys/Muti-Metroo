@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/term"
 	"nhooyr.io/websocket"
@@ -16,6 +18,8 @@ import (
 
 // Client handles shell session connections via WebSocket.
 type Client struct {
+	agentAddr   string
+	targetID    string
 	url         string
 	interactive bool
 	password    string
@@ -24,6 +28,9 @@ type Client struct {
 	env         map[string]string
 	workDir     string
 	timeout     int
+
+	// Agent info (fetched before connecting)
+	agentName string
 
 	conn      *websocket.Conn
 	done      chan struct{}
@@ -64,6 +71,8 @@ func NewClient(cfg ClientConfig) *Client {
 	url := fmt.Sprintf("ws://%s/agents/%s/shell?mode=%s", cfg.AgentAddr, cfg.TargetID, mode)
 
 	return &Client{
+		agentAddr:   cfg.AgentAddr,
+		targetID:    cfg.TargetID,
 		url:         url,
 		interactive: cfg.Interactive,
 		password:    cfg.Password,
@@ -78,6 +87,11 @@ func NewClient(cfg ClientConfig) *Client {
 
 // Run executes the shell session and returns the exit code.
 func (c *Client) Run(ctx context.Context) (int, error) {
+	// Fetch agent info for greeting (only for interactive mode)
+	if c.interactive {
+		c.fetchAgentInfo()
+	}
+
 	// Connect to WebSocket
 	conn, _, err := websocket.Dial(ctx, c.url, &websocket.DialOptions{
 		Subprotocols: []string{"muti-shell"},
@@ -88,17 +102,7 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 	c.conn = conn
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	// Set up terminal if interactive
-	var oldState *term.State
-	if c.interactive && term.IsTerminal(int(os.Stdin.Fd())) {
-		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
-		if err != nil {
-			return 1, fmt.Errorf("failed to set raw mode: %w", err)
-		}
-		defer term.Restore(int(os.Stdin.Fd()), oldState)
-	}
-
-	// Send metadata
+	// Build metadata (before setting raw mode so we can get terminal size)
 	meta := &ShellMeta{
 		Command:  c.command,
 		Args:     c.args,
@@ -134,7 +138,7 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 		return 1, fmt.Errorf("failed to send metadata: %w", err)
 	}
 
-	// Wait for ACK
+	// Wait for ACK (before entering raw mode so errors display properly)
 	_, ackData, err := conn.Read(ctx)
 	if err != nil {
 		return 1, fmt.Errorf("failed to read ack: %w", err)
@@ -166,6 +170,24 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 		return 1, fmt.Errorf("shell session failed: %s", ack.Error)
 	}
 
+	// Now that we have a successful ACK, set up terminal if interactive
+	// This ensures errors are displayed properly before entering raw mode
+	var oldState *term.State
+	if c.interactive && term.IsTerminal(int(os.Stdin.Fd())) {
+		// Print greeting before entering raw mode
+		c.printGreeting()
+
+		oldState, err = term.MakeRaw(int(os.Stdin.Fd()))
+		if err != nil {
+			return 1, fmt.Errorf("failed to set raw mode: %w", err)
+		}
+		defer func() {
+			term.Restore(int(os.Stdin.Fd()), oldState)
+			// Print closing message after restoring terminal
+			c.printClosing()
+		}()
+	}
+
 	// Create cancellable context for goroutines
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -184,12 +206,12 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 	}
 
 	// Read from stdin and send to WebSocket
-	// Only cancel on stdin close in interactive mode (stdin EOF is normal for streaming)
-	wg.Add(1)
+	// Note: pumpStdin is NOT added to wg because os.Stdin.Read() is a blocking
+	// syscall that doesn't respect context cancellation. The goroutine will exit
+	// when the connection is closed or when the program exits.
 	go func() {
-		defer wg.Done()
 		if c.interactive {
-			defer cancel()
+			defer cancel() // In interactive mode, stdin close ends the session
 		}
 		c.pumpStdin(sessionCtx)
 	}()
@@ -329,4 +351,68 @@ func (c *Client) setError(err error) {
 func (c *Client) SendSignal(ctx context.Context, sig syscall.Signal) error {
 	msg := EncodeSignal(uint8(sig))
 	return c.conn.Write(ctx, websocket.MessageBinary, msg)
+}
+
+// fetchAgentInfo fetches agent information from the health API.
+func (c *Client) fetchAgentInfo() {
+	// Try to fetch agent info from /agents endpoint
+	url := fmt.Sprintf("http://%s/agents", c.agentAddr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	var agents []struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"display_name"`
+		Hostname    string `json:"hostname"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+		return
+	}
+
+	// Find the target agent
+	for _, agent := range agents {
+		if agent.ID == c.targetID {
+			if agent.DisplayName != "" {
+				c.agentName = agent.DisplayName
+			} else if agent.Hostname != "" {
+				c.agentName = agent.Hostname
+			}
+			return
+		}
+	}
+}
+
+// printGreeting prints the connection greeting for interactive sessions.
+func (c *Client) printGreeting() {
+	if c.agentName != "" {
+		fmt.Fprintf(os.Stderr, "Connected to %s (%s)\r\n", c.agentName, c.targetID[:8])
+	} else {
+		fmt.Fprintf(os.Stderr, "Connected to %s\r\n", c.targetID[:8])
+	}
+}
+
+// printClosing prints the connection closing message for interactive sessions.
+func (c *Client) printClosing() {
+	if c.agentName != "" {
+		fmt.Fprintf(os.Stderr, "Connection to %s closed.\n", c.agentName)
+	} else {
+		fmt.Fprintf(os.Stderr, "Connection to %s closed.\n", c.targetID[:8])
+	}
 }
