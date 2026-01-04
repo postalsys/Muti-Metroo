@@ -27,32 +27,21 @@ Muti Metroo provides a mesh networking capability with the following red team fe
 
 ## Binary Characteristics
 
-### Size and Dependencies
-
-| Platform | Binary Size (stripped) |
-|----------|----------------------|
-| Linux amd64 | ~4 MB (UPX compressed) |
-| Linux arm64 | ~3.5 MB (UPX compressed) |
-| macOS | ~13 MB (signed, notarized) |
-| Windows | ~4-13 MB |
+| Platform | Binary Size |
+|----------|-------------|
+| Linux amd64 | ~4 MB |
+| Linux arm64 | ~3.5 MB |
+| macOS arm64 | ~13 MB (signed, notarized) |
+| macOS amd64 | ~14 MB (signed, notarized) |
+| Windows amd64 | ~4 MB |
+| Windows arm64 | ~13 MB |
 
 The binary is statically compiled with no runtime dependencies. Key characteristics:
 
 - Standard Go executable (no shellcode or injection)
 - No external DLL requirements on Windows
 - Can be renamed to blend with environment
-- Supports stripping (`-ldflags="-s -w"`)
-
-### Build Considerations
-
-```bash
-# Build with stripped symbols (smaller binary)
-go build -ldflags="-s -w" -o agent ./cmd/muti-metroo
-
-# Cross-compile for target platform
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o agent-linux ./cmd/muti-metroo
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o agent.exe ./cmd/muti-metroo
-```
+- Pre-built binaries available at [Download](/download)
 
 ## OPSEC Configuration
 
