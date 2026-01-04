@@ -129,10 +129,10 @@ See [API - Shell](../api/shell) for protocol details.
 |----------|-------------------|-----------|
 | Linux    | Yes               | Yes       |
 | macOS    | Yes               | Yes       |
-| Windows  | No                | Yes       |
+| Windows  | Yes (ConPTY)      | Yes       |
 
-:::note Windows Limitation
-PTY allocation is not available on Windows. The default streaming mode works on all platforms.
+:::info Windows PTY
+Windows agents use ConPTY (Windows Pseudo Console) for interactive sessions. ConPTY is available on Windows 10 version 1809 and later.
 :::
 
 ## Metrics
