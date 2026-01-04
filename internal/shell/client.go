@@ -29,6 +29,10 @@ type Client struct {
 	workDir     string
 	timeout     int
 
+	// Output writers (defaults to os.Stdout/os.Stderr)
+	stdout io.Writer
+	stderr io.Writer
+
 	// Agent info (fetched before connecting)
 	agentName string
 
@@ -59,6 +63,10 @@ type ClientConfig struct {
 	WorkDir string
 	// Timeout is the session timeout in seconds (0 = no timeout)
 	Timeout int
+	// Stdout is the writer for stdout (defaults to os.Stdout)
+	Stdout io.Writer
+	// Stderr is the writer for stderr (defaults to os.Stderr)
+	Stderr io.Writer
 }
 
 // NewClient creates a new shell client.
@@ -69,6 +77,16 @@ func NewClient(cfg ClientConfig) *Client {
 	}
 
 	url := fmt.Sprintf("ws://%s/agents/%s/shell?mode=%s", cfg.AgentAddr, cfg.TargetID, mode)
+
+	// Set default output writers
+	stdout := cfg.Stdout
+	if stdout == nil {
+		stdout = os.Stdout
+	}
+	stderr := cfg.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 
 	return &Client{
 		agentAddr:   cfg.AgentAddr,
@@ -81,6 +99,8 @@ func NewClient(cfg ClientConfig) *Client {
 		env:         cfg.Env,
 		workDir:     cfg.WorkDir,
 		timeout:     cfg.Timeout,
+		stdout:      stdout,
+		stderr:      stderr,
 		done:        make(chan struct{}),
 	}
 }
@@ -289,9 +309,9 @@ func (c *Client) pumpOutput(ctx context.Context) {
 
 		switch msgType {
 		case MsgStdout:
-			os.Stdout.Write(payload)
+			c.stdout.Write(payload)
 		case MsgStderr:
-			os.Stderr.Write(payload)
+			c.stderr.Write(payload)
 		case MsgExit:
 			exitCode, err := DecodeExit(payload)
 			if err != nil {

@@ -20,10 +20,13 @@ import (
 
 // AgentChain represents a chain of 4 agents: A-B-C-D.
 type AgentChain struct {
-	Agents    [4]*agent.Agent
-	DataDirs  [4]string
-	Addresses [4]string
-	TLSCerts  [4]CertPair
+	Agents       [4]*agent.Agent
+	DataDirs     [4]string
+	Addresses    [4]string
+	TLSCerts     [4]CertPair
+	HTTPAddrs    [4]string // HTTP health server addresses (set after start)
+	ShellConfig  *config.ShellConfig
+	EnableHTTP   bool // Enable HTTP server on agent A
 }
 
 // CertPair holds TLS certificate and key file paths.
@@ -143,12 +146,25 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 	if i == 3 {
 		cfg.Exit.Enabled = true
 		cfg.Exit.Routes = []string{"0.0.0.0/0"} // Allow all destinations
+
+		// Enable shell on exit node if configured
+		if c.ShellConfig != nil {
+			cfg.Shell = *c.ShellConfig
+		}
 	}
 
 	// A has SOCKS5 enabled
 	if i == 0 {
 		cfg.SOCKS5.Enabled = true
 		cfg.SOCKS5.Address = "127.0.0.1:0" // Random port
+
+		// Enable HTTP server on A for WebSocket shell access
+		if c.EnableHTTP {
+			cfg.HTTP.Enabled = true
+			cfg.HTTP.Address = "127.0.0.1:0" // Random port
+			remoteAPI := true
+			cfg.HTTP.RemoteAPI = &remoteAPI
+		}
 	}
 
 	return cfg
@@ -162,6 +178,12 @@ func (c *AgentChain) StartAgents(t *testing.T) {
 			t.Fatalf("Failed to start agent %d: %v", i, err)
 		}
 		t.Logf("Agent %d started (ID: %s)", i, c.Agents[i].ID().ShortString())
+
+		// Capture HTTP server address if available
+		if addr := c.Agents[i].HealthServerAddress(); addr != nil {
+			c.HTTPAddrs[i] = addr.String()
+			t.Logf("Agent %d HTTP server at %s", i, c.HTTPAddrs[i])
+		}
 	}
 
 	// Wait for connections to establish

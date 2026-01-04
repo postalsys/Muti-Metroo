@@ -2553,6 +2553,14 @@ func (a *Agent) SOCKS5Address() net.Addr {
 	return a.socks5Srv.Address()
 }
 
+// HealthServerAddress returns the HTTP health server address, or nil if not running.
+func (a *Agent) HealthServerAddress() net.Addr {
+	if a.healthServer == nil {
+		return nil
+	}
+	return a.healthServer.Address()
+}
+
 // WriteStreamData implements exit.StreamWriter.
 // Chunks data larger than MaxPayloadSize into multiple frames.
 func (a *Agent) WriteStreamData(peerID identity.AgentID, streamID uint64, data []byte, flags uint8) error {
