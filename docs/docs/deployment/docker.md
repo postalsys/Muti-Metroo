@@ -24,7 +24,7 @@ RUN apk --no-cache add ca-certificates wget
 # Download the binary (adjust URL for your platform)
 ARG TARGETARCH
 RUN wget -O /usr/local/bin/muti-metroo \
-    https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-${TARGETARCH} && \
+    https://mutimetroo.com/downloads/latest/muti-metroo-linux-${TARGETARCH} && \
     chmod +x /usr/local/bin/muti-metroo
 
 WORKDIR /app
@@ -92,16 +92,16 @@ docker run -d --name muti-metroo \
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
+version: "3.8"
 
 services:
   agent:
     image: muti-metroo
     restart: unless-stopped
     ports:
-      - "1080:1080"       # SOCKS5
-      - "4433:4433/udp"   # QUIC
-      - "8080:8080"       # HTTP API
+      - "1080:1080" # SOCKS5
+      - "4433:4433/udp" # QUIC
+      - "8080:8080" # HTTP API
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
@@ -118,7 +118,7 @@ Build your image first with `docker build -t muti-metroo .` before running docke
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
+version: "3.8"
 
 services:
   # Ingress agent
@@ -294,10 +294,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
+          cpus: "2.0"
           memory: 1G
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
 ```
 
@@ -337,7 +337,7 @@ secrets:
 ```yaml
 services:
   agent:
-    network_mode: host    # For better UDP performance (QUIC)
+    network_mode: host # For better UDP performance (QUIC)
 ```
 
 Or use bridge with explicit port mapping:

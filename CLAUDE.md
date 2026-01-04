@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Muti Metroo is a userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
 
 **Key capabilities:**
+
 - End-to-end encryption: X25519 key exchange + ChaCha20-Poly1305 (transit cannot decrypt)
 - Multiple transport layers: QUIC/TLS 1.3, HTTP/2, and WebSocket
 - SOCKS5 proxy ingress with optional authentication
@@ -18,15 +19,17 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 
 ## Documentation
 
-The project documentation is built with Docusaurus and lives in the `docs/` folder. The documentation is deployed at https://muti-metroo.postalsys.ee.
+The project documentation is built with Docusaurus and lives in the `docs/` folder. The documentation is deployed at https://mutimetroo.com.
 
 **Audience distinction:**
+
 - **Docusaurus (`docs/`)**: Public user manual for operators deploying and using Muti Metroo. Focus on installation, configuration, CLI usage, and operational guides. **Do NOT include implementation internals** such as frame protocol details, stream state machines, wire formats, or code architecture.
 - **Architecture.md**: Developer documentation for contributors. Contains protocol internals, frame formats, package structure, and implementation details.
 
 **URL Structure:** The public website uses `/` as root, not `/docs`. Source files in `docs/docs/` map to URLs without the `docs` prefix:
-- `docs/docs/cli/overview.md` -> https://muti-metroo.postalsys.ee/cli/overview
-- `docs/docs/security/red-team-operations.md` -> https://muti-metroo.postalsys.ee/security/red-team-operations
+
+- `docs/docs/cli/overview.md` -> https://mutimetroo.com/cli/overview
+- `docs/docs/security/red-team-operations.md` -> https://mutimetroo.com/security/red-team-operations
 
 **Important:** When adding or modifying features, the documentation must be updated accordingly:
 
@@ -47,7 +50,7 @@ npm run build      # Build for production
 
 ### Deploying Documentation to Production
 
-Documentation is hosted at https://muti-metroo.postalsys.ee on `srv-04.emailengine.dev`.
+Documentation is hosted at https://mutimetroo.com on `srv-04.emailengine.dev`.
 
 **Manual deployment** (for docs-only changes without a release):
 
@@ -60,6 +63,7 @@ rsync -avz --delete --exclude 'downloads/' build/ andris@srv-04.emailengine.dev:
 **Full release deployment**: The `scripts/release.sh` script automatically builds and deploys documentation as part of the release process. It also uploads binaries to `/var/www/muti-metroo/downloads/`.
 
 **Server details:**
+
 - Server: `srv-04.emailengine.dev`
 - SSH user: `andris`
 - Web root: `/var/www/muti-metroo`
@@ -140,43 +144,46 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@target-host
 ## Architecture
 
 ### Agent Roles
+
 An agent can serve multiple roles simultaneously:
+
 - **Ingress**: SOCKS5 listener, DNS resolution, initiates virtual streams, performs route lookup
 - **Transit**: Forwards streams between peers, participates in route flooding
 - **Exit**: Opens real TCP connections, advertises CIDR routes
 
 ### Package Structure (`internal/`)
 
-| Package | Purpose |
-|---------|---------|
-| `agent` | Main orchestrator - initializes components, dispatches frames, manages lifecycle |
-| `certutil` | TLS certificate generation and management - CA, server, client, peer certs |
-| `chaos` | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing |
-| `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
-| `crypto` | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation |
-| `exit` | Exit node handler - TCP dial, route-based access control, E2E decryption |
-| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
-| `flood` | Route propagation via flooding with loop prevention and seen-cache |
-| `health` | Health check HTTP server, Prometheus metrics, remote agent metrics, pprof, dashboard |
-| `identity` | 128-bit AgentID generation, X25519 keypair storage for E2E encryption |
-| `integration` | Integration tests for multi-agent mesh scenarios |
-| `loadtest` | Load testing utilities - stream throughput, route table, connection churn |
-| `logging` | Structured logging with slog - text/JSON formats, standard attribute keys |
-| `metrics` | Prometheus metrics - peers, streams, routing, SOCKS5, exit, protocol stats |
-| `peer` | Peer connection lifecycle - handshake, keepalive, reconnection with backoff |
-| `protocol` | Binary frame protocol - 14-byte header, encode/decode for all frame types |
-| `recovery` | Panic recovery utilities for goroutines with logging and callbacks |
-| `routing` | Route table with longest-prefix match, route manager with subscription system |
-| `service` | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service |
-| `shell` | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
-| `socks5` | SOCKS5 server with no-auth and username/password methods |
-| `stream` | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O |
-| `sysinfo` | System information collection for node info advertisements |
-| `transport` | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations |
-| `webui` | Embedded web dashboard with metro map visualization |
-| `wizard` | Interactive setup wizard with certificate generation |
+| Package        | Purpose                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| `agent`        | Main orchestrator - initializes components, dispatches frames, manages lifecycle            |
+| `certutil`     | TLS certificate generation and management - CA, server, client, peer certs                  |
+| `chaos`        | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing               |
+| `config`       | YAML config parsing with env var substitution (`${VAR:-default}`)                           |
+| `crypto`       | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation      |
+| `exit`         | Exit node handler - TCP dial, route-based access control, E2E decryption                    |
+| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
+| `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |
+| `health`       | Health check HTTP server, Prometheus metrics, remote agent metrics, pprof, dashboard        |
+| `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
+| `integration`  | Integration tests for multi-agent mesh scenarios                                            |
+| `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
+| `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys                   |
+| `metrics`      | Prometheus metrics - peers, streams, routing, SOCKS5, exit, protocol stats                  |
+| `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff                 |
+| `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types                   |
+| `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                          |
+| `routing`      | Route table with longest-prefix match, route manager with subscription system               |
+| `service`      | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service       |
+| `shell`        | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
+| `socks5`       | SOCKS5 server with no-auth and username/password methods                                    |
+| `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                      |
+| `sysinfo`      | System information collection for node info advertisements                                  |
+| `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations                      |
+| `webui`        | Embedded web dashboard with metro map visualization                                         |
+| `wizard`       | Interactive setup wizard with certificate generation                                        |
 
 ### Frame Flow
+
 1. Client connects to SOCKS5 proxy on ingress agent
 2. Agent looks up route via longest-prefix match
 3. `STREAM_OPEN` frame sent through path to exit agent (includes ephemeral public key)
@@ -186,6 +193,7 @@ An agent can serve multiple roles simultaneously:
 7. Half-close via `FIN_WRITE`/`FIN_READ` flags, full close via `STREAM_CLOSE`
 
 ### Stream ID Allocation
+
 - Connection initiator (dialer): ODD IDs (1, 3, 5...)
 - Connection acceptor (listener): EVEN IDs (2, 4, 6...)
 - StreamID 0 reserved for control channel
@@ -193,6 +201,7 @@ An agent can serve multiple roles simultaneously:
 ## Configuration
 
 Example config in `configs/example.yaml`. Key sections:
+
 - `agent`: ID, data_dir, display_name, logging
 - `tls`: Global TLS settings (CA, cert, key, mTLS)
 - `protocol`: Protocol identifiers for OPSEC customization (ALPN, HTTP header, WS subprotocol)
@@ -213,9 +222,9 @@ The `protocol` section allows customizing identifiers that appear in network tra
 
 ```yaml
 protocol:
-  alpn: "muti-metroo/1"                    # ALPN for QUIC/TLS (empty to disable)
-  http_header: "X-Muti-Metroo-Protocol"    # HTTP/2 header (empty to disable)
-  ws_subprotocol: "muti-metroo/1"          # WebSocket subprotocol (empty to disable)
+  alpn: "muti-metroo/1" # ALPN for QUIC/TLS (empty to disable)
+  http_header: "X-Muti-Metroo-Protocol" # HTTP/2 header (empty to disable)
+  ws_subprotocol: "muti-metroo/1" # WebSocket subprotocol (empty to disable)
 ```
 
 For stealth deployments, set all values to empty strings to disable custom identifiers.
@@ -228,11 +237,11 @@ The `http` section supports granular endpoint toggling:
 http:
   enabled: true
   address: ":8080"
-  minimal: false     # When true, only /health, /healthz, /ready are enabled
-  metrics: true      # /metrics endpoint
-  pprof: false       # /debug/pprof/* endpoints (disable in production)
-  dashboard: true    # /ui/*, /api/* endpoints
-  remote_api: true   # /agents/*, /metrics/{id} endpoints
+  minimal: false # When true, only /health, /healthz, /ready are enabled
+  metrics: true # /metrics endpoint
+  pprof: false # /debug/pprof/* endpoints (disable in production)
+  dashboard: true # /ui/*, /api/* endpoints
+  remote_api: true # /agents/*, /metrics/{id} endpoints
 ```
 
 Disabled endpoints return HTTP 404 and log access attempts at debug level.
@@ -250,42 +259,43 @@ Disabled endpoints return HTTP 404 and log access attempts at debug level.
 
 ### Configurable Limits
 
-| Parameter | Config Key | Default | Valid Range | Description |
-|-----------|------------|---------|-------------|-------------|
-| Max Hops | `routing.max_hops` | 16 | 1-255 | Maximum hops for route advertisements |
-| Route TTL | `routing.route_ttl` | 5m | - | Time before routes expire without refresh |
-| Advertise Interval | `routing.advertise_interval` | 2m | - | Route advertisement frequency |
-| Node Info Interval | `routing.node_info_interval` | 2m | - | Node info advertisement frequency |
-| Stream Open Timeout | `limits.stream_open_timeout` | 30s | - | Total round-trip time for STREAM_OPEN |
-| Buffer Size | `limits.buffer_size` | 256 KB | - | Per-stream buffer at each hop |
-| Max Streams/Peer | `limits.max_streams_per_peer` | 1000 | - | Concurrent streams per peer connection |
-| Max Total Streams | `limits.max_streams_total` | 10000 | - | Total concurrent streams across all peers |
-| Max Pending Opens | `limits.max_pending_opens` | 100 | - | Pending stream open requests |
-| Idle Threshold | `connections.idle_threshold` | 5m | - | Keepalive interval for idle connections |
-| Connection Timeout | `connections.timeout` | 90s | - | Disconnect after this keepalive timeout |
+| Parameter           | Config Key                    | Default | Valid Range | Description                               |
+| ------------------- | ----------------------------- | ------- | ----------- | ----------------------------------------- |
+| Max Hops            | `routing.max_hops`            | 16      | 1-255       | Maximum hops for route advertisements     |
+| Route TTL           | `routing.route_ttl`           | 5m      | -           | Time before routes expire without refresh |
+| Advertise Interval  | `routing.advertise_interval`  | 2m      | -           | Route advertisement frequency             |
+| Node Info Interval  | `routing.node_info_interval`  | 2m      | -           | Node info advertisement frequency         |
+| Stream Open Timeout | `limits.stream_open_timeout`  | 30s     | -           | Total round-trip time for STREAM_OPEN     |
+| Buffer Size         | `limits.buffer_size`          | 256 KB  | -           | Per-stream buffer at each hop             |
+| Max Streams/Peer    | `limits.max_streams_per_peer` | 1000    | -           | Concurrent streams per peer connection    |
+| Max Total Streams   | `limits.max_streams_total`    | 10000   | -           | Total concurrent streams across all peers |
+| Max Pending Opens   | `limits.max_pending_opens`    | 100     | -           | Pending stream open requests              |
+| Idle Threshold      | `connections.idle_threshold`  | 5m      | -           | Keepalive interval for idle connections   |
+| Connection Timeout  | `connections.timeout`         | 90s     | -           | Disconnect after this keepalive timeout   |
 
 ### Protocol Constants (Non-configurable)
 
-| Constant | Value | Description |
-|----------|-------|-------------|
-| Max Frame Payload | 16 KB | Maximum payload per frame |
-| Max Frame Size | 16 KB + 14 bytes | Payload + header |
-| Header Size | 14 bytes | Frame header (type, flags, stream ID, length) |
-| Protocol Version | 0x01 | Current wire protocol version |
-| Control Stream ID | 0 | Reserved for control channel |
+| Constant          | Value            | Description                                   |
+| ----------------- | ---------------- | --------------------------------------------- |
+| Max Frame Payload | 16 KB            | Maximum payload per frame                     |
+| Max Frame Size    | 16 KB + 14 bytes | Payload + header                              |
+| Header Size       | 14 bytes         | Frame header (type, flags, stream ID, length) |
+| Protocol Version  | 0x01             | Current wire protocol version                 |
+| Control Stream ID | 0                | Reserved for control channel                  |
 
 ### Proxy Chain Practical Limits
 
 **Important**: `max_hops` only limits route advertisement propagation, NOT stream path length. Stream paths are limited by the 30-second open timeout.
 
-| Use Case | Recommended Max Hops | Limiting Factor |
-|----------|---------------------|-----------------|
-| Interactive SSH | 8-12 hops | Latency (~5-50ms per hop) |
-| Video Streaming | 6-10 hops | Buffering (256KB × hops) |
-| Bulk Transfer | 12-16 hops | Throughput (16KB chunks) |
-| High-latency WAN | 4-6 hops | 30s stream open timeout |
+| Use Case         | Recommended Max Hops | Limiting Factor           |
+| ---------------- | -------------------- | ------------------------- |
+| Interactive SSH  | 8-12 hops            | Latency (~5-50ms per hop) |
+| Video Streaming  | 6-10 hops            | Buffering (256KB × hops)  |
+| Bulk Transfer    | 12-16 hops           | Throughput (16KB chunks)  |
+| High-latency WAN | 4-6 hops             | 30s stream open timeout   |
 
 **Per-hop overhead:**
+
 - Latency: +1-5ms (LAN), +50-200ms (WAN)
 - Memory: +256KB buffer per active stream
 - CPU: Frame decode/encode at each relay
@@ -299,6 +309,7 @@ Routes are selected using **longest-prefix-match** with metric tiebreaker:
 3. If tied, select lowest metric (hop count)
 
 Example with routes from different agents:
+
 - `1.2.3.4/32` (metric 3) - Most specific, wins for 1.2.3.4
 - `1.2.3.0/24` (metric 2) - Wins for 1.2.3.5-1.2.3.255
 - `0.0.0.0/0` (metric 1) - Default route, wins for everything else
@@ -306,6 +317,7 @@ Example with routes from different agents:
 ### Topology Support
 
 The flood-based routing supports arbitrary mesh topologies:
+
 - **Linear chains**: A→B→C→D
 - **Tree structures**: A→B→C and A→B→D (branches from B)
 - **Full mesh**: Any agent can connect to any other
@@ -323,8 +335,9 @@ curl -X POST http://localhost:8080/routes/advertise
 ```
 
 Response:
+
 ```json
-{"status": "triggered", "message": "route advertisement triggered"}
+{ "status": "triggered", "message": "route advertisement triggered" }
 ```
 
 **Programmatic access**: The agent exposes `TriggerRouteAdvertise()` method which can be called internally when routes change.
@@ -335,50 +348,50 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 
 ### Health & Monitoring
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Basic health check, returns "OK" |
-| `/healthz` | GET | Detailed health with JSON stats (peer count, stream count, etc.) |
-| `/ready` | GET | Readiness probe for Kubernetes |
-| `/metrics` | GET | Local Prometheus metrics |
+| Endpoint   | Method | Description                                                      |
+| ---------- | ------ | ---------------------------------------------------------------- |
+| `/health`  | GET    | Basic health check, returns "OK"                                 |
+| `/healthz` | GET    | Detailed health with JSON stats (peer count, stream count, etc.) |
+| `/ready`   | GET    | Readiness probe for Kubernetes                                   |
+| `/metrics` | GET    | Local Prometheus metrics                                         |
 
 ### Web Dashboard
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/ui/` | GET | Embedded web dashboard with metro map visualization |
-| `/api/topology` | GET | Topology data for metro map (agents and connections) |
-| `/api/dashboard` | GET | Dashboard overview (agent info, stats, peers, routes) |
-| `/api/nodes` | GET | Detailed node info listing for all known agents |
+| Endpoint         | Method | Description                                           |
+| ---------------- | ------ | ----------------------------------------------------- |
+| `/ui/`           | GET    | Embedded web dashboard with metro map visualization   |
+| `/api/topology`  | GET    | Topology data for metro map (agents and connections)  |
+| `/api/dashboard` | GET    | Dashboard overview (agent info, stats, peers, routes) |
+| `/api/nodes`     | GET    | Detailed node info listing for all known agents       |
 
 ### Distributed Metrics & Status
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/metrics/{agent-id}` | GET | Fetch Prometheus metrics from remote agent via control channel |
-| `/agents` | GET | List all known agents in the mesh |
-| `/agents/{agent-id}` | GET | Get status from specific agent |
-| `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
-| `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
-| `/agents/{agent-id}/shell` | GET | WebSocket shell access on remote agent |
-| `/agents/{agent-id}/file/upload` | POST | Upload file to remote agent |
-| `/agents/{agent-id}/file/download` | POST | Download file from remote agent |
+| Endpoint                           | Method | Description                                                    |
+| ---------------------------------- | ------ | -------------------------------------------------------------- |
+| `/metrics/{agent-id}`              | GET    | Fetch Prometheus metrics from remote agent via control channel |
+| `/agents`                          | GET    | List all known agents in the mesh                              |
+| `/agents/{agent-id}`               | GET    | Get status from specific agent                                 |
+| `/agents/{agent-id}/routes`        | GET    | Get route table from specific agent                            |
+| `/agents/{agent-id}/peers`         | GET    | Get peer list from specific agent                              |
+| `/agents/{agent-id}/shell`         | GET    | WebSocket shell access on remote agent                         |
+| `/agents/{agent-id}/file/upload`   | POST   | Upload file to remote agent                                    |
+| `/agents/{agent-id}/file/download` | POST   | Download file from remote agent                                |
 
 ### Management
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/routes/advertise` | POST | Trigger immediate route advertisement |
+| Endpoint            | Method | Description                           |
+| ------------------- | ------ | ------------------------------------- |
+| `/routes/advertise` | POST   | Trigger immediate route advertisement |
 
 ### Debugging (pprof)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/debug/pprof/` | GET | pprof index |
-| `/debug/pprof/cmdline` | GET | Running program's command line |
-| `/debug/pprof/profile` | GET | CPU profile |
-| `/debug/pprof/symbol` | GET | Symbol lookup |
-| `/debug/pprof/trace` | GET | Execution trace |
+| Endpoint               | Method | Description                    |
+| ---------------------- | ------ | ------------------------------ |
+| `/debug/pprof/`        | GET    | pprof index                    |
+| `/debug/pprof/cmdline` | GET    | Running program's command line |
+| `/debug/pprof/profile` | GET    | CPU profile                    |
+| `/debug/pprof/symbol`  | GET    | Symbol lookup                  |
+| `/debug/pprof/trace`   | GET    | Execution trace                |
 
 ## Service Installation
 
@@ -469,16 +482,17 @@ muti-metroo shell -p mysecret abc123def456 whoami
 
 ```yaml
 shell:
-  enabled: false                   # Disabled by default (security)
-  whitelist: []                    # Commands allowed (empty = none, ["*"] = all)
-  password_hash: ""                # bcrypt hash of shell password
-  timeout: 0s                      # Optional command timeout (0 = no timeout)
-  max_sessions: 10                 # Max concurrent sessions
+  enabled: false # Disabled by default (security)
+  whitelist: [] # Commands allowed (empty = none, ["*"] = all)
+  password_hash: "" # bcrypt hash of shell password
+  timeout: 0s # Optional command timeout (0 = no timeout)
+  max_sessions: 10 # Max concurrent sessions
 ```
 
 ### Security Features
 
 1. **Command Whitelist**: Only commands in the whitelist can be executed
+
    - Empty list = no commands allowed (default)
    - `["*"]` = all commands allowed (testing only!)
    - Specific commands: `["bash", "vim", "whoami"]`
@@ -496,19 +510,19 @@ shell:
 ### Platform Support
 
 | Platform | Interactive (PTY) | Streaming |
-|----------|-------------------|-----------|
+| -------- | ----------------- | --------- |
 | Linux    | Yes               | Yes       |
 | macOS    | Yes               | Yes       |
 | Windows  | No                | Yes       |
 
 ### Prometheus Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `muti_metroo_shell_sessions_active` | Gauge | - | Active sessions |
-| `muti_metroo_shell_sessions_total` | Counter | `type`, `result` | Total sessions |
-| `muti_metroo_shell_duration_seconds` | Histogram | - | Session duration |
-| `muti_metroo_shell_bytes_total` | Counter | `direction` | Bytes transferred |
+| Metric                               | Type      | Labels           | Description       |
+| ------------------------------------ | --------- | ---------------- | ----------------- |
+| `muti_metroo_shell_sessions_active`  | Gauge     | -                | Active sessions   |
+| `muti_metroo_shell_sessions_total`   | Counter   | `type`, `result` | Total sessions    |
+| `muti_metroo_shell_duration_seconds` | Histogram | -                | Session duration  |
+| `muti_metroo_shell_bytes_total`      | Counter   | `direction`      | Bytes transferred |
 
 Type labels: `stream`, `interactive`
 Result labels: `success`, `error`, `timeout`, `rejected`
@@ -551,13 +565,13 @@ muti-metroo upload -a 192.168.1.10:8080 abc123def456 ./file.txt /tmp/file.txt
 
 ```yaml
 file_transfer:
-  enabled: true                    # Enable/disable file transfer
-  max_file_size: 0                 # Max file size in bytes (0 = unlimited)
-  allowed_paths:                   # Works like shell whitelist:
-    - /tmp                         # - Empty [] = no paths allowed
-    - /data/**                     # - ["*"] = all paths allowed
-    - /home/*/uploads              # - Supports glob patterns
-  password_hash: "bcrypt..."       # bcrypt hash of password (optional)
+  enabled: true # Enable/disable file transfer
+  max_file_size: 0 # Max file size in bytes (0 = unlimited)
+  allowed_paths: # Works like shell whitelist:
+    - /tmp # - Empty [] = no paths allowed
+    - /data/** # - ["*"] = all paths allowed
+    - /home/*/uploads # - Supports glob patterns
+  password_hash: "bcrypt..." # bcrypt hash of password (optional)
 ```
 
 ### HTTP API
@@ -567,12 +581,14 @@ file_transfer:
 Content-Type: `multipart/form-data`
 
 Form fields:
+
 - `file`: The file to upload (can be tar archive for directories)
 - `path`: Remote destination path (required)
 - `password`: Authentication password (optional)
 - `directory`: "true" if uploading a directory tar (optional)
 
 Response:
+
 ```json
 {
   "success": true,
@@ -584,6 +600,7 @@ Response:
 **Download**: `POST /agents/{agent-id}/file/download`
 
 Request:
+
 ```json
 {
   "password": "your-password",
@@ -592,6 +609,7 @@ Request:
 ```
 
 Response: Binary file data with headers:
+
 - `Content-Type`: `application/octet-stream` (file) or `application/gzip` (directory)
 - `Content-Disposition`: Filename
 - `X-File-Mode`: File permissions (octal, e.g., "0644")
@@ -610,66 +628,66 @@ All metrics are prefixed with `muti_metroo_`. Available at `/metrics` endpoint.
 
 ### Connection Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `peers_connected` | Gauge | - | Currently connected peers |
-| `peers_total` | Counter | - | Total peer connections established |
-| `peer_connections_total` | Counter | `transport`, `direction` | Connections by transport type |
-| `peer_disconnects_total` | Counter | `reason` | Disconnections by reason |
+| Metric                   | Type    | Labels                   | Description                        |
+| ------------------------ | ------- | ------------------------ | ---------------------------------- |
+| `peers_connected`        | Gauge   | -                        | Currently connected peers          |
+| `peers_total`            | Counter | -                        | Total peer connections established |
+| `peer_connections_total` | Counter | `transport`, `direction` | Connections by transport type      |
+| `peer_disconnects_total` | Counter | `reason`                 | Disconnections by reason           |
 
 ### Stream Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `streams_active` | Gauge | - | Currently active streams |
-| `streams_opened_total` | Counter | - | Total streams opened |
-| `streams_closed_total` | Counter | - | Total streams closed |
-| `stream_open_latency_seconds` | Histogram | - | Stream open latency |
-| `stream_errors_total` | Counter | `error_type` | Stream errors by type |
+| Metric                        | Type      | Labels       | Description              |
+| ----------------------------- | --------- | ------------ | ------------------------ |
+| `streams_active`              | Gauge     | -            | Currently active streams |
+| `streams_opened_total`        | Counter   | -            | Total streams opened     |
+| `streams_closed_total`        | Counter   | -            | Total streams closed     |
+| `stream_open_latency_seconds` | Histogram | -            | Stream open latency      |
+| `stream_errors_total`         | Counter   | `error_type` | Stream errors by type    |
 
 ### Data Transfer Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `bytes_sent_total` | Counter | `type` | Bytes sent by type |
-| `bytes_received_total` | Counter | `type` | Bytes received by type |
-| `frames_sent_total` | Counter | `frame_type` | Frames sent by type |
+| Metric                  | Type    | Labels       | Description             |
+| ----------------------- | ------- | ------------ | ----------------------- |
+| `bytes_sent_total`      | Counter | `type`       | Bytes sent by type      |
+| `bytes_received_total`  | Counter | `type`       | Bytes received by type  |
+| `frames_sent_total`     | Counter | `frame_type` | Frames sent by type     |
 | `frames_received_total` | Counter | `frame_type` | Frames received by type |
 
 ### Routing Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `routes_total` | Gauge | - | Routes in routing table |
-| `route_advertises_total` | Counter | - | Route advertisements processed |
-| `route_withdrawals_total` | Counter | - | Route withdrawals processed |
-| `route_flood_latency_seconds` | Histogram | - | Route flood propagation latency |
+| Metric                        | Type      | Labels | Description                     |
+| ----------------------------- | --------- | ------ | ------------------------------- |
+| `routes_total`                | Gauge     | -      | Routes in routing table         |
+| `route_advertises_total`      | Counter   | -      | Route advertisements processed  |
+| `route_withdrawals_total`     | Counter   | -      | Route withdrawals processed     |
+| `route_flood_latency_seconds` | Histogram | -      | Route flood propagation latency |
 
 ### SOCKS5 Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `socks5_connections_active` | Gauge | - | Active SOCKS5 connections |
-| `socks5_connections_total` | Counter | - | Total SOCKS5 connections |
-| `socks5_auth_failures_total` | Counter | - | Authentication failures |
-| `socks5_connect_latency_seconds` | Histogram | - | Connect request latency |
+| Metric                           | Type      | Labels | Description               |
+| -------------------------------- | --------- | ------ | ------------------------- |
+| `socks5_connections_active`      | Gauge     | -      | Active SOCKS5 connections |
+| `socks5_connections_total`       | Counter   | -      | Total SOCKS5 connections  |
+| `socks5_auth_failures_total`     | Counter   | -      | Authentication failures   |
+| `socks5_connect_latency_seconds` | Histogram | -      | Connect request latency   |
 
 ### Exit Handler Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `exit_connections_active` | Gauge | - | Active exit connections |
-| `exit_connections_total` | Counter | - | Total exit connections |
-| `exit_dns_queries_total` | Counter | - | DNS queries performed |
-| `exit_dns_latency_seconds` | Histogram | - | DNS query latency |
-| `exit_errors_total` | Counter | `error_type` | Exit errors by type |
+| Metric                     | Type      | Labels       | Description             |
+| -------------------------- | --------- | ------------ | ----------------------- |
+| `exit_connections_active`  | Gauge     | -            | Active exit connections |
+| `exit_connections_total`   | Counter   | -            | Total exit connections  |
+| `exit_dns_queries_total`   | Counter   | -            | DNS queries performed   |
+| `exit_dns_latency_seconds` | Histogram | -            | DNS query latency       |
+| `exit_errors_total`        | Counter   | `error_type` | Exit errors by type     |
 
 ### Protocol Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `handshake_latency_seconds` | Histogram | - | Peer handshake latency |
-| `handshake_errors_total` | Counter | `error_type` | Handshake errors by type |
-| `keepalives_sent_total` | Counter | - | Keepalives sent |
-| `keepalives_received_total` | Counter | - | Keepalives received |
-| `keepalive_rtt_seconds` | Histogram | - | Keepalive round-trip time |
+| Metric                      | Type      | Labels       | Description               |
+| --------------------------- | --------- | ------------ | ------------------------- |
+| `handshake_latency_seconds` | Histogram | -            | Peer handshake latency    |
+| `handshake_errors_total`    | Counter   | `error_type` | Handshake errors by type  |
+| `keepalives_sent_total`     | Counter   | -            | Keepalives sent           |
+| `keepalives_received_total` | Counter   | -            | Keepalives received       |
+| `keepalive_rtt_seconds`     | Histogram | -            | Keepalive round-trip time |

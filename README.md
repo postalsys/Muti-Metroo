@@ -14,10 +14,10 @@ A userspace mesh networking agent written in Go that creates virtual TCP tunnels
 
 ## Documentation
 
-| Documentation | Description |
-|---------------|-------------|
-| **[User Manual](https://muti-metroo.postalsys.ee)** | Installation, configuration, and usage guide for end users |
-| **[Architecture.md](./Architecture.md)** | Technical internals, protocol specification, and implementation details |
+| Documentation                             | Description                                                             |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| **[User Manual](https://mutimetroo.com)** | Installation, configuration, and usage guide for end users              |
+| **[Architecture.md](./Architecture.md)**  | Technical internals, protocol specification, and implementation details |
 
 ## Quick Start
 
@@ -49,6 +49,7 @@ The easiest way to get started is using the interactive setup wizard:
 ```
 
 The wizard guides you through:
+
 - **Basic setup**: Data directory and config file location
 - **Agent role**: Ingress (SOCKS5 proxy), Transit (relay), or Exit (external network access)
 - **Network config**: Transport protocol (QUIC/HTTP2/WebSocket) and listen address
@@ -130,6 +131,7 @@ Generate fresh TLS certificates for your deployment:
 ```
 
 Certificate commands:
+
 - `cert ca` - Generate a new Certificate Authority
 - `cert agent` - Generate an agent/peer certificate (server + client auth)
 - `cert client` - Generate a client-only certificate
@@ -157,18 +159,18 @@ See `configs/example.yaml` for a fully commented configuration file. Key section
 
 ```yaml
 agent:
-  id: "auto"           # Auto-generate on first run, or specify hex string
-  display_name: ""     # Human-readable name (Unicode allowed)
-  data_dir: "./data"   # Directory for persistent state
-  log_level: "info"    # debug, info, warn, error
-  log_format: "text"   # text, json
+  id: "auto" # Auto-generate on first run, or specify hex string
+  display_name: "" # Human-readable name (Unicode allowed)
+  data_dir: "./data" # Directory for persistent state
+  log_level: "info" # debug, info, warn, error
+  log_format: "text" # text, json
 ```
 
 ### Transport Listeners
 
 ```yaml
 listeners:
-  - transport: quic    # quic, h2, or ws
+  - transport: quic # quic, h2, or ws
     address: "0.0.0.0:4433"
     tls:
       cert: "./certs/agent.crt"
@@ -179,7 +181,7 @@ listeners:
 
 ```yaml
 peers:
-  - id: "abc123..."           # Expected peer AgentID
+  - id: "abc123..." # Expected peer AgentID
     transport: quic
     address: "192.168.1.50:4433"
     tls:
@@ -206,7 +208,7 @@ exit:
   enabled: true
   routes:
     - "10.0.0.0/8"
-    - "0.0.0.0/0"      # Default route
+    - "0.0.0.0/0" # Default route
   dns:
     servers:
       - "8.8.8.8:53"
@@ -255,34 +257,34 @@ An agent can serve multiple roles simultaneously:
 
 ### Package Structure
 
-| Package | Purpose |
-|---------|---------|
-| `agent` | Main orchestrator - initializes components, dispatches frames, manages lifecycle |
-| `identity` | 128-bit AgentID generation and persistence |
-| `config` | YAML config parsing with env var substitution (`${VAR:-default}`) |
-| `protocol` | Binary frame protocol - 14-byte header, encode/decode for all frame types |
-| `transport` | Transport abstraction with QUIC, H2, and WebSocket implementations |
-| `peer` | Peer connection lifecycle - handshake, keepalive, reconnection with backoff |
-| `routing` | Route table with longest-prefix match, route manager with subscription system |
-| `flood` | Route propagation via flooding with loop prevention and seen-cache |
-| `stream` | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O |
-| `socks5` | SOCKS5 server with no-auth and username/password methods |
-| `exit` | Exit node handler - TCP dial, DNS resolution, route-based access control |
-| `certutil` | TLS certificate generation and management - CA, server, client, peer certificates |
-| `wizard` | Interactive setup wizard with modern terminal UI |
-| `health` | Health check HTTP server, Prometheus metrics, remote agent APIs, pprof, dashboard |
-| `control` | Unix socket control server for CLI commands |
-| `service` | Cross-platform service management (systemd on Linux, launchd on macOS, Windows Service) |
-| `rpc` | Remote Procedure Call - shell command execution, whitelist, authentication |
-| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation |
-| `sysinfo` | System information collection for node info advertisements |
-| `webui` | Embedded web dashboard with metro map visualization |
-| `metrics` | Prometheus metrics definitions and registration |
-| `logging` | Structured logging with slog - text/JSON formats, standard attribute keys |
-| `recovery` | Panic recovery utilities for goroutines with logging and callbacks |
-| `chaos` | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing |
-| `loadtest` | Load testing utilities - stream throughput, route table, connection churn |
-| `integration` | Integration tests for multi-agent mesh scenarios |
+| Package        | Purpose                                                                                 |
+| -------------- | --------------------------------------------------------------------------------------- |
+| `agent`        | Main orchestrator - initializes components, dispatches frames, manages lifecycle        |
+| `identity`     | 128-bit AgentID generation and persistence                                              |
+| `config`       | YAML config parsing with env var substitution (`${VAR:-default}`)                       |
+| `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types               |
+| `transport`    | Transport abstraction with QUIC, H2, and WebSocket implementations                      |
+| `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff             |
+| `routing`      | Route table with longest-prefix match, route manager with subscription system           |
+| `flood`        | Route propagation via flooding with loop prevention and seen-cache                      |
+| `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                  |
+| `socks5`       | SOCKS5 server with no-auth and username/password methods                                |
+| `exit`         | Exit node handler - TCP dial, DNS resolution, route-based access control                |
+| `certutil`     | TLS certificate generation and management - CA, server, client, peer certificates       |
+| `wizard`       | Interactive setup wizard with modern terminal UI                                        |
+| `health`       | Health check HTTP server, Prometheus metrics, remote agent APIs, pprof, dashboard       |
+| `control`      | Unix socket control server for CLI commands                                             |
+| `service`      | Cross-platform service management (systemd on Linux, launchd on macOS, Windows Service) |
+| `rpc`          | Remote Procedure Call - shell command execution, whitelist, authentication              |
+| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation           |
+| `sysinfo`      | System information collection for node info advertisements                              |
+| `webui`        | Embedded web dashboard with metro map visualization                                     |
+| `metrics`      | Prometheus metrics definitions and registration                                         |
+| `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys               |
+| `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                      |
+| `chaos`        | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing           |
+| `loadtest`     | Load testing utilities - stream throughput, route table, connection churn               |
+| `integration`  | Integration tests for multi-agent mesh scenarios                                        |
 
 ## Development
 
@@ -340,23 +342,23 @@ docker run -v $(pwd)/config.yaml:/app/config.yaml \
 
 ### Frame Types
 
-| Type | Name | Description |
-|------|------|-------------|
-| 0x01 | STREAM_OPEN | Open a new virtual stream |
-| 0x02 | STREAM_OPEN_ACK | Stream opened successfully |
-| 0x03 | STREAM_OPEN_ERR | Stream open failed |
-| 0x04 | STREAM_DATA | Stream data payload |
-| 0x05 | STREAM_CLOSE | Close stream |
-| 0x06 | STREAM_RESET | Reset stream with error |
-| 0x10 | ROUTE_ADVERTISE | Announce CIDR routes |
-| 0x11 | ROUTE_WITHDRAW | Remove CIDR routes |
-| 0x12 | NODE_INFO_ADVERTISE | Announce node metadata |
-| 0x20 | PEER_HELLO | Handshake initiation |
-| 0x21 | PEER_HELLO_ACK | Handshake acknowledgment |
-| 0x22 | KEEPALIVE | Connection keepalive |
-| 0x23 | KEEPALIVE_ACK | Keepalive acknowledgment |
-| 0x24 | CONTROL_REQUEST | Request metrics/status from remote agent |
-| 0x25 | CONTROL_RESPONSE | Response with metrics/status data |
+| Type | Name                | Description                              |
+| ---- | ------------------- | ---------------------------------------- |
+| 0x01 | STREAM_OPEN         | Open a new virtual stream                |
+| 0x02 | STREAM_OPEN_ACK     | Stream opened successfully               |
+| 0x03 | STREAM_OPEN_ERR     | Stream open failed                       |
+| 0x04 | STREAM_DATA         | Stream data payload                      |
+| 0x05 | STREAM_CLOSE        | Close stream                             |
+| 0x06 | STREAM_RESET        | Reset stream with error                  |
+| 0x10 | ROUTE_ADVERTISE     | Announce CIDR routes                     |
+| 0x11 | ROUTE_WITHDRAW      | Remove CIDR routes                       |
+| 0x12 | NODE_INFO_ADVERTISE | Announce node metadata                   |
+| 0x20 | PEER_HELLO          | Handshake initiation                     |
+| 0x21 | PEER_HELLO_ACK      | Handshake acknowledgment                 |
+| 0x22 | KEEPALIVE           | Connection keepalive                     |
+| 0x23 | KEEPALIVE_ACK       | Keepalive acknowledgment                 |
+| 0x24 | CONTROL_REQUEST     | Request metrics/status from remote agent |
+| 0x25 | CONTROL_RESPONSE    | Response with metrics/status data        |
 
 ## License
 

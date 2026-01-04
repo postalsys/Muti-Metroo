@@ -29,7 +29,7 @@ RUN apk --no-cache add ca-certificates wget
 
 ARG TARGETARCH
 RUN wget -O /usr/local/bin/muti-metroo \
-    https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-${TARGETARCH} && \
+    https://mutimetroo.com/downloads/latest/muti-metroo-linux-${TARGETARCH} && \
     chmod +x /usr/local/bin/muti-metroo
 
 WORKDIR /app
@@ -335,7 +335,7 @@ spec:
           protocol: UDP
         - port: 8080
   egress:
-    - {}  # Allow all egress (for exit traffic)
+    - {} # Allow all egress (for exit traffic)
 ```
 
 ### ServiceMonitor (Prometheus)

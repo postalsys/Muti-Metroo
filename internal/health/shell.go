@@ -11,6 +11,7 @@ import (
 	"nhooyr.io/websocket"
 
 	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/protocol"
 	"github.com/postalsys/muti-metroo/internal/shell"
 )
 
@@ -73,15 +74,26 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 
-	// Parse metadata
-	var meta shell.ShellMeta
-	if err := json.Unmarshal(metaData, &meta); err != nil {
+	// Decode message type and payload (client sends MsgMeta prefix)
+	msgType, payload, err := shell.DecodeMessage(metaData)
+	if err != nil {
+		conn.Close(websocket.StatusProtocolError, "failed to decode message: "+err.Error())
+		return
+	}
+	if msgType != shell.MsgMeta {
+		conn.Close(websocket.StatusProtocolError, "expected META message")
+		return
+	}
+
+	// Parse metadata from payload
+	meta, err := shell.DecodeMeta(payload)
+	if err != nil {
 		conn.Close(websocket.StatusProtocolError, "invalid metadata: "+err.Error())
 		return
 	}
 
 	// Open shell stream to target agent
-	session, err := s.shellProvider.OpenShellStream(ctx, targetID, &meta, interactive)
+	session, err := s.shellProvider.OpenShellStream(ctx, targetID, meta, interactive)
 	if err != nil {
 		// Send error response
 		errResp := shell.ShellError{Message: err.Error()}
@@ -181,18 +193,25 @@ func (s *Server) SetShellProvider(provider ShellProvider) {
 	s.shellProvider = provider
 }
 
+// PeerSender is an interface for sending frames to peers.
+type PeerSender interface {
+	SendToPeer(peerID identity.AgentID, frame *protocol.Frame) error
+}
+
 // ShellStreamAdapter adapts the mesh shell stream to the ShellSession interface.
 // This is implemented by the agent.
 type ShellStreamAdapter struct {
-	streamID uint64
-	targetID identity.AgentID
-	send     chan []byte
-	receive  chan []byte
-	done     chan struct{}
-	exitCode int32
-	err      error
-	closeFunc func()
-	mu       sync.Mutex
+	streamID   uint64
+	targetID   identity.AgentID
+	send       chan []byte
+	receive    chan []byte
+	done       chan struct{}
+	exitCode   int32
+	err        error
+	closeFunc  func()
+	nextHop    identity.AgentID
+	peerSender PeerSender
+	mu         sync.Mutex
 }
 
 // NewShellStreamAdapter creates a new shell stream adapter.
@@ -294,4 +313,17 @@ func (a *ShellStreamAdapter) Write(p []byte) (n int, err error) {
 	case <-a.done:
 		return 0, io.ErrClosedPipe
 	}
+}
+
+// SetNextHop sets the next hop peer and sender for outgoing data.
+func (a *ShellStreamAdapter) SetNextHop(nextHop identity.AgentID, sender PeerSender) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.nextHop = nextHop
+	a.peerSender = sender
+}
+
+// GetStreamID returns the stream ID.
+func (a *ShellStreamAdapter) GetStreamID() uint64 {
+	return a.streamID
 }

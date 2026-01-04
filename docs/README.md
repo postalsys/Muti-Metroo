@@ -86,9 +86,10 @@ docs/
 
 ## Configuration
 
-The site is configured to be deployed at root domain `https://muti-metroo.postalsys.ee`.
+The site is configured to be deployed at root domain `https://mutimetroo.com`.
 
 Key configuration files:
+
 - `docusaurus.config.ts` - Site configuration
 - `sidebars.ts` - Sidebar navigation structure
 - `src/css/custom.css` - Custom styling
@@ -96,6 +97,7 @@ Key configuration files:
 ## Deployment
 
 The site can be deployed to:
+
 - Static hosting (Netlify, Vercel, etc.)
 - GitHub Pages
 - Self-hosted web server

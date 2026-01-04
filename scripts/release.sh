@@ -654,8 +654,8 @@ upload_binaries_to_web() {
     ssh "$WEB_SERVER_USER@$WEB_SERVER" "cp -r $latest_dir/* $version_dir/"
 
     log_success "Binaries uploaded to $WEB_SERVER"
-    log_info "  Latest: https://muti-metroo.postalsys.ee/downloads/latest/"
-    log_info "  v$version: https://muti-metroo.postalsys.ee/downloads/v$version/"
+    log_info "  Latest: https://mutimetroo.com/downloads/latest/"
+    log_info "  v$version: https://mutimetroo.com/downloads/v$version/"
 }
 
 # Run tests
@@ -766,8 +766,8 @@ main() {
     echo "=========================================="
     echo ""
     log_info "Release URL: $GITEA_URL/$GITEA_OWNER/$GITEA_REPO/releases/tag/v$new_version"
-    log_info "Documentation: https://muti-metroo.postalsys.ee/"
-    log_info "Downloads: https://muti-metroo.postalsys.ee/downloads/latest/"
+    log_info "Documentation: https://mutimetroo.com/"
+    log_info "Downloads: https://mutimetroo.com/downloads/latest/"
     echo ""
 }
 

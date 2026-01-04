@@ -63,7 +63,7 @@ const config: Config = {
   themes: ['@docusaurus/theme-mermaid'],
 
   // Set the production url of your site here
-  url: 'https://muti-metroo.postalsys.ee',
+  url: 'https://mutimetroo.com',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: '/',

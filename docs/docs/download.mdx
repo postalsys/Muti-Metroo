@@ -54,9 +54,10 @@ export const OSDetector = () => {
         }
       });
     }, 100);
-  }, []);
 
-  return null;
+}, []);
+
+return null;
 };
 
 # Download Muti Metroo
@@ -73,23 +74,19 @@ Download the latest Muti Metroo binary for your platform. All binaries are self-
 ### Apple Silicon (M-series)
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-darwin-arm64.pkg" primary>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-arm64.pkg" primary>
     Download Installer (.pkg)
   </DownloadButton>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-darwin-arm64">
-    Download Binary
-  </DownloadButton>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-arm64">Download Binary</DownloadButton>
 </DownloadButtonGroup>
 
 ### Intel
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-darwin-amd64.pkg" primary>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-amd64.pkg" primary>
     Download Installer (.pkg)
   </DownloadButton>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-darwin-amd64">
-    Download Binary
-  </DownloadButton>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-amd64">Download Binary</DownloadButton>
 </DownloadButtonGroup>
 
 ### Installation
@@ -105,7 +102,7 @@ Download the latest Muti Metroo binary for your platform. All binaries are self-
 
 ```bash
 # Download and install (Apple Silicon)
-curl -L -o muti-metroo https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-darwin-arm64
+curl -L -o muti-metroo https://mutimetroo.com/downloads/latest/muti-metroo-darwin-arm64
 chmod +x muti-metroo
 sudo mv muti-metroo /usr/local/bin/
 
@@ -119,7 +116,7 @@ muti-metroo --version
 ### x86_64 (amd64)
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-amd64" primary>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-linux-amd64" primary>
     Download Binary (x86_64)
   </DownloadButton>
 </DownloadButtonGroup>
@@ -127,7 +124,7 @@ muti-metroo --version
 ### ARM64 (aarch64)
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-arm64" primary>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-linux-arm64" primary>
     Download Binary (ARM64)
   </DownloadButton>
 </DownloadButtonGroup>
@@ -136,7 +133,7 @@ muti-metroo --version
 
 ```bash
 # Download for your architecture (example: amd64)
-curl -L -o muti-metroo https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-linux-amd64
+curl -L -o muti-metroo https://mutimetroo.com/downloads/latest/muti-metroo-linux-amd64
 
 # Make executable and install
 chmod +x muti-metroo
@@ -152,7 +149,7 @@ muti-metroo --version
 ### x86_64 (amd64)
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-windows-amd64.exe" primary>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-windows-amd64.exe" primary>
     Download (.exe)
   </DownloadButton>
 </DownloadButtonGroup>
@@ -160,7 +157,7 @@ muti-metroo --version
 ### ARM64
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/muti-metroo-windows-arm64.exe" primary>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-windows-arm64.exe" primary>
     Download ARM64 (.exe)
   </DownloadButton>
 </DownloadButtonGroup>
@@ -183,9 +180,7 @@ muti-metroo.exe --version
 Verify your download with SHA256 checksums:
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://muti-metroo.postalsys.ee/downloads/latest/checksums.txt">
-    Download Checksums
-  </DownloadButton>
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/checksums.txt">Download Checksums</DownloadButton>
 </DownloadButtonGroup>
 
 <Tabs groupId="verify-os">
@@ -193,7 +188,7 @@ Verify your download with SHA256 checksums:
 
 ```bash
 # Download checksums
-curl -L -o checksums.txt https://muti-metroo.postalsys.ee/downloads/latest/checksums.txt
+curl -L -o checksums.txt https://mutimetroo.com/downloads/latest/checksums.txt
 
 # Verify (example for linux-amd64)
 sha256sum -c checksums.txt --ignore-missing
@@ -218,7 +213,7 @@ if ($expected -eq $actual) { "OK" } else { "MISMATCH" }
 
 ## Previous Versions
 
-Previous releases are available at the [releases archive](https://muti-metroo.postalsys.ee/downloads/).
+Previous releases are available at the [releases archive](https://mutimetroo.com/downloads/).
 
 ## Next Steps
 
