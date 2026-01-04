@@ -15,10 +15,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/postalsys/muti-metroo/internal/agent"
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
@@ -50,20 +52,67 @@ root privileges.`,
 		Version: Version,
 	}
 
-	// Add subcommands
-	rootCmd.AddCommand(setupCmd())
-	rootCmd.AddCommand(initCmd())
-	rootCmd.AddCommand(runCmd())
-	rootCmd.AddCommand(certCmd())
-	rootCmd.AddCommand(statusCmd())
-	rootCmd.AddCommand(peersCmd())
-	rootCmd.AddCommand(routesCmd())
-	rootCmd.AddCommand(serviceCmd())
-	rootCmd.AddCommand(shellCmd())
-	rootCmd.AddCommand(uploadCmd())
-	rootCmd.AddCommand(downloadCmd())
-	rootCmd.AddCommand(hashCmd())
-	rootCmd.AddCommand(managementKeyCmd())
+	// Define command groups for organized help output
+	rootCmd.AddGroup(&cobra.Group{ID: "start", Title: "Getting Started:"})
+	rootCmd.AddGroup(&cobra.Group{ID: "status", Title: "Agent Status:"})
+	rootCmd.AddGroup(&cobra.Group{ID: "remote", Title: "Remote Operations:"})
+	rootCmd.AddGroup(&cobra.Group{ID: "admin", Title: "Administration:"})
+
+	// Getting Started commands
+	setup := setupCmd()
+	setup.GroupID = "start"
+	rootCmd.AddCommand(setup)
+
+	initC := initCmd()
+	initC.GroupID = "start"
+	rootCmd.AddCommand(initC)
+
+	run := runCmd()
+	run.GroupID = "start"
+	rootCmd.AddCommand(run)
+
+	// Agent Status commands
+	status := statusCmd()
+	status.GroupID = "status"
+	rootCmd.AddCommand(status)
+
+	peers := peersCmd()
+	peers.GroupID = "status"
+	rootCmd.AddCommand(peers)
+
+	routes := routesCmd()
+	routes.GroupID = "status"
+	rootCmd.AddCommand(routes)
+
+	// Remote Operations commands
+	shellC := shellCmd()
+	shellC.GroupID = "remote"
+	rootCmd.AddCommand(shellC)
+
+	upload := uploadCmd()
+	upload.GroupID = "remote"
+	rootCmd.AddCommand(upload)
+
+	download := downloadCmd()
+	download.GroupID = "remote"
+	rootCmd.AddCommand(download)
+
+	// Administration commands
+	svc := serviceCmd()
+	svc.GroupID = "admin"
+	rootCmd.AddCommand(svc)
+
+	cert := certCmd()
+	cert.GroupID = "admin"
+	rootCmd.AddCommand(cert)
+
+	hash := hashCmd()
+	hash.GroupID = "admin"
+	rootCmd.AddCommand(hash)
+
+	mgmtKey := managementKeyCmd()
+	mgmtKey.GroupID = "admin"
+	rootCmd.AddCommand(mgmtKey)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -219,11 +268,31 @@ func runCmd() *cobra.Command {
 
 func statusCmd() *cobra.Command {
 	var agentAddr string
+	var jsonOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show agent status",
-		Long:  "Display the current status of the running agent via HTTP API.",
+		Long: `Display the current status of the running agent via HTTP API.
+
+Shows running agent information including:
+  - Agent status (OK/error)
+  - Connected peer count
+  - Active stream count
+  - Route table size
+  - SOCKS5 proxy status
+  - Exit handler status
+
+Example output:
+  Agent Status
+  ============
+  Status:       OK
+  Running:      true
+  Peer Count:   3
+  Stream Count: 12
+  Route Count:  5
+  SOCKS5:       true
+  Exit Handler: false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -253,6 +322,12 @@ func statusCmd() *cobra.Command {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(status)
+			}
+
 			fmt.Printf("Agent Status\n")
 			fmt.Printf("============\n")
 			fmt.Printf("Status:       %s\n", status.Status)
@@ -267,13 +342,15 @@ func statusCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent HTTP API address")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 
 	return cmd
 }
 
 func peersCmd() *cobra.Command {
 	var agentAddr string
+	var jsonOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "peers",
@@ -313,6 +390,12 @@ func peersCmd() *cobra.Command {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(dashboard.Peers)
+			}
+
 			fmt.Printf("Connected Peers\n")
 			fmt.Printf("===============\n")
 			if len(dashboard.Peers) == 0 {
@@ -344,13 +427,15 @@ func peersCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent HTTP API address")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 
 	return cmd
 }
 
 func routesCmd() *cobra.Command {
 	var agentAddr string
+	var jsonOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "routes",
@@ -392,6 +477,12 @@ func routesCmd() *cobra.Command {
 				return fmt.Errorf("failed to decode response: %w", err)
 			}
 
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(dashboard.Routes)
+			}
+
 			fmt.Printf("Route Table\n")
 			fmt.Printf("===========\n")
 			if len(dashboard.Routes) == 0 {
@@ -423,7 +514,8 @@ func routesCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent HTTP API address")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 
 	return cmd
 }
@@ -700,9 +792,9 @@ func certCACmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&commonName, "cn", "n", "Muti Metroo CA", "Common name for the CA")
+	cmd.Flags().StringVar(&commonName, "cn", "Muti Metroo CA", "Common name for the CA")
 	cmd.Flags().StringVarP(&outDir, "out", "o", "./certs", "Output directory for certificate files")
-	cmd.Flags().IntVarP(&validDays, "days", "d", 365, "Validity period in days")
+	cmd.Flags().IntVar(&validDays, "days", 365, "Validity period in days")
 
 	return cmd
 }
@@ -794,9 +886,9 @@ func certAgentCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&commonName, "cn", "n", "", "Common name for the certificate (required)")
+	cmd.Flags().StringVar(&commonName, "cn", "", "Common name for the certificate (required)")
 	cmd.Flags().StringVarP(&outDir, "out", "o", "./certs", "Output directory for certificate files")
-	cmd.Flags().IntVarP(&validDays, "days", "d", 90, "Validity period in days")
+	cmd.Flags().IntVar(&validDays, "days", 90, "Validity period in days")
 	cmd.Flags().StringVar(&caPath, "ca", "./certs/ca.crt", "Path to CA certificate")
 	cmd.Flags().StringVar(&caKeyPath, "ca-key", "./certs/ca.key", "Path to CA private key")
 	cmd.Flags().StringVar(&dnsNames, "dns", "", "Additional DNS names (comma-separated)")
@@ -860,9 +952,9 @@ func certClientCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&commonName, "cn", "n", "", "Common name for the certificate (required)")
+	cmd.Flags().StringVar(&commonName, "cn", "", "Common name for the certificate (required)")
 	cmd.Flags().StringVarP(&outDir, "out", "o", "./certs", "Output directory for certificate files")
-	cmd.Flags().IntVarP(&validDays, "days", "d", 90, "Validity period in days")
+	cmd.Flags().IntVar(&validDays, "days", 90, "Validity period in days")
 	cmd.Flags().StringVar(&caPath, "ca", "./certs/ca.crt", "Path to CA certificate")
 	cmd.Flags().StringVar(&caKeyPath, "ca-key", "./certs/ca.key", "Path to CA private key")
 
@@ -928,16 +1020,19 @@ func certInfoCmd() *cobra.Command {
 
 func shellCmd() *cobra.Command {
 	var (
-		agentAddr string
-		password  string
-		timeout   int
-		ttyMode   bool
+		agentAddr  string
+		password   string
+		timeoutStr string
+		ttyMode    bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "shell [flags] <target-agent-id> [command] [args...]",
 		Short: "Run commands on a remote agent",
 		Long: `Run commands on a remote agent via shell.
+
+The <target-agent-id> is the final destination agent where the command executes.
+The --agent flag specifies which gateway agent to connect through (defaults to localhost).
 
 By default, shell runs in streaming mode without a PTY, suitable for simple
 commands like 'whoami', 'ls', or long-running output like 'tail -f'.
@@ -988,20 +1083,32 @@ Examples:
 				command = "bash"
 			}
 
+			// Parse timeout (supports duration strings like "5m" or plain seconds)
+			timeoutSec, err := parseDuration(timeoutStr)
+			if err != nil {
+				return fmt.Errorf("invalid timeout: %w", err)
+			}
+
+			// Resolve short agent ID prefix to full ID
+			resolvedID, err := resolveAgentID(targetID, agentAddr)
+			if err != nil {
+				return err
+			}
+
 			// Validate target agent ID
-			if _, err := identity.ParseAgentID(targetID); err != nil {
-				return fmt.Errorf("invalid agent ID '%s': %w", targetID, err)
+			if _, err := identity.ParseAgentID(resolvedID); err != nil {
+				return fmt.Errorf("invalid agent ID '%s': %w", resolvedID, err)
 			}
 
 			// Create shell client
 			client := shell.NewClient(shell.ClientConfig{
 				AgentAddr:   agentAddr,
-				TargetID:    targetID,
+				TargetID:    resolvedID,
 				Interactive: ttyMode,
 				Password:    password,
 				Command:     command,
 				Args:        cmdArgs,
-				Timeout:     timeout,
+				Timeout:     timeoutSec,
 			})
 
 			// Run the shell session
@@ -1029,9 +1136,9 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Gateway agent API address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "Shell password for authentication")
-	cmd.Flags().IntVarP(&timeout, "timeout", "t", 0, "Session timeout in seconds (0 = no timeout)")
+	cmd.Flags().StringVarP(&timeoutStr, "timeout", "t", "0", "Session timeout (e.g., 30s, 5m, or 0 for no timeout)")
 	cmd.Flags().BoolVar(&ttyMode, "tty", false, "Interactive mode with PTY (for vim, bash, htop, etc.)")
 
 	return cmd
@@ -1039,11 +1146,12 @@ Examples:
 
 func uploadCmd() *cobra.Command {
 	var (
-		agentAddr string
-		password  string
-		timeout   int
-		rateLimit string
-		resume    bool
+		agentAddr  string
+		password   string
+		timeoutStr string
+		rateLimit  string
+		resume     bool
+		quiet      bool
 	)
 
 	cmd := &cobra.Command{
@@ -1051,8 +1159,8 @@ func uploadCmd() *cobra.Command {
 		Short: "Upload a file or directory to a remote agent",
 		Long: `Upload a local file or directory to a remote agent via the file transfer interface.
 
-The file is uploaded through a local or remote agent's health HTTP server
-to the target agent identified by its agent ID.
+The <target-agent-id> is the final destination agent where the file is stored.
+The --agent flag specifies which gateway agent to connect through (defaults to localhost).
 
 File permissions (mode) are preserved. The remote path must be absolute.
 Directories are automatically detected and uploaded as tar archives.
@@ -1084,9 +1192,21 @@ Examples:
 			localPath := args[1]
 			remotePath := args[2]
 
+			// Parse timeout (supports duration strings like "5m" or plain seconds)
+			timeoutSec, err := parseDuration(timeoutStr)
+			if err != nil {
+				return fmt.Errorf("invalid timeout: %w", err)
+			}
+
+			// Resolve short agent ID prefix to full ID
+			resolvedID, err := resolveAgentID(targetID, agentAddr)
+			if err != nil {
+				return err
+			}
+
 			// Validate target agent ID
-			if _, err := identity.ParseAgentID(targetID); err != nil {
-				return fmt.Errorf("invalid agent ID '%s': %w", targetID, err)
+			if _, err := identity.ParseAgentID(resolvedID); err != nil {
+				return fmt.Errorf("invalid agent ID '%s': %w", resolvedID, err)
 			}
 
 			// Validate remote path is absolute
@@ -1122,21 +1242,22 @@ Examples:
 			}
 
 			isDirectory := info.IsDir()
-			return uploadFile(agentAddr, targetID, absLocalPath, remotePath, password, timeout, isDirectory, rateLimitBytes, resume)
+			return uploadFile(agentAddr, resolvedID, absLocalPath, remotePath, password, timeoutSec, isDirectory, rateLimitBytes, resume, quiet)
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Gateway agent API address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "File transfer password for authentication")
-	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
+	cmd.Flags().StringVarP(&timeoutStr, "timeout", "t", "5m", "Transfer timeout (e.g., 30s, 5m, 1h)")
 	cmd.Flags().StringVar(&rateLimit, "rate-limit", "", "Maximum transfer speed (e.g., 100KB, 1MB, 10MiB)")
 	cmd.Flags().BoolVar(&resume, "resume", false, "Resume interrupted transfer if possible")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress output")
 
 	return cmd
 }
 
 // uploadFile uploads a file or directory via multipart form streaming.
-func uploadFile(agentAddr, targetID, localPath, remotePath, password string, timeout int, isDirectory bool, rateLimit int64, resume bool) error {
+func uploadFile(agentAddr, targetID, localPath, remotePath, password string, timeout int, isDirectory bool, rateLimit int64, resume bool, quiet bool) error {
 	info, err := os.Stat(localPath)
 	if err != nil {
 		return fmt.Errorf("cannot access local path: %w", err)
@@ -1147,6 +1268,14 @@ func uploadFile(agentAddr, targetID, localPath, remotePath, password string, tim
 
 	// Create multipart writer
 	writer := multipart.NewWriter(pw)
+
+	// Progress tracking
+	var totalSize int64
+	if !isDirectory {
+		totalSize = info.Size()
+	}
+	startTime := time.Now()
+	var bytesWritten int64
 
 	// Start goroutine to write form data
 	errCh := make(chan error, 1)
@@ -1179,23 +1308,37 @@ func uploadFile(agentAddr, targetID, localPath, remotePath, password string, tim
 		}
 
 		if isDirectory {
-			// Tar and stream directory
-			fmt.Printf("Uploading directory %s to %s:%s\n", localPath, targetID[:12], remotePath)
+			// Tar and stream directory (no progress for directories)
+			if !quiet {
+				fmt.Printf("Uploading directory %s to %s:%s\n", localPath, targetID[:12], remotePath)
+			}
 			if err := filetransfer.TarDirectory(localPath, part); err != nil {
 				errCh <- fmt.Errorf("failed to tar directory: %w", err)
 				return
 			}
 		} else {
-			// Stream file
-			fmt.Printf("Uploading %s (%d bytes) to %s:%s\n",
-				filepath.Base(localPath), info.Size(), targetID[:12], remotePath)
+			// Stream file with progress tracking
+			if !quiet {
+				fmt.Printf("Uploading %s (%s) to %s:%s\n",
+					filepath.Base(localPath), humanize.Bytes(uint64(info.Size())), targetID[:12], remotePath)
+			}
 			f, err := os.Open(localPath)
 			if err != nil {
 				errCh <- fmt.Errorf("failed to open file: %w", err)
 				return
 			}
 			defer f.Close()
-			if _, err := io.Copy(part, f); err != nil {
+
+			// Create progress-tracking reader
+			progressReader := &progressTrackingReader{
+				reader:    f,
+				total:     totalSize,
+				written:   &bytesWritten,
+				startTime: startTime,
+				quiet:     quiet,
+			}
+
+			if _, err := io.Copy(part, progressReader); err != nil {
 				errCh <- fmt.Errorf("failed to stream file: %w", err)
 				return
 			}
@@ -1216,13 +1359,25 @@ func uploadFile(agentAddr, targetID, localPath, remotePath, password string, tim
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	fmt.Print("Uploading... ")
+	if quiet {
+		// No progress output in quiet mode
+	} else if isDirectory {
+		fmt.Print("Uploading... ")
+	}
 
 	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(req)
+
+	// Clear progress line if we were showing progress
+	if !quiet && !isDirectory && totalSize > 0 {
+		fmt.Print("\r" + strings.Repeat(" ", 70) + "\r") // Clear line
+	}
+
 	if err != nil {
-		fmt.Println("FAILED")
+		if !quiet {
+			fmt.Println("FAILED")
+		}
 		// Check if there was an error in the goroutine
 		if writeErr := <-errCh; writeErr != nil {
 			return fmt.Errorf("upload error: %w (form write: %v)", err, writeErr)
@@ -1233,14 +1388,18 @@ func uploadFile(agentAddr, targetID, localPath, remotePath, password string, tim
 
 	// Wait for goroutine
 	if writeErr := <-errCh; writeErr != nil {
-		fmt.Println("FAILED")
+		if !quiet {
+			fmt.Println("FAILED")
+		}
 		return writeErr
 	}
 
 	// Read response
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println("FAILED")
+		if !quiet {
+			fmt.Println("FAILED")
+		}
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
@@ -1252,28 +1411,40 @@ func uploadFile(agentAddr, targetID, localPath, remotePath, password string, tim
 		RemotePath   string `json:"remote_path"`
 	}
 	if err := json.Unmarshal(respBody, &uploadResp); err != nil {
-		fmt.Println("FAILED")
+		if !quiet {
+			fmt.Println("FAILED")
+		}
 		return fmt.Errorf("failed to parse response: %w (body: %s)", err, string(respBody))
 	}
 
 	if !uploadResp.Success {
-		fmt.Println("FAILED")
+		if !quiet {
+			fmt.Println("FAILED")
+		}
 		return fmt.Errorf("upload failed: %s", uploadResp.Error)
 	}
 
-	fmt.Println("OK")
-	fmt.Printf("Uploaded %d bytes to %s\n", uploadResp.BytesWritten, remotePath)
+	if !quiet {
+		elapsed := time.Since(startTime)
+		speed := float64(uploadResp.BytesWritten) / elapsed.Seconds()
+		fmt.Printf("Uploaded %s to %s in %s (%s/s)\n",
+			humanize.Bytes(uint64(uploadResp.BytesWritten)),
+			remotePath,
+			elapsed.Round(time.Millisecond),
+			humanize.Bytes(uint64(speed)))
+	}
 
 	return nil
 }
 
 func downloadCmd() *cobra.Command {
 	var (
-		agentAddr string
-		password  string
-		timeout   int
-		rateLimit string
-		resume    bool
+		agentAddr  string
+		password   string
+		timeoutStr string
+		rateLimit  string
+		resume     bool
+		quiet      bool
 	)
 
 	cmd := &cobra.Command{
@@ -1281,8 +1452,8 @@ func downloadCmd() *cobra.Command {
 		Short: "Download a file or directory from a remote agent",
 		Long: `Download a file or directory from a remote agent via the file transfer interface.
 
-The file is downloaded through a local or remote agent's health HTTP server
-from the target agent identified by its agent ID.
+The <target-agent-id> is the final destination agent where the file is stored.
+The --agent flag specifies which gateway agent to connect through (defaults to localhost).
 
 File permissions (mode) are preserved. The remote path must be absolute.
 Directories are automatically detected and downloaded as tar archives.
@@ -1314,9 +1485,21 @@ Examples:
 			remotePath := args[1]
 			localPath := args[2]
 
+			// Parse timeout (supports duration strings like "5m" or plain seconds)
+			timeoutSec, err := parseDuration(timeoutStr)
+			if err != nil {
+				return fmt.Errorf("invalid timeout: %w", err)
+			}
+
+			// Resolve short agent ID prefix to full ID
+			resolvedID, err := resolveAgentID(targetID, agentAddr)
+			if err != nil {
+				return err
+			}
+
 			// Validate target agent ID
-			if _, err := identity.ParseAgentID(targetID); err != nil {
-				return fmt.Errorf("invalid agent ID '%s': %w", targetID, err)
+			if _, err := identity.ParseAgentID(resolvedID); err != nil {
+				return fmt.Errorf("invalid agent ID '%s': %w", resolvedID, err)
 			}
 
 			// Validate remote path is absolute
@@ -1339,22 +1522,25 @@ Examples:
 				}
 			}
 
-			return downloadFile(agentAddr, targetID, remotePath, absLocalPath, password, timeout, rateLimitBytes, resume)
+			return downloadFile(agentAddr, resolvedID, remotePath, absLocalPath, password, timeoutSec, rateLimitBytes, resume, quiet)
 		},
 	}
 
-	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent health server address (host:port)")
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Gateway agent API address (host:port)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "File transfer password for authentication")
-	cmd.Flags().IntVarP(&timeout, "timeout", "t", 300, "Transfer timeout in seconds")
+	cmd.Flags().StringVarP(&timeoutStr, "timeout", "t", "5m", "Transfer timeout (e.g., 30s, 5m, 1h)")
 	cmd.Flags().StringVar(&rateLimit, "rate-limit", "", "Maximum transfer speed (e.g., 100KB, 1MB, 10MiB)")
 	cmd.Flags().BoolVar(&resume, "resume", false, "Resume interrupted transfer if possible")
+	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress output")
 
 	return cmd
 }
 
 // downloadFile downloads a file or directory via streaming.
-func downloadFile(agentAddr, targetID, remotePath, localPath, password string, timeout int, rateLimit int64, resume bool) error {
-	fmt.Printf("Downloading %s:%s to %s\n", targetID[:12], remotePath, localPath)
+func downloadFile(agentAddr, targetID, remotePath, localPath, password string, timeout int, rateLimit int64, resume bool, quiet bool) error {
+	if !quiet {
+		fmt.Printf("Downloading %s:%s to %s\n", targetID[:12], remotePath, localPath)
+	}
 
 	// Check for existing partial file if resume is requested
 	var offset int64
@@ -1362,11 +1548,16 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 	if resume {
 		partialInfo, err := filetransfer.HasPartialFile(localPath)
 		if err != nil {
-			fmt.Printf("Warning: failed to check partial file: %v\n", err)
+			if !quiet {
+				fmt.Printf("Warning: failed to check partial file: %v\n", err)
+			}
 		} else if partialInfo != nil {
 			offset = partialInfo.BytesWritten
 			originalSize = partialInfo.OriginalSize
-			fmt.Printf("Resuming from offset %d (of %d bytes)\n", offset, originalSize)
+			if !quiet {
+				fmt.Printf("Resuming from offset %s (of %s)\n",
+					humanize.Bytes(uint64(offset)), humanize.Bytes(uint64(originalSize)))
+			}
 		}
 	}
 
@@ -1403,17 +1594,21 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	if offset > 0 {
-		fmt.Print("Resuming... ")
-	} else {
-		fmt.Print("Downloading... ")
+	if !quiet {
+		if offset > 0 {
+			fmt.Print("Resuming... ")
+		} else {
+			fmt.Print("Downloading... ")
+		}
 	}
 
 	// Send request
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("FAILED")
+		if !quiet {
+			fmt.Println("FAILED")
+		}
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -1423,7 +1618,9 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 	if strings.HasPrefix(contentType, "application/json") {
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			fmt.Println("FAILED")
+			if !quiet {
+				fmt.Println("FAILED")
+			}
 			return fmt.Errorf("failed to read response: %w", err)
 		}
 		var errResp struct {
@@ -1431,10 +1628,14 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 			Error   string `json:"error"`
 		}
 		if err := json.Unmarshal(respBody, &errResp); err == nil && !errResp.Success {
-			fmt.Println("FAILED")
+			if !quiet {
+				fmt.Println("FAILED")
+			}
 			return fmt.Errorf("download failed: %s", errResp.Error)
 		}
-		fmt.Println("FAILED")
+		if !quiet {
+			fmt.Println("FAILED")
+		}
 		return fmt.Errorf("unexpected JSON response: %s", string(respBody))
 	}
 
@@ -1445,28 +1646,40 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 	if isTarGz {
 		// Directories don't support resume
 		if offset > 0 {
-			fmt.Println("FAILED")
+			if !quiet {
+				fmt.Println("FAILED")
+			}
 			return fmt.Errorf("resume not supported for directory downloads")
 		}
 
 		// Extract tar.gz to directory
 		if err := os.MkdirAll(localPath, 0755); err != nil {
-			fmt.Println("FAILED")
+			if !quiet {
+				fmt.Println("FAILED")
+			}
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
 
+		startTime := time.Now()
 		if err := filetransfer.UntarDirectory(resp.Body, localPath); err != nil {
-			fmt.Println("FAILED")
+			if !quiet {
+				fmt.Println("FAILED")
+			}
 			return fmt.Errorf("failed to extract directory: %w", err)
 		}
 
-		fmt.Println("OK")
-		fmt.Printf("Extracted directory to %s\n", localPath)
+		elapsed := time.Since(startTime)
+		if !quiet {
+			fmt.Println("OK")
+			fmt.Printf("Extracted directory to %s in %.1fs\n", localPath, elapsed.Seconds())
+		}
 	} else {
 		// Write file directly
 		dir := filepath.Dir(localPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			fmt.Println("FAILED")
+			if !quiet {
+				fmt.Println("FAILED")
+			}
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 
@@ -1492,7 +1705,9 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 			// Resume: open partial file for appending
 			f, err = filetransfer.OpenPartialFileForAppend(localPath)
 			if err != nil {
-				fmt.Println("FAILED")
+				if !quiet {
+					fmt.Println("FAILED")
+				}
 				return fmt.Errorf("failed to open partial file: %w", err)
 			}
 			written = offset // Start counting from offset
@@ -1505,7 +1720,9 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 				f, err = os.Create(filetransfer.GetPartialPath(localPath))
 			}
 			if err != nil {
-				fmt.Println("FAILED")
+				if !quiet {
+					fmt.Println("FAILED")
+				}
 				return fmt.Errorf("failed to create file: %w", err)
 			}
 			if totalSize > 0 {
@@ -1513,15 +1730,30 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 			}
 		}
 
-		// Copy data to file
-		newBytes, err := io.Copy(f, resp.Body)
+		// Copy data to file with progress tracking
+		startTime := time.Now()
+		if !quiet {
+			fmt.Println() // Move to new line for progress bar
+		}
+
+		pw := &progressTrackingWriter{
+			writer:    f,
+			total:     totalSize,
+			written:   &written,
+			startTime: startTime,
+			quiet:     quiet,
+		}
+
+		newBytes, err := io.Copy(pw, resp.Body)
 		f.Close()
-		written += newBytes
 
 		if err != nil {
 			// Update partial info with progress so far
 			if totalSize > 0 {
 				filetransfer.UpdatePartialProgress(localPath, written)
+			}
+			if !quiet {
+				fmt.Print("\r") // Clear progress bar
 			}
 			fmt.Println("FAILED")
 			return fmt.Errorf("failed to write file: %w", err)
@@ -1529,16 +1761,28 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 
 		// Finalize: rename partial to final
 		if err := filetransfer.FinalizePartial(localPath, mode); err != nil {
+			if !quiet {
+				fmt.Print("\r") // Clear progress bar
+			}
 			fmt.Println("FAILED")
 			return fmt.Errorf("failed to finalize file: %w", err)
 		}
 
-		fmt.Println("OK")
+		// Clear progress bar and print final summary
+		elapsed := time.Since(startTime)
+		if !quiet && totalSize > 0 {
+			fmt.Print("\r\033[K") // Clear line
+		}
+
+		speed := float64(newBytes) / elapsed.Seconds()
 		if offset > 0 {
-			fmt.Printf("Resumed and downloaded %d bytes (total %d bytes) to %s (mode: %04o)\n",
-				newBytes, written, localPath, mode)
+			fmt.Printf("Downloaded %s (resumed +%s) to %s in %.1fs (%s/s)\n",
+				humanize.Bytes(uint64(written)), humanize.Bytes(uint64(newBytes)),
+				localPath, elapsed.Seconds(), humanize.Bytes(uint64(speed)))
 		} else {
-			fmt.Printf("Downloaded %d bytes to %s (mode: %04o)\n", written, localPath, mode)
+			fmt.Printf("Downloaded %s to %s in %.1fs (%s/s)\n",
+				humanize.Bytes(uint64(written)), localPath,
+				elapsed.Seconds(), humanize.Bytes(uint64(speed)))
 		}
 	}
 
@@ -1752,4 +1996,193 @@ or to verify that your keypair is consistent.`,
 	cmd.Flags().StringVar(&privateKey, "private", "", "Private key in hex format")
 
 	return cmd
+}
+
+// parseDuration parses a duration string (e.g., "5m", "30s") or plain seconds.
+// Returns duration in seconds. Supports "0" for no timeout.
+func parseDuration(s string) (int, error) {
+	if s == "" || s == "0" {
+		return 0, nil
+	}
+
+	// Try parsing as duration first (e.g., "5m", "30s", "1h")
+	d, err := time.ParseDuration(s)
+	if err == nil {
+		return int(d.Seconds()), nil
+	}
+
+	// Fall back to parsing as integer seconds for backwards compatibility
+	secs, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid duration '%s' (use format like '30s', '5m', or plain seconds)", s)
+	}
+	return secs, nil
+}
+
+// resolveAgentID resolves a short agent ID prefix to a full agent ID.
+// If the ID is already 32 hex characters, it's returned as-is.
+// Otherwise, it queries the /agents endpoint to find matching agents.
+func resolveAgentID(shortID, agentAddr string) (string, error) {
+	// Check if it's already a full ID (32 hex chars = 16 bytes = 128-bit AgentID)
+	if len(shortID) == 32 && isHexString(shortID) {
+		return shortID, nil
+	}
+
+	// Query the agents endpoint
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("http://%s/agents", agentAddr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		// If we can't reach the API, assume the user provided a valid full ID
+		return shortID, nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return shortID, nil
+	}
+
+	var agents []struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
+		return shortID, nil
+	}
+
+	var matches []string
+	for _, a := range agents {
+		if strings.HasPrefix(strings.ToLower(a.ID), strings.ToLower(shortID)) {
+			matches = append(matches, a.ID)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no agent found matching prefix: %s", shortID)
+	case 1:
+		return matches[0], nil
+	default:
+		return "", fmt.Errorf("ambiguous prefix '%s' matches %d agents: %s...",
+			shortID, len(matches), strings.Join(matches[:min(3, len(matches))], ", "))
+	}
+}
+
+// isHexString checks if a string contains only hexadecimal characters.
+func isHexString(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// Progress bar helper functions
+
+// printProgress prints a progress bar to stdout.
+func printProgress(current, total int64, startTime time.Time) {
+	elapsed := time.Since(startTime).Seconds()
+	if elapsed == 0 {
+		elapsed = 0.001 // Avoid division by zero
+	}
+	speed := float64(current) / elapsed
+
+	var pct float64
+	if total > 0 {
+		pct = float64(current) / float64(total) * 100
+	}
+
+	// Calculate ETA
+	var eta string
+	if speed > 0 && total > 0 {
+		remaining := float64(total-current) / speed
+		eta = formatProgressDuration(time.Duration(remaining) * time.Second)
+	} else {
+		eta = "--:--"
+	}
+
+	// Render simple ASCII bar: [=====>    ] 45% 1.2 MB/s ETA 2m30s
+	bar := renderProgressBar(pct, 30)
+	fmt.Printf("\r%s %.1f%% %s/s ETA %s  ", bar, pct, humanize.Bytes(uint64(speed)), eta)
+}
+
+// renderProgressBar renders an ASCII progress bar.
+func renderProgressBar(pct float64, width int) string {
+	filled := int(pct / 100 * float64(width))
+	if filled > width {
+		filled = width
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	empty := width - filled
+	if filled > 0 {
+		return "[" + strings.Repeat("=", filled-1) + ">" + strings.Repeat(" ", empty) + "]"
+	}
+	return "[" + strings.Repeat(" ", width) + "]"
+}
+
+// formatProgressDuration formats a duration for progress display.
+func formatProgressDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// progressTrackingReader wraps an io.Reader and reports progress.
+type progressTrackingReader struct {
+	reader      io.Reader
+	total       int64
+	written     *int64
+	startTime   time.Time
+	quiet       bool
+	lastPrinted time.Time
+}
+
+// Read implements io.Reader with progress tracking.
+func (p *progressTrackingReader) Read(buf []byte) (int, error) {
+	n, err := p.reader.Read(buf)
+	if n > 0 {
+		*p.written += int64(n)
+
+		// Update progress bar (throttle to every 100ms to avoid flickering)
+		if !p.quiet && time.Since(p.lastPrinted) > 100*time.Millisecond {
+			printProgress(*p.written, p.total, p.startTime)
+			p.lastPrinted = time.Now()
+		}
+	}
+	return n, err
+}
+
+// progressTrackingWriter wraps an io.Writer and reports progress.
+type progressTrackingWriter struct {
+	writer      io.Writer
+	total       int64
+	written     *int64
+	startTime   time.Time
+	quiet       bool
+	lastPrinted time.Time
+}
+
+// Write implements io.Writer with progress tracking.
+func (p *progressTrackingWriter) Write(buf []byte) (int, error) {
+	n, err := p.writer.Write(buf)
+	if n > 0 {
+		*p.written += int64(n)
+
+		// Update progress bar (throttle to every 100ms to avoid flickering)
+		if !p.quiet && time.Since(p.lastPrinted) > 100*time.Millisecond {
+			printProgress(*p.written, p.total, p.startTime)
+			p.lastPrinted = time.Now()
+		}
+	}
+	return n, err
 }
