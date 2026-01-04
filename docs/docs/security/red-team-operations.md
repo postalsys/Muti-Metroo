@@ -19,16 +19,28 @@ Muti Metroo is a covert mesh networking tool designed for red team operations. I
 
 Deploy agents across compromised hosts to create a self-organizing mesh network. Traffic flows through multiple hops with end-to-end encryption - intermediate nodes relay traffic but cannot inspect it. Operate through the mesh via SOCKS5 proxy or direct shell/file transfer commands.
 
-```
-                    ┌─────────────┐
-                    │   Target    │
-                    │   Network   │
-                    └──────┬──────┘
-                           │
-┌──────────┐    ┌──────────▼──────────┐    ┌──────────┐
-│ Operator │───▶│  Transit Agents     │───▶│   Exit   │───▶ Internal
-│ (SOCKS5) │    │  (relay only)       │    │  Agent   │     Resources
-└──────────┘    └─────────────────────┘    └──────────┘
+```mermaid
+flowchart LR
+    subgraph Operator
+        A[Operator<br/>SOCKS5]
+    end
+
+    subgraph Mesh["Mesh Network"]
+        B[Ingress<br/>Agent]
+        C[Transit<br/>Agent]
+        D[Transit<br/>Agent]
+    end
+
+    subgraph Target["Target Network"]
+        E[Exit<br/>Agent]
+        F[(Internal<br/>Resources)]
+    end
+
+    A -->|encrypted| B
+    B -->|relay| C
+    C -->|relay| D
+    D -->|encrypted| E
+    E --> F
 ```
 
 ### Use Cases
