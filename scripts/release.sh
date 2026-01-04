@@ -180,6 +180,49 @@ check_prerequisites() {
     log_success "Prerequisites check passed"
 }
 
+# Collect third-party licenses for embedding
+collect_licenses() {
+    log_step "Collecting third-party licenses..."
+
+    if [[ "${DRY_RUN:-0}" == "1" ]]; then
+        log_info "[DRY RUN] Would collect licenses"
+        return 0
+    fi
+
+    # Ensure go-licenses is installed
+    if ! command -v go-licenses >/dev/null 2>&1; then
+        log_info "Installing go-licenses..."
+        go install github.com/google/go-licenses/v2@latest
+    fi
+
+    local licenses_dir="$PROJECT_DIR/internal/licenses"
+
+    # Clean and recreate third_party directory
+    rm -rf "$licenses_dir/third_party"
+    mkdir -p "$licenses_dir/third_party"
+
+    # Save all license files
+    log_info "Saving license files..."
+    go-licenses save ./cmd/muti-metroo \
+        --save_path="$licenses_dir/third_party" \
+        --force 2>/dev/null || true
+
+    # Generate CSV report
+    log_info "Generating licenses.csv..."
+    go-licenses report ./cmd/muti-metroo \
+        > "$licenses_dir/licenses.csv" 2>/dev/null || true
+
+    # Verify files exist
+    if [[ ! -f "$licenses_dir/licenses.csv" ]]; then
+        log_error "Failed to generate licenses.csv"
+        return 1
+    fi
+
+    local license_count
+    license_count=$(wc -l < "$licenses_dir/licenses.csv" | tr -d ' ')
+    log_success "Collected licenses for $license_count dependencies"
+}
+
 # Get current version from git tags
 get_current_version() {
     local version
@@ -752,6 +795,9 @@ main() {
     local prev_tag
     prev_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
     create_tag "$new_version"
+
+    # Collect licenses for embedding
+    collect_licenses
 
     # Build all platforms
     build_all "$new_version"

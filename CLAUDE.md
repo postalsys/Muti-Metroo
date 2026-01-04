@@ -101,6 +101,15 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo hash "password"              # From argument
 ./build/muti-metroo hash --cost 12               # Custom cost factor
 
+# Third-Party Licenses (auto-generated at release time)
+./build/muti-metroo licenses                     # Show license summary
+./build/muti-metroo licenses --format json       # JSON output
+./build/muti-metroo licenses --full              # Show full license texts
+
+# License collection (for releases)
+go-licenses save ./cmd/muti-metroo --save_path=internal/licenses/third_party --force
+go-licenses report ./cmd/muti-metroo > internal/licenses/licenses.csv
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -166,6 +175,7 @@ An agent can serve multiple roles simultaneously:
 | `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
 | `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
 | `integration`  | Integration tests for multi-agent mesh scenarios                                            |
+| `licenses`     | Embedded third-party license information with CSV parsing and license text retrieval        |
 | `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
 | `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys                   |
 | `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff                 |

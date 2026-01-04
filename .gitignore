@@ -44,3 +44,6 @@ config.yaml
 # Debug files
 __debug_bin*
 testbed/
+
+# Third-party license files (generated at release time)
+internal/licenses/third_party/
