@@ -13,17 +13,53 @@ This documentation is intended for authorized security professionals conducting 
 
 ## Operational Overview
 
-Muti Metroo provides a mesh networking capability with the following red team features:
+Muti Metroo is a covert mesh networking tool designed for red team operations. It creates encrypted tunnels across multiple nodes, enabling secure command and control (C2) infrastructure that resists detection and attribution.
+
+### What It Does
+
+Deploy agents across compromised hosts to create a self-organizing mesh network. Traffic flows through multiple hops with end-to-end encryption - intermediate nodes relay traffic but cannot inspect it. Operate through the mesh via SOCKS5 proxy or direct shell/file transfer commands.
+
+```
+                    ┌─────────────┐
+                    │   Target    │
+                    │   Network   │
+                    └──────┬──────┘
+                           │
+┌──────────┐    ┌──────────▼──────────┐    ┌──────────┐
+│ Operator │───▶│  Transit Agents     │───▶│   Exit   │───▶ Internal
+│ (SOCKS5) │    │  (relay only)       │    │  Agent   │     Resources
+└──────────┘    └─────────────────────┘    └──────────┘
+```
+
+### Use Cases
+
+**Segmented Network Access**
+Reach isolated network segments by chaining through multiple compromised hosts. Deploy an exit agent in the target segment, connect through transit agents, and access internal resources as if you were local.
+
+**Attribution Resistance**
+Route traffic through multiple hops across different networks and jurisdictions. Each hop only sees its neighbors - compromise of a single agent doesn't expose the full path or operator location.
+
+**Persistent Covert Channel**
+Maintain long-term access with agents installed as system services. Traffic blends with normal HTTPS (HTTP/2, WebSocket) or uses QUIC on standard ports. Configurable protocol identifiers can be disabled for stealth.
+
+**Topology Compartmentalization**
+Encrypt mesh topology with management keys so compromised field agents cannot reveal the network structure. Only operator nodes with the private key can view the full mesh.
+
+**Cross-Platform C2**
+Execute commands and transfer files across Linux, macOS, and Windows targets from a single interface. Full interactive shell support including Windows PowerShell via ConPTY.
+
+### Core Capabilities
 
 | Capability | Description |
 |------------|-------------|
-| Multi-hop routing | Traffic routed through multiple nodes for attribution resistance |
-| E2E encryption | X25519 + ChaCha20-Poly1305 per-stream (transit cannot decrypt) |
-| Remote shell | Interactive PTY and streaming command execution |
-| File transfer | Bidirectional file/directory exfiltration |
-| Topology protection | Management key encryption hides mesh structure |
-| Transport flexibility | QUIC, HTTP/2, WebSocket with proxy support |
-| Cross-platform | Linux, macOS, Windows (including ConPTY) |
+| **Multi-hop routing** | Automatic path discovery, traffic routed through multiple nodes |
+| **E2E encryption** | X25519 + ChaCha20-Poly1305 per-stream, transit nodes cannot decrypt |
+| **Remote shell** | Interactive PTY (bash, PowerShell, cmd) and streaming command execution |
+| **File transfer** | Upload/download files and directories with streaming and compression |
+| **Topology protection** | Management key encryption hides mesh structure from compromised agents |
+| **Transport options** | QUIC, HTTP/2, WebSocket - with HTTP proxy support for WebSocket |
+| **Cross-platform** | Linux, macOS, Windows with full PTY support (ConPTY on Windows) |
+| **Persistence** | System service installation (systemd, launchd, Windows Service) |
 
 ## Binary Characteristics
 
