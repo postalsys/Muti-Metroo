@@ -184,10 +184,13 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 	}
 
 	// Read from stdin and send to WebSocket
+	// Only cancel on stdin close in interactive mode (stdin EOF is normal for streaming)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer cancel()
+		if c.interactive {
+			defer cancel()
+		}
 		c.pumpStdin(sessionCtx)
 	}()
 
