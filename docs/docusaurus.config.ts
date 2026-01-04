@@ -124,6 +124,11 @@ const config: Config = {
           position: 'left',
         },
         {
+          to: '/terms-of-service',
+          label: 'Terms',
+          position: 'right',
+        },
+        {
           type: 'search',
           position: 'right',
         },
@@ -190,6 +195,10 @@ const config: Config = {
             {
               label: 'Troubleshooting',
               to: '/troubleshooting/common-issues',
+            },
+            {
+              label: 'Terms of Service',
+              to: '/terms-of-service',
             },
           ],
         },
