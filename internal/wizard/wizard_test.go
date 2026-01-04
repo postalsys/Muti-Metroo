@@ -15,8 +15,9 @@ func TestNew(t *testing.T) {
 	if w == nil {
 		t.Fatal("New() returned nil")
 	}
-	if w.theme == nil {
-		t.Error("New() returned wizard with nil theme")
+	// Wizard struct now only has existingCfg field which starts as nil
+	if w.existingCfg != nil {
+		t.Error("New() returned wizard with non-nil existingCfg")
 	}
 }
 

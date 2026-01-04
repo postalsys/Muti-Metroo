@@ -12,12 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/service"
+	"github.com/postalsys/muti-metroo/internal/wizard/prompt"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
@@ -33,15 +32,12 @@ type Result struct {
 
 // Wizard manages the interactive setup process.
 type Wizard struct {
-	theme      *huh.Theme
 	existingCfg *config.Config // Loaded from existing config file, if any
 }
 
 // New creates a new setup wizard.
 func New() *Wizard {
-	return &Wizard{
-		theme: huh.ThemeDracula(),
-	}
+	return &Wizard{}
 }
 
 // Run executes the interactive setup wizard.
@@ -150,7 +146,7 @@ func (w *Wizard) Run() (*Result, error) {
 	// Print summary
 	w.printSummary(agentID, keypair, configPath, cfg)
 
-	// Step 11: Service installation (on supported platforms)
+	// Step 12: Service installation (on supported platforms)
 	var serviceInstalled bool
 	if service.IsSupported() {
 		serviceInstalled, err = w.askServiceInstallation(configPath)
@@ -169,23 +165,7 @@ func (w *Wizard) Run() (*Result, error) {
 }
 
 func (w *Wizard) printBanner() {
-	banner := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("212")).
-		Render(`
-  __  __       _   _   __  __      _
- |  \/  |_   _| |_(_) |  \/  | ___| |_ _ __ ___   ___
- | |\/| | | | | __| | | |\/| |/ _ \ __| '__/ _ \ / _ \
- | |  | | |_| | |_| | | |  | |  __/ |_| | | (_) | (_) |
- |_|  |_|\__,_|\__|_| |_|  |_|\___|\__|_|  \___/ \___/
-`)
-
-	subtitle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Render("  Userspace Mesh Networking Agent - Setup Wizard\n")
-
-	fmt.Println(banner)
-	fmt.Println(subtitle)
+	prompt.PrintBanner("Muti Metroo Setup Wizard", "Userspace Mesh Networking Agent")
 }
 
 func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err error) {
@@ -193,31 +173,19 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 	configPath = "./config.yaml"
 	displayName = ""
 
+	prompt.PrintHeader("Basic Setup", "Configure the essential paths for your agent.")
+
 	// First, ask for config path so we can try to load existing config
-	pathForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Basic Setup").
-				Description("Configure the essential paths for your agent."),
-
-			huh.NewInput().
-				Title("Config File Path").
-				Description("Where to write the configuration file").
-				Placeholder("./config.yaml").
-				Value(&configPath).
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("config path is required")
-					}
-					if !strings.HasSuffix(s, ".yaml") && !strings.HasSuffix(s, ".yml") {
-						return fmt.Errorf("config file should have .yaml or .yml extension")
-					}
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
-
-	if err = pathForm.Run(); err != nil {
+	configPath, err = prompt.ReadLineValidated("Config File Path", "./config.yaml", func(s string) error {
+		if s == "" {
+			return fmt.Errorf("config path is required")
+		}
+		if !strings.HasSuffix(s, ".yaml") && !strings.HasSuffix(s, ".yml") {
+			return fmt.Errorf("config file should have .yaml or .yml extension")
+		}
+		return nil
+	})
+	if err != nil {
 		return
 	}
 
@@ -230,81 +198,71 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 	}
 
 	// Now ask for remaining settings with defaults from existing config
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Data Directory").
-				Description("Where to store agent identity and state").
-				Placeholder("./data").
-				Value(&dataDir).
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("data directory is required")
-					}
-					return nil
-				}),
+	dataDir, err = prompt.ReadLineValidated("Data Directory", dataDir, func(s string) error {
+		if s == "" {
+			return fmt.Errorf("data directory is required")
+		}
+		return nil
+	})
+	if err != nil {
+		return
+	}
 
-			huh.NewInput().
-				Title("Display Name").
-				Description("Human-readable name for this agent (Unicode allowed, e.g., \"Tallinn Gateway\")").
-				Placeholder("(press Enter to use Agent ID)").
-				Value(&displayName),
-		),
-	).WithTheme(w.theme)
-
-	err = form.Run()
+	displayName, err = prompt.ReadLine("Display Name (press Enter to use Agent ID)", displayName)
 	return
 }
 
 func (w *Wizard) askAgentRoles() ([]string, error) {
-	var roles []string
+	var selectedIndices []int
 
 	// Try to infer roles from existing config
 	if w.existingCfg != nil {
 		if w.existingCfg.SOCKS5.Enabled {
-			roles = append(roles, "ingress")
+			selectedIndices = append(selectedIndices, 0) // ingress
 		}
 		if w.existingCfg.Exit.Enabled {
-			roles = append(roles, "exit")
+			selectedIndices = append(selectedIndices, 2) // exit
 		}
 		// If has peers but not ingress/exit, assume transit
 		if len(w.existingCfg.Peers) > 0 && !w.existingCfg.SOCKS5.Enabled && !w.existingCfg.Exit.Enabled {
-			roles = append(roles, "transit")
+			selectedIndices = append(selectedIndices, 1) // transit
 		}
 		// Default to transit if nothing else
-		if len(roles) == 0 {
-			roles = append(roles, "transit")
+		if len(selectedIndices) == 0 {
+			selectedIndices = append(selectedIndices, 1) // transit
 		}
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Agent Role").
-				Description("Select the roles this agent will perform.\nYou can select multiple roles."),
+	prompt.PrintHeader("Agent Role", "Select the roles this agent will perform.\nYou can select multiple roles.")
 
-			huh.NewMultiSelect[string]().
-				Title("Select Roles").
-				Options(
-					huh.NewOption("Ingress (SOCKS5 proxy entry point)", "ingress"),
-					huh.NewOption("Transit (relay traffic between peers)", "transit"),
-					huh.NewOption("Exit (connect to external networks)", "exit"),
-				).
-				Value(&roles).
-				Validate(func(s []string) error {
-					if len(s) == 0 {
-						return fmt.Errorf("select at least one role")
-					}
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
-		return nil, err
+	options := []string{
+		"Ingress (SOCKS5 proxy entry point)",
+		"Transit (relay traffic between peers)",
+		"Exit (connect to external networks)",
 	}
 
-	return roles, nil
+	for {
+		selectedIndices, err := prompt.MultiSelect("Select Roles", options, selectedIndices)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(selectedIndices) == 0 {
+			fmt.Println("  Error: select at least one role")
+			continue
+		}
+
+		// Map indices to role strings
+		roleMap := []string{"ingress", "transit", "exit"}
+		var roles []string
+		for _, idx := range selectedIndices {
+			if idx >= 0 && idx < len(roleMap) {
+				roles = append(roles, roleMap[idx])
+			}
+		}
+
+		return roles, nil
+	}
 }
 
 func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err error) {
@@ -322,63 +280,55 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 		}
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Network Configuration").
-				Description("Configure how this agent listens for connections."),
+	prompt.PrintHeader("Network Configuration", "Configure how this agent listens for connections.")
 
-			huh.NewSelect[string]().
-				Title("Transport Protocol").
-				Description("QUIC is recommended for best performance").
-				Options(
-					huh.NewOption("QUIC (UDP, fastest)", "quic"),
-					huh.NewOption("HTTP/2 (TCP, firewall-friendly)", "h2"),
-					huh.NewOption("WebSocket (TCP, proxy-friendly)", "ws"),
-				).
-				Value(&transport),
+	// Transport selection
+	transportOptions := []string{
+		"QUIC (UDP, fastest)",
+		"HTTP/2 (TCP, firewall-friendly)",
+		"WebSocket (TCP, proxy-friendly)",
+	}
+	transportMap := []string{"quic", "h2", "ws"}
 
-			huh.NewInput().
-				Title("Listen Address").
-				Description("Address and port to listen on").
-				Placeholder("0.0.0.0:4433").
-				Value(&listenAddr).
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("listen address is required")
-					}
-					_, _, err := net.SplitHostPort(s)
-					if err != nil {
-						return fmt.Errorf("invalid address format (use host:port)")
-					}
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
+	defaultIdx := 0
+	for i, t := range transportMap {
+		if t == transport {
+			defaultIdx = i
+			break
+		}
+	}
 
-	if err = form.Run(); err != nil {
+	fmt.Println("Transport Protocol (QUIC is recommended for best performance):")
+	idx, err := prompt.Select("Select", transportOptions, defaultIdx)
+	if err != nil {
+		return
+	}
+	transport = transportMap[idx]
+
+	// Listen address
+	listenAddr, err = prompt.ReadLineValidated("Listen Address", listenAddr, func(s string) error {
+		if s == "" {
+			return fmt.Errorf("listen address is required")
+		}
+		_, _, err := net.SplitHostPort(s)
+		if err != nil {
+			return fmt.Errorf("invalid address format (use host:port)")
+		}
+		return nil
+	})
+	if err != nil {
 		return
 	}
 
 	// Ask for path if using HTTP-based transport
 	if transport == "h2" || transport == "ws" {
-		pathForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("HTTP Path").
-					Description("URL path for the HTTP endpoint").
-					Placeholder("/mesh").
-					Value(&path).
-					Validate(func(s string) error {
-						if s == "" || !strings.HasPrefix(s, "/") {
-							return fmt.Errorf("path must start with /")
-						}
-						return nil
-					}),
-			),
-		).WithTheme(w.theme)
-
-		if err = pathForm.Run(); err != nil {
+		path, err = prompt.ReadLineValidated("HTTP Path", path, func(s string) error {
+			if s == "" || !strings.HasPrefix(s, "/") {
+				return fmt.Errorf("path must start with /")
+			}
+			return nil
+		})
+		if err != nil {
 			return
 		}
 	}
@@ -388,38 +338,28 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 
 func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.GlobalTLSConfig, err error) {
 	certsDir = filepath.Join(dataDir, "certs")
-	var tlsChoice string
-	var enableMTLS bool = true // Default to mTLS enabled
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("TLS Configuration").
-				Description("TLS is required for secure communication.\nYou can generate new certificates or use existing ones."),
+	prompt.PrintHeader("TLS Configuration", "TLS is required for secure communication.\nYou can generate new certificates or use existing ones.")
 
-			huh.NewSelect[string]().
-				Title("Certificate Setup").
-				Options(
-					huh.NewOption("Generate new self-signed certificates (Recommended for testing)", "generate"),
-					huh.NewOption("Paste certificate and key content", "paste"),
-					huh.NewOption("Use existing certificate files", "existing"),
-				).
-				Value(&tlsChoice),
+	// Certificate setup choice
+	tlsOptions := []string{
+		"Generate new self-signed certificates (Recommended for testing)",
+		"Paste certificate and key content",
+		"Use existing certificate files",
+	}
 
-			huh.NewInput().
-				Title("Certificates Directory").
-				Description("Where to store/find certificate files").
-				Placeholder(certsDir).
-				Value(&certsDir),
+	idx, err := prompt.Select("Certificate Setup", tlsOptions, 0)
+	if err != nil {
+		return
+	}
 
-			huh.NewConfirm().
-				Title("Enable mTLS (mutual TLS)?").
-				Description("Require client certificates for peer authentication").
-				Value(&enableMTLS),
-		),
-	).WithTheme(w.theme)
+	certsDir, err = prompt.ReadLine("Certificates Directory", certsDir)
+	if err != nil {
+		return
+	}
 
-	if err = form.Run(); err != nil {
+	enableMTLS, err := prompt.Confirm("Enable mTLS (mutual TLS)?", true)
+	if err != nil {
 		return
 	}
 
@@ -428,12 +368,12 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 		return certsDir, tlsConfig, fmt.Errorf("failed to create certs directory: %w", err)
 	}
 
-	switch tlsChoice {
-	case "generate":
+	switch idx {
+	case 0: // generate
 		tlsConfig, err = w.generateCertificates(certsDir)
-	case "paste":
+	case 1: // paste
 		tlsConfig, err = w.pasteCertificates(certsDir)
-	case "existing":
+	case 2: // existing
 		tlsConfig, err = w.useExistingCertificates(certsDir)
 	}
 
@@ -444,41 +384,30 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 }
 
 func (w *Wizard) generateCertificates(certsDir string) (config.GlobalTLSConfig, error) {
-	var commonName string = "muti-metroo"
-	var validDays int = 365
+	prompt.PrintHeader("Generate Certificates", "A CA and server certificate will be generated.")
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Generate Certificates").
-				Description("A CA and server certificate will be generated."),
-
-			huh.NewInput().
-				Title("Common Name").
-				Description("Name for the certificate (e.g., hostname)").
-				Placeholder("muti-metroo").
-				Value(&commonName),
-
-			huh.NewInput().
-				Title("Validity (days)").
-				Description("How long the certificate should be valid").
-				Placeholder("365").
-				Validate(func(s string) error {
-					if s == "" {
-						return nil
-					}
-					d, err := strconv.Atoi(s)
-					if err != nil || d < 1 {
-						return fmt.Errorf("must be a positive number")
-					}
-					validDays = d
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	commonName, err := prompt.ReadLine("Common Name", "muti-metroo")
+	if err != nil {
 		return config.GlobalTLSConfig{}, err
+	}
+
+	validDaysStr, err := prompt.ReadLineValidated("Validity (days)", "365", func(s string) error {
+		if s == "" {
+			return nil
+		}
+		d, err := strconv.Atoi(s)
+		if err != nil || d < 1 {
+			return fmt.Errorf("must be a positive number")
+		}
+		return nil
+	})
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	validDays := 365
+	if d, err := strconv.Atoi(validDaysStr); err == nil && d > 0 {
+		validDays = d
 	}
 
 	// Generate CA
@@ -525,49 +454,29 @@ func (w *Wizard) generateCertificates(certsDir string) (config.GlobalTLSConfig, 
 }
 
 func (w *Wizard) pasteCertificates(certsDir string) (config.GlobalTLSConfig, error) {
-	var certContent, keyContent, caContent string
+	prompt.PrintHeader("Paste Certificate", "Paste your PEM-encoded certificate content.\nInclude the BEGIN/END markers.")
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Paste Certificate").
-				Description("Paste your PEM-encoded certificate content.\nInclude the BEGIN/END markers."),
+	fmt.Println("Certificate (PEM) - paste server certificate:")
+	certContent, err := prompt.ReadMultiLine("Certificate (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+	if !strings.Contains(certContent, "-----BEGIN CERTIFICATE-----") {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid certificate format")
+	}
 
-			huh.NewText().
-				Title("Certificate (PEM)").
-				Description("Paste server certificate").
-				CharLimit(10000).
-				Value(&certContent).
-				Validate(func(s string) error {
-					if !strings.Contains(s, "-----BEGIN CERTIFICATE-----") {
-						return fmt.Errorf("invalid certificate format")
-					}
-					return nil
-				}),
-		),
-		huh.NewGroup(
-			huh.NewText().
-				Title("Private Key (PEM)").
-				Description("Paste private key").
-				CharLimit(10000).
-				Value(&keyContent).
-				Validate(func(s string) error {
-					if !strings.Contains(s, "-----BEGIN") || !strings.Contains(s, "PRIVATE KEY-----") {
-						return fmt.Errorf("invalid private key format")
-					}
-					return nil
-				}),
-		),
-		huh.NewGroup(
-			huh.NewText().
-				Title("CA Certificate (PEM) - Optional").
-				Description("Paste CA certificate for peer verification and mTLS").
-				CharLimit(10000).
-				Value(&caContent),
-		),
-	).WithTheme(w.theme)
+	fmt.Println("Private Key (PEM) - paste private key:")
+	keyContent, err := prompt.ReadMultiLine("Private Key (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+	if !strings.Contains(keyContent, "-----BEGIN") || !strings.Contains(keyContent, "PRIVATE KEY-----") {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid private key format")
+	}
 
-	if err := form.Run(); err != nil {
+	fmt.Println("CA Certificate (PEM) - optional, for peer verification and mTLS:")
+	caContent, err := prompt.ReadMultiLine("CA Certificate (PEM) - Optional")
+	if err != nil {
 		return config.GlobalTLSConfig{}, err
 	}
 
@@ -602,47 +511,30 @@ func (w *Wizard) pasteCertificates(certsDir string) (config.GlobalTLSConfig, err
 }
 
 func (w *Wizard) useExistingCertificates(certsDir string) (config.GlobalTLSConfig, error) {
-	certPath := filepath.Join(certsDir, "server.crt")
-	keyPath := filepath.Join(certsDir, "server.key")
-	caPath := filepath.Join(certsDir, "ca.crt")
+	prompt.PrintHeader("Existing Certificates", "Specify paths to your existing certificate files.")
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Existing Certificates").
-				Description("Specify paths to your existing certificate files."),
+	certPath, err := prompt.ReadLineValidated("Certificate File", filepath.Join(certsDir, "server.crt"), func(s string) error {
+		if _, err := os.Stat(s); os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", s)
+		}
+		return nil
+	})
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
 
-			huh.NewInput().
-				Title("Certificate File").
-				Placeholder(certPath).
-				Value(&certPath).
-				Validate(func(s string) error {
-					if _, err := os.Stat(s); os.IsNotExist(err) {
-						return fmt.Errorf("file not found: %s", s)
-					}
-					return nil
-				}),
+	keyPath, err := prompt.ReadLineValidated("Private Key File", filepath.Join(certsDir, "server.key"), func(s string) error {
+		if _, err := os.Stat(s); os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", s)
+		}
+		return nil
+	})
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
 
-			huh.NewInput().
-				Title("Private Key File").
-				Placeholder(keyPath).
-				Value(&keyPath).
-				Validate(func(s string) error {
-					if _, err := os.Stat(s); os.IsNotExist(err) {
-						return fmt.Errorf("file not found: %s", s)
-					}
-					return nil
-				}),
-
-			huh.NewInput().
-				Title("CA Certificate File (optional)").
-				Description("For peer verification and mTLS").
-				Placeholder(caPath).
-				Value(&caPath),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	caPath, err := prompt.ReadLine("CA Certificate File (optional)", filepath.Join(certsDir, "ca.crt"))
+	if err != nil {
 		return config.GlobalTLSConfig{}, err
 	}
 
@@ -661,22 +553,10 @@ func (w *Wizard) useExistingCertificates(certsDir string) (config.GlobalTLSConfi
 }
 
 func (w *Wizard) askPeerConnections(transport string) ([]config.PeerConfig, error) {
-	var addPeers bool
+	prompt.PrintHeader("Peer Connections", "Configure connections to other mesh agents.")
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Peer Connections").
-				Description("Configure connections to other mesh agents."),
-
-			huh.NewConfirm().
-				Title("Add peer connections?").
-				Description("Connect to other agents in the mesh").
-				Value(&addPeers),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	addPeers, err := prompt.Confirm("Add peer connections?", false)
+	if err != nil {
 		return nil, err
 	}
 
@@ -694,15 +574,8 @@ func (w *Wizard) askPeerConnections(transport string) ([]config.PeerConfig, erro
 		}
 		peers = append(peers, peer)
 
-		confirmForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title("Add another peer?").
-					Value(&addMore),
-			),
-		).WithTheme(w.theme)
-
-		if err := confirmForm.Run(); err != nil {
+		addMore, err = prompt.Confirm("Add another peer?", false)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -714,78 +587,62 @@ func (w *Wizard) askSinglePeer(defaultTransport string, peerNum int) (config.Pee
 	peer := config.PeerConfig{
 		Transport: defaultTransport,
 	}
-	var peerAddr, peerPath, peerID string
-	var useInsecure bool
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title(fmt.Sprintf("Peer #%d", peerNum)),
+	prompt.PrintHeader(fmt.Sprintf("Peer #%d", peerNum), "")
 
-			huh.NewInput().
-				Title("Peer Address").
-				Description("Address of the peer (host:port)").
-				Placeholder("peer.example.com:4433").
-				Value(&peerAddr).
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("address is required")
-					}
-					_, _, err := net.SplitHostPort(s)
-					if err != nil {
-						return fmt.Errorf("invalid address format")
-					}
-					return nil
-				}),
-
-			huh.NewInput().
-				Title("Expected Agent ID").
-				Description("The agent ID you expect to connect to (hex string)").
-				Placeholder("auto").
-				Value(&peerID),
-
-			huh.NewSelect[string]().
-				Title("Transport").
-				Options(
-					huh.NewOption("QUIC", "quic"),
-					huh.NewOption("HTTP/2", "h2"),
-					huh.NewOption("WebSocket", "ws"),
-				).
-				Value(&peer.Transport),
-
-			huh.NewConfirm().
-				Title("Skip TLS verification?").
-				Description("Only use for testing with self-signed certs").
-				Value(&useInsecure),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	peerAddr, err := prompt.ReadLineValidated("Peer Address (host:port)", "", func(s string) error {
+		if s == "" {
+			return fmt.Errorf("address is required")
+		}
+		_, _, err := net.SplitHostPort(s)
+		if err != nil {
+			return fmt.Errorf("invalid address format")
+		}
+		return nil
+	})
+	if err != nil {
 		return peer, err
 	}
-
 	peer.Address = peerAddr
+
+	peerID, err := prompt.ReadLine("Expected Agent ID (hex string, or 'auto')", "auto")
+	if err != nil {
+		return peer, err
+	}
 	if peerID == "" || peerID == "auto" {
 		peer.ID = "auto"
 	} else {
 		peer.ID = peerID
 	}
 
+	// Transport selection
+	transportOptions := []string{"QUIC", "HTTP/2", "WebSocket"}
+	transportMap := []string{"quic", "h2", "ws"}
+
+	defaultIdx := 0
+	for i, t := range transportMap {
+		if t == defaultTransport {
+			defaultIdx = i
+			break
+		}
+	}
+
+	idx, err := prompt.Select("Transport", transportOptions, defaultIdx)
+	if err != nil {
+		return peer, err
+	}
+	peer.Transport = transportMap[idx]
+
+	useInsecure, err := prompt.Confirm("Skip TLS verification? (only for testing with self-signed certs)", false)
+	if err != nil {
+		return peer, err
+	}
 	peer.TLS.InsecureSkipVerify = useInsecure
 
 	// Ask for path if HTTP transport
 	if peer.Transport == "h2" || peer.Transport == "ws" {
-		peerPath = "/mesh"
-		pathForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("HTTP Path").
-					Placeholder("/mesh").
-					Value(&peerPath),
-			),
-		).WithTheme(w.theme)
-
-		if err := pathForm.Run(); err != nil {
+		peerPath, err := prompt.ReadLine("HTTP Path", "/mesh")
+		if err != nil {
 			return peer, err
 		}
 		peer.Path = peerPath
@@ -809,61 +666,39 @@ func (w *Wizard) askSOCKS5Config() (config.SOCKS5Config, error) {
 		enableAuth = w.existingCfg.SOCKS5.Auth.Enabled
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("SOCKS5 Proxy").
-				Description("Configure the SOCKS5 ingress proxy."),
+	prompt.PrintHeader("SOCKS5 Proxy", "Configure the SOCKS5 ingress proxy.")
 
-			huh.NewInput().
-				Title("Listen Address").
-				Description("Address for SOCKS5 proxy").
-				Placeholder("127.0.0.1:1080").
-				Value(&cfg.Address).
-				Validate(func(s string) error {
-					_, _, err := net.SplitHostPort(s)
-					return err
-				}),
+	var err error
+	cfg.Address, err = prompt.ReadLineValidated("Listen Address", cfg.Address, func(s string) error {
+		_, _, err := net.SplitHostPort(s)
+		return err
+	})
+	if err != nil {
+		return cfg, err
+	}
 
-			huh.NewConfirm().
-				Title("Enable authentication?").
-				Description("Require username/password for SOCKS5").
-				Value(&enableAuth),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	enableAuth, err = prompt.Confirm("Enable authentication?", enableAuth)
+	if err != nil {
 		return cfg, err
 	}
 
 	if enableAuth {
-		var username, password string
-		authForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("Username").
-					Value(&username).
-					Validate(func(s string) error {
-						if s == "" {
-							return fmt.Errorf("username required")
-						}
-						return nil
-					}),
-				huh.NewInput().
-					Title("Password").
-					EchoMode(huh.EchoModePassword).
-					Value(&password).
-					Validate(func(s string) error {
-						if s == "" {
-							return fmt.Errorf("password required")
-						}
-						return nil
-					}),
-			),
-		).WithTheme(w.theme)
-
-		if err := authForm.Run(); err != nil {
+		username, err := prompt.ReadLineValidated("Username", "", func(s string) error {
+			if s == "" {
+				return fmt.Errorf("username required")
+			}
+			return nil
+		})
+		if err != nil {
 			return cfg, err
+		}
+
+		password, err := prompt.ReadPassword("Password")
+		if err != nil {
+			return cfg, err
+		}
+		if password == "" {
+			return cfg, fmt.Errorf("password required")
 		}
 
 		cfg.Auth.Enabled = true
@@ -884,7 +719,7 @@ func (w *Wizard) askExitConfig() (config.ExitConfig, error) {
 			Timeout: 5 * time.Second,
 		},
 	}
-	var routesStr string
+	routesStr := "0.0.0.0/0\n::/0"
 
 	// Use existing config defaults if available
 	if w.existingCfg != nil && len(w.existingCfg.Exit.Routes) > 0 {
@@ -892,47 +727,39 @@ func (w *Wizard) askExitConfig() (config.ExitConfig, error) {
 		cfg.DNS = w.existingCfg.Exit.DNS
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Exit Node Configuration").
-				Description("Configure this agent as an exit node.\nIt will allow traffic to specified networks."),
+	prompt.PrintHeader("Exit Node Configuration", "Configure this agent as an exit node.\nIt will allow traffic to specified networks.")
 
-			huh.NewText().
-				Title("Allowed Routes (CIDR)").
-				Description("One CIDR per line (e.g., 0.0.0.0/0 for all traffic)").
-				Placeholder("0.0.0.0/0\n::/0").
-				Value(&routesStr).
-				Validate(func(s string) error {
-					if s == "" {
-						return fmt.Errorf("at least one route is required")
-					}
-					for _, line := range strings.Split(s, "\n") {
-						line = strings.TrimSpace(line)
-						if line == "" {
-							continue
-						}
-						if _, _, err := net.ParseCIDR(line); err != nil {
-							return fmt.Errorf("invalid CIDR: %s", line)
-						}
-					}
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
+	fmt.Println("Allowed Routes (CIDR) - one CIDR per line (e.g., 0.0.0.0/0 for all traffic):")
+	fmt.Println("Enter routes, one per line. Enter empty line to finish.")
 
-	if err := form.Run(); err != nil {
-		return cfg, err
+	var routes []string
+	for {
+		line, err := prompt.ReadLine("Route (or empty to finish)", "")
+		if err != nil {
+			return cfg, err
+		}
+		if line == "" {
+			break
+		}
+		line = strings.TrimSpace(line)
+		if _, _, err := net.ParseCIDR(line); err != nil {
+			fmt.Printf("  Invalid CIDR: %s\n", line)
+			continue
+		}
+		routes = append(routes, line)
 	}
 
-	// Parse routes
-	for _, line := range strings.Split(routesStr, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			cfg.Routes = append(cfg.Routes, line)
+	// Use defaults if no routes entered
+	if len(routes) == 0 {
+		for _, line := range strings.Split(routesStr, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				routes = append(routes, line)
+			}
 		}
 	}
 
+	cfg.Routes = routes
 	return cfg, nil
 }
 
@@ -946,30 +773,32 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err 
 		logLevel = w.existingCfg.Agent.LogLevel
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Advanced Options").
-				Description("Configure monitoring and logging."),
+	prompt.PrintHeader("Advanced Options", "Configure monitoring and logging.")
 
-			huh.NewSelect[string]().
-				Title("Log Level").
-				Options(
-					huh.NewOption("Debug (verbose)", "debug"),
-					huh.NewOption("Info (recommended)", "info"),
-					huh.NewOption("Warning", "warn"),
-					huh.NewOption("Error (quiet)", "error"),
-				).
-				Value(&logLevel),
+	// Log level selection
+	logLevelOptions := []string{
+		"Debug (verbose)",
+		"Info (recommended)",
+		"Warning",
+		"Error (quiet)",
+	}
+	logLevelMap := []string{"debug", "info", "warn", "error"}
 
-			huh.NewConfirm().
-				Title("Enable health check endpoint?").
-				Description("HTTP endpoint for monitoring (/health, /healthz) and CLI commands").
-				Value(&healthEnabled),
-		),
-	).WithTheme(w.theme)
+	defaultIdx := 1 // info
+	for i, l := range logLevelMap {
+		if l == logLevel {
+			defaultIdx = i
+			break
+		}
+	}
 
-	err = form.Run()
+	idx, err := prompt.Select("Log Level", logLevelOptions, defaultIdx)
+	if err != nil {
+		return
+	}
+	logLevel = logLevelMap[idx]
+
+	healthEnabled, err = prompt.Confirm("Enable health check endpoint? (HTTP endpoint for monitoring and CLI)", healthEnabled)
 	return
 }
 
@@ -979,29 +808,17 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 		Whitelist:   []string{},
 		MaxSessions: 0, // 0 = unlimited
 	}
-	var enableShell bool
 
 	// Use existing config defaults if available
 	if w.existingCfg != nil {
-		enableShell = w.existingCfg.Shell.Enabled
 		cfg.Timeout = w.existingCfg.Shell.Timeout
 		cfg.MaxSessions = w.existingCfg.Shell.MaxSessions
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Remote Shell Access").
-				Description("Shell allows executing commands remotely on this agent.\nCommands must be whitelisted for security."),
+	prompt.PrintHeader("Remote Shell Access", "Shell allows executing commands remotely on this agent.\nCommands must be whitelisted for security.")
 
-			huh.NewConfirm().
-				Title("Enable Remote Shell?").
-				Description("Allow remote command execution (requires authentication)").
-				Value(&enableShell),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	enableShell, err := prompt.Confirm("Enable Remote Shell? (requires authentication)", false)
+	if err != nil {
 		return cfg, err
 	}
 
@@ -1012,39 +829,29 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 	cfg.Enabled = true
 
 	// Ask for password
-	var password, confirmPassword string
-	authForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Shell Authentication").
-				Description("Set a password to protect shell access.\nThis password will be hashed and stored securely."),
+	fmt.Println("\nSet a password to protect shell access.")
+	fmt.Println("This password will be hashed and stored securely.")
 
-			huh.NewInput().
-				Title("Shell Password").
-				EchoMode(huh.EchoModePassword).
-				Value(&password).
-				Validate(func(s string) error {
-					if len(s) < 8 {
-						return fmt.Errorf("password must be at least 8 characters")
-					}
-					return nil
-				}),
+	var password string
+	for {
+		password, err = prompt.ReadPassword("Shell Password (min 8 chars)")
+		if err != nil {
+			return cfg, err
+		}
+		if len(password) < 8 {
+			fmt.Println("  Error: password must be at least 8 characters")
+			continue
+		}
 
-			huh.NewInput().
-				Title("Confirm Password").
-				EchoMode(huh.EchoModePassword).
-				Value(&confirmPassword).
-				Validate(func(s string) error {
-					if s != password {
-						return fmt.Errorf("passwords do not match")
-					}
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
-
-	if err := authForm.Run(); err != nil {
-		return cfg, err
+		confirmPassword, err := prompt.ReadPassword("Confirm Password")
+		if err != nil {
+			return cfg, err
+		}
+		if password != confirmPassword {
+			fmt.Println("  Error: passwords do not match")
+			continue
+		}
+		break
 	}
 
 	// Hash the password
@@ -1055,63 +862,45 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 	cfg.PasswordHash = string(hash)
 
 	// Ask for whitelist
-	var whitelistChoice string
-	whitelistForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Command Whitelist").
-				Description("Only whitelisted commands can be executed.\nFor security, the default is no commands allowed."),
+	prompt.PrintHeader("Command Whitelist", "Only whitelisted commands can be executed.\nFor security, the default is no commands allowed.")
 
-			huh.NewSelect[string]().
-				Title("Whitelist Mode").
-				Options(
-					huh.NewOption("No commands (safest)", "none"),
-					huh.NewOption("Allow all commands (testing only!)", "all"),
-					huh.NewOption("Custom whitelist", "custom"),
-				).
-				Value(&whitelistChoice),
-		),
-	).WithTheme(w.theme)
+	whitelistOptions := []string{
+		"No commands (safest)",
+		"Allow all commands (testing only!)",
+		"Custom whitelist",
+	}
 
-	if err := whitelistForm.Run(); err != nil {
+	idx, err := prompt.Select("Whitelist Mode", whitelistOptions, 0)
+	if err != nil {
 		return cfg, err
 	}
 
-	switch whitelistChoice {
-	case "none":
+	switch idx {
+	case 0: // none
 		cfg.Whitelist = []string{}
-	case "all":
+	case 1: // all
 		cfg.Whitelist = []string{"*"}
 		fmt.Print("\n[WARNING] All commands are allowed! Use only for testing.\n\n")
-	case "custom":
-		var commandsStr string
-		customForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewText().
-					Title("Allowed Commands").
-					Description("Enter one command per line (e.g., whoami, ip, hostname, bash)").
-					Placeholder("whoami\nhostname\nbash").
-					Value(&commandsStr).
-					Validate(func(s string) error {
-						if s == "" {
-							return fmt.Errorf("at least one command is required")
-						}
-						return nil
-					}),
-			),
-		).WithTheme(w.theme)
+	case 2: // custom
+		fmt.Println("\nEnter allowed commands, one per line (e.g., whoami, ip, hostname, bash).")
+		fmt.Println("Enter empty line to finish.")
 
-		if err := customForm.Run(); err != nil {
-			return cfg, err
-		}
-
-		// Parse commands
-		for _, line := range strings.Split(commandsStr, "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				cfg.Whitelist = append(cfg.Whitelist, line)
+		var commands []string
+		for {
+			cmd, err := prompt.ReadLine("Command (or empty to finish)", "")
+			if err != nil {
+				return cfg, err
 			}
+			if cmd == "" {
+				break
+			}
+			commands = append(commands, strings.TrimSpace(cmd))
 		}
+
+		if len(commands) == 0 {
+			return cfg, fmt.Errorf("at least one command is required for custom whitelist")
+		}
+		cfg.Whitelist = commands
 	}
 
 	return cfg, nil
@@ -1123,31 +912,19 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 		MaxFileSize:  500 * 1024 * 1024, // 500MB
 		AllowedPaths: []string{},
 	}
-	var enableFileTransfer bool
 
 	// Use existing config defaults if available
 	if w.existingCfg != nil {
-		enableFileTransfer = w.existingCfg.FileTransfer.Enabled
 		if w.existingCfg.FileTransfer.MaxFileSize > 0 {
 			cfg.MaxFileSize = w.existingCfg.FileTransfer.MaxFileSize
 		}
 		cfg.AllowedPaths = w.existingCfg.FileTransfer.AllowedPaths
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("File Transfer").
-				Description("File transfer allows uploading and downloading files to/from this agent.\nFiles are transferred via the control channel."),
+	prompt.PrintHeader("File Transfer", "File transfer allows uploading and downloading files to/from this agent.\nFiles are transferred via the control channel.")
 
-			huh.NewConfirm().
-				Title("Enable file transfer?").
-				Description("Allow remote file upload/download (requires authentication)").
-				Value(&enableFileTransfer),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	enableFileTransfer, err := prompt.Confirm("Enable file transfer? (requires authentication)", false)
+	if err != nil {
 		return cfg, err
 	}
 
@@ -1158,39 +935,29 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 	cfg.Enabled = true
 
 	// Ask for password
-	var password, confirmPassword string
-	authForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("File Transfer Authentication").
-				Description("Set a password to protect file transfer access.\nThis password will be hashed and stored securely."),
+	fmt.Println("\nSet a password to protect file transfer access.")
+	fmt.Println("This password will be hashed and stored securely.")
 
-			huh.NewInput().
-				Title("File Transfer Password").
-				EchoMode(huh.EchoModePassword).
-				Value(&password).
-				Validate(func(s string) error {
-					if len(s) < 8 {
-						return fmt.Errorf("password must be at least 8 characters")
-					}
-					return nil
-				}),
+	var password string
+	for {
+		password, err = prompt.ReadPassword("File Transfer Password (min 8 chars)")
+		if err != nil {
+			return cfg, err
+		}
+		if len(password) < 8 {
+			fmt.Println("  Error: password must be at least 8 characters")
+			continue
+		}
 
-			huh.NewInput().
-				Title("Confirm Password").
-				EchoMode(huh.EchoModePassword).
-				Value(&confirmPassword).
-				Validate(func(s string) error {
-					if s != password {
-						return fmt.Errorf("passwords do not match")
-					}
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
-
-	if err := authForm.Run(); err != nil {
-		return cfg, err
+		confirmPassword, err := prompt.ReadPassword("Confirm Password")
+		if err != nil {
+			return cfg, err
+		}
+		if password != confirmPassword {
+			fmt.Println("  Error: passwords do not match")
+			continue
+		}
+		break
 	}
 
 	// Hash the password using bcrypt
@@ -1201,28 +968,17 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 	cfg.PasswordHash = string(hash)
 
 	// Ask for max file size
-	var maxSizeMB string = "500"
-	sizeForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Max File Size (MB)").
-				Description("Maximum allowed file size in megabytes").
-				Placeholder("500").
-				Value(&maxSizeMB).
-				Validate(func(s string) error {
-					if s == "" {
-						return nil
-					}
-					size, err := strconv.Atoi(s)
-					if err != nil || size < 1 {
-						return fmt.Errorf("must be a positive number")
-					}
-					return nil
-				}),
-		),
-	).WithTheme(w.theme)
-
-	if err := sizeForm.Run(); err != nil {
+	maxSizeMB, err := prompt.ReadLineValidated("Max File Size (MB)", "500", func(s string) error {
+		if s == "" {
+			return nil
+		}
+		size, err := strconv.Atoi(s)
+		if err != nil || size < 1 {
+			return fmt.Errorf("must be a positive number")
+		}
+		return nil
+	})
+	if err != nil {
 		return cfg, err
 	}
 
@@ -1231,56 +987,36 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 	}
 
 	// Ask for path restrictions
-	var pathRestriction string
-	pathForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Path Restrictions").
-				Description("You can restrict file operations to specific directories.\nLeave empty to allow all absolute paths."),
+	pathOptions := []string{
+		"Allow all paths (no restrictions)",
+		"Restrict to specific directories",
+	}
 
-			huh.NewSelect[string]().
-				Title("Path Access").
-				Options(
-					huh.NewOption("Allow all paths (no restrictions)", "all"),
-					huh.NewOption("Restrict to specific directories", "restricted"),
-				).
-				Value(&pathRestriction),
-		),
-	).WithTheme(w.theme)
-
-	if err := pathForm.Run(); err != nil {
+	idx, err := prompt.Select("Path Access", pathOptions, 0)
+	if err != nil {
 		return cfg, err
 	}
 
-	if pathRestriction == "restricted" {
-		var pathsStr string
-		customPathForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewText().
-					Title("Allowed Paths").
-					Description("Enter one path prefix per line (e.g., /tmp, /home/user/uploads)").
-					Placeholder("/tmp\n/var/uploads").
-					Value(&pathsStr).
-					Validate(func(s string) error {
-						if s == "" {
-							return fmt.Errorf("at least one path is required")
-						}
-						return nil
-					}),
-			),
-		).WithTheme(w.theme)
+	if idx == 1 { // restricted
+		fmt.Println("\nEnter allowed path prefixes, one per line (e.g., /tmp, /home/user/uploads).")
+		fmt.Println("Enter empty line to finish.")
 
-		if err := customPathForm.Run(); err != nil {
-			return cfg, err
-		}
-
-		// Parse paths
-		for _, line := range strings.Split(pathsStr, "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				cfg.AllowedPaths = append(cfg.AllowedPaths, line)
+		var paths []string
+		for {
+			path, err := prompt.ReadLine("Path (or empty to finish)", "")
+			if err != nil {
+				return cfg, err
 			}
+			if path == "" {
+				break
+			}
+			paths = append(paths, strings.TrimSpace(path))
 		}
+
+		if len(paths) == 0 {
+			return cfg, fmt.Errorf("at least one path is required for restricted mode")
+		}
+		cfg.AllowedPaths = paths
 	}
 
 	return cfg, nil
@@ -1288,26 +1024,17 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 
 func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 	cfg := config.ManagementConfig{}
-	var choice string
 
 	// Use existing config defaults if available
 	if w.existingCfg != nil && w.existingCfg.Management.PublicKey != "" {
 		// If there's an existing management key, offer to keep it
-		var keepExisting bool
-		keepForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewNote().
-					Title("Management Key Encryption (OPSEC Protection)").
-					Description("Existing management key configuration found."),
+		prompt.PrintHeader("Management Key Encryption (OPSEC Protection)", "Existing management key configuration found.")
 
-				huh.NewConfirm().
-					Title("Keep existing management key?").
-					Description("Current public key: " + w.existingCfg.Management.PublicKey[:16] + "...").
-					Value(&keepExisting),
-			),
-		).WithTheme(w.theme)
-
-		if err := keepForm.Run(); err != nil {
+		keepExisting, err := prompt.Confirm(
+			fmt.Sprintf("Keep existing management key? (current: %s...)", w.existingCfg.Management.PublicKey[:16]),
+			true,
+		)
+		if err != nil {
 			return cfg, err
 		}
 
@@ -1316,32 +1043,25 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 		}
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Management Key Encryption (OPSEC Protection)").
-				Description("Encrypt mesh topology data so only operators can view it.\nCompromised agents will only see encrypted blobs.\n\nThis is recommended for red team operations."),
+	prompt.PrintHeader("Management Key Encryption (OPSEC Protection)",
+		"Encrypt mesh topology data so only operators can view it.\nCompromised agents will only see encrypted blobs.\n\nThis is recommended for red team operations.")
 
-			huh.NewSelect[string]().
-				Title("Management Key Setup").
-				Options(
-					huh.NewOption("Skip (not recommended for red team ops)", "skip"),
-					huh.NewOption("Generate new management keypair", "generate"),
-					huh.NewOption("Enter existing public key", "existing"),
-				).
-				Value(&choice),
-		),
-	).WithTheme(w.theme)
+	keyOptions := []string{
+		"Skip (not recommended for red team ops)",
+		"Generate new management keypair",
+		"Enter existing public key",
+	}
 
-	if err := form.Run(); err != nil {
+	idx, err := prompt.Select("Management Key Setup", keyOptions, 0)
+	if err != nil {
 		return cfg, err
 	}
 
-	switch choice {
-	case "skip":
+	switch idx {
+	case 0: // skip
 		return cfg, nil
 
-	case "generate":
+	case 1: // generate
 		keypair, err := identity.NewKeypair()
 		if err != nil {
 			return cfg, fmt.Errorf("failed to generate management keypair: %w", err)
@@ -1350,21 +1070,10 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 		cfg.PublicKey = hex.EncodeToString(keypair.PublicKey[:])
 
 		// Ask if this is an operator node
-		var isOperator bool
-		operatorForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewNote().
-					Title("Operator Node").
-					Description("Operator nodes can view mesh topology data.\nField agents should NOT have the private key."),
+		prompt.PrintHeader("Operator Node", "Operator nodes can view mesh topology data.\nField agents should NOT have the private key.")
 
-				huh.NewConfirm().
-					Title("Is this an operator/management node?").
-					Description("Only operator nodes should have the private key").
-					Value(&isOperator),
-			),
-		).WithTheme(w.theme)
-
-		if err := operatorForm.Run(); err != nil {
+		isOperator, err := prompt.Confirm("Is this an operator/management node?", false)
+		if err != nil {
 			return cfg, err
 		}
 
@@ -1373,21 +1082,14 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 		}
 
 		// Always show the private key so operator can save it
-		warningStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("208"))
-
-		keyStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("42"))
-
 		fmt.Println()
-		fmt.Println(warningStyle.Render("=== SAVE THIS MANAGEMENT KEYPAIR ==="))
+		fmt.Println("=== SAVE THIS MANAGEMENT KEYPAIR ===")
 		fmt.Println()
 		fmt.Println("Public Key (add to ALL agent configs):")
-		fmt.Println(keyStyle.Render("  " + hex.EncodeToString(keypair.PublicKey[:])))
+		fmt.Printf("  %s\n", hex.EncodeToString(keypair.PublicKey[:]))
 		fmt.Println()
 		fmt.Println("Private Key (add to OPERATOR config only, keep secure!):")
-		fmt.Println(keyStyle.Render("  " + hex.EncodeToString(keypair.PrivateKey[:])))
+		fmt.Printf("  %s\n", hex.EncodeToString(keypair.PrivateKey[:]))
 		fmt.Println()
 
 		if isOperator {
@@ -1397,31 +1099,20 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 		}
 		fmt.Println()
 
-	case "existing":
-		var pubKey string
-		inputForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("Management Public Key").
-					Description("64-character hex string from operator").
-					Placeholder("a1b2c3d4e5f6...").
-					Value(&pubKey).
-					Validate(func(s string) error {
-						s = strings.TrimSpace(s)
-						s = strings.TrimPrefix(s, "0x")
-						s = strings.TrimPrefix(s, "0X")
-						if len(s) != 64 {
-							return fmt.Errorf("public key must be 64 hex characters (got %d)", len(s))
-						}
-						if _, err := hex.DecodeString(s); err != nil {
-							return fmt.Errorf("invalid hex string: %v", err)
-						}
-						return nil
-					}),
-			),
-		).WithTheme(w.theme)
-
-		if err := inputForm.Run(); err != nil {
+	case 2: // existing
+		pubKey, err := prompt.ReadLineValidated("Management Public Key (64-char hex)", "", func(s string) error {
+			s = strings.TrimSpace(s)
+			s = strings.TrimPrefix(s, "0x")
+			s = strings.TrimPrefix(s, "0X")
+			if len(s) != 64 {
+				return fmt.Errorf("public key must be 64 hex characters (got %d)", len(s))
+			}
+			if _, err := hex.DecodeString(s); err != nil {
+				return fmt.Errorf("invalid hex string: %v", err)
+			}
+			return nil
+		})
+		if err != nil {
 			return cfg, err
 		}
 
@@ -1432,52 +1123,28 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 		cfg.PublicKey = pubKey
 
 		// Ask if this is an operator node with the private key
-		var hasPrivateKey bool
-		privKeyForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewConfirm().
-					Title("Do you have the private key?").
-					Description("Only operator nodes should have the private key").
-					Value(&hasPrivateKey),
-			),
-		).WithTheme(w.theme)
-
-		if err := privKeyForm.Run(); err != nil {
+		hasPrivateKey, err := prompt.Confirm("Do you have the private key?", false)
+		if err != nil {
 			return cfg, err
 		}
 
 		if hasPrivateKey {
-			var privKey string
-			privInputForm := huh.NewForm(
-				huh.NewGroup(
-					huh.NewInput().
-						Title("Management Private Key").
-						Description("64-character hex string").
-						EchoMode(huh.EchoModePassword).
-						Value(&privKey).
-						Validate(func(s string) error {
-							s = strings.TrimSpace(s)
-							s = strings.TrimPrefix(s, "0x")
-							s = strings.TrimPrefix(s, "0X")
-							if len(s) != 64 {
-								return fmt.Errorf("private key must be 64 hex characters (got %d)", len(s))
-							}
-							if _, err := hex.DecodeString(s); err != nil {
-								return fmt.Errorf("invalid hex string: %v", err)
-							}
-							return nil
-						}),
-				),
-			).WithTheme(w.theme)
-
-			if err := privInputForm.Run(); err != nil {
+			privKey, err := prompt.ReadPassword("Management Private Key (64-char hex)")
+			if err != nil {
 				return cfg, err
 			}
 
-			// Normalize
 			privKey = strings.TrimSpace(privKey)
 			privKey = strings.TrimPrefix(privKey, "0x")
 			privKey = strings.TrimPrefix(privKey, "0X")
+
+			if len(privKey) != 64 {
+				return cfg, fmt.Errorf("private key must be 64 hex characters (got %d)", len(privKey))
+			}
+			if _, err := hex.DecodeString(privKey); err != nil {
+				return cfg, fmt.Errorf("invalid hex string: %v", err)
+			}
+
 			cfg.PrivateKey = privKey
 
 			// Verify keys match
@@ -1580,18 +1247,10 @@ func (w *Wizard) writeConfig(cfg *config.Config, path string) error {
 }
 
 func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypair, configPath string, cfg *config.Config) {
-	style := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("42"))
-
-	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Render("─────────────────────────────────────────────────")
-
 	fmt.Println()
-	fmt.Println(divider)
-	fmt.Println(style.Render("[OK] Setup Complete!"))
-	fmt.Println(divider)
+	prompt.PrintDivider()
+	fmt.Println("[OK] Setup Complete!")
+	prompt.PrintDivider()
 	fmt.Println()
 
 	// Show display name if set, otherwise show agent ID
@@ -1656,7 +1315,6 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 }
 
 func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
-	var installService bool
 	var platformName string
 	var privilegeCmd string
 
@@ -1682,22 +1340,11 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 
 	// If not running as root/admin, show instructions instead
 	if !service.IsRoot() {
-		var showInstructions bool
+		prompt.PrintHeader("Service Installation",
+			fmt.Sprintf("To install as a %s, elevated privileges are required.\nYou can run the service install command later with %s.", platformName, privilegeCmd))
 
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewNote().
-					Title("Service Installation").
-					Description(fmt.Sprintf("To install as a %s, elevated privileges are required.\nYou can run the service install command later with %s.", platformName, privilegeCmd)),
-
-				huh.NewConfirm().
-					Title("Show installation command?").
-					Description("Display the command to install the service").
-					Value(&showInstructions),
-			),
-		).WithTheme(w.theme)
-
-		if err := form.Run(); err != nil {
+		showInstructions, err := prompt.Confirm("Show installation command?", true)
+		if err != nil {
 			return false, err
 		}
 
@@ -1717,20 +1364,11 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 		return false, nil
 	}
 
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewNote().
-				Title("Service Installation").
-				Description(fmt.Sprintf("You are running as %s.\nWould you like to install Muti Metroo as a %s?\n\nThe service will start automatically on boot.", w.privilegeLevel(), platformName)),
+	prompt.PrintHeader("Service Installation",
+		fmt.Sprintf("You are running as %s.\nWould you like to install Muti Metroo as a %s?\n\nThe service will start automatically on boot.", w.privilegeLevel(), platformName))
 
-			huh.NewConfirm().
-				Title(fmt.Sprintf("Install as %s?", platformName)).
-				Description("The agent will run in the background").
-				Value(&installService),
-		),
-	).WithTheme(w.theme)
-
-	if err := form.Run(); err != nil {
+	installService, err := prompt.Confirm(fmt.Sprintf("Install as %s?", platformName), false)
+	if err != nil {
 		return false, err
 	}
 
@@ -1751,10 +1389,7 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 	}
 
 	fmt.Println()
-	successStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("42"))
-	fmt.Println(successStyle.Render(fmt.Sprintf("[OK] Installed as %s", platformName)))
+	fmt.Printf("[OK] Installed as %s\n", platformName)
 
 	switch runtime.GOOS {
 	case "linux":
