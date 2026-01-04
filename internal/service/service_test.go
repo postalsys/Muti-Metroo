@@ -207,3 +207,101 @@ func TestUninstallWithoutRoot(t *testing.T) {
 		t.Errorf("Uninstall() error = %q, want root/administrator error", err.Error())
 	}
 }
+
+// =============================================================================
+// User Service Tests (Public API)
+// =============================================================================
+
+func TestIsUserInstalled(t *testing.T) {
+	// Test that IsUserInstalled returns a boolean without panicking
+	result := IsUserInstalled()
+	_ = result // Result depends on system state
+}
+
+func TestIsUserInstalledConsistent(t *testing.T) {
+	// Test that IsUserInstalled returns consistent values
+	result1 := IsUserInstalled()
+	result2 := IsUserInstalled()
+
+	if result1 != result2 {
+		t.Error("IsUserInstalled() returned inconsistent results")
+	}
+}
+
+func TestStatusUserNotInstalled(t *testing.T) {
+	// Skip on non-Linux platforms (user service is Linux-only)
+	if runtime.GOOS != "linux" {
+		t.Skip("Skipping Linux-only test on " + runtime.GOOS)
+	}
+
+	// Skip if user service is installed
+	if IsUserInstalled() {
+		t.Skip("Skipping test because user service is installed")
+	}
+
+	status, err := StatusUser()
+	if err != nil {
+		t.Fatalf("StatusUser() error: %v", err)
+	}
+
+	if status != "not installed" {
+		t.Errorf("StatusUser() = %q, want %q", status, "not installed")
+	}
+}
+
+func TestInstallUserNonLinux(t *testing.T) {
+	// Skip on Linux
+	if runtime.GOOS == "linux" {
+		t.Skip("Skipping non-Linux test on Linux")
+	}
+
+	cfg := DefaultConfig("/tmp/test-config.yaml")
+	err := InstallUser(cfg)
+
+	// Should return an error on non-Linux platforms
+	if err == nil {
+		t.Error("InstallUser() should return error on non-Linux platform")
+	}
+}
+
+func TestUninstallUserNonLinux(t *testing.T) {
+	// Skip on Linux
+	if runtime.GOOS == "linux" {
+		t.Skip("Skipping non-Linux test on Linux")
+	}
+
+	err := UninstallUser()
+
+	// Should return an error on non-Linux platforms
+	if err == nil {
+		t.Error("UninstallUser() should return error on non-Linux platform")
+	}
+}
+
+func TestStartUserNonLinux(t *testing.T) {
+	// Skip on Linux
+	if runtime.GOOS == "linux" {
+		t.Skip("Skipping non-Linux test on Linux")
+	}
+
+	err := StartUser()
+
+	// Should return an error on non-Linux platforms
+	if err == nil {
+		t.Error("StartUser() should return error on non-Linux platform")
+	}
+}
+
+func TestStopUserNonLinux(t *testing.T) {
+	// Skip on Linux
+	if runtime.GOOS == "linux" {
+		t.Skip("Skipping non-Linux test on Linux")
+	}
+
+	err := StopUser()
+
+	// Should return an error on non-Linux platforms
+	if err == nil {
+		t.Error("StopUser() should return error on non-Linux platform")
+	}
+}
