@@ -198,11 +198,16 @@ func TestHandler_StreamSessionFlow(t *testing.T) {
 	metaMsg, _ := EncodeMeta(meta)
 	handler.HandleStreamData(peerID, streamID, metaMsg, 0)
 
-	// Wait for output
-	time.Sleep(500 * time.Millisecond)
-
-	// Check for messages
-	messages := writer.getMessages()
+	// Wait for ACK message with timeout
+	deadline := time.Now().Add(5 * time.Second)
+	var messages []mockMessage
+	for time.Now().Before(deadline) {
+		messages = writer.getMessages()
+		if len(messages) > 0 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if len(messages) == 0 {
 		t.Fatal("Expected messages from handler")
 	}
@@ -217,21 +222,25 @@ func TestHandler_StreamSessionFlow(t *testing.T) {
 		t.Errorf("First message type = %d, want MsgAck (%d)", msgType, MsgAck)
 	}
 
-	// Wait for command to complete
-	time.Sleep(500 * time.Millisecond)
-
-	// Check for stdout and exit messages
-	messages = writer.getMessages()
+	// Wait for stdout and exit messages with timeout
 	hasStdout := false
 	hasExit := false
-	for _, msg := range messages {
-		msgType, _, _ := DecodeMessage(msg.data)
-		if msgType == MsgStdout {
-			hasStdout = true
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		messages = writer.getMessages()
+		for _, msg := range messages {
+			msgType, _, _ := DecodeMessage(msg.data)
+			if msgType == MsgStdout {
+				hasStdout = true
+			}
+			if msgType == MsgExit {
+				hasExit = true
+			}
 		}
-		if msgType == MsgExit {
-			hasExit = true
+		if hasStdout && hasExit {
+			break
 		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	if !hasStdout {
