@@ -135,6 +135,18 @@ See [API - Shell](../api/shell) for protocol details.
 Windows agents use ConPTY (Windows Pseudo Console) for interactive sessions. ConPTY is available on Windows 10 version 1809 and later.
 :::
 
+### Windows PowerShell Example
+
+Interactive PowerShell session on a Windows target:
+
+<div style={{textAlign: 'center', marginBottom: '1rem'}}>
+  <img src="/img/powershell-shell.gif" alt="Interactive PowerShell session via remote shell" style={{maxWidth: '100%', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'}} />
+</div>
+
+```bash
+muti-metroo shell --tty abc123 powershell
+```
+
 ## Related
 
 - [CLI - Shell](../cli/shell) - CLI reference

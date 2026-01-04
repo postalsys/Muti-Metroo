@@ -58,7 +58,16 @@ muti-metroo shell --tty abc123 vim /etc/config.yaml
 
 # Run htop
 muti-metroo shell --tty abc123 htop
+
+# Windows PowerShell
+muti-metroo shell --tty abc123 powershell
 ```
+
+#### Windows PowerShell Example
+
+<div style={{textAlign: 'center', marginBottom: '1rem'}}>
+  <img src="/img/powershell-shell.gif" alt="Interactive PowerShell session" style={{maxWidth: '100%', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'}} />
+</div>
 
 ## Examples
 
