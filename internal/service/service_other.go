@@ -2,7 +2,10 @@
 
 package service
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // isRootImpl checks if running as root (unsupported platforms).
 func isRootImpl() bool {
@@ -37,4 +40,46 @@ func isInteractiveImpl() bool {
 // runAsServiceImpl is not supported on this platform.
 func runAsServiceImpl(name string, runner ServiceRunner) error {
 	return fmt.Errorf("running as service is not supported on this platform")
+}
+
+// =============================================================================
+// User service stubs (not supported on this platform)
+// =============================================================================
+
+// hasCrontab returns false on unsupported platforms.
+func hasCrontab() bool {
+	return false
+}
+
+// ErrCrontabNotFound is returned when crontab is not available.
+var ErrCrontabNotFound = errors.New("user service installation is only supported on Linux")
+
+// installUserImpl is not supported on this platform.
+func installUserImpl(cfg ServiceConfig, execPath string) error {
+	return fmt.Errorf("user service installation is only supported on Linux")
+}
+
+// uninstallUserImpl is not supported on this platform.
+func uninstallUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// statusUserImpl is not supported on this platform.
+func statusUserImpl() (string, error) {
+	return "", fmt.Errorf("user service is only supported on Linux")
+}
+
+// startUserImpl is not supported on this platform.
+func startUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// stopUserImpl is not supported on this platform.
+func stopUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// isUserInstalledImpl returns false on unsupported platforms.
+func isUserInstalledImpl() bool {
+	return false
 }

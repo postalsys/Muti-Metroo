@@ -14,25 +14,32 @@ Service management commands for system integration.
 
 ### service install
 
-Install as system service (requires root/admin).
+Install as system service.
 
 ```bash
-muti-metroo service install -c <config-file> [-n <service-name>]
+muti-metroo service install -c <config-file> [-n <service-name>] [--user]
 ```
 
 **Flags:**
 - `-c, --config <file>`: Configuration file path (required)
 - `-n, --name <name>`: Service name (default: muti-metroo)
+- `--user`: Install as user service using cron+nohup (Linux only, no root required)
 
-**Linux (systemd):**
+**Linux (systemd)** - requires root:
 - Creates `/etc/systemd/system/muti-metroo.service`
 - Reloads systemd daemon
+- Enables automatic startup
 
-**macOS (launchd):**
+**Linux (cron+nohup)** - with `--user` flag, no root required:
+- Creates `~/.muti-metroo/muti-metroo.sh` wrapper script
+- Adds `@reboot` cron entry
+- Logs to `~/.muti-metroo/muti-metroo.log`
+
+**macOS (launchd)** - requires root:
 - Creates `/Library/LaunchDaemons/com.muti-metroo.plist`
 - Loads service with `launchctl`
 
-**Windows:**
+**Windows** - requires Administrator:
 - Registers Windows Service
 - Sets to automatic startup
 
@@ -48,7 +55,7 @@ muti-metroo service uninstall [-n <service-name>] [-f]
 - `-n, --name <name>`: Service name (default: muti-metroo)
 - `-f, --force`: Skip confirmation prompt
 
-Removes service registration on Linux, macOS, and Windows.
+Removes service registration. On Linux, automatically detects whether systemd or cron+nohup was used.
 
 ### service status
 
@@ -63,9 +70,29 @@ muti-metroo service status [-n <service-name>]
 
 Shows current service state (running, stopped, etc.).
 
-## Linux Management
+## Linux: Systemd vs Cron+Nohup
 
-After installation:
+| Feature | Systemd | Cron+Nohup |
+|---------|---------|------------|
+| Requires root | Yes | No |
+| Auto-restart on crash | Yes | No |
+| Log management | journald | File-based |
+| Resource limits | cgroups | None |
+| Start on boot | Yes | Yes |
+
+**Use systemd when:**
+- You have root access
+- You need automatic restart on crash
+- You want journald integration
+
+**Use cron+nohup when:**
+- You don't have root access
+- You're deploying to a user account
+- Systemd is unavailable
+
+## Linux Management (Systemd)
+
+After installation with root:
 
 ```bash
 # Enable and start
@@ -80,6 +107,24 @@ sudo journalctl -u muti-metroo -f
 
 # Restart
 sudo systemctl restart muti-metroo
+```
+
+## Linux Management (Cron+Nohup)
+
+After installation with `--user`:
+
+```bash
+# Check status
+muti-metroo service status
+
+# View logs
+tail -f ~/.muti-metroo/muti-metroo.log
+
+# Manually start (if stopped)
+~/.muti-metroo/muti-metroo.sh
+
+# Uninstall
+muti-metroo service uninstall
 ```
 
 ## macOS Management
@@ -118,9 +163,12 @@ sc stop muti-metroo
 ## Examples
 
 ```bash
-# Linux install
+# Linux install (systemd, requires root)
 sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
 sudo systemctl enable --now muti-metroo
+
+# Linux install (cron+nohup, no root required)
+muti-metroo service install --user -c ~/muti-metroo/config.yaml
 
 # macOS install
 sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
@@ -131,7 +179,7 @@ muti-metroo service install -c C:\Program Files\muti-metroo\config.yaml
 # Check status (all platforms)
 muti-metroo service status
 
-# Uninstall
-sudo muti-metroo service uninstall  # Linux/macOS
-muti-metroo service uninstall        # Windows (as Administrator)
+# Uninstall (auto-detects installation type on Linux)
+sudo muti-metroo service uninstall  # Linux systemd / macOS
+muti-metroo service uninstall        # Linux user service / Windows (as Admin)
 ```

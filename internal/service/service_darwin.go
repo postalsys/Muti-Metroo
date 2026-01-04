@@ -3,6 +3,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -196,4 +197,46 @@ func generateLaunchdPlist(cfg ServiceConfig, execPath string) string {
 </dict>
 </plist>
 `, label, execPath, cfg.ConfigPath, cfg.WorkingDir, logPath, errPath)
+}
+
+// =============================================================================
+// User service stubs (not supported on macOS - use launchd instead)
+// =============================================================================
+
+// hasCrontab returns false on macOS (user service not supported).
+func hasCrontab() bool {
+	return false
+}
+
+// ErrCrontabNotFound is returned when crontab is not available.
+var ErrCrontabNotFound = errors.New("user service installation is only supported on Linux")
+
+// installUserImpl is not supported on macOS.
+func installUserImpl(cfg ServiceConfig, execPath string) error {
+	return fmt.Errorf("user service installation is only supported on Linux")
+}
+
+// uninstallUserImpl is not supported on macOS.
+func uninstallUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// statusUserImpl is not supported on macOS.
+func statusUserImpl() (string, error) {
+	return "", fmt.Errorf("user service is only supported on Linux")
+}
+
+// startUserImpl is not supported on macOS.
+func startUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// stopUserImpl is not supported on macOS.
+func stopUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// isUserInstalledImpl returns false on macOS.
+func isUserInstalledImpl() bool {
+	return false
 }

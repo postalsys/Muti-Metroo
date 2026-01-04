@@ -532,9 +532,9 @@ func serviceCmd() *cobra.Command {
 		Long: `Manage Muti Metroo as a system service.
 
 Supported platforms:
-  - Linux: systemd
-  - macOS: launchd
-  - Windows: Windows Service`,
+  - Linux: systemd (root) or cron+nohup (user)
+  - macOS: launchd (root)
+  - Windows: Windows Service (administrator)`,
 	}
 
 	cmd.AddCommand(serviceInstallCmd())
@@ -547,31 +547,26 @@ Supported platforms:
 func serviceInstallCmd() *cobra.Command {
 	var configPath string
 	var serviceName string
+	var userMode bool
 
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install as a system service",
 		Long: `Install Muti Metroo as a system service.
 
-On Linux, this creates and enables a systemd service.
-On macOS, this creates and loads a launchd service.
-On Windows, this registers a Windows service.
+On Linux:
+  - Without --user: Uses systemd (requires root)
+  - With --user: Uses cron @reboot + nohup (no root required)
 
-This command requires root/administrator privileges.`,
+On macOS: Uses launchd (requires root)
+On Windows: Uses Windows Service (requires Administrator)
+
+The --user flag is only available on Linux and allows non-root users
+to install the agent as a user-level service that starts on boot.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check platform support
 			if !service.IsSupported() {
 				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
-			}
-
-			// Check privileges
-			if !service.IsRoot() {
-				switch runtime.GOOS {
-				case "linux", "darwin":
-					return fmt.Errorf("must run as root to install the service (try: sudo muti-metroo service install ...)")
-				case "windows":
-					return fmt.Errorf("must run as Administrator to install the service")
-				}
 			}
 
 			// Validate config file exists
@@ -588,16 +583,58 @@ This command requires root/administrator privileges.`,
 				return fmt.Errorf("config file not found: %s", absPath)
 			}
 
+			// Create service config
+			cfg := service.DefaultConfig(absPath)
+			cfg.Name = serviceName
+
+			// Handle user mode (Linux only)
+			if userMode {
+				if runtime.GOOS != "linux" {
+					return fmt.Errorf("--user flag is only supported on Linux")
+				}
+
+				// Check if user service already installed
+				if service.IsUserInstalled() {
+					return fmt.Errorf("user service is already installed")
+				}
+
+				// Install user service
+				fmt.Printf("Installing user service...\n")
+				fmt.Printf("  Config: %s\n", absPath)
+				fmt.Printf("  Method: cron @reboot + nohup\n")
+
+				if err := service.InstallUser(cfg); err != nil {
+					return fmt.Errorf("failed to install user service: %w", err)
+				}
+
+				fmt.Println("\nUser service installed successfully.")
+				fmt.Println("\nManage the service with:")
+				fmt.Println("  muti-metroo service status")
+				fmt.Println("  muti-metroo service uninstall")
+				fmt.Println("\nView logs:")
+				fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log")
+
+				return nil
+			}
+
+			// System service installation requires root
+			if !service.IsRoot() {
+				switch runtime.GOOS {
+				case "linux":
+					return fmt.Errorf("root privileges required for systemd. Use --user for cron-based installation")
+				case "darwin":
+					return fmt.Errorf("must run as root to install the service (try: sudo muti-metroo service install ...)")
+				case "windows":
+					return fmt.Errorf("must run as Administrator to install the service")
+				}
+			}
+
 			// Check if already installed
 			if service.IsInstalled(serviceName) {
 				return fmt.Errorf("service '%s' is already installed", serviceName)
 			}
 
-			// Create service config
-			cfg := service.DefaultConfig(absPath)
-			cfg.Name = serviceName
-
-			// Install
+			// Install system service
 			fmt.Printf("Installing service '%s'...\n", serviceName)
 			fmt.Printf("  Config: %s\n", absPath)
 			fmt.Printf("  Platform: %s\n", service.Platform())
@@ -631,6 +668,7 @@ This command requires root/administrator privileges.`,
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to config file (required)")
 	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
+	cmd.Flags().BoolVar(&userMode, "user", false, "Install as user service (Linux only, uses cron+nohup)")
 	cmd.MarkFlagRequired("config")
 
 	return cmd
@@ -645,18 +683,45 @@ func serviceUninstallCmd() *cobra.Command {
 		Short: "Uninstall the system service",
 		Long: `Remove the Muti Metroo system service.
 
-On Linux, this stops and removes the systemd service.
-On macOS, this unloads and removes the launchd service.
-On Windows, this stops and removes the Windows service.
+On Linux:
+  - Removes systemd service (if installed as root)
+  - Removes cron+nohup user service (if installed with --user)
 
-This command requires root/administrator privileges.`,
+On macOS: Unloads and removes the launchd service.
+On Windows: Stops and removes the Windows service.
+
+Root/administrator privileges required for system service removal.
+User service can be removed without root.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check platform support
 			if !service.IsSupported() {
 				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 			}
 
-			// Check privileges
+			// Check for user service first (Linux only)
+			if runtime.GOOS == "linux" && service.IsUserInstalled() {
+				// Confirm unless force flag is set
+				if !force {
+					fmt.Println("This will stop and remove the user service.")
+					fmt.Print("Continue? [y/N]: ")
+					var response string
+					fmt.Scanln(&response)
+					if response != "y" && response != "Y" && response != "yes" {
+						fmt.Println("Aborted.")
+						return nil
+					}
+				}
+
+				// Uninstall user service
+				if err := service.UninstallUser(); err != nil {
+					return fmt.Errorf("failed to uninstall user service: %w", err)
+				}
+
+				fmt.Println("\nUser service uninstalled successfully.")
+				return nil
+			}
+
+			// System service requires root
 			if !service.IsRoot() {
 				switch runtime.GOOS {
 				case "linux", "darwin":
@@ -713,7 +778,22 @@ func serviceStatusCmd() *cobra.Command {
 				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 			}
 
-			// Check if installed
+			// Check for user service first (Linux only)
+			if runtime.GOOS == "linux" && service.IsUserInstalled() {
+				status, err := service.StatusUser()
+				if err != nil {
+					return fmt.Errorf("failed to get user service status: %w", err)
+				}
+
+				fmt.Printf("Service: muti-metroo (user)\n")
+				fmt.Printf("Status: %s\n", status)
+				fmt.Printf("Type: cron+nohup\n")
+				fmt.Printf("Log: ~/.muti-metroo/muti-metroo.log\n")
+
+				return nil
+			}
+
+			// Check if system service installed
 			if !service.IsInstalled(serviceName) {
 				fmt.Printf("Service '%s' is not installed.\n", serviceName)
 				return nil

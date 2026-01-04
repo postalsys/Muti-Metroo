@@ -1318,13 +1318,24 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 }
 
 func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
+	// Get absolute path for config
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to get absolute config path: %w", err)
+	}
+
+	cfg := service.DefaultConfig(absConfigPath)
+
+	// Handle Linux specially - offer user service option
+	if runtime.GOOS == "linux" {
+		return w.askLinuxServiceInstallation(cfg, absConfigPath)
+	}
+
+	// macOS and Windows - system service only
 	var platformName string
 	var privilegeCmd string
 
 	switch runtime.GOOS {
-	case "linux":
-		platformName = "systemd service"
-		privilegeCmd = "sudo"
 	case "darwin":
 		platformName = "launchd service"
 		privilegeCmd = "sudo"
@@ -1333,12 +1344,6 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 		privilegeCmd = "Run as Administrator"
 	default:
 		return false, nil
-	}
-
-	// Get absolute path for config
-	absConfigPath, err := filepath.Abs(configPath)
-	if err != nil {
-		return false, fmt.Errorf("failed to get absolute config path: %w", err)
 	}
 
 	// If not running as root/admin, show instructions instead
@@ -1355,7 +1360,7 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 			fmt.Println()
 			fmt.Println("To install as a service, run:")
 			switch runtime.GOOS {
-			case "linux", "darwin":
+			case "darwin":
 				fmt.Printf("  sudo muti-metroo service install -c %s\n", absConfigPath)
 			case "windows":
 				fmt.Printf("  muti-metroo service install -c %s\n", absConfigPath)
@@ -1379,8 +1384,6 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 		return false, nil
 	}
 
-	cfg := service.DefaultConfig(absConfigPath)
-
 	fmt.Println()
 	fmt.Printf("Installing %s...\n", platformName)
 
@@ -1395,12 +1398,6 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 	fmt.Printf("[OK] Installed as %s\n", platformName)
 
 	switch runtime.GOOS {
-	case "linux":
-		fmt.Println("\nUseful commands:")
-		fmt.Println("  systemctl status muti-metroo    # Check status")
-		fmt.Println("  journalctl -u muti-metroo -f    # View logs")
-		fmt.Println("  systemctl restart muti-metroo   # Restart service")
-		fmt.Println("  muti-metroo service uninstall   # Remove service")
 	case "darwin":
 		fmt.Println("\nUseful commands:")
 		fmt.Println("  sudo launchctl list | grep muti   # Check if running")
@@ -1418,6 +1415,107 @@ func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
 	fmt.Println()
 
 	return true, nil
+}
+
+func (w *Wizard) askLinuxServiceInstallation(cfg service.ServiceConfig, absConfigPath string) (bool, error) {
+	isRoot := service.IsRoot()
+
+	if isRoot {
+		// Root user: offer choice between systemd and cron+nohup
+		prompt.PrintHeader("Service Installation",
+			"You are running as root.\nChoose how to install Muti Metroo as a service.\n\nThe service will start automatically on boot.")
+
+		options := []string{
+			"systemd (recommended)",
+			"cron+nohup (user-level)",
+			"Don't install as service",
+		}
+		choice, err := prompt.Select("Installation method:", options, 0)
+		if err != nil {
+			return false, err
+		}
+
+		switch choice {
+		case 0: // systemd
+			fmt.Println()
+			fmt.Println("Installing systemd service...")
+
+			if err := service.Install(cfg); err != nil {
+				fmt.Printf("\n[WARNING] Failed to install service: %v\n", err)
+				fmt.Println("You can install the service manually later.")
+				return false, nil
+			}
+
+			fmt.Println()
+			fmt.Println("[OK] Installed as systemd service")
+			fmt.Println("\nUseful commands:")
+			fmt.Println("  systemctl status muti-metroo    # Check status")
+			fmt.Println("  journalctl -u muti-metroo -f    # View logs")
+			fmt.Println("  systemctl restart muti-metroo   # Restart service")
+			fmt.Println("  muti-metroo service uninstall   # Remove service")
+			fmt.Println()
+			return true, nil
+
+		case 1: // cron+nohup
+			fmt.Println()
+			fmt.Println("Installing cron+nohup user service...")
+
+			if err := service.InstallUser(cfg); err != nil {
+				fmt.Printf("\n[WARNING] Failed to install user service: %v\n", err)
+				fmt.Println("You can install the service manually later.")
+				return false, nil
+			}
+
+			fmt.Println()
+			fmt.Println("[OK] Installed as user service (cron+nohup)")
+			fmt.Println("\nUseful commands:")
+			fmt.Println("  muti-metroo service status      # Check status")
+			fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log  # View logs")
+			fmt.Println("  muti-metroo service uninstall   # Remove service")
+			fmt.Println()
+			return true, nil
+
+		default: // Don't install
+			return false, nil
+		}
+	} else {
+		// Non-root user: offer cron+nohup only
+		prompt.PrintHeader("Service Installation",
+			"Would you like to install Muti Metroo as a user service?\n\nThis uses cron @reboot + nohup to start on boot.\n(systemd requires root - run with sudo for systemd)")
+
+		installService, err := prompt.Confirm("Install as user service?", true)
+		if err != nil {
+			return false, err
+		}
+
+		if !installService {
+			fmt.Println()
+			fmt.Println("To install later:")
+			fmt.Printf("  muti-metroo service install --user -c %s   # User service\n", absConfigPath)
+			fmt.Printf("  sudo muti-metroo service install -c %s     # Systemd (root)\n", absConfigPath)
+			fmt.Println()
+			return false, nil
+		}
+
+		fmt.Println()
+		fmt.Println("Installing cron+nohup user service...")
+
+		if err := service.InstallUser(cfg); err != nil {
+			fmt.Printf("\n[WARNING] Failed to install user service: %v\n", err)
+			fmt.Println("You can install the service manually later with:")
+			fmt.Printf("  muti-metroo service install --user -c %s\n", absConfigPath)
+			return false, nil
+		}
+
+		fmt.Println()
+		fmt.Println("[OK] Installed as user service (cron+nohup)")
+		fmt.Println("\nUseful commands:")
+		fmt.Println("  muti-metroo service status      # Check status")
+		fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log  # View logs")
+		fmt.Println("  muti-metroo service uninstall   # Remove service")
+		fmt.Println()
+		return true, nil
+	}
 }
 
 func (w *Wizard) privilegeLevel() string {

@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"syscall"
@@ -355,4 +356,46 @@ loop:
 	}
 
 	return false, 0
+}
+
+// =============================================================================
+// User service stubs (not supported on Windows - use Windows Service instead)
+// =============================================================================
+
+// hasCrontab returns false on Windows (user service not supported).
+func hasCrontab() bool {
+	return false
+}
+
+// ErrCrontabNotFound is returned when crontab is not available.
+var ErrCrontabNotFound = errors.New("user service installation is only supported on Linux")
+
+// installUserImpl is not supported on Windows.
+func installUserImpl(cfg ServiceConfig, execPath string) error {
+	return fmt.Errorf("user service installation is only supported on Linux")
+}
+
+// uninstallUserImpl is not supported on Windows.
+func uninstallUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// statusUserImpl is not supported on Windows.
+func statusUserImpl() (string, error) {
+	return "", fmt.Errorf("user service is only supported on Linux")
+}
+
+// startUserImpl is not supported on Windows.
+func startUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// stopUserImpl is not supported on Windows.
+func stopUserImpl() error {
+	return fmt.Errorf("user service is only supported on Linux")
+}
+
+// isUserInstalledImpl returns false on Windows.
+func isUserInstalledImpl() bool {
+	return false
 }

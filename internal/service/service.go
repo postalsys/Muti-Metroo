@@ -94,6 +94,11 @@ func Install(cfg ServiceConfig) error {
 // On macOS, this unloads and removes the launchd plist.
 // On Windows, this stops and removes the Windows service.
 func Uninstall(serviceName string) error {
+	// Check for user service first (Linux only)
+	if runtime.GOOS == "linux" && IsUserInstalled() {
+		return UninstallUser()
+	}
+
 	if !IsRoot() {
 		return fmt.Errorf("must run as root/administrator to uninstall service")
 	}
@@ -101,8 +106,80 @@ func Uninstall(serviceName string) error {
 	return uninstallImpl(serviceName)
 }
 
+// InstallUser installs as a user-level service (cron+nohup on Linux).
+// This does not require root privileges.
+func InstallUser(cfg ServiceConfig) error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("user service installation is only supported on Linux")
+	}
+
+	// Check for crontab
+	if !hasCrontab() {
+		return ErrCrontabNotFound
+	}
+
+	// Get the executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Resolve symlinks to get the real path
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve executable path: %w", err)
+	}
+
+	return installUserImpl(cfg, execPath)
+}
+
+// UninstallUser removes the user-level service (Linux only).
+func UninstallUser() error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("user service is only supported on Linux")
+	}
+	return uninstallUserImpl()
+}
+
+// IsUserInstalled checks if a user-level service is installed (Linux only).
+func IsUserInstalled() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+	return isUserInstalledImpl()
+}
+
+// StatusUser returns the status of the user-level service (Linux only).
+func StatusUser() (string, error) {
+	if runtime.GOOS != "linux" {
+		return "", fmt.Errorf("user service is only supported on Linux")
+	}
+	return statusUserImpl()
+}
+
+// StartUser starts the user-level service (Linux only).
+func StartUser() error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("user service is only supported on Linux")
+	}
+	return startUserImpl()
+}
+
+// StopUser stops the user-level service (Linux only).
+func StopUser() error {
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("user service is only supported on Linux")
+	}
+	return stopUserImpl()
+}
+
 // Status returns the current status of the service.
+// It auto-detects whether a system or user service is installed.
 func Status(serviceName string) (string, error) {
+	// Check for user service first (Linux only)
+	if runtime.GOOS == "linux" && IsUserInstalled() {
+		return StatusUser()
+	}
 	return statusImpl(serviceName)
 }
 
