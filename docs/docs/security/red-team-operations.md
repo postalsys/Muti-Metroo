@@ -542,11 +542,12 @@ socks5:
 http:
   enabled: true
   address: "127.0.0.1:8080"
-  minimal: true
+  dashboard: true   # Operator can view mesh topology
+  pprof: false
 
 management:
   public_key: "${MGMT_PUBKEY}"
-  private_key: "${MGMT_PRIVKEY}"  # Operator can view topology
+  private_key: "${MGMT_PRIVKEY}"  # Required to decrypt topology
 ```
 
 ## Persistence
