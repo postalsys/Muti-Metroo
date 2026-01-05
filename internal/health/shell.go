@@ -51,6 +51,12 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 
+	// Disable write deadline for long-lived WebSocket connections.
+	// The default HTTP WriteTimeout (10s) causes the write side to close
+	// after inactivity, breaking bidirectional shell communication.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{}) // Zero time = no deadline
+
 	// Parse mode from query params
 	mode := r.URL.Query().Get("mode")
 	interactive := mode != "stream" // Default to interactive (TTY)
