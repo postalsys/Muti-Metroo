@@ -1294,8 +1294,8 @@ Examples:
 				return fmt.Errorf("invalid agent ID '%s': %w", resolvedID, err)
 			}
 
-			// Validate remote path is absolute
-			if !filepath.IsAbs(remotePath) {
+			// Validate remote path is absolute (supports both Unix and Windows paths)
+			if !isRemotePathAbsolute(remotePath) {
 				return fmt.Errorf("remote path must be absolute: %s", remotePath)
 			}
 
@@ -1587,8 +1587,8 @@ Examples:
 				return fmt.Errorf("invalid agent ID '%s': %w", resolvedID, err)
 			}
 
-			// Validate remote path is absolute
-			if !filepath.IsAbs(remotePath) {
+			// Validate remote path is absolute (supports both Unix and Windows paths)
+			if !isRemotePathAbsolute(remotePath) {
 				return fmt.Errorf("remote path must be absolute: %s", remotePath)
 			}
 
@@ -2167,6 +2167,28 @@ func isHexString(s string) bool {
 		}
 	}
 	return true
+}
+
+// isRemotePathAbsolute checks if a path is absolute, supporting both Unix and Windows formats.
+// This is needed because the CLI may run on a different OS than the target agent.
+// Unix absolute paths start with '/'.
+// Windows absolute paths start with a drive letter followed by ':' (e.g., C:/ or C:\).
+func isRemotePathAbsolute(path string) bool {
+	if len(path) == 0 {
+		return false
+	}
+	// Unix-style absolute path
+	if path[0] == '/' {
+		return true
+	}
+	// Windows-style absolute path (e.g., C:/ or C:\)
+	if len(path) >= 3 && path[1] == ':' && (path[2] == '/' || path[2] == '\\') {
+		c := path[0]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') {
+			return true
+		}
+	}
+	return false
 }
 
 // Progress bar helper functions
