@@ -39,7 +39,13 @@ muti-metroo init -d /var/lib/muti-metroo
 
 ## Output
 
+When creating a new identity:
 ```
-Initialized agent: abc123def456789012345678901234ab
-Agent ID saved to: ./data/agent_id
+Agent initialized in ./data
+Agent ID: abc123def456789012345678901234ab
+```
+
+When the identity already exists:
+```
+Agent ID: abc123def456789012345678901234ab
 ```

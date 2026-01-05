@@ -157,7 +157,6 @@ socks5:
 
 When limit is reached:
 - New connections are rejected
-- Metric `socks5_connections_rejected_total` increments
 - Existing connections continue working
 
 ## Client Configuration
@@ -265,15 +264,6 @@ socks5:
         password_hash: "$2a$12$..."    # Cost factor 12
   max_connections: 100
 ```
-
-## Metrics
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `muti_metroo_socks5_connections_active` | Gauge | Active connections |
-| `muti_metroo_socks5_connections_total` | Counter | Total connections |
-| `muti_metroo_socks5_auth_failures_total` | Counter | Auth failures |
-| `muti_metroo_socks5_connect_latency_seconds` | Histogram | Connect latency |
 
 ## Troubleshooting
 

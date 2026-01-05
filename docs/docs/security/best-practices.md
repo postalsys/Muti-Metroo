@@ -50,7 +50,7 @@ CA_DIR="/etc/muti-metroo/ca"  # CA stored separately
 DAYS_LEFT=$(( ($(date -d "$(openssl x509 -enddate -noout -in $CERT_DIR/agent.crt | cut -d= -f2)" +%s) - $(date +%s)) / 86400 ))
 
 if [ $DAYS_LEFT -lt 30 ]; then
-    muti-metroo cert agent -n "$(hostname)" \
+    muti-metroo cert agent --cn "$(hostname)" \
       --ca "$CA_DIR/ca.crt" \
       --ca-key "$CA_DIR/ca.key" \
       -o "$CERT_DIR"

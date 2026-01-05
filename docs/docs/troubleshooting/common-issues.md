@@ -63,8 +63,8 @@ Error: open ./certs/agent.crt: no such file or directory
 
 ```bash
 # Generate certificates
-muti-metroo cert ca -n "My CA" -o ./certs
-muti-metroo cert agent -n "agent-1" \
+muti-metroo cert ca --cn "My CA" -o ./certs
+muti-metroo cert agent --cn "agent-1" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key \
   -o ./certs

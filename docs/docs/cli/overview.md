@@ -64,6 +64,7 @@ Available for all commands:
 | `download` | Download file from remote agent |
 | `service` | Service management (install, uninstall, status) |
 | `management-key` | Generate and manage mesh topology encryption keys |
+| `licenses` | Show third-party license information |
 
 ## Quick Examples
 
@@ -75,7 +76,7 @@ muti-metroo run -c config.yaml
 muti-metroo setup
 
 # Generate CA
-muti-metroo cert ca -n "My CA"
+muti-metroo cert ca --cn "My CA"
 
 # Generate password hash for config
 muti-metroo hash --cost 12

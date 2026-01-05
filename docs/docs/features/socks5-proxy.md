@@ -85,13 +85,6 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 3. SOCKS v5
 4. Username/password if auth enabled
 
-## Metrics
-
-- `muti_metroo_socks5_connections_active`: Active connections
-- `muti_metroo_socks5_connections_total`: Total connections
-- `muti_metroo_socks5_auth_failures_total`: Auth failures
-- `muti_metroo_socks5_connect_latency_seconds`: Connect latency
-
 ## Related
 
 - [Configuration - SOCKS5](../configuration/socks5) - Full configuration reference

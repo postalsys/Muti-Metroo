@@ -46,7 +46,7 @@ Both agents will use certificates signed by the same CA:
 
 ```bash
 # On Agent A's machine (or shared location)
-muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert ca --cn "My Mesh CA" -o ./certs
 
 # Copy ca.crt and ca.key to Agent B
 # (or generate Agent B's cert using the same CA)
@@ -57,7 +57,7 @@ muti-metroo cert ca -n "My Mesh CA" -o ./certs
 ### Agent A Certificate
 
 ```bash
-muti-metroo cert agent -n "agent-a" \
+muti-metroo cert agent --cn "agent-a" \
   --ip "192.168.1.10" \
   --dns "agent-a.local" \
   -o ./certs \
@@ -68,7 +68,7 @@ muti-metroo cert agent -n "agent-a" \
 ### Agent B Certificate
 
 ```bash
-muti-metroo cert agent -n "agent-b" \
+muti-metroo cert agent --cn "agent-b" \
   --ip "192.168.1.20" \
   --dns "agent-b.local" \
   -o ./certs-b \

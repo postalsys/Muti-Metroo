@@ -115,14 +115,6 @@ exit:
 
 Connections to other IPs will be rejected.
 
-## Metrics
-
-- `muti_metroo_exit_connections_active`: Active exit connections
-- `muti_metroo_exit_connections_total`: Total exit connections
-- `muti_metroo_exit_dns_queries_total`: DNS queries
-- `muti_metroo_exit_dns_latency_seconds`: DNS latency
-- `muti_metroo_exit_errors_total`: Exit errors
-
 ## Related
 
 - [Configuration - Exit](../configuration/exit) - Full configuration reference

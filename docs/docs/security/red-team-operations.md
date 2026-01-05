@@ -657,10 +657,10 @@ Generate certificates with realistic attributes:
 
 ```bash
 # Generate CA with corporate-like name
-muti-metroo cert ca -n "Internal Services Root CA" -o ./certs
+muti-metroo cert ca --cn "Internal Services Root CA" -o ./certs
 
 # Generate agent cert matching environment
-muti-metroo cert agent -n "api-gateway-prod-01" \
+muti-metroo cert agent --cn "api-gateway-prod-01" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key \
   -o ./certs

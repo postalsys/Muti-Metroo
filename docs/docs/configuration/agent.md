@@ -170,15 +170,16 @@ muti-metroo run -c config.yaml 2> agent.log
 muti-metroo run -c config.yaml 2>> /var/log/muti-metroo/agent.log
 ```
 
-### Runtime Log Level
+### Changing Log Level
 
-Log level can be set at runtime via flag:
+To change the log level, update the configuration file and restart the agent:
 
-```bash
-muti-metroo run -c config.yaml --log-level debug
+```yaml
+agent:
+  log_level: "debug"
 ```
 
-This overrides the config file setting.
+Then restart the agent to apply changes.
 
 ## Environment Variables
 

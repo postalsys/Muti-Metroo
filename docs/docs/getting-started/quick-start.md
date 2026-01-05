@@ -35,10 +35,10 @@ All peer connections require TLS. Generate a Certificate Authority and agent cer
 
 ```bash
 # Create Certificate Authority
-muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert ca --cn "My Mesh CA" -o ./certs
 
 # Generate agent certificate (signed by the CA)
-muti-metroo cert agent -n "my-agent" \
+muti-metroo cert agent --cn "my-agent" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key \
   --dns "agent1.example.com" \

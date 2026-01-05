@@ -17,15 +17,15 @@ Certificate management commands.
 Generate Certificate Authority.
 
 ```bash
-muti-metroo cert ca [-n <name>] [-o <output-dir>] [-d <days>]
+muti-metroo cert ca [--cn <name>] [-o <output-dir>] [--days <days>]
 ```
 
 **Flags:**
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--cn` | `-n` | "Muti Metroo CA" | Common name for the CA |
+| `--cn` | | "Muti Metroo CA" | Common name for the CA |
 | `--out` | `-o` | ./certs | Output directory |
-| `--days` | `-d` | 365 | Validity period in days |
+| `--days` | | 365 | Validity period in days |
 
 **Output:**
 - `ca.crt`: CA certificate
@@ -36,17 +36,17 @@ muti-metroo cert ca [-n <name>] [-o <output-dir>] [-d <days>]
 Generate agent/peer certificate. The certificate can be used for both server authentication (listeners) and client authentication (peer connections with mTLS).
 
 ```bash
-muti-metroo cert agent -n <name> [--dns <hostnames>] [--ip <ips>] [-o <output>] [-d <days>]
+muti-metroo cert agent --cn <name> [--dns <hostnames>] [--ip <ips>] [-o <output>] [--days <days>]
 ```
 
 **Flags:**
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--cn` | `-n` | (required) | Common name for the certificate |
+| `--cn` | | (required) | Common name for the certificate |
 | `--dns` | | | Additional DNS names (comma-separated) |
 | `--ip` | | | Additional IP addresses (comma-separated) |
 | `--out` | `-o` | ./certs | Output directory |
-| `--days` | `-d` | 90 | Validity period in days |
+| `--days` | | 90 | Validity period in days |
 | `--ca` | | ./certs/ca.crt | CA certificate path |
 | `--ca-key` | | ./certs/ca.key | CA private key path |
 
@@ -59,15 +59,15 @@ muti-metroo cert agent -n <name> [--dns <hostnames>] [--ip <ips>] [-o <output>] 
 Generate client-only certificate. This certificate can only be used for client authentication (connecting to listeners), not for server authentication.
 
 ```bash
-muti-metroo cert client -n <name> [-o <output>] [-d <days>]
+muti-metroo cert client --cn <name> [-o <output>] [--days <days>]
 ```
 
 **Flags:**
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
-| `--cn` | `-n` | (required) | Common name for the certificate |
+| `--cn` | | (required) | Common name for the certificate |
 | `--out` | `-o` | ./certs | Output directory |
-| `--days` | `-d` | 90 | Validity period in days |
+| `--days` | | 90 | Validity period in days |
 | `--ca` | | ./certs/ca.crt | CA certificate path |
 | `--ca-key` | | ./certs/ca.key | CA private key path |
 
@@ -105,10 +105,10 @@ Ext Key Usage: ServerAuth, ClientAuth
 
 ```bash
 # Generate CA
-muti-metroo cert ca -n "Mesh CA" -o ./certs
+muti-metroo cert ca --cn "Mesh CA" -o ./certs
 
 # Generate agent cert (signed by CA)
-muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent --cn "agent-1" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key \
   --dns agent1.example.com \
@@ -116,7 +116,7 @@ muti-metroo cert agent -n "agent-1" \
   -o ./certs
 
 # Generate client cert (signed by CA)
-muti-metroo cert client -n "admin" \
+muti-metroo cert client --cn "admin" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key \
   -o ./certs

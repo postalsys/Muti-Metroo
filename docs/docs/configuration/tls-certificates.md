@@ -52,10 +52,10 @@ The only exception is when connecting through a WebSocket proxy to an external s
 
 ```bash
 # Generate CA (do once, share across mesh)
-muti-metroo cert ca -n "My Mesh CA" -o ./certs
+muti-metroo cert ca --cn "My Mesh CA" -o ./certs
 
 # Generate agent certificate (signed by the CA)
-muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent --cn "agent-1" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key \
   --dns "agent1.example.com" \
@@ -251,13 +251,11 @@ muti-metroo cert agent --days 180    # 6 months
 Always include SANs for agent certificates:
 
 ```bash
-muti-metroo cert agent -n "agent-1" \
+muti-metroo cert agent --cn "agent-1" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key \
-  --dns "agent1.example.com" \
-  --dns "agent1.internal" \
-  --ip "192.168.1.10" \
-  --ip "10.0.0.10" \
+  --dns "agent1.example.com,agent1.internal" \
+  --ip "192.168.1.10,10.0.0.10" \
   -o ./certs
 ```
 
