@@ -727,6 +727,10 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, target
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute) // 30 minute timeout for large files
 	defer cancel()
 
+	// Extend write deadline for long file transfers (default WriteTimeout is 10s)
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Minute))
+
 	err = s.remoteProvider.UploadFile(ctx, targetID, localPath, remotePath, opts, nil)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -800,6 +804,10 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 	// Perform streaming download directly (no temp file)
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute) // 30 minute timeout
 	defer cancel()
+
+	// Extend write deadline for long file transfers (default WriteTimeout is 10s)
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(30 * time.Minute))
 
 	result, err := s.remoteProvider.DownloadFileStream(ctx, targetID, req.Path, opts)
 	if err != nil {
