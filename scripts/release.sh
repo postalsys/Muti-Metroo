@@ -8,7 +8,7 @@
 #   3. Push to origin
 #   4. Create Gitea release with AI-generated notes
 #   5. Cross-platform Docker builds
-#   6. Mac binary signing and notarization (Developer ID + Apple notarization)
+#   6. Cross-platform binary builds (macOS binaries are self-signed only)
 #   7. Upload binaries to Gitea release
 #   8. Build and deploy Docusaurus documentation to web server
 #   9. Upload binaries to web server for public download
@@ -431,15 +431,15 @@ build_binary() {
     fi
 }
 
-# Sign and notarize macOS binary
-sign_macos_binary() {
+# Ad-hoc sign macOS binary (self-signed, no Developer ID)
+sign_macos_binary_adhoc() {
     local binary_path="$1"
     local binary_name
     binary_name=$(basename "$binary_path")
 
     # Only sign on macOS
     if [[ "$(uname)" != "Darwin" ]]; then
-        log_warn "Skipping macOS signing (not on macOS)"
+        log_info "Skipping macOS ad-hoc signing (not on macOS)"
         return 0
     fi
 
@@ -448,26 +448,18 @@ sign_macos_binary() {
         return 0
     fi
 
-    log_step "Signing and notarizing macOS binary: $binary_name"
+    log_info "Ad-hoc signing macOS binary: $binary_name"
 
     if [[ "${DRY_RUN:-0}" == "1" ]]; then
-        log_info "[DRY RUN] Would sign and notarize: $binary_path"
+        log_info "[DRY RUN] Would ad-hoc sign: $binary_path"
         return 0
     fi
 
-    # Use the notarize script for proper signing
-    if "$SCRIPT_DIR/notarize.sh" "$binary_path" "$binary_name"; then
-        log_success "Signed and notarized $binary_name"
+    # Ad-hoc signing (no Developer ID certificate)
+    if codesign --sign - --force "$binary_path" 2>/dev/null; then
+        log_success "Ad-hoc signed $binary_name"
     else
-        log_error "Notarization failed for $binary_name"
-        log_warn "Falling back to ad-hoc signing..."
-        # Fallback to ad-hoc signing if notarization fails
-        if codesign --sign - --force --preserve-metadata=entitlements,requirements,flags,runtime "$binary_path" 2>/dev/null; then
-            log_warn "Signed $binary_path (ad-hoc) - will trigger Gatekeeper warnings"
-        else
-            log_error "Ad-hoc signing also failed"
-            return 1
-        fi
+        log_warn "Ad-hoc signing failed for $binary_name - binary will still work but may trigger Gatekeeper"
     fi
 }
 
@@ -488,9 +480,9 @@ build_all() {
         build_binary "$os" "$arch" "$version"
     done
 
-    # Sign macOS binaries (both arm64 and amd64)
-    sign_macos_binary "$BUILD_DIR/$BINARY_NAME-darwin-arm64"
-    sign_macos_binary "$BUILD_DIR/$BINARY_NAME-darwin-amd64"
+    # Ad-hoc sign macOS binaries (self-signed, no Developer ID)
+    sign_macos_binary_adhoc "$BUILD_DIR/$BINARY_NAME-darwin-arm64"
+    sign_macos_binary_adhoc "$BUILD_DIR/$BINARY_NAME-darwin-amd64"
 
     # Create checksums
     log_step "Creating checksums..."

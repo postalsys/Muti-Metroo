@@ -74,41 +74,38 @@ Download the latest Muti Metroo binary for your platform. All binaries are self-
 ### Apple Silicon (M-series)
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-arm64.pkg" primary>
-    Download Installer (.pkg)
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-arm64" primary>
+    Download Binary (Apple Silicon)
   </DownloadButton>
-  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-arm64">Download Binary</DownloadButton>
 </DownloadButtonGroup>
 
 ### Intel
 
 <DownloadButtonGroup>
-  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-amd64.pkg" primary>
-    Download Installer (.pkg)
+  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-amd64" primary>
+    Download Binary (Intel)
   </DownloadButton>
-  <DownloadButton href="https://mutimetroo.com/downloads/latest/muti-metroo-darwin-amd64">Download Binary</DownloadButton>
 </DownloadButtonGroup>
 
 ### Installation
 
-**Using the installer (recommended):**
-
-1. Download the `.pkg` file for your architecture
-2. Double-click to run the installer
-3. Follow the installation prompts
-4. The binary will be installed to `/usr/local/bin/muti-metroo`
-
-**Using the standalone binary:**
-
 ```bash
-# Download and install (Apple Silicon)
+# Download for your architecture (example: Apple Silicon)
 curl -L -o muti-metroo https://mutimetroo.com/downloads/latest/muti-metroo-darwin-arm64
+
+# Make executable and install
 chmod +x muti-metroo
 sudo mv muti-metroo /usr/local/bin/
 
 # Verify installation
 muti-metroo --version
 ```
+
+:::note Gatekeeper Warning
+On first run, macOS may show a security warning because the binary is not signed with a Developer ID certificate. To allow it:
+1. Right-click the binary and select "Open", or
+2. Go to System Preferences > Security & Privacy and click "Allow Anyway"
+:::
 
   </TabItem>
   <TabItem value="linux" label="Linux">
