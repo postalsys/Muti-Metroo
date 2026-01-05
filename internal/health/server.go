@@ -63,6 +63,9 @@ type RemoteStatusProvider interface {
 	// GetRouteDetails returns detailed route information for the dashboard.
 	GetRouteDetails() []RouteDetails
 
+	// GetDomainRouteDetails returns detailed domain route information for the dashboard.
+	GetDomainRouteDetails() []DomainRouteDetails
+
 	// GetAllDisplayNames returns display names for all known agents (from route advertisements).
 	GetAllDisplayNames() map[identity.AgentID]string
 
@@ -123,6 +126,17 @@ type RouteDetails struct {
 	Metric   int
 	HopCount int
 	Path     []identity.AgentID // Full path from local to origin
+}
+
+// DomainRouteDetails contains detailed domain route information for the dashboard.
+type DomainRouteDetails struct {
+	Pattern    string
+	IsWildcard bool
+	NextHop    identity.AgentID
+	Origin     identity.AgentID
+	Metric     int
+	HopCount   int
+	Path       []identity.AgentID // Full path from local to origin
 }
 
 // RouteAdvertiseTrigger provides the ability to trigger immediate route advertisement.
@@ -190,12 +204,23 @@ type DashboardRouteInfo struct {
 	PathDisplay []string `json:"path_display"`  // Display names: [local, peer1, ..., origin]
 }
 
+// DashboardDomainRouteInfo contains information about a domain route.
+type DashboardDomainRouteInfo struct {
+	Pattern     string   `json:"pattern"`       // Domain pattern (e.g., "*.example.com")
+	IsWildcard  bool     `json:"is_wildcard"`
+	Origin      string   `json:"origin"`        // Display name of origin
+	OriginID    string   `json:"origin_id"`     // Short ID of origin
+	HopCount    int      `json:"hop_count"`
+	PathDisplay []string `json:"path_display"`  // Display names: [local, peer1, ..., origin]
+}
+
 // DashboardResponse is the response for the /api/dashboard endpoint.
 type DashboardResponse struct {
-	Agent  TopologyAgentInfo   `json:"agent"`
-	Stats  Stats               `json:"stats"`
-	Peers  []DashboardPeerInfo `json:"peers"`
-	Routes []DashboardRouteInfo `json:"routes"`
+	Agent        TopologyAgentInfo          `json:"agent"`
+	Stats        Stats                      `json:"stats"`
+	Peers        []DashboardPeerInfo        `json:"peers"`
+	Routes       []DashboardRouteInfo       `json:"routes"`
+	DomainRoutes []DashboardDomainRouteInfo `json:"domain_routes,omitempty"`
 }
 
 // ServerConfig contains health server configuration.
@@ -1214,6 +1239,34 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return routes[i].OriginID < routes[j].OriginID
 	})
 
+	// Build domain route info
+	domainRoutes := []DashboardDomainRouteInfo{}
+	domainRouteDetails := s.remoteProvider.GetDomainRouteDetails()
+	for _, route := range domainRouteDetails {
+		// Build path display: [local, peer1, peer2, ..., origin]
+		pathDisplay := []string{localName} // Start with local
+		for _, agentID := range route.Path {
+			pathDisplay = append(pathDisplay, getDisplayName(agentID))
+		}
+
+		domainRoutes = append(domainRoutes, DashboardDomainRouteInfo{
+			Pattern:     route.Pattern,
+			IsWildcard:  route.IsWildcard,
+			Origin:      getDisplayName(route.Origin),
+			OriginID:    route.Origin.ShortString(),
+			HopCount:    route.HopCount,
+			PathDisplay: pathDisplay,
+		})
+	}
+
+	// Sort domain routes deterministically by pattern, then by origin
+	sort.Slice(domainRoutes, func(i, j int) bool {
+		if domainRoutes[i].Pattern != domainRoutes[j].Pattern {
+			return domainRoutes[i].Pattern < domainRoutes[j].Pattern
+		}
+		return domainRoutes[i].OriginID < domainRoutes[j].OriginID
+	})
+
 	response := DashboardResponse{
 		Agent: TopologyAgentInfo{
 			ID:          localID.String(),
@@ -1222,9 +1275,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			IsLocal:     true,
 			IsConnected: true,
 		},
-		Stats:  stats,
-		Peers:  peers,
-		Routes: routes,
+		Stats:        stats,
+		Peers:        peers,
+		Routes:       routes,
+		DomainRoutes: domainRoutes,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

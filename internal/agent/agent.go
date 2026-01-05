@@ -269,8 +269,20 @@ func (a *Agent) initComponents() error {
 			return fmt.Errorf("parse exit routes: %w", err)
 		}
 
+		// Parse domain patterns for exit access control
+		var domainPatterns []exit.DomainPattern
+		for _, pattern := range a.cfg.Exit.DomainRoutes {
+			isWildcard, baseDomain := routing.ParseDomainPattern(pattern)
+			domainPatterns = append(domainPatterns, exit.DomainPattern{
+				Pattern:    pattern,
+				IsWildcard: isWildcard,
+				BaseDomain: baseDomain,
+			})
+		}
+
 		exitCfg := exit.HandlerConfig{
 			AllowedRoutes:  routes,
+			AllowedDomains: domainPatterns,
 			ConnectTimeout: 30 * time.Second,
 			IdleTimeout:    a.cfg.Connections.IdleThreshold,
 			MaxConnections: a.cfg.Limits.MaxStreamsTotal,
@@ -422,7 +434,8 @@ func (a *Agent) Start() error {
 	if a.exitHandler != nil {
 		a.exitHandler.Start()
 		a.logger.Info("exit handler started",
-			logging.KeyCount, len(a.cfg.Exit.Routes))
+			logging.KeyCount, len(a.cfg.Exit.Routes),
+			"domain_routes", len(a.cfg.Exit.DomainRoutes))
 	}
 
 	// Start route advertisement loop and announce initial routes
@@ -2631,6 +2644,27 @@ func (a *Agent) GetRouteDetails() []health.RouteDetails {
 			HopCount: len(r.Path),
 			Path:     pathCopy,
 		}
+	}
+	return details
+}
+
+// GetDomainRouteDetails returns detailed domain route information for the dashboard.
+func (a *Agent) GetDomainRouteDetails() []health.DomainRouteDetails {
+	routes := a.routeMgr.DomainTable().GetAllRoutes()
+	details := make([]health.DomainRouteDetails, 0, len(routes))
+	for _, r := range routes {
+		// Copy the path slice to avoid sharing underlying array
+		pathCopy := make([]identity.AgentID, len(r.Path))
+		copy(pathCopy, r.Path)
+		details = append(details, health.DomainRouteDetails{
+			Pattern:    r.Pattern,
+			IsWildcard: r.IsWildcard,
+			NextHop:    r.NextHop,
+			Origin:     r.OriginAgent,
+			Metric:     int(r.Metric),
+			HopCount:   len(r.Path),
+			Path:       pathCopy,
+		})
 	}
 	return details
 }

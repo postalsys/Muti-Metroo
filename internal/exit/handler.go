@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,10 +19,20 @@ import (
 	"github.com/postalsys/muti-metroo/internal/recovery"
 )
 
+// DomainPattern represents an allowed domain pattern.
+type DomainPattern struct {
+	Pattern    string // Original pattern (e.g., "*.example.com" or "api.test.local")
+	IsWildcard bool
+	BaseDomain string // For wildcards: domain without "*." prefix
+}
+
 // HandlerConfig contains exit handler configuration.
 type HandlerConfig struct {
 	// AllowedRoutes defines which destinations are allowed (CIDR format)
 	AllowedRoutes []*net.IPNet
+
+	// AllowedDomains defines which domain patterns are allowed
+	AllowedDomains []DomainPattern
 
 	// ConnectTimeout for outbound connections
 	ConnectTimeout time.Duration
@@ -168,6 +179,13 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 		return fmt.Errorf("connection limit exceeded")
 	}
 
+	// Check if this is a domain (not IP) that matches a domain pattern
+	domainAllowed := false
+	if net.ParseIP(destAddr) == nil {
+		// destAddr is a domain name, check against domain patterns
+		domainAllowed = h.isDomainAllowed(destAddr)
+	}
+
 	// Resolve address
 	ip, err := h.resolver.Resolve(ctx, destAddr)
 	if err != nil {
@@ -175,8 +193,8 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 		return fmt.Errorf("resolve %s: %w", destAddr, err)
 	}
 
-	// Check if destination is allowed
-	if !h.isAllowed(ip) {
+	// Check if destination is allowed (domain patterns OR CIDR routes)
+	if !domainAllowed && !h.isAllowed(ip) {
 		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrNotAllowed, "destination not allowed")
 		return fmt.Errorf("destination not allowed: %s", ip)
 	}
@@ -395,6 +413,37 @@ func (h *Handler) isAllowed(ip net.IP) bool {
 	for _, route := range h.cfg.AllowedRoutes {
 		if route.Contains(ip) {
 			return true
+		}
+	}
+
+	return false
+}
+
+// isDomainAllowed checks if a domain matches any allowed domain pattern.
+func (h *Handler) isDomainAllowed(domain string) bool {
+	if len(h.cfg.AllowedDomains) == 0 {
+		return false
+	}
+
+	domain = strings.ToLower(domain)
+
+	for _, dp := range h.cfg.AllowedDomains {
+		if dp.IsWildcard {
+			// Wildcard pattern: *.example.com matches foo.example.com (single level only)
+			// Check if domain ends with .baseDomain and has exactly one more level
+			suffix := "." + strings.ToLower(dp.BaseDomain)
+			if strings.HasSuffix(domain, suffix) {
+				// Count dots before the suffix - should be zero for single-level wildcard
+				prefix := domain[:len(domain)-len(suffix)]
+				if !strings.Contains(prefix, ".") && len(prefix) > 0 {
+					return true
+				}
+			}
+		} else {
+			// Exact match
+			if domain == strings.ToLower(dp.Pattern) {
+				return true
+			}
 		}
 	}
 
