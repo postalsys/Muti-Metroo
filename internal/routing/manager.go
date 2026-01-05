@@ -48,7 +48,9 @@ type Manager struct {
 
 	localID      identity.AgentID
 	table        *Table
+	domainTable  *DomainTable               // Domain-based routing table
 	localRoutes  map[string]*LocalRoute
+	localDomains map[string]*LocalDomainRoute // Local domain routes
 	displayNames map[identity.AgentID]string // Agent ID -> Display Name mapping
 	nodeInfos    map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
 	sequence     uint64
@@ -64,7 +66,9 @@ func NewManager(localID identity.AgentID) *Manager {
 	return &Manager{
 		localID:      localID,
 		table:        NewTable(localID),
+		domainTable:  NewDomainTable(localID),
 		localRoutes:  make(map[string]*LocalRoute),
+		localDomains: make(map[string]*LocalDomainRoute),
 		displayNames: make(map[identity.AgentID]string),
 		nodeInfos:    make(map[identity.AgentID]*NodeInfoEntry),
 	}
@@ -574,4 +578,154 @@ func (m *Manager) CleanupStaleNodeInfo(maxAge time.Duration) int {
 // Local routes are never removed. Returns the number of routes removed.
 func (m *Manager) CleanupStaleRoutes(maxAge time.Duration) int {
 	return m.table.CleanupStaleRoutes(maxAge)
+}
+
+// DomainTable returns the underlying domain routing table.
+func (m *Manager) DomainTable() *DomainTable {
+	return m.domainTable
+}
+
+// AddLocalDomainRoute adds a locally-originated domain route.
+func (m *Manager) AddLocalDomainRoute(pattern string, metric uint16) bool {
+	if pattern == "" {
+		return false
+	}
+
+	// Validate and parse the pattern
+	if err := ValidateDomainPattern(pattern); err != nil {
+		return false
+	}
+
+	isWildcard, baseDomain := ParseDomainPattern(pattern)
+	key := pattern
+
+	m.mu.Lock()
+	m.sequence++
+	seq := m.sequence
+
+	m.localDomains[key] = &LocalDomainRoute{
+		Pattern:    pattern,
+		IsWildcard: isWildcard,
+		BaseDomain: baseDomain,
+		Metric:     metric,
+	}
+	m.mu.Unlock()
+
+	// Add to domain table with ourselves as origin
+	route := &DomainRoute{
+		Pattern:     pattern,
+		IsWildcard:  isWildcard,
+		BaseDomain:  baseDomain,
+		NextHop:     m.localID, // Local route
+		OriginAgent: m.localID,
+		Metric:      metric,
+		Path:        nil, // Empty path for local routes
+		Sequence:    seq,
+	}
+
+	return m.domainTable.AddRoute(route)
+}
+
+// RemoveLocalDomainRoute removes a locally-originated domain route.
+func (m *Manager) RemoveLocalDomainRoute(pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+
+	key := pattern
+
+	m.mu.Lock()
+	_, exists := m.localDomains[key]
+	if !exists {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.localDomains, key)
+	m.mu.Unlock()
+
+	return m.domainTable.RemoveRoute(pattern, m.localID)
+}
+
+// GetLocalDomainRoutes returns all locally-originated domain routes.
+func (m *Manager) GetLocalDomainRoutes() []*LocalDomainRoute {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	routes := make([]*LocalDomainRoute, 0, len(m.localDomains))
+	for _, r := range m.localDomains {
+		routes = append(routes, &LocalDomainRoute{
+			Pattern:    r.Pattern,
+			IsWildcard: r.IsWildcard,
+			BaseDomain: r.BaseDomain,
+			Metric:     r.Metric,
+		})
+	}
+	return routes
+}
+
+// LookupDomain finds the best domain route for a domain name.
+func (m *Manager) LookupDomain(domain string) *DomainRoute {
+	return m.domainTable.Lookup(domain)
+}
+
+// DomainRouteEntry is a simplified domain route for advertisements.
+type DomainRouteEntry struct {
+	Pattern    string
+	IsWildcard bool
+	Metric     uint16
+}
+
+// ProcessDomainRouteAdvertise processes incoming domain route advertisements.
+// Returns the list of routes that were added/updated.
+func (m *Manager) ProcessDomainRouteAdvertise(
+	fromPeer identity.AgentID,
+	originAgent identity.AgentID,
+	sequence uint64,
+	routes []DomainRouteEntry,
+	path []identity.AgentID,
+	encPath *protocol.EncryptedData,
+) []*DomainRoute {
+	var accepted []*DomainRoute
+
+	for _, entry := range routes {
+		isWildcard, baseDomain := ParseDomainPattern(entry.Pattern)
+		route := &DomainRoute{
+			Pattern:     entry.Pattern,
+			IsWildcard:  isWildcard,
+			BaseDomain:  baseDomain,
+			NextHop:     fromPeer,
+			OriginAgent: originAgent,
+			Metric:      entry.Metric + 1, // Increment metric
+			Path:        path,
+			EncPath:     encPath,
+			Sequence:    sequence,
+		}
+
+		if m.domainTable.AddRoute(route) {
+			accepted = append(accepted, route.Clone())
+		}
+	}
+
+	return accepted
+}
+
+// HandlePeerDisconnectDomain removes all domain routes learned from a disconnected peer.
+func (m *Manager) HandlePeerDisconnectDomain(peerID identity.AgentID) int {
+	return m.domainTable.RemoveRoutesFromPeer(peerID)
+}
+
+// CleanupStaleDomainRoutes removes domain routes that haven't been updated within maxAge.
+// Local routes are never removed. Returns the number of routes removed.
+func (m *Manager) CleanupStaleDomainRoutes(maxAge time.Duration) int {
+	return m.domainTable.CleanupStaleRoutes(maxAge)
+}
+
+// DomainSize returns the number of unique domain patterns in the routing table.
+func (m *Manager) DomainSize() int {
+	return m.domainTable.Size()
+}
+
+// TotalDomainRoutes returns the total number of domain route entries.
+func (m *Manager) TotalDomainRoutes() int {
+	return m.domainTable.TotalRoutes()
 }

@@ -9,7 +9,10 @@ sidebar_position: 2
 
 # Exit Routing
 
-Exit nodes advertise CIDR routes and open TCP connections to external destinations.
+Exit nodes advertise routes and open TCP connections to external destinations. Two types of routes are supported:
+
+- **CIDR routes**: Match destinations by IP address (e.g., `10.0.0.0/8`)
+- **Domain routes**: Match destinations by domain name (e.g., `*.example.com`)
 
 ## Configuration
 
@@ -20,6 +23,9 @@ exit:
     - "10.0.0.0/8"
     - "192.168.0.0/16"
     - "0.0.0.0/0"  # Default route
+  domain_routes:
+    - "api.internal.corp"    # Exact domain match
+    - "*.example.com"        # Wildcard match
   dns:
     servers:
       - "8.8.8.8:53"
@@ -42,20 +48,50 @@ curl -X POST http://localhost:8080/routes/advertise
 
 ## DNS Resolution
 
-DNS resolution happens at the **ingress agent**, not at the exit node:
+DNS resolution location depends on the route type:
+
+### CIDR Routes (DNS at Ingress)
+
+For destinations matching CIDR routes:
 
 1. Client connects via SOCKS5 with domain (e.g., example.com)
 2. **Ingress agent** resolves domain using the system's DNS resolver
 3. Ingress performs route lookup using the resolved IP address
 4. Ingress opens a stream to the exit node with the **IP address**
 5. Exit opens TCP connection to the destination IP
-6. Traffic flows bidirectionally through the mesh
 
-:::note
-The `exit.dns` configuration is reserved for future use but is not currently active for SOCKS5 traffic. Domain names are always resolved at the ingress agent using the host system's DNS configuration.
+### Domain Routes (DNS at Exit)
+
+For destinations matching domain routes:
+
+1. Client connects via SOCKS5 with domain (e.g., api.internal.corp)
+2. Ingress checks domain routes first
+3. If a domain route matches, ingress opens a stream to the exit node with the **domain name**
+4. **Exit agent** resolves domain using the configured DNS servers
+5. Exit opens TCP connection to the resolved IP
+
+:::tip When to Use Domain Routes
+Domain routes are ideal for:
+- **Split-horizon DNS**: Internal domains that resolve differently inside vs. outside the network
+- **Private services**: Route `*.internal.corp` to an internal exit with access to internal DNS
+- **Geo-specific resolution**: Different DNS results based on exit node location
 :::
 
 ## Route Selection
+
+### Domain Routes
+
+Domain routes are checked **first** for domain-based requests:
+
+1. **Exact match**: `api.example.com` matches only `api.example.com`
+2. **Wildcard match**: `*.example.com` matches single-level subdomains like `foo.example.com`
+3. If no domain route matches, fall back to CIDR routing
+
+Wildcard matching is **single-level only**:
+- `*.example.com` matches `foo.example.com` and `bar.example.com`
+- `*.example.com` does NOT match `a.b.example.com` or `example.com`
+
+### CIDR Routes
 
 Uses longest-prefix match:
 

@@ -350,9 +350,10 @@ type SOCKS5UserConfig struct {
 
 // ExitConfig defines exit node settings.
 type ExitConfig struct {
-	Enabled bool        `yaml:"enabled"`
-	Routes  []string    `yaml:"routes"` // CIDR routes to advertise
-	DNS     DNSConfig   `yaml:"dns"`
+	Enabled      bool      `yaml:"enabled"`
+	Routes       []string  `yaml:"routes"`        // CIDR routes to advertise
+	DomainRoutes []string  `yaml:"domain_routes"` // Domain patterns to advertise (exact or *.wildcard)
+	DNS          DNSConfig `yaml:"dns"`
 }
 
 // DNSConfig defines DNS settings for exit nodes.
@@ -662,10 +663,17 @@ func (c *Config) Validate() error {
 		errs = append(errs, "socks5.address is required when enabled")
 	}
 
-	// Validate exit routes
+	// Validate exit routes (CIDR)
 	for i, route := range c.Exit.Routes {
 		if !isValidCIDR(route) {
 			errs = append(errs, fmt.Sprintf("exit.routes[%d]: invalid CIDR: %s", i, route))
+		}
+	}
+
+	// Validate domain routes
+	for i, pattern := range c.Exit.DomainRoutes {
+		if err := isValidDomainPattern(pattern); err != nil {
+			errs = append(errs, fmt.Sprintf("exit.domain_routes[%d]: %v", i, err))
 		}
 	}
 
@@ -829,6 +837,58 @@ func (c *Config) validatePeer(p PeerConfig, index int) error {
 func isValidCIDR(cidr string) bool {
 	_, _, err := net.ParseCIDR(cidr)
 	return err == nil
+}
+
+// isValidDomainPattern validates a domain pattern (exact or *.wildcard).
+func isValidDomainPattern(pattern string) error {
+	if pattern == "" {
+		return fmt.Errorf("empty domain pattern")
+	}
+
+	pattern = strings.TrimSpace(pattern)
+
+	// Check for wildcard pattern
+	var baseDomain string
+	if strings.HasPrefix(pattern, "*.") {
+		baseDomain = pattern[2:]
+	} else {
+		baseDomain = pattern
+	}
+
+	if baseDomain == "" {
+		return fmt.Errorf("empty domain after wildcard")
+	}
+
+	// Basic domain validation
+	if strings.HasPrefix(baseDomain, ".") || strings.HasSuffix(baseDomain, ".") {
+		return fmt.Errorf("domain cannot start or end with a dot")
+	}
+
+	if strings.Contains(baseDomain, "..") {
+		return fmt.Errorf("domain cannot contain consecutive dots")
+	}
+
+	// Check for valid characters
+	for _, r := range baseDomain {
+		if !isValidDomainChar(r) {
+			return fmt.Errorf("invalid character in domain: %c", r)
+		}
+	}
+
+	// Must have at least one dot (TLD)
+	if !strings.Contains(baseDomain, ".") {
+		return fmt.Errorf("domain must have at least one dot (e.g., example.com)")
+	}
+
+	return nil
+}
+
+// isValidDomainChar checks if a character is valid in a domain name.
+func isValidDomainChar(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') ||
+		r == '-' || r == '.'
 }
 
 // String returns a string representation of the config (for debugging).

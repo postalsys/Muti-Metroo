@@ -52,8 +52,9 @@ const (
 
 // Address family constants (for routes)
 const (
-	AddrFamilyIPv4 uint8 = 0x01
-	AddrFamilyIPv6 uint8 = 0x02
+	AddrFamilyIPv4   uint8 = 0x01
+	AddrFamilyIPv6   uint8 = 0x02
+	AddrFamilyDomain uint8 = 0x03 // Domain pattern route
 )
 
 // Error codes for STREAM_OPEN_ERR and STREAM_RESET

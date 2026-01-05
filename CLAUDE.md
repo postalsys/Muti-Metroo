@@ -14,6 +14,7 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 - Multiple transport layers: QUIC/TLS 1.3, HTTP/2, and WebSocket
 - SOCKS5 proxy ingress with optional authentication
 - CIDR-based exit routing (DNS resolved at ingress agent)
+- Domain-based exit routing (DNS resolved at exit agent)
 - Multi-hop path routing via flood-based route propagation
 - Stream multiplexing with half-close support
 
@@ -158,7 +159,7 @@ An agent can serve multiple roles simultaneously:
 
 - **Ingress**: SOCKS5 listener, DNS resolution, initiates virtual streams, performs route lookup
 - **Transit**: Forwards streams between peers, participates in route flooding
-- **Exit**: Opens real TCP connections, advertises CIDR routes
+- **Exit**: Opens real TCP connections, advertises CIDR and domain routes
 
 ### Package Structure (`internal/`)
 
@@ -181,7 +182,7 @@ An agent can serve multiple roles simultaneously:
 | `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff                 |
 | `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types                   |
 | `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                          |
-| `routing`      | Route table with longest-prefix match, route manager with subscription system               |
+| `routing`      | Route table with CIDR longest-prefix match and domain pattern matching, route manager      |
 | `service`      | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service       |
 | `shell`        | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
 | `socks5`       | SOCKS5 server with no-auth and username/password methods                                    |
@@ -217,7 +218,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `listeners`: Transport listeners (QUIC on :4433)
 - `peers`: Outbound peer connections with TLS config
 - `socks5`: Ingress proxy settings
-- `exit`: Exit node routes (DNS config reserved for future use)
+- `exit`: Exit node CIDR routes, domain routes, DNS config for domain route resolution
 - `routing`: Advertisement intervals, node info interval, TTL, max hops
 - `limits`: Stream limits and buffer sizes
 - `http`: HTTP API server with granular endpoint control (health, metrics, dashboard, remote APIs, CLI)

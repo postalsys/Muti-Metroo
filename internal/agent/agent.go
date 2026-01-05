@@ -283,10 +283,15 @@ func (a *Agent) initComponents() error {
 		a.exitHandler = exit.NewHandler(exitCfg, a.id, nil)
 	}
 
-	// Add local routes
+	// Add local CIDR routes
 	for _, route := range a.cfg.Exit.Routes {
 		network := routing.MustParseCIDR(route)
 		a.routeMgr.AddLocalRoute(network, 0)
+	}
+
+	// Add local domain routes
+	for _, pattern := range a.cfg.Exit.DomainRoutes {
+		a.routeMgr.AddLocalDomainRoute(pattern, 0)
 	}
 
 	// Wire up exit handler with Agent as StreamWriter
@@ -2023,11 +2028,38 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 		return nil, fmt.Errorf("invalid port: %w", err)
 	}
 
-	// Resolve hostname to IP
-	var destIP net.IP
-	destIP = net.ParseIP(host)
+	// Check if host is already an IP address
+	destIP := net.ParseIP(host)
+
+	// If host is a domain, check domain routes BEFORE DNS resolution
 	if destIP == nil {
-		// Need to resolve hostname
+		domainRoute := a.routeMgr.LookupDomain(host)
+		if domainRoute != nil {
+			a.logger.Debug("mesh dial found domain route",
+				"address", address,
+				"domain", host,
+				"pattern", domainRoute.Pattern,
+				"origin", domainRoute.OriginAgent.ShortString())
+
+			// If domain route points to us (local exit), resolve DNS and dial directly
+			if domainRoute.OriginAgent == a.id {
+				a.logger.Debug("mesh dial domain route is local, resolving DNS",
+					"address", address)
+				ips, err := net.LookupIP(host)
+				if err != nil {
+					return nil, fmt.Errorf("resolve %s: %w", host, err)
+				}
+				if len(ips) == 0 {
+					return nil, fmt.Errorf("no IP addresses for %s", host)
+				}
+				return net.Dial(network, net.JoinHostPort(ips[0].String(), portStr))
+			}
+
+			// Route via domain route - exit node will resolve DNS
+			return a.dialViaDomainRoute(network, host, port, domainRoute)
+		}
+
+		// No domain route - resolve DNS at ingress (existing behavior)
 		ips, err := net.LookupIP(host)
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s: %w", host, err)
@@ -2038,7 +2070,7 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 		destIP = ips[0]
 	}
 
-	// Look up route in routing table
+	// Look up CIDR route in routing table
 	route := a.routeMgr.Lookup(destIP)
 
 	a.logger.Debug("mesh dial route lookup",
@@ -2185,6 +2217,130 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 		},
 	}, nil
 }
+
+// dialViaDomainRoute routes a connection through a domain route.
+// The domain name is passed to the exit node for DNS resolution.
+func (a *Agent) dialViaDomainRoute(network, host string, port int, route *routing.DomainRoute) (net.Conn, error) {
+	// Get next hop connection
+	conn := a.peerMgr.GetPeer(route.NextHop)
+	if conn == nil {
+		// Next hop not connected, can't route
+		return nil, fmt.Errorf("next hop %s not connected", route.NextHop.ShortString())
+	}
+
+	// Build the path for STREAM_OPEN
+	var remainingPath []identity.AgentID
+	if len(route.Path) > 1 {
+		remainingPath = make([]identity.AgentID, len(route.Path)-1)
+		copy(remainingPath, route.Path[1:])
+	}
+
+	// Generate stream ID
+	streamID := conn.NextStreamID()
+
+	// Build domain address bytes (length-prefixed string)
+	addrBytes := make([]byte, 1+len(host))
+	addrBytes[0] = byte(len(host))
+	copy(addrBytes[1:], host)
+
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
+	// Create the stream in stream manager
+	pending := a.streamMgr.OpenStream(streamID, route.NextHop, host, uint16(port), 30*time.Second)
+
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with domain address
+	openPayload := &protocol.StreamOpen{
+		RequestID:       pending.RequestID,
+		AddressType:     protocol.AddrTypeDomain, // Domain address type
+		Address:         addrBytes,               // Length-prefixed domain name
+		Port:            uint16(port),
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	a.logger.Debug("mesh dial via domain route sending STREAM_OPEN",
+		"stream_id", streamID,
+		"request_id", pending.RequestID,
+		"domain", host,
+		"pattern", route.Pattern,
+		"remaining_path_len", len(remainingPath))
+
+	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
+		a.logger.Debug("mesh dial via domain route failed to send STREAM_OPEN", "error", err)
+		return nil, fmt.Errorf("send stream open: %w", err)
+	}
+
+	a.logger.Debug("mesh dial via domain route waiting for STREAM_OPEN_ACK", "stream_id", streamID)
+
+	// Wait for response
+	result := <-pending.ResultCh
+	if result.Error != nil {
+		a.logger.Debug("mesh dial via domain route received error", "error", result.Error)
+		crypto.ZeroKey(&ephPriv)
+		return nil, result.Error
+	}
+
+	a.logger.Debug("mesh dial via domain route received ACK, connection established",
+		"stream_id", streamID,
+		"request_id", pending.RequestID,
+		"bound_ip", result.BoundIP,
+		"bound_port", result.BoundPort)
+
+	// Derive session key from ECDH with exit node's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Store session key in stream
+	result.Stream.SetSessionKey(sessionKey)
+
+	// Return a MeshConn wrapper
+	// Note: destIP is nil for domain routes since DNS is resolved at exit
+	return &meshConn{
+		agent:    a,
+		stream:   result.Stream,
+		peerID:   route.NextHop,
+		streamID: streamID,
+		localAddr: &net.TCPAddr{
+			IP:   result.BoundIP,
+			Port: int(result.BoundPort),
+		},
+		remoteAddr: &domainAddr{
+			domain: host,
+			port:   port,
+		},
+	}, nil
+}
+
+// domainAddr implements net.Addr for domain-based connections.
+type domainAddr struct {
+	domain string
+	port   int
+}
+
+func (d *domainAddr) Network() string { return "tcp" }
+func (d *domainAddr) String() string  { return fmt.Sprintf("%s:%d", d.domain, d.port) }
 
 // meshConn implements net.Conn for mesh-routed connections.
 type meshConn struct {

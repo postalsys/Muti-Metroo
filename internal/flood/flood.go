@@ -213,36 +213,54 @@ func (f *Flooder) HandleRouteAdvertise(
 		}
 	}
 
-	// Convert protocol routes to routing entries
-	entries := make([]routing.RouteEntry, 0, len(routes))
+	// Convert protocol routes to routing entries (CIDR and domain)
+	cidrEntries := make([]routing.RouteEntry, 0, len(routes))
+	domainEntries := make([]routing.DomainRouteEntry, 0)
+
 	for _, r := range routes {
 		if len(r.Prefix) == 0 {
 			continue
 		}
 
-		var ipNet *net.IPNet
-		if r.AddressFamily == protocol.AddrFamilyIPv4 {
+		switch r.AddressFamily {
+		case protocol.AddrFamilyIPv4:
 			ip := make(net.IP, 4)
 			copy(ip, r.Prefix)
 			mask := net.CIDRMask(int(r.PrefixLength), 32)
-			ipNet = &net.IPNet{IP: ip, Mask: mask}
-		} else if r.AddressFamily == protocol.AddrFamilyIPv6 {
+			cidrEntries = append(cidrEntries, routing.RouteEntry{
+				Network: &net.IPNet{IP: ip, Mask: mask},
+				Metric:  r.Metric,
+			})
+		case protocol.AddrFamilyIPv6:
 			ip := make(net.IP, 16)
 			copy(ip, r.Prefix)
 			mask := net.CIDRMask(int(r.PrefixLength), 128)
-			ipNet = &net.IPNet{IP: ip, Mask: mask}
-		}
-
-		if ipNet != nil {
-			entries = append(entries, routing.RouteEntry{
-				Network: ipNet,
+			cidrEntries = append(cidrEntries, routing.RouteEntry{
+				Network: &net.IPNet{IP: ip, Mask: mask},
 				Metric:  r.Metric,
 			})
+		case protocol.AddrFamilyDomain:
+			// Domain route: PrefixLength 0=exact, 1=wildcard
+			pattern := protocol.DecodeDomainPrefix(r.Prefix)
+			if pattern != "" {
+				domainEntries = append(domainEntries, routing.DomainRouteEntry{
+					Pattern:    pattern,
+					IsWildcard: r.PrefixLength == 1,
+					Metric:     r.Metric,
+				})
+			}
 		}
 	}
 
-	// Process in routing manager (path may be nil if encrypted and can't decrypt)
-	f.routeMgr.ProcessRouteAdvertise(fromPeer, originAgent, sequence, entries, path, encPath)
+	// Process CIDR routes in routing manager
+	if len(cidrEntries) > 0 {
+		f.routeMgr.ProcessRouteAdvertise(fromPeer, originAgent, sequence, cidrEntries, path, encPath)
+	}
+
+	// Process domain routes in routing manager
+	if len(domainEntries) > 0 {
+		f.routeMgr.ProcessDomainRouteAdvertise(fromPeer, originAgent, sequence, domainEntries, path, encPath)
+	}
 
 	// Flood to other peers (forward encrypted path as-is)
 	newSeenBy := append(seenBy, f.localID)
@@ -442,17 +460,21 @@ func (f *Flooder) floodWithdrawal(
 	}
 }
 
-// AnnounceLocalRoutes floods all local routes to all peers.
+// AnnounceLocalRoutes floods all local routes (CIDR and domain) to all peers.
 func (f *Flooder) AnnounceLocalRoutes() {
 	localRoutes := f.routeMgr.GetLocalRoutes()
-	if len(localRoutes) == 0 {
+	localDomainRoutes := f.routeMgr.GetLocalDomainRoutes()
+
+	if len(localRoutes) == 0 && len(localDomainRoutes) == 0 {
 		return
 	}
 
 	seq := f.routeMgr.IncrementSequence()
 
-	// Convert to protocol routes
-	routes := make([]protocol.Route, 0, len(localRoutes))
+	// Convert to protocol routes (CIDR + domain)
+	routes := make([]protocol.Route, 0, len(localRoutes)+len(localDomainRoutes))
+
+	// Add CIDR routes
 	for _, lr := range localRoutes {
 		ones, bits := lr.Network.Mask.Size()
 		family := protocol.AddrFamilyIPv4
@@ -465,6 +487,20 @@ func (f *Flooder) AnnounceLocalRoutes() {
 			PrefixLength:  uint8(ones),
 			Prefix:        []byte(lr.Network.IP),
 			Metric:        lr.Metric,
+		})
+	}
+
+	// Add domain routes
+	for _, dr := range localDomainRoutes {
+		prefixLen := uint8(0) // 0 = exact match
+		if dr.IsWildcard {
+			prefixLen = 1 // 1 = wildcard
+		}
+		routes = append(routes, protocol.Route{
+			AddressFamily: protocol.AddrFamilyDomain,
+			PrefixLength:  prefixLen,
+			Prefix:        protocol.EncodeDomainPrefix(dr.Pattern),
+			Metric:        dr.Metric,
 		})
 	}
 

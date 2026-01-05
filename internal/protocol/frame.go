@@ -522,7 +522,7 @@ func DecodeKeepalive(buf []byte) (*Keepalive, error) {
 type Route struct {
 	AddressFamily uint8
 	PrefixLength  uint8
-	Prefix        []byte // 4 or 16 bytes
+	Prefix        []byte // 4 or 16 bytes for IP, length-prefixed string for domain
 	Metric        uint16
 }
 
@@ -534,6 +534,28 @@ func (r *Route) Encode() []byte {
 	copy(buf[2:], r.Prefix)
 	binary.BigEndian.PutUint16(buf[2+len(r.Prefix):], r.Metric)
 	return buf
+}
+
+// EncodeDomainPrefix encodes a domain pattern for route advertisement.
+// Returns length-prefixed domain string (1 byte length + domain).
+func EncodeDomainPrefix(pattern string) []byte {
+	buf := make([]byte, 1+len(pattern))
+	buf[0] = uint8(len(pattern))
+	copy(buf[1:], pattern)
+	return buf
+}
+
+// DecodeDomainPrefix decodes a domain pattern from route advertisement.
+// Input is length-prefixed domain string (1 byte length + domain).
+func DecodeDomainPrefix(prefix []byte) string {
+	if len(prefix) < 1 {
+		return ""
+	}
+	domainLen := int(prefix[0])
+	if len(prefix) < 1+domainLen {
+		return ""
+	}
+	return string(prefix[1 : 1+domainLen])
 }
 
 // RouteAdvertise is the payload for ROUTE_ADVERTISE frames.
@@ -567,10 +589,15 @@ func (r *RouteAdvertise) Encode() []byte {
 	// Calculate size
 	size := 16 + 1 + len(r.OriginDisplayName) + 8 + 1
 	for _, route := range r.Routes {
-		if route.AddressFamily == AddrFamilyIPv4 {
-			size += 2 + 4 + 2 // family + prefix + metric
-		} else {
-			size += 2 + 16 + 2
+		switch route.AddressFamily {
+		case AddrFamilyIPv4:
+			size += 2 + 4 + 2 // family + prefixLen + prefix(4) + metric
+		case AddrFamilyIPv6:
+			size += 2 + 16 + 2 // family + prefixLen + prefix(16) + metric
+		case AddrFamilyDomain:
+			size += 2 + len(route.Prefix) + 2 // family + prefixLen + prefix(length-prefixed string) + metric
+		default:
+			size += 2 + 16 + 2 // fallback to IPv6 size
 		}
 	}
 	size += len(encPathBytes)        // encrypted path data
@@ -599,9 +626,18 @@ func (r *RouteAdvertise) Encode() []byte {
 		offset++
 		buf[offset] = route.PrefixLength
 		offset++
-		prefixLen := 4
-		if route.AddressFamily == AddrFamilyIPv6 {
+
+		var prefixLen int
+		switch route.AddressFamily {
+		case AddrFamilyIPv4:
+			prefixLen = 4
+		case AddrFamilyIPv6:
 			prefixLen = 16
+		case AddrFamilyDomain:
+			// Domain routes: prefix is already length-prefixed string
+			prefixLen = len(route.Prefix)
+		default:
+			prefixLen = 16 // fallback
 		}
 		copy(buf[offset:], route.Prefix[:prefixLen])
 		offset += prefixLen
@@ -670,9 +706,21 @@ func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 		route.PrefixLength = buf[offset]
 		offset++
 
-		prefixLen := 4
-		if route.AddressFamily == AddrFamilyIPv6 {
+		var prefixLen int
+		switch route.AddressFamily {
+		case AddrFamilyIPv4:
+			prefixLen = 4
+		case AddrFamilyIPv6:
 			prefixLen = 16
+		case AddrFamilyDomain:
+			// Domain routes: first byte is domain length, followed by domain string
+			if offset >= len(buf) {
+				return nil, fmt.Errorf("%w: RouteAdvertise domain length missing", ErrInvalidFrame)
+			}
+			domainLen := int(buf[offset])
+			prefixLen = 1 + domainLen // length byte + domain string
+		default:
+			prefixLen = 16 // fallback
 		}
 		if offset+prefixLen+2 > len(buf) {
 			return nil, fmt.Errorf("%w: RouteAdvertise route prefix truncated", ErrInvalidFrame)

@@ -763,7 +763,73 @@ func (w *Wizard) askExitConfig() (config.ExitConfig, error) {
 	}
 
 	cfg.Routes = routes
+
+	// Domain routes (optional)
+	fmt.Println()
+	prompt.PrintHeader("Domain Routes (Optional)", "Route traffic by domain name.\nExamples: api.internal.corp, *.example.com")
+
+	fmt.Println("Enter domain patterns, one per line. Enter empty line to finish.")
+	fmt.Println("Use *.domain.tld for single-level wildcards.")
+
+	// Use existing domain routes as hints
+	if w.existingCfg != nil && len(w.existingCfg.Exit.DomainRoutes) > 0 {
+		fmt.Printf("Current domain routes: %v\n", w.existingCfg.Exit.DomainRoutes)
+	}
+
+	var domainRoutes []string
+	for {
+		line, err := prompt.ReadLine("Domain (or empty to finish)", "")
+		if err != nil {
+			return cfg, err
+		}
+		if line == "" {
+			break
+		}
+		line = strings.TrimSpace(line)
+		if err := validateDomainPattern(line); err != nil {
+			fmt.Printf("  Invalid pattern: %v\n", err)
+			continue
+		}
+		domainRoutes = append(domainRoutes, line)
+	}
+
+	cfg.DomainRoutes = domainRoutes
 	return cfg, nil
+}
+
+// validateDomainPattern validates a domain pattern for the wizard.
+func validateDomainPattern(pattern string) error {
+	if pattern == "" {
+		return fmt.Errorf("empty domain pattern")
+	}
+
+	// Check for wildcard pattern
+	var baseDomain string
+	if strings.HasPrefix(pattern, "*.") {
+		baseDomain = pattern[2:]
+	} else {
+		baseDomain = pattern
+	}
+
+	if baseDomain == "" {
+		return fmt.Errorf("empty domain after wildcard")
+	}
+
+	// Basic domain validation
+	if strings.HasPrefix(baseDomain, ".") || strings.HasSuffix(baseDomain, ".") {
+		return fmt.Errorf("domain cannot start or end with a dot")
+	}
+
+	if strings.Contains(baseDomain, "..") {
+		return fmt.Errorf("domain cannot contain consecutive dots")
+	}
+
+	// Must have at least one dot (TLD)
+	if !strings.Contains(baseDomain, ".") {
+		return fmt.Errorf("domain must have at least one dot (e.g., example.com)")
+	}
+
+	return nil
 }
 
 func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err error) {

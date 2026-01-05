@@ -15,10 +15,15 @@ Muti Metroo automatically discovers and selects the best routes through the mesh
 
 Routing works as follows:
 
-1. **Exit agents** advertise which networks they can reach (CIDR routes)
+1. **Exit agents** advertise which networks they can reach (CIDR routes and domain routes)
 2. **Routes propagate** automatically through the mesh
 3. **Each agent** maintains a routing table
 4. **Traffic is routed** to the exit agent that can reach the destination
+
+Two types of routes are supported:
+
+- **CIDR routes**: Match by IP address (e.g., `10.0.0.0/8`, `0.0.0.0/0`)
+- **Domain routes**: Match by domain name (e.g., `api.internal.corp`, `*.example.com`)
 
 ## Configuring Exit Routes
 
@@ -31,15 +36,49 @@ exit:
     - "10.0.0.0/8"        # Internal network
     - "192.168.0.0/16"    # Private network
     - "0.0.0.0/0"         # Default route (all destinations)
+  domain_routes:
+    - "api.internal.corp"  # Exact domain match
+    - "*.example.com"      # Wildcard match
 ```
 
-Each route includes:
+Each CIDR route includes:
 - **CIDR**: Network prefix (e.g., `10.0.0.0/8`)
+- **Metric**: Hop count (automatically calculated)
+
+Each domain route includes:
+- **Pattern**: Exact domain or wildcard pattern (e.g., `*.example.com`)
 - **Metric**: Hop count (automatically calculated)
 
 ## Route Selection
 
-When multiple routes match a destination, the **most specific route wins** (longest prefix match):
+### Priority Order
+
+For domain-based requests (SOCKS5 connection to a domain name):
+
+1. **Domain routes** are checked first
+2. If no domain route matches, DNS resolution happens at the ingress
+3. **CIDR routes** are then used based on the resolved IP
+
+For IP-based requests (SOCKS5 connection to an IP address):
+
+1. **CIDR routes** are used directly
+
+### Domain Route Matching
+
+Domain routes support two pattern types:
+
+| Pattern | Matches | Does NOT Match |
+|---------|---------|----------------|
+| `api.example.com` | `api.example.com` | `foo.example.com` |
+| `*.example.com` | `foo.example.com`, `bar.example.com` | `example.com`, `a.b.example.com` |
+
+Wildcards use **single-level matching** only. The pattern `*.example.com` matches one subdomain level, not multiple.
+
+If multiple agents advertise the same domain pattern, the route with the **lowest metric** (fewest hops) wins.
+
+### CIDR Route Matching
+
+When multiple CIDR routes match a destination, the **most specific route wins** (longest prefix match):
 
 | CIDR | Next Hop | Metric |
 |------|----------|--------|

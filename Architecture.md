@@ -653,10 +653,25 @@ All communication uses a consistent framing protocol:
 │  ┌──────┬────────────────────┬─────────────┬─────────────────────────────┐ │
 │  │ Type │ Name               │ Direction   │ Purpose                     │ │
 │  ├──────┼────────────────────┼─────────────┼─────────────────────────────┤ │
-│  │ 0x10 │ ROUTE_ADVERTISE    │ Flood       │ Announce CIDR routes        │ │
+│  │ 0x10 │ ROUTE_ADVERTISE    │ Flood       │ Announce CIDR/domain routes │ │
 │  │ 0x11 │ ROUTE_WITHDRAW     │ Flood       │ Remove CIDR routes          │ │
 │  │ 0x12 │ NODE_INFO_ADVERTISE│ Flood       │ Announce node metadata      │ │
 │  └──────┴────────────────────┴─────────────┴─────────────────────────────┘ │
+│                                                                             │
+│  Route Address Families:                                                    │
+│  ┌──────┬─────────────────┬─────────────────────────────────────────────┐  │
+│  │ Type │ Name            │ Description                                 │  │
+│  ├──────┼─────────────────┼─────────────────────────────────────────────┤  │
+│  │ 0x01 │ AddrFamilyIPv4  │ IPv4 CIDR route (e.g., 10.0.0.0/8)         │  │
+│  │ 0x02 │ AddrFamilyIPv6  │ IPv6 CIDR route (e.g., ::/0)               │  │
+│  │ 0x03 │ AddrFamilyDomain│ Domain pattern (exact or wildcard)         │  │
+│  └──────┴─────────────────┴─────────────────────────────────────────────┘  │
+│                                                                             │
+│  Domain Route Wire Format in ROUTE_ADVERTISE:                               │
+│  • AddressFamily: 0x03 (domain)                                             │
+│  • PrefixLength: 0x00 (exact) or 0x01 (wildcard)                            │
+│  • Prefix: 1-byte length + UTF-8 domain pattern                             │
+│  • Metric: uint16                                                           │
 │                                                                             │
 │  Control Frames:                                                            │
 │  ┌──────┬────────────────────┬─────────────┬─────────────────────────────┐ │
@@ -1049,6 +1064,44 @@ All communication uses a consistent framing protocol:
 │                                                                             │
 │  Route entries are sorted by prefix length (descending) for efficient      │
 │  longest-prefix match during lookup.                                       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Domain Route Table
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        DOMAIN ROUTE TABLE STRUCTURE                         │
+│                                                                             │
+│  DomainRoute {                                                              │
+│      Pattern     string        // "example.com" or "*.example.com"          │
+│      IsWildcard  bool          // True if pattern starts with "*."          │
+│      BaseDomain  string        // For wildcard: domain without "*."         │
+│      NextHop     AgentID       // Immediate peer to forward to              │
+│      OriginAgent AgentID       // Agent that advertised this route          │
+│      Path        []AgentID     // Full path from here to origin             │
+│      Metric      uint16        // Hop count                                 │
+│      Sequence    uint64        // From origin's advertisement               │
+│      LastUpdate  time.Time     // When this route was last updated          │
+│  }                                                                          │
+│                                                                             │
+│  DomainTable {                                                              │
+│      exactRoutes  map[string][]*DomainRoute  // "api.example.com" -> routes │
+│      wildcardBase map[string][]*DomainRoute  // "example.com" -> wildcard   │
+│      localID      AgentID                    // Local agent ID              │
+│  }                                                                          │
+│                                                                             │
+│  Matching algorithm:                                                        │
+│  1. Exact match: lookup domain in exactRoutes                               │
+│  2. Wildcard match: split domain at first ".", lookup remainder in          │
+│     wildcardBase (single-level wildcard only)                               │
+│  3. Return route with lowest metric                                         │
+│                                                                             │
+│  Example lookups:                                                           │
+│  • "api.example.com" with route "api.example.com" -> exact match            │
+│  • "foo.example.com" with route "*.example.com" -> wildcard match           │
+│  • "a.b.example.com" with route "*.example.com" -> NO MATCH (multi-level)   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
