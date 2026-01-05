@@ -22,6 +22,7 @@ type PeerInfo struct {
 	Capabilities []string
 	Persistent   bool // If true, auto-reconnect on disconnect
 	DialOptions  *transport.DialOptions
+	Transport    transport.Transport // Transport to use for this peer (nil = use manager default)
 }
 
 // ManagerConfig contains configuration for the peer manager.
@@ -268,6 +269,17 @@ func (m *Manager) handleDisconnect(conn *Connection, err error) {
 func (m *Manager) handleReconnect(addr string) error {
 	ctx, cancel := context.WithTimeout(m.ctx, m.cfg.HandshakeTimeout+m.cfg.DialOptions.Timeout)
 	defer cancel()
+
+	// Check if peer has a specific transport configured
+	m.mu.RLock()
+	info := m.peerInfos[addr]
+	m.mu.RUnlock()
+
+	// Use peer-specific transport if available, otherwise use default Connect
+	if info != nil && info.Transport != nil {
+		_, err := m.ConnectWithTransport(ctx, info.Transport, addr)
+		return err
+	}
 
 	_, err := m.Connect(ctx, addr)
 	return err

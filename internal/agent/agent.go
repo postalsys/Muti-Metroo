@@ -794,38 +794,45 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 
 	dialOpts.TLSConfig = tlsConfig
 
-	// Add peer info to manager
-	a.peerMgr.AddPeer(peer.PeerInfo{
-		Address:     cfg.Address,
-		ExpectedID:  expectedID,
-		Persistent:  true,
-		DialOptions: dialOpts,
-	})
-
-	// Attempt connection
-	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Connections.Timeout)
-	defer cancel()
-
 	// Select the appropriate transport based on config
 	transportType := transport.TransportType(cfg.Transport)
 	if transportType == "" {
 		transportType = transport.TransportQUIC // Default to QUIC
 	}
 
-	var conn *peer.Connection
-
-	if transportType == transport.TransportQUIC {
-		// Use default Connect for QUIC
-		conn, err = a.peerMgr.Connect(ctx, cfg.Address)
-	} else {
-		// Use ConnectWithTransport for other transports
+	// Get transport for this peer (needed for reconnection)
+	var peerTransport transport.Transport
+	if transportType != transport.TransportQUIC {
 		tr, ok := a.transports[transportType]
 		if !ok {
 			a.logger.Error("unsupported transport type",
 				logging.KeyTransport, transportType)
 			return
 		}
-		conn, err = a.peerMgr.ConnectWithTransport(ctx, tr, cfg.Address)
+		peerTransport = tr
+	}
+
+	// Add peer info to manager (including transport for reconnection)
+	a.peerMgr.AddPeer(peer.PeerInfo{
+		Address:     cfg.Address,
+		ExpectedID:  expectedID,
+		Persistent:  true,
+		DialOptions: dialOpts,
+		Transport:   peerTransport,
+	})
+
+	// Attempt connection
+	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Connections.Timeout)
+	defer cancel()
+
+	var conn *peer.Connection
+
+	if peerTransport == nil {
+		// Use default Connect for QUIC
+		conn, err = a.peerMgr.Connect(ctx, cfg.Address)
+	} else {
+		// Use ConnectWithTransport for other transports
+		conn, err = a.peerMgr.ConnectWithTransport(ctx, peerTransport, cfg.Address)
 	}
 
 	if err != nil {
