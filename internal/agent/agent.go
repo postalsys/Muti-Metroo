@@ -53,14 +53,16 @@ type relayStream struct {
 
 // fileTransferStream tracks an active file transfer stream.
 type fileTransferStream struct {
-	StreamID    uint64
-	PeerID      identity.AgentID
-	RequestID   uint64
-	IsUpload    bool   // true for upload (receiving data), false for download (sending data)
-	Meta        *filetransfer.TransferMetadata
-	DataBuf     *bytes.Buffer // Buffer for received data (upload)
-	MetaReceived bool         // true after metadata frame received
-	Closed      bool
+	StreamID     uint64
+	PeerID       identity.AgentID
+	RequestID    uint64
+	IsUpload     bool // true for upload (receiving data), false for download (sending data)
+	Meta         *filetransfer.TransferMetadata
+	MetaReceived bool // true after metadata frame received
+	Closed       bool
+	// Streaming upload fields (write directly to disk instead of buffering)
+	TempFile     *os.File // Temp file for streaming upload data
+	BytesWritten int64    // Bytes written to temp file
 }
 
 // pendingControlRequest tracks an outbound control request awaiting response.
@@ -2844,13 +2846,12 @@ func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uin
 		return
 	}
 
-	// Create file transfer stream entry
+	// Create file transfer stream entry (temp file created after metadata received)
 	fts := &fileTransferStream{
 		StreamID:     streamID,
 		PeerID:       peerID,
 		RequestID:    requestID,
 		IsUpload:     true,
-		DataBuf:      bytes.NewBuffer(nil),
 		MetaReceived: false,
 	}
 
@@ -2883,7 +2884,6 @@ func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID u
 		PeerID:       peerID,
 		RequestID:    requestID,
 		IsUpload:     false,
-		DataBuf:      bytes.NewBuffer(nil),
 		MetaReceived: false,
 	}
 
@@ -2954,10 +2954,23 @@ func (a *Agent) handleFileTransferStreamData(peerID identity.AgentID, streamID u
 				a.closeFileTransferStream(streamID, protocol.ErrNotAllowed, err.Error())
 				return
 			}
+
+			// Create temp file for streaming upload (write directly to disk)
+			tmpFile, err := os.CreateTemp("", "upload-stream-*")
+			if err != nil {
+				a.logger.Error("failed to create temp file for upload",
+					logging.KeyStreamID, streamID,
+					logging.KeyError, err)
+				a.closeFileTransferStream(streamID, protocol.ErrWriteFailed, "failed to create temp file")
+				return
+			}
+			fts.TempFile = tmpFile
+
 			a.logger.Info("file upload started",
 				"path", meta.Path,
 				"size", meta.Size,
-				"is_directory", meta.IsDirectory)
+				"is_directory", meta.IsDirectory,
+				"temp_file", tmpFile.Name())
 		} else {
 			// Validate download metadata and start sending file
 			if err := a.fileStreamHandler.ValidateDownloadMetadata(meta); err != nil {
@@ -2974,8 +2987,17 @@ func (a *Agent) handleFileTransferStreamData(peerID identity.AgentID, streamID u
 	}
 
 	// Subsequent data frames contain file content (only for uploads)
-	if fts.IsUpload {
-		fts.DataBuf.Write(data)
+	if fts.IsUpload && fts.TempFile != nil {
+		// Write directly to disk (streaming, no memory buffering)
+		n, err := fts.TempFile.Write(data)
+		if err != nil {
+			a.logger.Error("failed to write upload data to temp file",
+				logging.KeyStreamID, streamID,
+				logging.KeyError, err)
+			a.closeFileTransferStream(streamID, protocol.ErrWriteFailed, "write failed")
+			return
+		}
+		fts.BytesWritten += int64(n)
 
 		// Check for FIN flag (end of upload)
 		if flags&protocol.FlagFinWrite != 0 {
@@ -2984,7 +3006,7 @@ func (a *Agent) handleFileTransferStreamData(peerID identity.AgentID, streamID u
 	}
 }
 
-// completeFileUpload writes the uploaded data to disk.
+// completeFileUpload processes the uploaded data from temp file to final destination.
 func (a *Agent) completeFileUpload(fts *fileTransferStream) {
 	defer a.cleanupFileTransferStream(fts.StreamID)
 
@@ -2993,10 +3015,30 @@ func (a *Agent) completeFileUpload(fts *fileTransferStream) {
 		return
 	}
 
-	// Write file to disk
+	if fts.TempFile == nil {
+		a.logger.Error("file upload missing temp file", logging.KeyStreamID, fts.StreamID)
+		return
+	}
+
+	// Close and reopen temp file for reading
+	tmpPath := fts.TempFile.Name()
+	fts.TempFile.Close()
+	defer os.Remove(tmpPath) // Clean up temp file when done
+
+	tmpFile, err := os.Open(tmpPath)
+	if err != nil {
+		a.logger.Error("failed to reopen temp file",
+			logging.KeyStreamID, fts.StreamID,
+			logging.KeyError, err)
+		a.WriteStreamOpenErr(fts.PeerID, fts.StreamID, fts.RequestID, protocol.ErrWriteFailed, err.Error())
+		return
+	}
+	defer tmpFile.Close()
+
+	// Write file to final destination
 	written, err := a.fileStreamHandler.WriteUploadedFile(
 		fts.Meta.Path,
-		fts.DataBuf,
+		tmpFile,
 		fts.Meta.Mode,
 		fts.Meta.IsDirectory,
 		fts.Meta.Compress,
@@ -3012,7 +3054,8 @@ func (a *Agent) completeFileUpload(fts *fileTransferStream) {
 
 	a.logger.Info("file upload completed",
 		"path", fts.Meta.Path,
-		"written", written)
+		"bytes_received", fts.BytesWritten,
+		"bytes_written", written)
 
 	// Send close to signal completion
 	a.WriteStreamClose(fts.PeerID, fts.StreamID)
@@ -3171,11 +3214,19 @@ func (a *Agent) closeFileTransferStream(streamID uint64, errCode uint16, message
 // cleanupFileTransferStream removes a file transfer stream from tracking.
 func (a *Agent) cleanupFileTransferStream(streamID uint64) {
 	a.fileStreamsMu.Lock()
-	if fts, ok := a.fileStreams[streamID]; ok {
+	fts, ok := a.fileStreams[streamID]
+	if ok {
 		fts.Closed = true
 		delete(a.fileStreams, streamID)
 	}
 	a.fileStreamsMu.Unlock()
+
+	// Clean up temp file if it exists (outside lock to avoid holding it during I/O)
+	if ok && fts.TempFile != nil {
+		tmpPath := fts.TempFile.Name()
+		fts.TempFile.Close()
+		os.Remove(tmpPath)
+	}
 }
 
 // getFileTransferStream returns a file transfer stream by ID.
