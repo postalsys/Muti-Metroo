@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -92,13 +93,9 @@ func TestExitCIDRFiltering(t *testing.T) {
 	chain.CreateAgentsWithCIDR(t)
 	chain.StartAgents(t)
 
-	// Wait for routes
-	time.Sleep(3 * time.Second)
-
-	// Log agent stats
-	for i, a := range chain.Agents {
-		stats := a.Stats()
-		t.Logf("Agent %d: %d peers, %d routes", i, stats.PeerCount, stats.RouteCount)
+	// Wait for routes with polling
+	if !chain.WaitForRoutes(t) {
+		t.Fatal("Routes did not propagate in time")
 	}
 
 	socks5Addr := chain.Agents[0].SOCKS5Address()
@@ -111,10 +108,13 @@ func TestExitCIDRFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start allowed server: %v", err)
 	}
-	defer allowedListener.Close()
 
 	allowedAddr := allowedListener.Addr().(*net.TCPAddr)
 	t.Logf("Allowed server on %s", allowedAddr.String())
+
+	// Track echo server connections for cleanup
+	var echoConns []net.Conn
+	var echoMu sync.Mutex
 
 	go func() {
 		for {
@@ -122,11 +122,26 @@ func TestExitCIDRFiltering(t *testing.T) {
 			if err != nil {
 				return
 			}
+			echoMu.Lock()
+			echoConns = append(echoConns, conn)
+			echoMu.Unlock()
 			go func(c net.Conn) {
 				defer c.Close()
 				io.Copy(c, c)
 			}(conn)
 		}
+	}()
+
+	// Cleanup function to close all echo connections
+	defer func() {
+		allowedListener.Close()
+		echoMu.Lock()
+		for _, c := range echoConns {
+			c.Close()
+		}
+		echoMu.Unlock()
+		// Small delay for connection cleanup
+		time.Sleep(100 * time.Millisecond)
 	}()
 
 	t.Run("AllowedDestination", func(t *testing.T) {
@@ -240,7 +255,10 @@ func TestExitCIDRFiltering_MultipleRanges(t *testing.T) {
 	chain.CreateAgentsWithCIDR(t)
 	chain.StartAgents(t)
 
-	time.Sleep(3 * time.Second)
+	// Wait for routes with polling
+	if !chain.WaitForRoutes(t) {
+		t.Fatal("Routes did not propagate in time")
+	}
 
 	socks5Addr := chain.Agents[0].SOCKS5Address()
 	if socks5Addr == nil {
@@ -252,20 +270,39 @@ func TestExitCIDRFiltering_MultipleRanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start echo server: %v", err)
 	}
-	defer echoListener.Close()
 
 	echoAddr := echoListener.Addr().(*net.TCPAddr)
+
+	// Track echo server connections for cleanup
+	var echoConns []net.Conn
+	var echoMu sync.Mutex
+
 	go func() {
 		for {
 			conn, err := echoListener.Accept()
 			if err != nil {
 				return
 			}
+			echoMu.Lock()
+			echoConns = append(echoConns, conn)
+			echoMu.Unlock()
 			go func(c net.Conn) {
 				defer c.Close()
 				io.Copy(c, c)
 			}(conn)
 		}
+	}()
+
+	// Cleanup function to close all echo connections
+	defer func() {
+		echoListener.Close()
+		echoMu.Lock()
+		for _, c := range echoConns {
+			c.Close()
+		}
+		echoMu.Unlock()
+		// Small delay for connection cleanup
+		time.Sleep(100 * time.Millisecond)
 	}()
 
 	tests := []struct {

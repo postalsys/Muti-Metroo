@@ -38,6 +38,11 @@ import (
 	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
+// directDialTimeout is the timeout for direct TCP connections (no mesh route).
+// Using 10 seconds as it's long enough for real connections but short enough
+// for unreachable addresses to fail quickly.
+const directDialTimeout = 10 * time.Second
+
 // relayStream tracks a stream being relayed through this agent.
 type relayStream struct {
 	UpstreamPeer   identity.AgentID
@@ -2097,7 +2102,8 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 			"address", address,
 			"reason_no_route", route == nil,
 			"reason_local_exit", route != nil && route.OriginAgent == a.id)
-		return net.Dial(network, address)
+		dialer := &net.Dialer{Timeout: directDialTimeout}
+		return dialer.Dial(network, address)
 	}
 
 	a.logger.Debug("mesh dial routing through mesh",
@@ -2113,7 +2119,8 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 		a.logger.Debug("mesh dial next hop not connected, falling back to direct",
 			"address", address,
 			"next_hop", route.NextHop.ShortString())
-		return net.Dial(network, address)
+		dialer := &net.Dialer{Timeout: directDialTimeout}
+		return dialer.Dial(network, address)
 	}
 
 	// Build the path for STREAM_OPEN

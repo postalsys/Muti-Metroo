@@ -197,17 +197,87 @@ func (c *AgentChain) StartAgents(t *testing.T) {
 }
 
 // VerifyConnectivity checks that the chain is connected properly.
+// Uses polling with timeout instead of fixed sleep to handle race conditions.
 func (c *AgentChain) VerifyConnectivity(t *testing.T) {
 	expected := []int{1, 2, 2, 1} // A:1 peer, B:2 peers, C:2 peers, D:1 peer
 
+	// Wait for connectivity with timeout
+	timeout := 30 * time.Second
+	interval := 100 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		allConnected := true
+		for i, a := range c.Agents {
+			stats := a.Stats()
+			if stats.PeerCount != expected[i] {
+				allConnected = false
+				break
+			}
+		}
+
+		if allConnected {
+			// All agents have expected peer counts
+			for i, a := range c.Agents {
+				stats := a.Stats()
+				t.Logf("Agent %d: %d peers (OK)", i, stats.PeerCount)
+			}
+			return
+		}
+
+		time.Sleep(interval)
+	}
+
+	// Timeout - report actual state
 	for i, a := range c.Agents {
 		stats := a.Stats()
 		if stats.PeerCount != expected[i] {
-			t.Errorf("Agent %d: expected %d peers, got %d", i, expected[i], stats.PeerCount)
+			t.Errorf("Agent %d: expected %d peers, got %d (timeout after %v)", i, expected[i], stats.PeerCount, timeout)
 		} else {
 			t.Logf("Agent %d: %d peers (OK)", i, stats.PeerCount)
 		}
 	}
+}
+
+// WaitForRoutes waits for routes to propagate to all agents.
+// Returns true if routes are available, false on timeout.
+func (c *AgentChain) WaitForRoutes(t *testing.T) bool {
+	// First ensure connectivity
+	c.VerifyConnectivity(t)
+
+	// Wait for at least one route on each agent (from exit node D)
+	timeout := 30 * time.Second
+	interval := 100 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		allHaveRoutes := true
+		for _, a := range c.Agents {
+			stats := a.Stats()
+			if stats.RouteCount == 0 {
+				allHaveRoutes = false
+				break
+			}
+		}
+
+		if allHaveRoutes {
+			for i, a := range c.Agents {
+				stats := a.Stats()
+				t.Logf("Agent %d: %d peers, %d routes (OK)", i, stats.PeerCount, stats.RouteCount)
+			}
+			return true
+		}
+
+		time.Sleep(interval)
+	}
+
+	// Timeout - report actual state
+	t.Logf("Route propagation timeout after %v", timeout)
+	for i, a := range c.Agents {
+		stats := a.Stats()
+		t.Logf("Agent %d: %d peers, %d routes", i, stats.PeerCount, stats.RouteCount)
+	}
+	return false
 }
 
 // TestAgentChain_BasicConnectivity tests that 4 agents connect in a chain.
@@ -222,9 +292,7 @@ func TestAgentChain_BasicConnectivity(t *testing.T) {
 	chain.CreateAgents(t)
 	chain.StartAgents(t)
 
-	// Wait a bit more for connections
-	time.Sleep(1 * time.Second)
-
+	// VerifyConnectivity uses polling with timeout, no need for fixed sleep
 	chain.VerifyConnectivity(t)
 
 	// Verify A has SOCKS5 running
@@ -254,13 +322,9 @@ func TestAgentChain_StreamThroughMesh(t *testing.T) {
 	chain.CreateAgents(t)
 	chain.StartAgents(t)
 
-	// Wait for route propagation
-	time.Sleep(2 * time.Second)
-
-	// Verify routes exist
-	for i, a := range chain.Agents {
-		stats := a.Stats()
-		t.Logf("Agent %d: %d peers, %d routes", i, stats.PeerCount, stats.RouteCount)
+	// Wait for route propagation (uses polling with timeout)
+	if !chain.WaitForRoutes(t) {
+		t.Fatal("Route propagation failed")
 	}
 
 	t.Log("Mesh connectivity verified")
@@ -278,8 +342,10 @@ func TestAgentChain_LargeFileStream(t *testing.T) {
 	chain.CreateAgents(t)
 	chain.StartAgents(t)
 
-	// Wait for route propagation
-	time.Sleep(2 * time.Second)
+	// Wait for route propagation (uses polling with timeout)
+	if !chain.WaitForRoutes(t) {
+		t.Fatal("Route propagation failed")
+	}
 
 	// File size
 	fileSize := int64(10 * 1024 * 1024) // 10MB
@@ -371,13 +437,9 @@ func TestAgentChain_RouteAdvertisement(t *testing.T) {
 	chain.CreateAgents(t)
 	chain.StartAgents(t)
 
-	// Wait for route propagation
-	time.Sleep(3 * time.Second)
-
-	// Check that routes have propagated
-	for i, a := range chain.Agents {
-		stats := a.Stats()
-		t.Logf("Agent %d: %d peers, %d routes", i, stats.PeerCount, stats.RouteCount)
+	// Wait for route propagation (uses polling with timeout)
+	if !chain.WaitForRoutes(t) {
+		t.Fatal("Route propagation failed")
 	}
 
 	// D is exit, should have local routes
@@ -397,8 +459,10 @@ func TestAgentChain_DialThroughMesh(t *testing.T) {
 	chain.CreateAgents(t)
 	chain.StartAgents(t)
 
-	// Wait for route propagation
-	time.Sleep(3 * time.Second)
+	// Wait for route propagation (uses polling with timeout)
+	if !chain.WaitForRoutes(t) {
+		t.Fatal("Route propagation failed")
+	}
 
 	// Log detailed route and peer information for each agent
 	agentNames := []string{"A", "B", "C", "D"}
@@ -502,8 +566,10 @@ func TestAgentChain_SOCKS5Connectivity(t *testing.T) {
 	chain.CreateAgents(t)
 	chain.StartAgents(t)
 
-	// Wait for everything to initialize
-	time.Sleep(2 * time.Second)
+	// Wait for route propagation (uses polling with timeout)
+	if !chain.WaitForRoutes(t) {
+		t.Fatal("Route propagation failed")
+	}
 
 	// Verify SOCKS5 is running on Agent A
 	stats := chain.Agents[0].Stats()
