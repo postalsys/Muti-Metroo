@@ -33,8 +33,9 @@ flowchart LR
 | ------------------------- | -------------------------------------------------------------------- |
 | **End-to-End Encryption** | X25519 + ChaCha20-Poly1305 encryption - transit nodes cannot decrypt |
 | **Multiple Transports**   | QUIC/TLS 1.3, HTTP/2, and WebSocket - mix protocols in a single mesh |
-| **SOCKS5 Proxy**          | Accept client connections with optional authentication               |
-| **CIDR-Based Routing**    | Advertise network routes and handle DNS at exit nodes                |
+| **SOCKS5 Proxy**          | TCP CONNECT and UDP ASSOCIATE with optional authentication           |
+| **Flexible Routing**      | CIDR and domain-based routes with DNS resolution at exit             |
+| **UDP Relay**             | Tunnel UDP traffic (DNS, NTP) through SOCKS5 UDP ASSOCIATE           |
 | **Multi-Hop Paths**       | Traffic automatically finds its way through the mesh                 |
 | **Stream Multiplexing**   | Multiple virtual streams over single connections                     |
 | **File Transfer**         | Upload/download files and directories across the mesh                |
@@ -87,7 +88,7 @@ Create complex network topologies for testing distributed applications without p
 2. **Routes** are advertised through the mesh using flood-based propagation
 3. **Clients** connect via SOCKS5 proxy on an ingress agent
 4. **Traffic** flows through the mesh following the best route to the exit agent
-5. **Exit agents** open real TCP connections to destination servers
+5. **Exit agents** open real TCP connections or relay UDP datagrams to destinations
 
 ## Quick Start
 

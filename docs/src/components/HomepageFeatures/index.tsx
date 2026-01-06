@@ -33,7 +33,7 @@ const FeatureList: FeatureItem[] = [
     description: (
       <>
         Automatic route propagation across arbitrary topologies. Traffic flows
-        through chains, trees, or full mesh networks with CIDR-based exit routing.
+        through chains, trees, or full mesh with CIDR and domain-based routing.
       </>
     ),
   },
@@ -68,8 +68,8 @@ const FeatureList: FeatureItem[] = [
     link: '/features/socks5-proxy',
     description: (
       <>
-        Standard SOCKS5 proxy for transparent integration. Route SSH, browsers,
-        curl, and any TCP application through the mesh.
+        Standard SOCKS5 proxy for transparent integration. Route TCP and UDP
+        traffic - browsers, SSH, DNS queries, and more through the mesh.
       </>
     ),
   },

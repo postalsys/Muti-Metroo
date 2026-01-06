@@ -153,7 +153,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Self-Hosted Mesh Tunneling"
-      description="Muti Metroo creates encrypted multi-hop TCP tunnels across your infrastructure. End-to-end encryption, multiple transports, no root required.">
+      description="Muti Metroo creates encrypted multi-hop TCP and UDP tunnels across your infrastructure. End-to-end encryption, multiple transports, no root required.">
       <HomepageHeader />
       <main>
         <HomepageFeatures />
