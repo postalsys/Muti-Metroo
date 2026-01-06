@@ -241,21 +241,12 @@ See [Reverse Proxy Deployment](../deployment/reverse-proxy) for complete configu
 
 You can mix transports in a single mesh:
 
-```
-                                      +----------------+
-                                      |   Agent C      |
-+----------------+   QUIC            |   (Transit)     |
-|   Agent A      | ----------------> +----------------+
-|   (Ingress)    |   (direct LAN)           |
-+----------------+                          | WebSocket
-        |                                   | (through proxy)
-        | HTTP/2                            v
-        | (corporate firewall)      +----------------+
-        v                           |   Agent D      |
-+----------------+                  |   (Exit)       |
-|   Agent B      | <--------------- +----------------+
-|   (Transit)    |   QUIC
-+----------------+   (cloud)
+```mermaid
+flowchart TB
+    A[Agent A<br/>Ingress] -->|QUIC<br/>direct LAN| C[Agent C<br/>Transit]
+    A -->|HTTP/2<br/>corporate firewall| B[Agent B<br/>Transit]
+    C -->|WebSocket<br/>through proxy| D[Agent D<br/>Exit]
+    D -->|QUIC<br/>cloud| B
 ```
 
 ### Configuration Example

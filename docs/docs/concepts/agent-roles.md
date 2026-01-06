@@ -283,20 +283,29 @@ exit:
 
 ## Role Visualization
 
-The web dashboard (`/ui/`) shows each agent's active roles:
+The web dashboard (`/ui/`) displays each agent's roles as colored rings around the node:
 
-```
-+-------------------+
-|  Agent: gateway   |
-|  Roles: I T E     |
-|  Peers: 3         |
-|  Routes: 5        |
-+-------------------+
+```mermaid
+flowchart LR
+    subgraph Legend
+        direction TB
+        I((Ingress))
+        T((Transit))
+        E((Exit))
+    end
 
-I = Ingress (SOCKS5 enabled)
-T = Transit (has peer connections)
-E = Exit (has exit routes)
+    style I stroke:#5b9bd5,stroke-width:3px
+    style T stroke:#a89f94,stroke-width:3px
+    style E stroke:#6db36d,stroke-width:3px
 ```
+
+| Ring Color | Role | Meaning |
+|------------|------|---------|
+| Blue | Ingress | SOCKS5 proxy enabled |
+| Gray | Transit | Relay only (no ingress/exit) |
+| Green | Exit | Has CIDR or domain routes |
+
+Agents with multiple roles display multiple concentric rings. Hover over any agent in the dashboard to see detailed role information, SOCKS5 address (for ingress), and exit routes.
 
 ## Best Practices
 
