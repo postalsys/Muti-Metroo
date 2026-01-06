@@ -2506,6 +2506,37 @@ func (c *meshConn) Close() error {
 	return c.stream.Close()
 }
 
+// CloseWrite signals that we're done writing (half-close).
+// Sends FIN_WRITE flag through the mesh to signal remote side.
+func (c *meshConn) CloseWrite() error {
+	// Get session key for encryption
+	sessionKey := c.stream.GetSessionKey()
+	if sessionKey == nil {
+		return fmt.Errorf("no session key for stream %d", c.streamID)
+	}
+
+	// Send empty encrypted data with FIN_WRITE flag
+	emptyEncrypted, err := sessionKey.Encrypt([]byte{})
+	if err != nil {
+		return fmt.Errorf("encrypt fin: %w", err)
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamData,
+		Flags:    protocol.FlagFinWrite,
+		StreamID: c.streamID,
+		Payload:  emptyEncrypted,
+	}
+
+	if err := c.agent.peerMgr.SendToPeer(c.peerID, frame); err != nil {
+		return err
+	}
+
+	// Update local stream state
+	c.stream.CloseWrite()
+	return nil
+}
+
 // LocalAddr returns the local address.
 func (c *meshConn) LocalAddr() net.Addr {
 	return c.localAddr
@@ -3325,10 +3356,30 @@ func (a *Agent) closeFileTransferStream(streamID uint64, errCode uint16, message
 	fts := a.fileStreams[streamID]
 	a.fileStreamsMu.RUnlock()
 
-	if fts != nil {
-		a.WriteStreamOpenErr(fts.PeerID, streamID, fts.RequestID, errCode, message)
-		a.cleanupFileTransferStream(streamID)
+	if fts == nil {
+		return
 	}
+
+	// If stream has a session key, it's already open and we need to send
+	// an encrypted error response instead of STREAM_OPEN_ERR
+	if fts.sessionKey != nil {
+		// Send error as encrypted metadata response
+		errMeta := &filetransfer.TransferMetadata{
+			Error: message,
+		}
+		metaData, err := filetransfer.EncodeMetadata(errMeta)
+		if err == nil {
+			encryptedMeta, encErr := fts.sessionKey.Encrypt(metaData)
+			if encErr == nil {
+				a.WriteStreamData(fts.PeerID, fts.StreamID, encryptedMeta, protocol.FlagFinWrite)
+			}
+		}
+		a.WriteStreamClose(fts.PeerID, streamID)
+	} else {
+		// Stream not yet open, use STREAM_OPEN_ERR
+		a.WriteStreamOpenErr(fts.PeerID, streamID, fts.RequestID, errCode, message)
+	}
+	a.cleanupFileTransferStream(streamID)
 }
 
 // cleanupFileTransferStream removes a file transfer stream from tracking.
@@ -3481,6 +3532,25 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 		return fmt.Errorf("send metadata: %w", err)
 	}
 
+	// Brief check for immediate server rejection (e.g., file too large, path not allowed)
+	// Server validates metadata and may send error response before we start streaming
+	s := a.streamMgr.GetStream(streamID)
+	if s != nil {
+		responseData, readErr := s.ReadWithTimeout(200 * time.Millisecond)
+		if readErr == nil && len(responseData) > 0 {
+			// Got response data - check if it's an error
+			decryptedResponse, decErr := sessionKey.Decrypt(responseData)
+			if decErr == nil {
+				responseMeta, parseErr := filetransfer.ParseMetadata(decryptedResponse)
+				if parseErr == nil && responseMeta.Error != "" {
+					a.WriteStreamClose(nextHop, streamID)
+					return fmt.Errorf("remote error: %s", responseMeta.Error)
+				}
+			}
+		}
+		// Timeout or no data is normal - server hasn't rejected yet
+	}
+
 	// Stream file/directory content with E2E encryption
 	var written int64
 	if isDirectory {
@@ -3563,11 +3633,11 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 		"remote_path", remotePath,
 		"bytes_sent", written)
 
-	// Wait for STREAM_CLOSE from remote
-	stream := a.streamMgr.GetStream(streamID)
-	if stream != nil {
+	// Wait for stream to close (server sends STREAM_CLOSE on completion)
+	finalStream := a.streamMgr.GetStream(streamID)
+	if finalStream != nil {
 		select {
-		case <-stream.Done():
+		case <-finalStream.Done():
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(30 * time.Second):
@@ -3861,6 +3931,12 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 	if err != nil {
 		a.WriteStreamClose(nextHop, streamID)
 		return nil, fmt.Errorf("parse response metadata: %w", err)
+	}
+
+	// Check for error response from server
+	if responseMeta.Error != "" {
+		a.WriteStreamClose(nextHop, streamID)
+		return nil, fmt.Errorf("remote error: %s", responseMeta.Error)
 	}
 
 	a.logger.Info("file download stream started",

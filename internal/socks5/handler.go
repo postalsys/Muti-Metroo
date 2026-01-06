@@ -42,6 +42,12 @@ const (
 	ReplyAddrNotSupported   = 0x08
 )
 
+// halfCloser is implemented by connections that support half-close (TCP, mesh connections).
+// This allows signaling that one direction is done while keeping the other open.
+type halfCloser interface {
+	CloseWrite() error
+}
+
 // Request represents a SOCKS5 request.
 type Request struct {
 	Version  byte
@@ -325,23 +331,24 @@ func (h *Handler) sendReplyForError(conn net.Conn, err error) {
 }
 
 // relay copies data bidirectionally between two connections.
+// Supports half-close on any connection type that implements halfCloser interface.
 func relay(client, target net.Conn) error {
 	errCh := make(chan error, 2)
 
 	go func() {
 		_, err := io.Copy(target, client)
-		// Signal target that we're done writing
-		if tc, ok := target.(*net.TCPConn); ok {
-			tc.CloseWrite()
+		// Signal target that we're done writing (half-close)
+		if hc, ok := target.(halfCloser); ok {
+			hc.CloseWrite()
 		}
 		errCh <- err
 	}()
 
 	go func() {
 		_, err := io.Copy(client, target)
-		// Signal client that we're done writing
-		if tc, ok := client.(*net.TCPConn); ok {
-			tc.CloseWrite()
+		// Signal client that we're done writing (half-close)
+		if hc, ok := client.(halfCloser); ok {
+			hc.CloseWrite()
 		}
 		errCh <- err
 	}()

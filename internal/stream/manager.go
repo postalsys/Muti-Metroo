@@ -61,6 +61,7 @@ type Stream struct {
 	// Half-close tracking
 	localFinWrite  bool
 	remoteFinWrite bool
+	remoteFinCh    chan struct{} // Signals remote half-close to readers
 
 	// For request/response tracking
 	DestAddr    string
@@ -88,6 +89,7 @@ func NewStream(id uint64, localID, remoteID identity.AgentID, requestID uint64) 
 		readBuffer:  make(chan []byte, 64),
 		writeBuffer: make(chan []byte, 64),
 		closed:      make(chan struct{}),
+		remoteFinCh: make(chan struct{}),
 		CreatedAt:   time.Now(),
 	}
 	s.state.Store(int32(StateOpening))
@@ -147,15 +149,22 @@ func (s *Stream) CloseWrite() {
 }
 
 // HandleRemoteFinWrite handles FIN_WRITE from the remote side.
+// This signals to readers that no more data will arrive.
 func (s *Stream) HandleRemoteFinWrite() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.remoteFinWrite {
+		s.mu.Unlock()
 		return
 	}
 	s.remoteFinWrite = true
+	s.mu.Unlock()
 
+	// Signal readers that remote is done writing - this causes Read() to return EOF
+	close(s.remoteFinCh)
+
+	// Update state
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	state := s.State()
 	if state == StateOpen {
 		s.SetState(StateHalfClosedRemote)
@@ -183,7 +192,7 @@ func (s *Stream) PushData(data []byte) error {
 }
 
 // Read reads data from the stream.
-// Prioritizes reading buffered data before returning EOF on close.
+// Prioritizes reading buffered data before returning EOF on close or remote half-close.
 func (s *Stream) Read(ctx context.Context) ([]byte, error) {
 	// First, try to read any buffered data without blocking
 	select {
@@ -193,12 +202,20 @@ func (s *Stream) Read(ctx context.Context) ([]byte, error) {
 		// No data immediately available, continue to blocking select
 	}
 
-	// Wait for data, close, or context cancellation
+	// Wait for data, close, remote half-close, or context cancellation
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-s.closed:
 		// Stream closed - drain any remaining buffered data first
+		select {
+		case data := <-s.readBuffer:
+			return data, nil
+		default:
+			return nil, io.EOF
+		}
+	case <-s.remoteFinCh:
+		// Remote half-closed - drain buffered data then return EOF
 		select {
 		case data := <-s.readBuffer:
 			return data, nil

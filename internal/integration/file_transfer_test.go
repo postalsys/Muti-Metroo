@@ -661,9 +661,16 @@ func TestFileTransfer_RateLimit(t *testing.T) {
 	}
 	duration := time.Since(start)
 
-	// Expected minimum time: fileSize / rateLimit = 50KB / 10KB/s = 5 seconds
-	// Allow some tolerance for overhead
-	expectedMinDuration := time.Duration(float64(fileSize)/float64(rateLimit)*0.8) * time.Second
+	// Expected minimum time considering rate limiter's 16KB burst allowance:
+	// - First 16KB comes through instantly (burst)
+	// - Remaining (fileSize - 16KB) is rate-limited
+	// With 0.8 tolerance factor for timing variations
+	burstSize := int64(16 * 1024) // Rate limiter burst size
+	rateLimitedBytes := fileSize - burstSize
+	if rateLimitedBytes < 0 {
+		rateLimitedBytes = 0
+	}
+	expectedMinDuration := time.Duration(float64(rateLimitedBytes)/float64(rateLimit)*0.8) * time.Second
 	if duration < expectedMinDuration {
 		t.Errorf("Download completed too fast: %v (expected at least %v with rate limit)", duration, expectedMinDuration)
 	} else {

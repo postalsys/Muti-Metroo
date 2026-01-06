@@ -26,6 +26,7 @@ type TransferMetadata struct {
 	RateLimit   int64  `json:"rate_limit,omitempty"`   // Max bytes per second (0 = unlimited)
 	Offset      int64  `json:"offset,omitempty"`       // Resume from this byte offset (uncompressed)
 	OriginalSize int64 `json:"original_size,omitempty"` // Expected file size for resume validation
+	Error       string `json:"error,omitempty"`        // Error message (set when transfer fails)
 }
 
 // TransferResult is sent back after a transfer completes (in download response metadata).
