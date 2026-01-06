@@ -640,3 +640,117 @@ Muti Metroo intentionally does not include Prometheus metrics functionality. In 
 - Operational simplicity is prioritized over observability
 
 **Do not add metrics functionality to this codebase.**
+
+## 4-Agent Testbed
+
+A 4-agent testbed is used for manual testing across different platforms and transport layers.
+
+### Topology
+
+```
+A (Host/macOS) --QUIC--> B (Docker) --H2--> C (Ubuntu) <--WSS-- D (Windows)
+```
+
+- **Agent A**: SOCKS5 ingress, connects to B via QUIC
+- **Agent B**: Transit only, connects to C via HTTP/2
+- **Agent C**: Default exit (0.0.0.0/0), accepts connections from B and D
+- **Agent D**: Exit for specific routes (51.210.110.6/32, kreata.ee), connects to C via WebSocket
+
+### Configuration Files
+
+All testbed configs are in `testbed/4agent-test/`:
+
+```
+testbed/4agent-test/
+  agentA/config.yaml    # Host agent config
+  agentA/data/          # Host agent data
+  agentB/config.yaml    # Docker agent config
+  agentB/data/          # Docker agent data
+  agentC/config.yaml    # Ubuntu agent config (template)
+  agentD/config.yaml    # Windows agent config (template)
+  docker-compose.yaml   # Docker setup for Agent B
+  certs/                # Shared TLS certificates (symlink to ../certs)
+```
+
+### Agent Details
+
+| Agent | Platform | Role | Health API | Access |
+|-------|----------|------|------------|--------|
+| A | Host (macOS) | Ingress (SOCKS5 on 127.0.0.1:1080) | http://127.0.0.1:8080/ | Local process |
+| B | Docker | Transit | http://127.0.0.1:8081/ | `docker exec agent-b-docker` |
+| C | Ubuntu (srv-04) | Exit (0.0.0.0/0) | localhost:8082 on server | `ssh andris@srv-04.emailengine.dev` |
+| D | Windows VM | Exit (specific routes) + Shell/FileTransfer | localhost:8083 on VM | `ssh andris@10.37.129.3` |
+
+### Starting the Testbed
+
+**Agent A (Host):**
+```bash
+cd testbed/4agent-test/agentA
+../../../build/muti-metroo run -c config.yaml
+```
+
+**Agent B (Docker):**
+```bash
+cd testbed/4agent-test
+docker compose up -d
+```
+
+**Agent C (Ubuntu):** Already running as background process on srv-04.emailengine.dev
+- Binary: `/opt/muti-metroo/muti-metroo`
+- Config: `/opt/muti-metroo/config.yaml`
+- Certs: `/opt/muti-metroo/certs/`
+- Log: `/tmp/muti-metroo.log`
+
+**Agent D (Windows):** Already running as Windows service on 10.37.129.3
+- Binary: `C:\muti-metroo\muti-metroo.exe`
+- Config: `C:\muti-metroo\config.yaml`
+- Certs: `C:\muti-metroo\certs\`
+
+### Updating Remote Agents
+
+SSH keys are loaded via ssh-agent. Both remote agents run as services.
+
+**Agent C (Ubuntu):**
+```bash
+# Build Linux binary
+GOOS=linux GOARCH=amd64 go build -o build/muti-metroo-linux ./cmd/muti-metroo
+
+# Copy and restart
+scp build/muti-metroo-linux andris@srv-04.emailengine.dev:/tmp/
+ssh andris@srv-04.emailengine.dev "sudo pkill muti-metroo; sudo cp /tmp/muti-metroo-linux /opt/muti-metroo/muti-metroo; cd /opt/muti-metroo && sudo nohup ./muti-metroo run -c config.yaml > /tmp/muti-metroo.log 2>&1 &"
+```
+
+**Agent D (Windows):**
+```bash
+# Build Windows binary
+GOOS=windows GOARCH=amd64 go build -o build/muti-metroo.exe ./cmd/muti-metroo
+
+# Copy and restart (run as administrator)
+scp build/muti-metroo.exe andris@10.37.129.3:/tmp/
+ssh andris@10.37.129.3 "net stop muti-metroo; copy C:\\tmp\\muti-metroo.exe C:\\muti-metroo\\muti-metroo.exe; net start muti-metroo"
+```
+
+### Testing via SOCKS5
+
+```bash
+# Test exit via Agent C (default route)
+curl --proxy socks5h://127.0.0.1:1080 https://ifconfig.me
+
+# Test exit via Agent D (kreata.ee domain route)
+curl --proxy socks5h://127.0.0.1:1080 https://kreata.ee
+
+# SSH via SOCKS5
+ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@target
+```
+
+### Remote Shell to Agent D
+
+Agent D has shell and file transfer enabled with wildcard access:
+
+```bash
+# Execute command on Agent D
+./build/muti-metroo shell 3a26f5258bc800050276d5ccac9e0842 whoami
+
+# Interactive shell
+./build/muti-metroo shell --tty 3a26f5258bc800050276d5ccac9e0842 powershell
+```

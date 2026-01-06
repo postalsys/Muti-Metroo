@@ -78,7 +78,7 @@ Muti Metroo uses two separate encryption systems:
 
 Both systems use the same cryptographic primitives but serve different purposes. E2E encryption protects your traffic; management encryption protects your infrastructure topology.
 
-See [Red Team Operations](red-team-operations#management-key-encryption) for management encryption details.
+See [Management Keys](/red-team/management-keys) for management encryption details.
 
 ## Threat Protection
 

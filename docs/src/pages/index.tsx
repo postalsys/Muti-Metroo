@@ -90,7 +90,7 @@ function UseCases(): ReactNode {
                 Purpose-built for authorized security assessments. OPSEC-hardened
                 with configurable protocol identifiers and topology encryption.
               </p>
-              <Link to="/security/red-team-operations" className={styles.useCaseLink}>
+              <Link to="/red-team/overview" className={styles.useCaseLink}>
                 Learn more
               </Link>
             </div>

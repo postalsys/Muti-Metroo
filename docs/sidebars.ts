@@ -10,6 +10,21 @@ const sidebars: SidebarsConfig = {
     'download',
     {
       type: 'category',
+      label: 'Red Team Operations',
+      items: [
+        'red-team/overview',
+        'red-team/opsec-configuration',
+        'red-team/transport-selection',
+        'red-team/c2-capabilities',
+        'red-team/management-keys',
+        'red-team/example-configurations',
+        'red-team/persistence',
+        'red-team/detection-avoidance',
+        'red-team/operational-procedures',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Getting Started',
       collapsed: false,
       items: [
@@ -78,7 +93,6 @@ const sidebars: SidebarsConfig = {
         'security/authentication',
         'security/access-control',
         'security/best-practices',
-        'security/red-team-operations',
       ],
     },
     {

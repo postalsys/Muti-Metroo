@@ -295,7 +295,7 @@ curl http://localhost:8080/healthz | jq '.routes'
 Yes, using remote shell:
 
 ```bash
-# Simple command (default streaming mode)
+# Simple command (default normal mode)
 muti-metroo shell agent-id whoami
 
 # Interactive shell (requires --tty)

@@ -9,9 +9,9 @@ sidebar_position: 5
 
 # Remote Shell
 
-Execute shell commands on remote agents with support for both streaming and interactive modes:
+Execute shell commands on remote agents with support for both normal and interactive modes:
 
-- **Streaming mode**: Simple commands and continuous output (default)
+- **Normal mode**: Standard command execution (default)
 - **Interactive TTY**: Full terminal support for programs like vim, bash, htop
 
 ## Configuration
@@ -51,12 +51,12 @@ See [CLI - hash](/cli/hash) for details.
 
 ## Modes
 
-### Streaming Mode (Default)
+### Normal Mode (Default)
 
-Non-interactive mode without PTY allocation:
+Standard execution without PTY allocation:
 
 - Separate stdout and stderr streams
-- Suitable for simple commands and continuous output
+- Commands run until exit and return an exit code
 - No terminal control characters
 
 ```bash
@@ -89,10 +89,10 @@ muti-metroo shell --tty abc123 htop
 ```bash
 muti-metroo shell [flags] <agent-id> [command] [args...]
 
-# Simple command (streaming mode, default)
+# Simple command (normal mode, default)
 muti-metroo shell abc123 whoami
 
-# Follow logs (streaming mode)
+# Follow logs (normal mode)
 muti-metroo shell abc123 journalctl -f
 
 # Interactive bash (requires --tty)
@@ -125,7 +125,7 @@ See [API - Shell](../api/shell) for protocol details.
 
 ## Platform Support
 
-| Platform | Interactive (PTY) | Streaming |
+| Platform | Interactive (PTY) | Normal |
 |----------|-------------------|-----------|
 | Linux    | Yes               | Yes       |
 | macOS    | Yes               | Yes       |

@@ -25,9 +25,9 @@ muti-metroo shell [flags] <target-agent-id> [command] [args...]
 
 ## Modes
 
-### Streaming Mode (Default)
+### Normal Mode (Default)
 
-Runs commands without PTY allocation. Suitable for simple commands and continuous output:
+Runs commands without PTY allocation. Commands execute and return an exit code:
 
 ```bash
 # Simple commands
@@ -72,10 +72,10 @@ muti-metroo shell --tty abc123 powershell
 ## Examples
 
 ```bash
-# Simple command (streaming mode)
+# Simple command (normal mode)
 muti-metroo shell abc123 whoami
 
-# Follow logs (streaming mode)
+# Follow logs (normal mode)
 muti-metroo shell abc123 journalctl -u nginx -f
 
 # Interactive shell (requires --tty)

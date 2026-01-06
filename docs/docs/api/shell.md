@@ -17,7 +17,7 @@ GET /agents/{agent-id}/shell?mode=tty|stream
 | Parameter | Values | Description |
 |-----------|--------|-------------|
 | `mode` | `tty` | Interactive mode with PTY (default) |
-| | `stream` | Streaming mode without PTY |
+| | `normal` | Normal mode without PTY |
 
 ### Subprotocol
 
@@ -35,7 +35,7 @@ The WebSocket uses a binary message protocol. All messages have a 1-byte type pr
 | ACK | Server -> Client | JSON acknowledgment |
 | STDIN | Client -> Server | Keyboard input (raw bytes) |
 | STDOUT | Server -> Client | Command output (raw bytes) |
-| STDERR | Server -> Client | Error output (raw bytes, streaming mode only) |
+| STDERR | Server -> Client | Error output (raw bytes, normal mode only) |
 | RESIZE | Client -> Server | Terminal resize notification |
 | SIGNAL | Client -> Server | Signal to send (e.g., SIGINT) |
 | EXIT | Server -> Client | Process exit code |
@@ -100,7 +100,7 @@ After ACK, send and receive data:
 
 - **STDIN**: Send keyboard input as raw bytes
 - **STDOUT**: Receive command output
-- **STDERR**: Receive error output (streaming mode only)
+- **STDERR**: Receive error output (normal mode only)
 - **RESIZE**: Send terminal size changes
 - **SIGNAL**: Send signals (e.g., SIGINT = 2)
 

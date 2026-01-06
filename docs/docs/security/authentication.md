@@ -141,7 +141,7 @@ muti-metroo hash --cost 12
 CLI:
 
 ```bash
-# Simple command (default streaming mode)
+# Simple command (default normal mode)
 muti-metroo shell -p mypassword agent123 whoami
 
 # Interactive shell (requires --tty)
