@@ -46,7 +46,7 @@
     stroke: none;
 }
 
-/* Station types */
+/* Station types - base connection state colors */
 .station.local .station-outer {
     stroke: #daa054;
     fill: #1a1a1a;
@@ -72,6 +72,35 @@
 
 .station.remote .station-inner {
     fill: transparent;
+}
+
+/* Role indicator circles - colored rings around the station */
+.station-role {
+    fill: none;
+    stroke-width: 3;
+    pointer-events: none;
+}
+
+/* Ingress role - blue */
+.station-role.ingress {
+    stroke: #5b9bd5;
+}
+
+/* Exit role - green */
+.station-role.exit {
+    stroke: #6db36d;
+}
+
+/* Transit role - gray (default) */
+.station-role.transit {
+    stroke: #a89f94;
+}
+
+/* Hover effects for role circles */
+.station:hover .station-role,
+.station.selected .station-role {
+    stroke-width: 4;
+    filter: drop-shadow(0 0 4px currentColor);
 }
 
 /* Station Labels */
@@ -216,6 +245,63 @@
     font-weight: 600;
 }
 
+/* Role Badges Section */
+.station-tooltip .tooltip-roles {
+    padding: 0.5rem 0.8rem;
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.station-tooltip .tooltip-role-badge {
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.station-tooltip .tooltip-role-badge.ingress {
+    background: rgba(91, 155, 213, 0.2);
+    color: #5b9bd5;
+    border: 1px solid #5b9bd5;
+}
+
+.station-tooltip .tooltip-role-badge.exit {
+    background: rgba(109, 179, 109, 0.2);
+    color: #6db36d;
+    border: 1px solid #6db36d;
+}
+
+.station-tooltip .tooltip-role-badge.transit {
+    background: rgba(168, 159, 148, 0.2);
+    color: #a89f94;
+    border: 1px solid #a89f94;
+}
+
+/* SOCKS5 Info Section */
+.station-tooltip .tooltip-socks5 {
+    padding: 0.5rem 0.8rem;
+    border-top: 1px solid #4a3f35;
+    background: #3d3d3d;
+}
+
+.station-tooltip .tooltip-socks5-header {
+    font-size: 0.65rem;
+    color: #5b9bd5;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.station-tooltip .tooltip-socks5-addr {
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    color: #f5ebe0;
+}
+
 /* Exit Routes Section */
 .station-tooltip .tooltip-exits {
     padding: 0.5rem 0.8rem;
@@ -248,11 +334,28 @@
     border: 1px solid #4a3f35;
 }
 
+.station-tooltip .tooltip-domain {
+    background: #1a1a1a;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.7rem;
+    color: #c4883a;
+    border: 1px solid #4a3f35;
+}
+
 .station-tooltip .tooltip-cidr-more {
     padding: 0.15rem 0.4rem;
     font-size: 0.65rem;
     color: #a89f94;
     font-style: italic;
+}
+
+/* Domain Routes Section */
+.station-tooltip .tooltip-domains {
+    padding: 0.5rem 0.8rem;
+    border-top: 1px solid #4a3f35;
+    background: #3d3d3d;
 }
 
 /* Connection Hover Tooltip */
@@ -279,6 +382,7 @@
 
 .connection-tooltip .connection-arrow {
     color: #c4883a;
+    flex-shrink: 0;
 }
 
 .connection-tooltip .connection-role {

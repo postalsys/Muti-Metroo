@@ -37,6 +37,12 @@ type StatsProvider interface {
 // FileTransferProgress is a callback for reporting file transfer progress.
 type FileTransferProgress func(bytesTransferred, totalBytes int64)
 
+// SOCKS5Info contains SOCKS5 proxy configuration for display.
+type SOCKS5Info struct {
+	Enabled bool
+	Address string
+}
+
 // RemoteStatusProvider provides the ability to fetch status from remote agents.
 type RemoteStatusProvider interface {
 	// ID returns the local agent's ID.
@@ -74,6 +80,9 @@ type RemoteStatusProvider interface {
 
 	// GetLocalNodeInfo returns local node info.
 	GetLocalNodeInfo() *protocol.NodeInfo
+
+	// GetSOCKS5Info returns SOCKS5 configuration for the local agent.
+	GetSOCKS5Info() SOCKS5Info
 
 	// UploadFile uploads a file or directory to a remote agent via stream-based transfer.
 	// localPath is the local file/directory path, remotePath is the destination on the remote agent.
@@ -156,17 +165,21 @@ type Stats struct {
 
 // TopologyAgentInfo contains information about an agent for the topology API.
 type TopologyAgentInfo struct {
-	ID          string   `json:"id"`
-	ShortID     string   `json:"short_id"`
-	DisplayName string   `json:"display_name"`
-	IsLocal     bool     `json:"is_local"`
-	IsConnected bool     `json:"is_connected"`
-	Hostname    string   `json:"hostname,omitempty"`
-	OS          string   `json:"os,omitempty"`
-	Arch        string   `json:"arch,omitempty"`
-	Version     string   `json:"version,omitempty"`
-	UptimeHours float64  `json:"uptime_hours,omitempty"`
-	IPAddresses []string `json:"ip_addresses,omitempty"`
+	ID           string   `json:"id"`
+	ShortID      string   `json:"short_id"`
+	DisplayName  string   `json:"display_name"`
+	IsLocal      bool     `json:"is_local"`
+	IsConnected  bool     `json:"is_connected"`
+	Hostname     string   `json:"hostname,omitempty"`
+	OS           string   `json:"os,omitempty"`
+	Arch         string   `json:"arch,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	UptimeHours  float64  `json:"uptime_hours,omitempty"`
+	IPAddresses  []string `json:"ip_addresses,omitempty"`
+	Roles        []string `json:"roles,omitempty"`          // Agent roles: "ingress", "exit", "transit"
+	SOCKS5Addr   string   `json:"socks5_addr,omitempty"`    // SOCKS5 listen address (for ingress)
+	ExitRoutes   []string `json:"exit_routes,omitempty"`    // CIDR routes (for exit)
+	DomainRoutes []string `json:"domain_routes,omitempty"`  // Domain patterns (for exit)
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -963,6 +976,15 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	localID := s.remoteProvider.ID()
 	localName := s.remoteProvider.DisplayName()
 
+	// Get local stats for role determination
+	var localStats Stats
+	if s.provider != nil {
+		localStats = s.provider.Stats()
+	}
+
+	// Get SOCKS5 info for local agent
+	socks5Info := s.remoteProvider.GetSOCKS5Info()
+
 	// If management key encryption is enabled but we can't decrypt,
 	// only return local agent info (no peers, routes, or other agents)
 	if s.shouldRestrictTopology() {
@@ -984,6 +1006,11 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 				localAgent.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
 			}
 		}
+		// Add local agent roles
+		localAgent.Roles = s.buildAgentRoles(true, localStats.SOCKS5Running, localStats.ExitHandlerRun)
+		if socks5Info.Enabled {
+			localAgent.SOCKS5Addr = socks5Info.Address
+		}
 		response := TopologyResponse{
 			LocalAgent:  localAgent,
 			Agents:      []TopologyAgentInfo{localAgent},
@@ -1001,6 +1028,24 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	// Get all known node info
 	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
 	localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
+
+	// Get route details for determining exit roles
+	routeDetails := s.remoteProvider.GetRouteDetails()
+	domainRouteDetails := s.remoteProvider.GetDomainRouteDetails()
+
+	// Build maps of exit routes and domain routes per agent (by origin)
+	exitRoutesPerAgent := make(map[string][]string)
+	domainRoutesPerAgent := make(map[string][]string)
+
+	for _, route := range routeDetails {
+		originID := route.Origin.String()
+		exitRoutesPerAgent[originID] = append(exitRoutesPerAgent[originID], route.Network)
+	}
+
+	for _, route := range domainRouteDetails {
+		originID := route.Origin.String()
+		domainRoutesPerAgent[originID] = append(domainRoutesPerAgent[originID], route.Pattern)
+	}
 
 	// Build local agent info
 	localAgent := TopologyAgentInfo{
@@ -1020,6 +1065,18 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		if localNodeInfo.StartTime > 0 {
 			localAgent.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
 		}
+	}
+	// Add local agent roles and SOCKS5 info
+	localAgent.Roles = s.buildAgentRoles(true, localStats.SOCKS5Running, localStats.ExitHandlerRun)
+	if socks5Info.Enabled {
+		localAgent.SOCKS5Addr = socks5Info.Address
+	}
+	// Add local agent exit routes
+	if routes, ok := exitRoutesPerAgent[localID.String()]; ok {
+		localAgent.ExitRoutes = routes
+	}
+	if domains, ok := domainRoutesPerAgent[localID.String()]; ok {
+		localAgent.DomainRoutes = domains
 	}
 
 	// Track all agents and connections
@@ -1065,7 +1122,6 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract agents and connections from route paths
-	routeDetails := s.remoteProvider.GetRouteDetails()
 	for _, route := range routeDetails {
 		// Add all agents in the path
 		for _, agentID := range route.Path {
@@ -1114,7 +1170,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Populate node info for all agents in the map
+	// Populate node info and roles for all agents in the map
 	for agentID, nodeInfo := range allNodeInfo {
 		if existing, ok := agentMap[agentID.String()]; ok {
 			existing.Hostname = nodeInfo.Hostname
@@ -1131,6 +1187,31 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			}
 			agentMap[agentID.String()] = existing
 		}
+	}
+
+	// Populate exit routes and domain routes for all agents, and determine roles
+	for agentID, existing := range agentMap {
+		if existing.IsLocal {
+			continue // Already handled above
+		}
+
+		// Check if agent has exit routes (makes it an exit node)
+		hasExitRoutes := false
+		if routes, ok := exitRoutesPerAgent[agentID]; ok {
+			existing.ExitRoutes = routes
+			hasExitRoutes = true
+		}
+		if domains, ok := domainRoutesPerAgent[agentID]; ok {
+			existing.DomainRoutes = domains
+			hasExitRoutes = true
+		}
+
+		// Build roles for remote agents
+		// Note: We can't know if remote agents have SOCKS5 without protocol changes
+		// For now, we only know exit status from routes
+		existing.Roles = s.buildAgentRoles(false, false, hasExitRoutes)
+
+		agentMap[agentID] = existing
 	}
 
 	// Convert maps to slices
@@ -1153,6 +1234,23 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
+}
+
+// buildAgentRoles constructs the roles array based on agent capabilities.
+// All agents can act as transit, but we only include it if they're not ingress or exit.
+func (s *Server) buildAgentRoles(isLocal bool, hasSOCKS5 bool, hasExitRoutes bool) []string {
+	var roles []string
+	if hasSOCKS5 {
+		roles = append(roles, "ingress")
+	}
+	if hasExitRoutes {
+		roles = append(roles, "exit")
+	}
+	// If no specific roles, mark as transit
+	if len(roles) == 0 {
+		roles = append(roles, "transit")
+	}
+	return roles
 }
 
 // handleDashboard handles GET /api/dashboard for the dashboard overview.

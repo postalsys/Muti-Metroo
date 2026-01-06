@@ -45,8 +45,11 @@ class MetroMap {
             <div class="tooltip-header">
                 <div class="tooltip-name"></div>
             </div>
+            <div class="tooltip-roles"></div>
             <div class="tooltip-info"></div>
+            <div class="tooltip-socks5"></div>
             <div class="tooltip-exits"></div>
+            <div class="tooltip-domains"></div>
             <div class="tooltip-id-section">
                 <div class="tooltip-id-label">Agent ID</div>
                 <div class="tooltip-id"></div>
@@ -400,7 +403,9 @@ class MetroMap {
         let html = `
             <div class="connection-direction">
                 <span>${fromName}</span>
-                <span class="connection-arrow">-></span>
+                <svg class="connection-arrow" viewBox="0 0 24 24" width="16" height="16">
+                    <path d="M4 12h14m-4-4l4 4-4 4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
                 <span>${toName}</span>
             </div>
             <div class="connection-role">${fromName} (dialer) connects to ${toName} (listener)</div>
@@ -479,6 +484,22 @@ class MetroMap {
 
         const radius = agent.is_local ? this.localStationRadius : this.stationRadius;
 
+        // Role indicator circles (concentric rings)
+        // Draw from outermost to innermost so they layer correctly
+        const roles = agent.roles || ['transit'];
+        const roleRadiusBase = radius + 4;  // Start outside the station circle
+        const roleSpacing = 5;  // Gap between role rings
+
+        // Render role circles in reverse order (outermost first) so inner ones are on top
+        const sortedRoles = [...roles].reverse();
+        sortedRoles.forEach((role, index) => {
+            const roleCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            const roleRadius = roleRadiusBase + (sortedRoles.length - 1 - index) * roleSpacing;
+            roleCircle.setAttribute('class', `station-role ${role}`);
+            roleCircle.setAttribute('r', roleRadius);
+            g.appendChild(roleCircle);
+        });
+
         // Outer circle (border)
         const outer = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         outer.setAttribute('class', 'station-outer');
@@ -492,24 +513,25 @@ class MetroMap {
         g.appendChild(outer);
         g.appendChild(inner);
 
-        // Label
+        // Label - adjust position based on role rings
+        const totalRoleRadius = roleRadiusBase + (roles.length - 1) * roleSpacing;
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         label.setAttribute('class', `station-label ${agent.labelPos || 'below'}`);
 
-        // Position label based on direction
+        // Position label based on direction, accounting for role rings
         switch (agent.labelPos) {
             case 'above':
-                label.setAttribute('y', -(radius + 8));
+                label.setAttribute('y', -(totalRoleRadius + 6));
                 break;
             case 'below':
-                label.setAttribute('y', radius + 18);
+                label.setAttribute('y', totalRoleRadius + 16);
                 break;
             case 'left':
-                label.setAttribute('x', -(radius + 8));
+                label.setAttribute('x', -(totalRoleRadius + 6));
                 label.setAttribute('y', 4);
                 break;
             case 'right':
-                label.setAttribute('x', radius + 8);
+                label.setAttribute('x', totalRoleRadius + 6);
                 label.setAttribute('y', 4);
                 break;
         }
@@ -537,6 +559,18 @@ class MetroMap {
         // Update tooltip content
         const nameEl = this.stationTooltip.querySelector('.tooltip-name');
         nameEl.textContent = agent.display_name || agent.short_id;
+
+        // Build roles section
+        const rolesEl = this.stationTooltip.querySelector('.tooltip-roles');
+        const roles = agent.roles || ['transit'];
+        if (roles.length > 0) {
+            rolesEl.innerHTML = roles.map(role =>
+                `<span class="tooltip-role-badge ${role}">${role}</span>`
+            ).join('');
+            rolesEl.style.display = 'flex';
+        } else {
+            rolesEl.style.display = 'none';
+        }
 
         // Build info section
         const infoEl = this.stationTooltip.querySelector('.tooltip-info');
@@ -575,17 +609,30 @@ class MetroMap {
 
         infoEl.innerHTML = infoHtml;
 
-        // Build exit routes section
+        // Build SOCKS5 info section (for ingress agents)
+        const socks5El = this.stationTooltip.querySelector('.tooltip-socks5');
+        if (agent.socks5_addr) {
+            socks5El.innerHTML = `
+                <div class="tooltip-socks5-header">SOCKS5 Proxy</div>
+                <div class="tooltip-socks5-addr">${agent.socks5_addr}</div>
+            `;
+            socks5El.style.display = 'block';
+        } else {
+            socks5El.innerHTML = '';
+            socks5El.style.display = 'none';
+        }
+
+        // Build exit routes section (CIDR routes)
         const exitsEl = this.stationTooltip.querySelector('.tooltip-exits');
-        const exitCIDRs = this.getExitCIDRs(agent.short_id);
-        if (exitCIDRs.length > 0) {
-            let exitsHtml = '<div class="tooltip-exits-header">Exit Routes</div>';
+        const exitRoutes = agent.exit_routes || [];
+        if (exitRoutes.length > 0) {
+            let exitsHtml = '<div class="tooltip-exits-header">CIDR Routes</div>';
             exitsHtml += '<div class="tooltip-exits-list">';
             // Show first 5 CIDRs, with count if more
-            const displayCIDRs = exitCIDRs.slice(0, 5);
+            const displayCIDRs = exitRoutes.slice(0, 5);
             exitsHtml += displayCIDRs.map(cidr => `<span class="tooltip-cidr">${cidr}</span>`).join('');
-            if (exitCIDRs.length > 5) {
-                exitsHtml += `<span class="tooltip-cidr-more">+${exitCIDRs.length - 5} more</span>`;
+            if (exitRoutes.length > 5) {
+                exitsHtml += `<span class="tooltip-cidr-more">+${exitRoutes.length - 5} more</span>`;
             }
             exitsHtml += '</div>';
             exitsEl.innerHTML = exitsHtml;
@@ -593,6 +640,26 @@ class MetroMap {
         } else {
             exitsEl.innerHTML = '';
             exitsEl.style.display = 'none';
+        }
+
+        // Build domain routes section
+        const domainsEl = this.stationTooltip.querySelector('.tooltip-domains');
+        const domainRoutes = agent.domain_routes || [];
+        if (domainRoutes.length > 0) {
+            let domainsHtml = '<div class="tooltip-exits-header">Domain Routes</div>';
+            domainsHtml += '<div class="tooltip-exits-list">';
+            // Show first 5 domains, with count if more
+            const displayDomains = domainRoutes.slice(0, 5);
+            domainsHtml += displayDomains.map(domain => `<span class="tooltip-domain">${domain}</span>`).join('');
+            if (domainRoutes.length > 5) {
+                domainsHtml += `<span class="tooltip-cidr-more">+${domainRoutes.length - 5} more</span>`;
+            }
+            domainsHtml += '</div>';
+            domainsEl.innerHTML = domainsHtml;
+            domainsEl.style.display = 'block';
+        } else {
+            domainsEl.innerHTML = '';
+            domainsEl.style.display = 'none';
         }
 
         // Update ID

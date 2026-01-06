@@ -53,17 +53,35 @@
                 </svg>
             </div>
             <div id="map-legend">
-                <div class="legend-item">
-                    <span class="legend-color local"></span>
-                    <span>Local Agent</span>
+                <div class="legend-group">
+                    <div class="legend-title">Connection</div>
+                    <div class="legend-item">
+                        <span class="legend-color local"></span>
+                        <span>Local</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color connected"></span>
+                        <span>Connected</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color remote"></span>
+                        <span>Remote</span>
+                    </div>
                 </div>
-                <div class="legend-item">
-                    <span class="legend-color connected"></span>
-                    <span>Connected Peer</span>
-                </div>
-                <div class="legend-item">
-                    <span class="legend-color remote"></span>
-                    <span>Remote Agent</span>
+                <div class="legend-group">
+                    <div class="legend-title">Role</div>
+                    <div class="legend-item">
+                        <span class="legend-ring ingress"></span>
+                        <span>Ingress</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-ring exit"></span>
+                        <span>Exit</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-ring transit"></span>
+                        <span>Transit</span>
+                    </div>
                 </div>
             </div>
         </section>

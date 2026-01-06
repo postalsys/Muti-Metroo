@@ -2701,6 +2701,14 @@ func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
 	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
 }
 
+// GetSOCKS5Info returns SOCKS5 configuration info for the dashboard.
+func (a *Agent) GetSOCKS5Info() health.SOCKS5Info {
+	return health.SOCKS5Info{
+		Enabled: a.cfg.SOCKS5.Enabled,
+		Address: a.cfg.SOCKS5.Address,
+	}
+}
+
 // getPeerConnectionInfo returns peer connection info for NodeInfo advertisement.
 func (a *Agent) getPeerConnectionInfo() []protocol.PeerConnectionInfo {
 	peers := a.peerMgr.GetAllPeers()

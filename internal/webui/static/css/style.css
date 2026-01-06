@@ -171,9 +171,23 @@ section h2 {
 
 #map-legend {
     display: flex;
-    gap: 1.5rem;
+    gap: 2rem;
     justify-content: center;
     flex-wrap: wrap;
+}
+
+.legend-group {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.legend-title {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
 }
 
 .legend-item {
@@ -203,6 +217,27 @@ section h2 {
 
 .legend-color.remote {
     background: transparent;
+    border-color: #a89f94;
+}
+
+/* Role indicator rings in legend */
+.legend-ring {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 3px solid currentColor;
+    background: transparent;
+}
+
+.legend-ring.ingress {
+    border-color: #5b9bd5;
+}
+
+.legend-ring.exit {
+    border-color: #6db36d;
+}
+
+.legend-ring.transit {
     border-color: #a89f94;
 }
 
