@@ -469,9 +469,9 @@ build_all() {
 
     log_step "Building binaries for all platforms..."
 
-    # Create build directory
+    # Create build directory (clean any existing contents)
+    rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
-    rm -f "$BUILD_DIR"/*
 
     # Build each target
     for target in "${BUILD_TARGETS[@]}"; do

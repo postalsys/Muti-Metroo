@@ -63,6 +63,29 @@ rsync -avz --delete --exclude 'downloads/' build/ andris@srv-04.emailengine.dev:
 
 **Full release deployment**: The `scripts/release.sh` script automatically builds and deploys documentation as part of the release process. It also uploads binaries to `/var/www/muti-metroo/downloads/`.
 
+### Making Releases
+
+**IMPORTANT: All releases MUST be done using the release script. Never make releases manually.**
+
+```bash
+./scripts/release.sh           # Auto-increment patch version (1.2.3 -> 1.2.4)
+./scripts/release.sh 2.0.0     # Set explicit version
+```
+
+The release script handles everything:
+1. Runs tests
+2. Creates git tag and pushes to origin
+3. Collects third-party licenses
+4. Builds binaries for all platforms (with UPX compression for Linux/Windows)
+5. Signs macOS binaries (ad-hoc)
+6. Generates release notes using Claude CLI
+7. Creates Gitea release and uploads binaries
+8. Updates download page version
+9. Builds and deploys documentation
+10. Uploads binaries to web server
+
+If a release fails mid-way, do not attempt to complete it manually. Simply fix the issue and run the release script again with an incremented version number. Wasting a version number is acceptable - we are not short on numbers.
+
 **Server details:**
 
 - Server: `srv-04.emailengine.dev`
