@@ -9,7 +9,7 @@ sidebar_position: 1
 
 # SOCKS5 Proxy
 
-Muti Metroo provides SOCKS5 proxy ingress for client connections.
+Muti Metroo provides SOCKS5 proxy ingress for client connections, supporting both TCP (CONNECT) and UDP (UDP ASSOCIATE) commands per RFC 1928.
 
 ## Configuration
 
@@ -85,9 +85,26 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 3. SOCKS v5
 4. Username/password if auth enabled
 
+## UDP Support
+
+SOCKS5 UDP ASSOCIATE is supported for tunneling UDP traffic (DNS, NTP) through the mesh. UDP relay requires an exit node with UDP enabled.
+
+```yaml
+# Exit node configuration
+udp:
+  enabled: true
+  allowed_ports:
+    - "53"    # DNS
+    - "123"   # NTP
+```
+
+See [Features - UDP Relay](./udp-relay) for details.
+
 ## Related
 
+- [Features - UDP Relay](./udp-relay) - UDP tunneling through SOCKS5
 - [Configuration - SOCKS5](../configuration/socks5) - Full configuration reference
+- [Configuration - UDP](../configuration/udp) - UDP relay configuration
 - [Security - Authentication](../security/authentication) - Password security
 - [Concepts - Agent Roles](../concepts/agent-roles) - Understanding ingress role
 - [Troubleshooting - Common Issues](../troubleshooting/common-issues) - SOCKS5 troubleshooting
