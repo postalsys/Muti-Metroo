@@ -200,14 +200,26 @@ func (h *Handler) handleUDPAssociate(conn net.Conn, req *Request) error {
 	}
 	assoc.SetStreamID(streamID)
 
+	// Link the SOCKS5 association to the ingress stream for responses
+	h.udpHandler.SetSOCKS5UDPAssociation(streamID, assoc)
+
 	// Track the association
 	h.udpAssocMu.Lock()
 	h.udpAssociations[streamID] = assoc
 	h.udpAssocMu.Unlock()
 
 	// Send success reply with relay address
+	// Use the TCP connection's local IP (the IP the client connected to)
+	// rather than 0.0.0.0 which the client can't send to
 	relayAddr := assoc.LocalAddr()
-	h.sendReply(conn, ReplySucceeded, relayAddr.IP, uint16(relayAddr.Port))
+	var replyIP net.IP
+	if tcpLocal, ok := conn.LocalAddr().(*net.TCPAddr); ok && !tcpLocal.IP.IsUnspecified() {
+		replyIP = tcpLocal.IP
+	} else {
+		// Fallback to 127.0.0.1 if we can't determine the IP
+		replyIP = net.IPv4(127, 0, 0, 1)
+	}
+	h.sendReply(conn, ReplySucceeded, replyIP, uint16(relayAddr.Port))
 
 	// Clear deadlines
 	conn.SetDeadline(time.Time{})

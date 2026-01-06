@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,10 @@ type UDPAssociationHandler interface {
 	// CreateUDPAssociation creates a new UDP association for a SOCKS5 client.
 	// Returns the stream ID for the association, or an error if disabled.
 	CreateUDPAssociation(ctx context.Context, clientAddr *net.UDPAddr) (streamID uint64, err error)
+
+	// SetSOCKS5UDPAssociation links a SOCKS5 UDP association to an ingress stream.
+	// This allows responses to be forwarded back to the SOCKS5 client.
+	SetSOCKS5UDPAssociation(streamID uint64, assoc *UDPAssociation)
 
 	// RelayUDPDatagram relays a UDP datagram through the mesh.
 	// The datagram is forwarded to the exit node for delivery.
@@ -72,7 +77,9 @@ func NewUDPAssociation(tcpConn net.Conn, handler UDPAssociationHandler) (*UDPAss
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create UDP relay socket
-	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	// Use "udp4" to force IPv4 - on macOS "udp" creates a dual-stack IPv6 socket
+	// which reports [::] as the local address and causes issues with SOCKS5 clients
+	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("create UDP socket: %w", err)
@@ -152,10 +159,13 @@ func (a *UDPAssociation) Context() context.Context {
 // This should be run in a goroutine.
 func (a *UDPAssociation) ReadLoop() {
 	buf := make([]byte, 65535) // Max UDP datagram size
+	localAddr := a.UDPConn.LocalAddr()
+	log.Printf("[UDP] ReadLoop started, listening on %v", localAddr)
 
 	for {
 		select {
 		case <-a.ctx.Done():
+			log.Printf("[UDP] ReadLoop context done, exiting")
 			return
 		default:
 		}
@@ -163,10 +173,13 @@ func (a *UDPAssociation) ReadLoop() {
 		n, clientAddr, err := a.UDPConn.ReadFromUDP(buf)
 		if err != nil {
 			if a.IsClosed() {
+				log.Printf("[UDP] ReadLoop socket closed, exiting")
 				return
 			}
+			log.Printf("[UDP] ReadFromUDP error (ignoring): %v", err)
 			continue
 		}
+		log.Printf("[UDP] ReadFromUDP received %d bytes from %v", n, clientAddr)
 
 		// Update actual client address on first datagram
 		a.mu.Lock()
@@ -199,6 +212,10 @@ func (a *UDPAssociation) ReadLoop() {
 		streamID := a.StreamID
 		handler := a.Handler
 		a.mu.RUnlock()
+
+		// Log the datagram
+		log.Printf("[UDP] Received datagram from %v: streamID=%d, handler=%v, dest=%v:%d, payload=%d bytes",
+			clientAddr, streamID, handler != nil, header.Address, header.Port, len(payload))
 
 		if handler != nil && streamID != 0 {
 			var destAddr net.Addr

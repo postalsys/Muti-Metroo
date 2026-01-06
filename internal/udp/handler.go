@@ -175,10 +175,19 @@ func (h *Handler) HandleUDPOpen(
 
 		// Send UDP_OPEN_ACK with our ephemeral public key
 		localAddr := udpConn.LocalAddr().(*net.UDPAddr)
+		var addrType uint8
+		var boundAddr []byte
+		if ip4 := localAddr.IP.To4(); ip4 != nil {
+			addrType = protocol.AddrTypeIPv4
+			boundAddr = ip4
+		} else {
+			addrType = protocol.AddrTypeIPv6
+			boundAddr = localAddr.IP.To16()
+		}
 		ack := &protocol.UDPOpenAck{
 			RequestID:       open.RequestID,
-			BoundAddrType:   protocol.AddrTypeIPv4,
-			BoundAddr:       localAddr.IP.To4(),
+			BoundAddrType:   addrType,
+			BoundAddr:       boundAddr,
 			BoundPort:       uint16(localAddr.Port),
 			EphemeralPubKey: ephPub,
 		}
@@ -211,10 +220,19 @@ func (h *Handler) HandleUDPOpen(
 
 		// Send UDP_OPEN_ACK without ephemeral key
 		localAddr := udpConn.LocalAddr().(*net.UDPAddr)
+		var addrType uint8
+		var boundAddr []byte
+		if ip4 := localAddr.IP.To4(); ip4 != nil {
+			addrType = protocol.AddrTypeIPv4
+			boundAddr = ip4
+		} else {
+			addrType = protocol.AddrTypeIPv6
+			boundAddr = localAddr.IP.To16()
+		}
 		ack := &protocol.UDPOpenAck{
 			RequestID:     open.RequestID,
-			BoundAddrType: protocol.AddrTypeIPv4,
-			BoundAddr:     localAddr.IP.To4(),
+			BoundAddrType: addrType,
+			BoundAddr:     boundAddr,
 			BoundPort:     uint16(localAddr.Port),
 		}
 
@@ -236,11 +254,20 @@ func (h *Handler) HandleUDPOpen(
 // HandleUDPDatagram processes a UDP_DATAGRAM frame.
 // Decrypts and forwards the datagram to the destination.
 func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, datagram *protocol.UDPDatagram) error {
+	h.logger.Debug("exit node HandleUDPDatagram called",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, streamID,
+		"addr_type", datagram.AddressType,
+		"port", datagram.Port,
+		"data_len", len(datagram.Data))
+
 	h.mu.RLock()
 	assoc := h.associations[streamID]
 	h.mu.RUnlock()
 
 	if assoc == nil {
+		h.logger.Debug("datagram for unknown association",
+			logging.KeyStreamID, streamID)
 		return fmt.Errorf("unknown stream ID: %d", streamID)
 	}
 

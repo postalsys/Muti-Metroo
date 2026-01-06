@@ -26,14 +26,16 @@ var (
 // udpIngressAssociation tracks a UDP association initiated from SOCKS5.
 // This is the ingress-side tracking (SOCKS5 client -> mesh).
 type udpIngressAssociation struct {
-	StreamID     uint64
-	RequestID    uint64
-	SOCKS5Assoc  *socks5.UDPAssociation
-	ExitPeerID   identity.AgentID // Peer we're relaying to
-	SessionKey   *crypto.SessionKey
-	PendingOpen  chan struct{}   // Closed when open is acknowledged
-	OpenErr      error           // Error from open attempt
-	mu           sync.RWMutex
+	StreamID          uint64
+	RequestID         uint64
+	SOCKS5Assoc       *socks5.UDPAssociation
+	ExitPeerID        identity.AgentID // Peer we're relaying to
+	SessionKey        *crypto.SessionKey
+	EphemeralPrivKey  [32]byte // Our private key for E2E encryption
+	EphemeralPubKey   [32]byte // Our public key for E2E encryption
+	PendingOpen       chan struct{}   // Closed when open is acknowledged
+	OpenErr           error           // Error from open attempt
+	mu                sync.RWMutex
 }
 
 // udpRelayEntry tracks a UDP association being relayed through this agent (transit).
@@ -96,17 +98,15 @@ func (a *Agent) CreateUDPAssociation(ctx context.Context, clientAddr *net.UDPAdd
 		return 0, err
 	}
 
-	// Create ingress association entry
+	// Create ingress association entry with keys for E2E encryption
 	assoc := &udpIngressAssociation{
-		StreamID:    streamID,
-		RequestID:   requestID,
-		ExitPeerID:  path[len(path)-1], // Last hop is exit
-		PendingOpen: make(chan struct{}),
+		StreamID:         streamID,
+		RequestID:        requestID,
+		ExitPeerID:       path[len(path)-1], // Last hop is exit
+		EphemeralPrivKey: ephPriv,
+		EphemeralPubKey:  ephPub,
+		PendingOpen:      make(chan struct{}),
 	}
-
-	// Store private key temporarily (will compute session key on ACK)
-	// We store it in a closure since we can't store it in the struct
-	ephPrivKey := ephPriv
 
 	// Register association
 	udpIngressMu.Lock()
@@ -157,20 +157,16 @@ func (a *Agent) CreateUDPAssociation(ctx context.Context, clientAddr *net.UDPAdd
 			return 0, assoc.OpenErr
 		}
 
-		// Compute session key from the ACK's ephemeral key
-		// We need to retrieve the remote ephemeral key that was stored during handleUDPOpenAck
+		// Check if session key was established
 		assoc.mu.RLock()
-		sessionKey := assoc.SessionKey
+		hasSessionKey := assoc.SessionKey != nil
 		assoc.mu.RUnlock()
 
-		if sessionKey == nil {
-			// Should not happen, but handle gracefully
-			a.logger.Warn("UDP association opened without session key",
+		if !hasSessionKey {
+			// Exit didn't provide an ephemeral key, no encryption
+			a.logger.Debug("UDP association opened without E2E encryption",
 				logging.KeyStreamID, streamID)
 		}
-
-		// Zero the private key
-		crypto.ZeroKey(&ephPrivKey)
 
 		return streamID, nil
 	}
@@ -179,11 +175,17 @@ func (a *Agent) CreateUDPAssociation(ctx context.Context, clientAddr *net.UDPAdd
 // RelayUDPDatagram implements socks5.UDPAssociationHandler.
 // Called when a SOCKS5 client sends a UDP datagram to relay through the mesh.
 func (a *Agent) RelayUDPDatagram(streamID uint64, destAddr net.Addr, destPort uint16, addrType byte, rawAddr []byte, data []byte) error {
+	a.logger.Debug("RelayUDPDatagram called",
+		logging.KeyStreamID, streamID,
+		"dest", destAddr,
+		"data_len", len(data))
+
 	udpIngressMu.RLock()
 	assoc := udpIngressByStream[streamID]
 	udpIngressMu.RUnlock()
 
 	if assoc == nil {
+		a.logger.Debug("UDP stream not found", logging.KeyStreamID, streamID)
 		return ErrUDPStreamNotFound
 	}
 
@@ -221,9 +223,14 @@ func (a *Agent) RelayUDPDatagram(streamID uint64, destAddr net.Addr, destPort ui
 	// Find the route to the exit peer
 	peerConn := a.findRouteToAgent(exitPeer)
 	if peerConn == nil {
+		a.logger.Debug("UDP no route to exit peer", "exit_peer", exitPeer.ShortString())
 		return ErrUDPNoRoute
 	}
 
+	a.logger.Debug("sending UDP datagram",
+		logging.KeyStreamID, streamID,
+		"via_peer", peerConn.RemoteID.ShortString(),
+		"exit_peer", exitPeer.ShortString())
 	return a.peerMgr.SendToPeer(peerConn.RemoteID, frame)
 }
 
@@ -293,6 +300,10 @@ func (a *Agent) findRouteToAgent(agentID identity.AgentID) *peer.Connection {
 
 // handleUDPOpen processes a UDP_OPEN frame.
 func (a *Agent) handleUDPOpen(peerID identity.AgentID, frame *protocol.Frame) {
+	a.logger.Debug("received UDP_OPEN",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, frame.StreamID)
+
 	open, err := protocol.DecodeUDPOpen(frame.Payload)
 	if err != nil {
 		a.logger.Debug("failed to decode UDP open",
@@ -345,6 +356,11 @@ func (a *Agent) handleUDPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 	udpRelayByDownstream[downstreamID] = relay
 	udpRelayMu.Unlock()
 
+	a.logger.Debug("created UDP relay entry",
+		"upstream_id", frame.StreamID,
+		"downstream_id", downstreamID,
+		"next_hop", nextHop.ShortString())
+
 	// Update remaining path
 	newPath := open.RemainingPath[1:]
 
@@ -378,6 +394,11 @@ func (a *Agent) handleUDPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 
 // handleUDPOpenAck processes a UDP_OPEN_ACK frame.
 func (a *Agent) handleUDPOpenAck(peerID identity.AgentID, frame *protocol.Frame) {
+	a.logger.Debug("received UDP_OPEN_ACK",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, frame.StreamID,
+		"payload_len", len(frame.Payload))
+
 	// Check if this is a relay response
 	udpRelayMu.RLock()
 	relay := udpRelayByDownstream[frame.StreamID]
@@ -414,13 +435,33 @@ func (a *Agent) handleUDPOpenAck(peerID identity.AgentID, frame *protocol.Frame)
 	}
 
 	// Compute session key from the ephemeral keys
-	// We stored our private key during CreateUDPAssociation
-	// For now, we'll need to compute it here using the public key from ACK
 	var zeroKey [protocol.EphemeralKeySize]byte
 	if ack.EphemeralPubKey != zeroKey {
-		// Note: We need to compute the session key
-		// In a real implementation, we'd store the private key
-		// and compute here. For now, mark that encryption is enabled.
+		// Compute shared secret using our private key and remote public key
+		sharedSecret, err := crypto.ComputeECDH(assoc.EphemeralPrivKey, ack.EphemeralPubKey)
+		if err != nil {
+			a.logger.Debug("failed to compute ECDH",
+				logging.KeyStreamID, frame.StreamID,
+				logging.KeyError, err)
+			assoc.mu.Lock()
+			assoc.OpenErr = err
+			close(assoc.PendingOpen)
+			assoc.mu.Unlock()
+			return
+		}
+
+		// Zero out private key immediately
+		crypto.ZeroKey(&assoc.EphemeralPrivKey)
+
+		// Derive session key (we are initiator, so isResponder=false)
+		sessionKey := crypto.DeriveSessionKey(sharedSecret, ack.RequestID, assoc.EphemeralPubKey, ack.EphemeralPubKey, true)
+		crypto.ZeroKey(&sharedSecret)
+
+		// Store session key
+		assoc.mu.Lock()
+		assoc.SessionKey = sessionKey
+		assoc.mu.Unlock()
+
 		a.logger.Debug("UDP association with E2E encryption established",
 			logging.KeyStreamID, frame.StreamID,
 			logging.KeyRequestID, ack.RequestID)
@@ -484,6 +525,11 @@ func (a *Agent) handleUDPOpenErr(peerID identity.AgentID, frame *protocol.Frame)
 
 // handleUDPDatagram processes a UDP_DATAGRAM frame.
 func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame) {
+	a.logger.Debug("received UDP_DATAGRAM",
+		logging.KeyPeerID, peerID.ShortString(),
+		logging.KeyStreamID, frame.StreamID,
+		"payload_len", len(frame.Payload))
+
 	// Check if this is for our UDP handler (exit node receiving from mesh)
 	if a.udpHandler != nil {
 		if assoc := a.udpHandler.GetAssociation(frame.StreamID); assoc != nil {
@@ -504,9 +550,16 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	assoc := udpIngressByStream[frame.StreamID]
 	udpIngressMu.RUnlock()
 
+	a.logger.Debug("checking ingress association",
+		logging.KeyStreamID, frame.StreamID,
+		"assoc_exists", assoc != nil)
+
 	if assoc != nil {
 		datagram, err := protocol.DecodeUDPDatagram(frame.Payload)
 		if err != nil {
+			a.logger.Debug("failed to decode datagram for ingress",
+				logging.KeyStreamID, frame.StreamID,
+				logging.KeyError, err)
 			return
 		}
 
@@ -515,6 +568,12 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 		sessionKey := assoc.SessionKey
 		socks5Assoc := assoc.SOCKS5Assoc
 		assoc.mu.RUnlock()
+
+		a.logger.Debug("processing datagram for ingress",
+			logging.KeyStreamID, frame.StreamID,
+			"has_session_key", sessionKey != nil,
+			"has_socks5_assoc", socks5Assoc != nil,
+			"data_len", len(datagram.Data))
 
 		var plaintext []byte
 		if sessionKey != nil {
@@ -531,7 +590,18 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 
 		// Forward to SOCKS5 client
 		if socks5Assoc != nil {
-			socks5Assoc.WriteToClient(datagram.AddressType, datagram.Address, datagram.Port, plaintext)
+			a.logger.Debug("forwarding datagram to SOCKS5 client",
+				logging.KeyStreamID, frame.StreamID,
+				"plaintext_len", len(plaintext))
+			err := socks5Assoc.WriteToClient(datagram.AddressType, datagram.Address, datagram.Port, plaintext)
+			if err != nil {
+				a.logger.Debug("failed to forward to SOCKS5 client",
+					logging.KeyStreamID, frame.StreamID,
+					logging.KeyError, err)
+			}
+		} else {
+			a.logger.Debug("no SOCKS5 association to forward to",
+				logging.KeyStreamID, frame.StreamID)
 		}
 		return
 	}
@@ -540,9 +610,22 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	udpRelayMu.RLock()
 	relayUp := udpRelayByUpstream[frame.StreamID]
 	relayDown := udpRelayByDownstream[frame.StreamID]
+	a.logger.Debug("checking relay entries",
+		logging.KeyStreamID, frame.StreamID,
+		"relayUp_exists", relayUp != nil,
+		"relayDown_exists", relayDown != nil,
+		"from_peer", peerID.ShortString())
+	if relayUp != nil {
+		a.logger.Debug("relay upstream entry",
+			"upstream_peer", relayUp.UpstreamPeer.ShortString(),
+			"upstream_id", relayUp.UpstreamID,
+			"downstream_peer", relayUp.DownstreamPeer.ShortString(),
+			"downstream_id", relayUp.DownstreamID)
+	}
 	udpRelayMu.RUnlock()
 
 	if relayUp != nil && peerID == relayUp.UpstreamPeer {
+		a.logger.Debug("relaying datagram downstream")
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPDatagram,

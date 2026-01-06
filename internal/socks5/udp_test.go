@@ -226,6 +226,10 @@ func (m *mockUDPHandler) IsUDPEnabled() bool {
 	return m.enabled
 }
 
+func (m *mockUDPHandler) SetSOCKS5UDPAssociation(streamID uint64, assoc *UDPAssociation) {
+	// No-op for tests
+}
+
 func TestUDPAssociation_NewAndClose(t *testing.T) {
 	// Create a mock TCP connection
 	server, client := net.Pipe()
