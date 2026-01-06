@@ -268,19 +268,20 @@ Disabled endpoints return HTTP 404 and log access attempts at debug level.
 
 ### Configurable Limits
 
-| Parameter           | Config Key                    | Default | Valid Range | Description                               |
-| ------------------- | ----------------------------- | ------- | ----------- | ----------------------------------------- |
-| Max Hops            | `routing.max_hops`            | 16      | 1-255       | Maximum hops for route advertisements     |
-| Route TTL           | `routing.route_ttl`           | 5m      | -           | Time before routes expire without refresh |
-| Advertise Interval  | `routing.advertise_interval`  | 2m      | -           | Route advertisement frequency             |
-| Node Info Interval  | `routing.node_info_interval`  | 2m      | -           | Node info advertisement frequency         |
-| Stream Open Timeout | `limits.stream_open_timeout`  | 30s     | -           | Total round-trip time for STREAM_OPEN     |
-| Buffer Size         | `limits.buffer_size`          | 256 KB  | -           | Per-stream buffer at each hop             |
-| Max Streams/Peer    | `limits.max_streams_per_peer` | 1000    | -           | Concurrent streams per peer connection    |
-| Max Total Streams   | `limits.max_streams_total`    | 10000   | -           | Total concurrent streams across all peers |
-| Max Pending Opens   | `limits.max_pending_opens`    | 100     | -           | Pending stream open requests              |
-| Idle Threshold      | `connections.idle_threshold`  | 5m      | -           | Keepalive interval for idle connections   |
-| Connection Timeout  | `connections.timeout`         | 90s     | -           | Disconnect after this keepalive timeout   |
+| Parameter           | Config Key                       | Default | Valid Range | Description                                    |
+| ------------------- | -------------------------------- | ------- | ----------- | ---------------------------------------------- |
+| Max Hops            | `routing.max_hops`               | 16      | 1-255       | Maximum hops for route advertisements          |
+| Route TTL           | `routing.route_ttl`              | 5m      | -           | Time before routes expire without refresh      |
+| Advertise Interval  | `routing.advertise_interval`     | 2m      | -           | Route advertisement frequency                  |
+| Node Info Interval  | `routing.node_info_interval`     | 2m      | -           | Node info advertisement frequency              |
+| Stream Open Timeout | `limits.stream_open_timeout`     | 30s     | -           | Total round-trip time for STREAM_OPEN          |
+| Buffer Size         | `limits.buffer_size`             | 256 KB  | -           | Per-stream buffer at each hop                  |
+| Max Streams/Peer    | `limits.max_streams_per_peer`    | 1000    | -           | Concurrent streams per peer connection         |
+| Max Total Streams   | `limits.max_streams_total`       | 10000   | -           | Total concurrent streams across all peers      |
+| Max Pending Opens   | `limits.max_pending_opens`       | 100     | -           | Pending stream open requests                   |
+| Idle Threshold      | `connections.idle_threshold`     | 5m      | -           | Keepalive interval for idle connections        |
+| Keepalive Jitter    | `connections.keepalive_jitter`   | 0.2     | 0.0-1.0     | Timing jitter to avoid beacon pattern detection |
+| Connection Timeout  | `connections.timeout`            | 90s     | -           | Disconnect after this keepalive timeout        |
 
 ### Protocol Constants (Non-configurable)
 

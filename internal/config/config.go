@@ -372,9 +372,10 @@ type RoutingConfig struct {
 
 // ConnectionsConfig defines connection tuning parameters.
 type ConnectionsConfig struct {
-	IdleThreshold time.Duration   `yaml:"idle_threshold"`
-	Timeout       time.Duration   `yaml:"timeout"`
-	Reconnect     ReconnectConfig `yaml:"reconnect"`
+	IdleThreshold    time.Duration   `yaml:"idle_threshold"`
+	Timeout          time.Duration   `yaml:"timeout"`
+	KeepaliveJitter  float64         `yaml:"keepalive_jitter"` // Jitter fraction for keepalive timing (0.0-1.0)
+	Reconnect        ReconnectConfig `yaml:"reconnect"`
 }
 
 // ReconnectConfig defines reconnection behavior.
@@ -525,8 +526,9 @@ func Default() *Config {
 			MaxHops:           16,
 		},
 		Connections: ConnectionsConfig{
-			IdleThreshold: 5 * time.Minute, // Long-running connections like SSH should stay alive
-			Timeout:       90 * time.Second,
+			IdleThreshold:   5 * time.Minute, // Long-running connections like SSH should stay alive
+			Timeout:         90 * time.Second,
+			KeepaliveJitter: 0.2, // 20% jitter to avoid detectable beacon patterns
 			Reconnect: ReconnectConfig{
 				InitialDelay: 1 * time.Second,
 				MaxDelay:     60 * time.Second,

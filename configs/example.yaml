@@ -186,8 +186,10 @@ routing:
 # ------------------------------------------------------------------------------
 connections:
   # Keepalive settings
-  idle_threshold: 30s  # Send keepalive after this idle time
-  timeout: 90s         # Declare peer dead after no response
+  idle_threshold: 30s    # Send keepalive after this idle time
+  timeout: 90s           # Declare peer dead after no response
+  keepalive_jitter: 0.2  # Timing jitter (0.0-1.0) to avoid detectable beacon patterns
+                         # 0.2 = 20% jitter, so 30s becomes 24-36s range
 
   # Reconnection behavior
   reconnect:

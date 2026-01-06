@@ -218,6 +218,7 @@ func (a *Agent) initComponents() error {
 	peerCfg.DisplayName = a.cfg.Agent.DisplayName
 	peerCfg.KeepaliveInterval = a.cfg.Connections.IdleThreshold
 	peerCfg.KeepaliveTimeout = a.cfg.Connections.Timeout
+	peerCfg.KeepaliveJitter = a.cfg.Connections.KeepaliveJitter
 	peerCfg.Logger = a.logger
 	peerCfg.ReconnectConfig = peer.ReconnectConfig{
 		InitialDelay: a.cfg.Connections.Reconnect.InitialDelay,

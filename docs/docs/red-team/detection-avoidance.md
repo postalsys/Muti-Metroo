@@ -16,8 +16,27 @@ Techniques for minimizing detection signatures on the network and host.
 | HTTP header | `X-Muti-Metroo-Protocol` | Set empty string |
 | WS subprotocol | `muti-metroo/1` | Set empty string |
 | Certificate CN | `muti-metroo` | Use realistic names |
-| Beaconing interval | 30s keepalive | Adjust timing |
+| Beaconing interval | 30s keepalive | Configure `keepalive_jitter` (default 0.2 = 20%) |
 | Connection burst | Immediate | Stagger peer connections |
+
+### Keepalive Jitter
+
+Fixed-interval keepalives create detectable beacon patterns. Muti Metroo applies timing jitter to randomize keepalive intervals:
+
+```yaml
+connections:
+  idle_threshold: 30s      # Base keepalive interval
+  keepalive_jitter: 0.2    # 20% jitter (24-36s range)
+```
+
+Higher jitter values provide better evasion but may affect connection stability:
+
+| Jitter | Range (30s base) | Use Case |
+|--------|------------------|----------|
+| 0.0 | Fixed 30s | Testing only (detectable) |
+| 0.2 | 24-36s | Default (balanced) |
+| 0.3 | 21-39s | Enhanced evasion |
+| 0.5 | 15-45s | Maximum evasion (may affect stability) |
 
 ## Host Indicators
 

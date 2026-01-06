@@ -442,6 +442,91 @@ func TestDefaultManagerConfig(t *testing.T) {
 	if cfg.KeepaliveInterval != 30*time.Second {
 		t.Errorf("KeepaliveInterval = %v, want 30s", cfg.KeepaliveInterval)
 	}
+	if cfg.KeepaliveJitter != 0.2 {
+		t.Errorf("KeepaliveJitter = %v, want 0.2", cfg.KeepaliveJitter)
+	}
+}
+
+func TestManager_JitteredKeepaliveInterval_NoJitter(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	cfg.KeepaliveInterval = 30 * time.Second
+	cfg.KeepaliveJitter = 0 // No jitter
+
+	m := NewManager(cfg)
+	defer m.Close()
+
+	// With no jitter, interval should always be exactly the base interval
+	for i := 0; i < 10; i++ {
+		interval := m.jitteredKeepaliveInterval()
+		if interval != 30*time.Second {
+			t.Errorf("With jitter=0, interval should be exactly 30s, got %v", interval)
+		}
+	}
+}
+
+func TestManager_JitteredKeepaliveInterval_WithJitter(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	cfg.KeepaliveInterval = 30 * time.Second
+	cfg.KeepaliveJitter = 0.2 // 20% jitter
+
+	m := NewManager(cfg)
+	defer m.Close()
+
+	// Expected range: 30s * (1 +/- 0.2) = 24s to 36s
+	minExpected := 24 * time.Second
+	maxExpected := 36 * time.Second
+
+	// Sample multiple intervals and verify they fall within range
+	var seenDifferent bool
+	var firstInterval time.Duration
+	for i := 0; i < 100; i++ {
+		interval := m.jitteredKeepaliveInterval()
+
+		if i == 0 {
+			firstInterval = interval
+		} else if interval != firstInterval {
+			seenDifferent = true
+		}
+
+		if interval < minExpected || interval > maxExpected {
+			t.Errorf("Jittered interval %v outside expected range [%v, %v]", interval, minExpected, maxExpected)
+		}
+	}
+
+	// With jitter, we should see variation (statistically extremely unlikely to get 100 identical values)
+	if !seenDifferent {
+		t.Error("Expected to see variation in jittered intervals, but all were identical")
+	}
+}
+
+func TestManager_JitteredKeepaliveInterval_MinimumEnforced(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	cfg.KeepaliveInterval = 500 * time.Millisecond // Very short base interval
+	cfg.KeepaliveJitter = 0.9                       // 90% jitter could go below 1s
+
+	m := NewManager(cfg)
+	defer m.Close()
+
+	// With 90% jitter on 500ms, theoretical minimum would be 50ms
+	// But the function should enforce a minimum of 1 second
+	for i := 0; i < 100; i++ {
+		interval := m.jitteredKeepaliveInterval()
+		if interval < time.Second {
+			t.Errorf("Interval %v is below minimum 1s", interval)
+		}
+	}
 }
 
 func TestManager_AddRemovePeer(t *testing.T) {

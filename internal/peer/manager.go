@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -35,6 +36,7 @@ type ManagerConfig struct {
 	HandshakeTimeout  time.Duration
 	KeepaliveInterval time.Duration
 	KeepaliveTimeout  time.Duration
+	KeepaliveJitter   float64 // Jitter fraction (0.0-1.0) to randomize keepalive timing
 	ReconnectConfig   ReconnectConfig
 	Logger            *slog.Logger
 	OnPeerConnected   func(*Connection)
@@ -51,6 +53,7 @@ func DefaultManagerConfig(localID identity.AgentID, tr transport.Transport) Mana
 		HandshakeTimeout:  10 * time.Second,
 		KeepaliveInterval: 30 * time.Second,
 		KeepaliveTimeout:  10 * time.Second,
+		KeepaliveJitter:   0.2, // 20% jitter to avoid detectable beacon patterns
 		ReconnectConfig:   DefaultReconnectConfig(),
 	}
 }
@@ -339,13 +342,36 @@ func (m *Manager) readLoop(conn *Connection) {
 	}
 }
 
-// keepaliveLoop sends periodic keepalives.
+// jitteredKeepaliveInterval returns the keepalive interval with random jitter applied.
+// The jitter is calculated as: interval * (1 + random(-jitter, +jitter))
+// For example, with 30s interval and 0.2 jitter, returns 24s-36s.
+func (m *Manager) jitteredKeepaliveInterval() time.Duration {
+	if m.cfg.KeepaliveJitter <= 0 {
+		return m.cfg.KeepaliveInterval
+	}
+
+	// Use math/rand for jitter calculation (crypto/rand not needed for timing jitter)
+	// rand.Float64() returns [0.0, 1.0), we convert to [-1.0, 1.0)
+	jitterRange := float64(m.cfg.KeepaliveInterval) * m.cfg.KeepaliveJitter
+	jitter := (rand.Float64()*2 - 1) * jitterRange
+
+	result := time.Duration(float64(m.cfg.KeepaliveInterval) + jitter)
+	if result < time.Second {
+		// Ensure minimum 1 second interval
+		result = time.Second
+	}
+	return result
+}
+
+// keepaliveLoop sends periodic keepalives with jittered timing.
 func (m *Manager) keepaliveLoop(conn *Connection) {
 	defer m.wg.Done()
 	defer recovery.RecoverWithLog(m.logger, "peer.keepaliveLoop")
 
-	ticker := time.NewTicker(m.cfg.KeepaliveInterval)
-	defer ticker.Stop()
+	// Use timer with jittered intervals instead of fixed ticker
+	// This avoids detectable beacon patterns in network traffic
+	timer := time.NewTimer(m.jitteredKeepaliveInterval())
+	defer timer.Stop()
 
 	for {
 		select {
@@ -353,7 +379,7 @@ func (m *Manager) keepaliveLoop(conn *Connection) {
 			return
 		case <-m.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			// Check if connection is still active
 			if conn.State() != StateConnected {
 				return
@@ -372,6 +398,9 @@ func (m *Manager) keepaliveLoop(conn *Connection) {
 				m.handleDisconnect(conn, err)
 				return
 			}
+
+			// Reset timer with new jittered interval
+			timer.Reset(m.jitteredKeepaliveInterval())
 		}
 	}
 }
