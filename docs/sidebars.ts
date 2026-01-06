@@ -56,6 +56,7 @@ const sidebars: SidebarsConfig = {
         'configuration/peers',
         'configuration/socks5',
         'configuration/exit',
+        'configuration/udp',
         'configuration/tls-certificates',
         'configuration/environment-variables',
       ],
@@ -65,6 +66,7 @@ const sidebars: SidebarsConfig = {
       label: 'Features',
       items: [
         'features/socks5-proxy',
+        'features/udp-relay',
         'features/exit-routing',
         'features/file-transfer',
         'features/shell',

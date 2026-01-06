@@ -15,8 +15,12 @@ Muti Metroo supports tunneling UDP traffic through the mesh network using SOCKS5
 
 UDP relay enables connectionless UDP traffic (DNS, NTP, game protocols) to be tunneled through the encrypted mesh network. Traffic flows from a SOCKS5 client through the ingress agent, across transit nodes, and out through an exit node.
 
-```
-SOCKS5 Client ──UDP──> Ingress Agent ──Mesh──> Exit Agent ──UDP──> Destination
+```mermaid
+flowchart LR
+    A[SOCKS5 Client] -->|UDP| B[Ingress Agent]
+    B -->|Encrypted Mesh| C[Transit Agents]
+    C -->|Encrypted Mesh| D[Exit Agent]
+    D -->|UDP| E[Destination]
 ```
 
 All UDP datagrams are encrypted end-to-end between ingress and exit using ChaCha20-Poly1305.
@@ -128,8 +132,21 @@ Special values:
 | Value | Description |
 |-------|-------------|
 | `"53"` | Specific port |
-| `"*"` | All ports (use with caution) |
+| `"*"` | All ports (dangerous - see warning below) |
 | `[]` | No ports allowed (UDP disabled) |
+
+:::danger Security Risk: Wildcard Port Access
+
+Never use `["*"]` (all ports) in production environments. This allows:
+
+- **Arbitrary UDP tunneling**: Attackers can tunnel any UDP-based protocol through your exit node
+- **Amplification attacks**: Your node can be used for UDP-based DDoS amplification (DNS, NTP, memcached)
+- **Abuse exposure**: Your exit IP becomes liable for malicious traffic
+- **Data exfiltration**: Unrestricted UDP enables covert data channels
+
+Always use an explicit port whitelist limited to protocols you actually need (e.g., DNS on 53, NTP on 123).
+
+:::
 
 ## Limitations
 

@@ -132,13 +132,22 @@ For testing environments only:
 udp:
   enabled: true
   allowed_ports:
-    - "*"      # WARNING: All ports allowed
+    - "*"      # DANGER: All ports allowed
   max_associations: 100
   idle_timeout: 1m
 ```
 
-:::warning
-Never use `["*"]` in production. Always specify explicit ports.
+:::danger Security Risk: Wildcard Port Access
+
+Never use `["*"]` (all ports) in production environments. This allows:
+
+- **Arbitrary UDP tunneling**: Attackers can tunnel any UDP-based protocol through your exit node
+- **Amplification attacks**: Your node can be used for UDP-based DDoS amplification (DNS, NTP, memcached)
+- **Abuse exposure**: Your exit IP becomes liable for malicious traffic
+- **Data exfiltration**: Unrestricted UDP enables covert data channels
+
+Always use an explicit port whitelist limited to protocols you actually need (e.g., DNS on 53, NTP on 123).
+
 :::
 
 ### High-Capacity Exit
