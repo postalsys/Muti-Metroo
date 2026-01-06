@@ -436,5 +436,5 @@ sudo netstat -tlnp | grep 4433
 
 ## Next Steps
 
-- [High Availability](high-availability) - Redundancy setup
-- [Troubleshooting](../troubleshooting/common-issues) - Common issues
+- [High Availability](/deployment/high-availability) - Redundancy setup
+- [Troubleshooting](/troubleshooting/common-issues) - Common issues

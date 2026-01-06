@@ -194,7 +194,7 @@ Muti Metroo uses Go's goroutine-based concurrency:
 - **Certificate Pinning**: Validate expected peer Agent IDs
 - **Authentication**: SOCKS5 username/password, shell password hashing
 
-See [Security Overview](../security/overview) for details.
+See [Security Overview](/security/overview) for details.
 
 ## Performance Characteristics
 
@@ -205,10 +205,10 @@ See [Security Overview](../security/overview) for details.
 | **Memory** | 256KB buffer per stream per hop |
 | **Connections** | Up to 1000 streams per peer (configurable) |
 
-See [Streams](streams) for configurable limits.
+See [Streams](/concepts/streams) for configurable limits.
 
 ## Next Steps
 
-- [Agent Roles](agent-roles) - Understand ingress, transit, and exit roles
-- [Transports](transports) - Compare QUIC, HTTP/2, and WebSocket
-- [Routing](routing) - How routes propagate and are selected
+- [Agent Roles](/concepts/agent-roles) - Understand ingress, transit, and exit roles
+- [Transports](/concepts/transports) - Compare QUIC, HTTP/2, and WebSocket
+- [Routing](/concepts/routing) - How routes propagate and are selected

@@ -462,6 +462,6 @@ Error: destination not in allowed routes
 
 ## Related
 
-- [Features: Exit Routing](../features/exit-routing) - Detailed usage
-- [Concepts: Routing](../concepts/routing) - How routing works
-- [Security: Access Control](../security/access-control) - Security best practices
+- [Features: Exit Routing](/features/exit-routing) - Detailed usage
+- [Concepts: Routing](/concepts/routing) - How routing works
+- [Security: Access Control](/security/access-control) - Security best practices

@@ -343,6 +343,6 @@ SOCKS5_PASSWORD_HASH='$2a$10$abc123...'  # Use single quotes
 
 ## Related
 
-- [Configuration Overview](overview) - Full configuration reference
-- [Deployment: Docker](../deployment/docker) - Docker deployment
-- [Deployment: Kubernetes](../deployment/kubernetes) - Kubernetes deployment
+- [Configuration Overview](/configuration/overview) - Full configuration reference
+- [Deployment: Docker](/deployment/docker) - Docker deployment
+- [Deployment: Kubernetes](/deployment/kubernetes) - Kubernetes deployment

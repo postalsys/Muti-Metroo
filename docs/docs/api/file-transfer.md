@@ -102,4 +102,4 @@ Resume is not supported for directory transfers (tar archives).
 - Optional password authentication via `file_transfer.password_hash`
 - Path restrictions via `file_transfer.allowed_paths`
 
-See [File Transfer Feature](../features/file-transfer) for configuration.
+See [File Transfer Feature](/features/file-transfer) for configuration.

@@ -428,6 +428,6 @@ Update the `id` field to match the actual peer Agent ID.
 
 ## Related
 
-- [Listeners](listeners) - Accept incoming connections
-- [TLS Certificates](tls-certificates) - Certificate setup
-- [Transports](../concepts/transports) - Transport details
+- [Listeners](/configuration/listeners) - Accept incoming connections
+- [TLS Certificates](/configuration/tls-certificates) - Certificate setup
+- [Transports](/concepts/transports) - Transport details

@@ -28,12 +28,12 @@ http:
 
 | Category | Purpose |
 |----------|---------|
-| [Health](health) | Health checks and readiness probes |
-| [Agents](agents) | Remote agent status and management |
-| [Routes](routes) | Route management and triggers |
-| [Shell](shell) | Remote shell access (interactive and streaming) |
-| [File Transfer](file-transfer) | File upload/download |
-| [Dashboard](dashboard) | Web dashboard and topology data |
+| [Health](/api/health) | Health checks and readiness probes |
+| [Agents](/api/agents) | Remote agent status and management |
+| [Routes](/api/routes) | Route management and triggers |
+| [Shell](/api/shell) | Remote shell access (interactive and streaming) |
+| [File Transfer](/api/file-transfer) | File upload/download |
+| [Dashboard](/api/dashboard) | Web dashboard and topology data |
 
 ## Authentication
 

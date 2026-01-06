@@ -118,6 +118,6 @@ No additional configuration required.
 
 ## Related
 
-- [API - Dashboard](../api/dashboard) - Dashboard API reference
-- [API - Health](../api/health) - Health endpoints
-- [Deployment - Docker](../deployment/docker) - Running with Docker
+- [API - Dashboard](/api/dashboard) - Dashboard API reference
+- [API - Health](/api/health) - Health endpoints
+- [Deployment - Docker](/deployment/docker) - Running with Docker

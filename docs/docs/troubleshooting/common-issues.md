@@ -389,7 +389,7 @@ file_transfer:
 
 ## Performance Issues
 
-See [Performance Troubleshooting](performance) for:
+See [Performance Troubleshooting](/troubleshooting/performance) for:
 - Slow connections
 - High latency
 - Memory usage
@@ -626,6 +626,6 @@ If these solutions don't work:
 
 ## Next Steps
 
-- [Connectivity Troubleshooting](connectivity)
-- [Performance Troubleshooting](performance)
-- [FAQ](faq)
+- [Connectivity Troubleshooting](/troubleshooting/connectivity)
+- [Performance Troubleshooting](/troubleshooting/performance)
+- [FAQ](/troubleshooting/faq)

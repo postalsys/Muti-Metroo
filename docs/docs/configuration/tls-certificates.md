@@ -419,6 +419,6 @@ listeners:
 
 ## Related
 
-- [CLI: cert](../cli/cert) - Certificate CLI commands
-- [Security: TLS/mTLS](../security/tls-mtls) - Security considerations
-- [Deployment](../deployment/scenarios) - Production deployment
+- [CLI: cert](/cli/cert) - Certificate CLI commands
+- [Security: TLS/mTLS](/security/tls-mtls) - Security considerations
+- [Deployment](/deployment/scenarios) - Production deployment

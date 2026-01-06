@@ -325,5 +325,5 @@ limits:
 
 ## Next Steps
 
-- [Common Issues](common-issues) - Quick solutions
-- [Deployment](../deployment/scenarios) - Optimize deployment
+- [Common Issues](/troubleshooting/common-issues) - Quick solutions
+- [Deployment](/deployment/scenarios) - Optimize deployment

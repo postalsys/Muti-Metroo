@@ -297,6 +297,6 @@ socks5:
 
 ## Related
 
-- [Concepts - Transports](../concepts/transports) - Transport protocol details
-- [Configuration - Listeners](../configuration/listeners) - Listener configuration reference
-- [Deployment - Scenarios](./scenarios) - Other deployment patterns
+- [Concepts - Transports](/concepts/transports) - Transport protocol details
+- [Configuration - Listeners](/configuration/listeners) - Listener configuration reference
+- [Deployment - Scenarios](/deployment/scenarios) - Other deployment patterns

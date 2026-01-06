@@ -167,4 +167,4 @@ curl http://localhost:8080/api/topology
 curl http://localhost:8080/api/nodes
 ```
 
-See [Web Dashboard Feature](../features/web-dashboard) for more information.
+See [Web Dashboard Feature](/features/web-dashboard) for more information.

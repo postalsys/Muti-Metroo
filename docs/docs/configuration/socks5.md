@@ -294,10 +294,10 @@ curl -v -x socks5://user:pass@localhost:1080 https://example.com
 - Verify routes are advertised
 - Check routing table: `curl http://localhost:8080/healthz`
 
-See [Troubleshooting](../troubleshooting/common-issues) for more help.
+See [Troubleshooting](/troubleshooting/common-issues) for more help.
 
 ## Related
 
-- [Features: SOCKS5 Proxy](../features/socks5-proxy) - Detailed usage
-- [Exit Configuration](exit) - Route configuration
-- [Security](../security/authentication) - Authentication best practices
+- [Features: SOCKS5 Proxy](/features/socks5-proxy) - Detailed usage
+- [Exit Configuration](/configuration/exit) - Route configuration
+- [Security](/security/authentication) - Authentication best practices

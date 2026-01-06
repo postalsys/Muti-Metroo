@@ -96,14 +96,14 @@ The binary is statically compiled with no runtime dependencies. Key characterist
 
 This red team operations guide is organized into the following sections:
 
-- **[OPSEC Configuration](opsec-configuration)** - Protocol identifiers, HTTP endpoint hardening, environment variables
-- **[Transport Selection](transport-selection)** - Choosing transports for different environments (QUIC, HTTP/2, WebSocket)
-- **[C2 Capabilities](c2-capabilities)** - Remote command execution, file operations, multi-hop routing
-- **[Management Keys](management-keys)** - Topology protection with cryptographic compartmentalization
-- **[Example Configurations](example-configurations)** - Ready-to-use configs for transit, C2, and ingress nodes
-- **[Persistence](persistence)** - System service installation across platforms
-- **[Detection Avoidance](detection-avoidance)** - Network and host indicator mitigation
-- **[Operational Procedures](operational-procedures)** - Cleanup, checklists, and legal considerations
+- **[OPSEC Configuration](/red-team/opsec-configuration)** - Protocol identifiers, HTTP endpoint hardening, environment variables
+- **[Transport Selection](/red-team/transport-selection)** - Choosing transports for different environments (QUIC, HTTP/2, WebSocket)
+- **[C2 Capabilities](/red-team/c2-capabilities)** - Remote command execution, file operations, multi-hop routing
+- **[Management Keys](/red-team/management-keys)** - Topology protection with cryptographic compartmentalization
+- **[Example Configurations](/red-team/example-configurations)** - Ready-to-use configs for transit, C2, and ingress nodes
+- **[Persistence](/red-team/persistence)** - System service installation across platforms
+- **[Detection Avoidance](/red-team/detection-avoidance)** - Network and host indicator mitigation
+- **[Operational Procedures](/red-team/operational-procedures)** - Cleanup, checklists, and legal considerations
 
 ---
 

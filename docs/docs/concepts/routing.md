@@ -201,6 +201,6 @@ muti-metroo run -c config.yaml --log-level debug
 
 ## Next Steps
 
-- [Streams](streams) - How data flows through routes
-- [Exit Routing](../features/exit-routing) - Configure exit routes
-- [Troubleshooting Connectivity](../troubleshooting/connectivity) - Debug routing issues
+- [Streams](/concepts/streams) - How data flows through routes
+- [Exit Routing](/features/exit-routing) - Configure exit routes
+- [Troubleshooting Connectivity](/troubleshooting/connectivity) - Debug routing issues

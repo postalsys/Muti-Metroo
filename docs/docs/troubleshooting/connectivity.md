@@ -353,5 +353,5 @@ time curl -x socks5://localhost:1080 https://example.com -o /dev/null
 
 ## Next Steps
 
-- [Performance Troubleshooting](performance)
-- [Common Issues](common-issues)
+- [Performance Troubleshooting](/troubleshooting/performance)
+- [Common Issues](/troubleshooting/common-issues)

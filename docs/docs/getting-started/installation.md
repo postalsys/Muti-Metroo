@@ -41,7 +41,7 @@ See the [Download page](/download) for platform-specific instructions.
 
 ## Docker Deployment
 
-For containerized deployments, see [Docker Deployment](../deployment/docker) for Docker Compose setup and configuration examples.
+For containerized deployments, see [Docker Deployment](/deployment/docker) for Docker Compose setup and configuration examples.
 
 ## System Service Installation
 
@@ -137,6 +137,6 @@ muti-metroo cert info ./certs/test-agent.crt
 
 ## Next Steps
 
-- [Quick Start](quick-start) - Create your first configuration
-- [Interactive Setup](interactive-setup) - Use the setup wizard
-- [Configuration Reference](../configuration/overview) - All configuration options
+- [Quick Start](/getting-started/quick-start) - Create your first configuration
+- [Interactive Setup](/getting-started/interactive-setup) - Use the setup wizard
+- [Configuration Reference](/configuration/overview) - All configuration options

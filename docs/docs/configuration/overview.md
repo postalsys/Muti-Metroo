@@ -23,13 +23,13 @@ muti-metroo run -c /path/to/config.yaml
 
 | Section | Purpose |
 |---------|---------|
-| [agent](agent) | Agent identity and logging |
-| [listeners](listeners) | Transport listeners (QUIC, HTTP/2, WebSocket) |
-| [peers](peers) | Outbound peer connections |
-| [socks5](socks5) | SOCKS5 proxy configuration |
-| [exit](exit) | Exit node routes and DNS |
-| [tls-certificates](tls-certificates) | TLS/mTLS configuration |
-| [environment-variables](environment-variables) | Environment variable substitution |
+| [agent](/configuration/agent) | Agent identity and logging |
+| [listeners](/configuration/listeners) | Transport listeners (QUIC, HTTP/2, WebSocket) |
+| [peers](/configuration/peers) | Outbound peer connections |
+| [socks5](/configuration/socks5) | SOCKS5 proxy configuration |
+| [exit](/configuration/exit) | Exit node routes and DNS |
+| [tls-certificates](/configuration/tls-certificates) | TLS/mTLS configuration |
+| [environment-variables](/configuration/environment-variables) | Environment variable substitution |
 
 ## Quick Reference
 
@@ -233,7 +233,7 @@ muti-metroo run -c ./config.yaml
 
 ## Next Steps
 
-- [Agent Configuration](agent) - Identity and logging
-- [Listeners](listeners) - Transport setup
-- [Peers](peers) - Connecting to other agents
-- [TLS Certificates](tls-certificates) - Certificate management
+- [Agent Configuration](/configuration/agent) - Identity and logging
+- [Listeners](/configuration/listeners) - Transport setup
+- [Peers](/configuration/peers) - Connecting to other agents
+- [TLS Certificates](/configuration/tls-certificates) - Certificate management

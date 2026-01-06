@@ -87,10 +87,10 @@ Get peer list from specific agent.
 
 Upload file to remote agent.
 
-See [File Transfer Endpoints](file-transfer).
+See [File Transfer Endpoints](/api/file-transfer).
 
 ## POST /agents/\{agent-id\}/file/download
 
 Download file from remote agent.
 
-See [File Transfer Endpoints](file-transfer).
+See [File Transfer Endpoints](/api/file-transfer).

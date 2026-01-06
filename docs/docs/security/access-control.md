@@ -326,6 +326,6 @@ Look for:
 
 ## Next Steps
 
-- [Best Practices](best-practices) - Production hardening
-- [Authentication](authentication) - Password security
-- [Troubleshooting](../troubleshooting/common-issues) - Debug access issues
+- [Best Practices](/security/best-practices) - Production hardening
+- [Authentication](/security/authentication) - Password security
+- [Troubleshooting](/troubleshooting/common-issues) - Debug access issues

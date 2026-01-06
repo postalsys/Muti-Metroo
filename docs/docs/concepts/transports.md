@@ -202,7 +202,7 @@ listeners:
 - mTLS is not available in this mode
 - Peer authentication and end-to-end encryption still work
 
-See [Reverse Proxy Deployment](../deployment/reverse-proxy) for complete configuration examples.
+See [Reverse Proxy Deployment](/deployment/reverse-proxy) for complete configuration examples.
 
 ### Firewall Considerations
 
@@ -327,6 +327,6 @@ curl -v --proxy http://proxy:8080 https://target.example.com/mesh
 
 ## Next Steps
 
-- [Routing](routing) - How routes work across transports
-- [TLS Configuration](../configuration/tls-certificates) - Certificate setup
-- [Troubleshooting Connectivity](../troubleshooting/connectivity) - Connection issues
+- [Routing](/concepts/routing) - How routes work across transports
+- [TLS Configuration](/configuration/tls-certificates) - Certificate setup
+- [Troubleshooting Connectivity](/troubleshooting/connectivity) - Connection issues

@@ -139,7 +139,7 @@ curl -x socks5://localhost:1080 https://example.com
 ```
 
 To actually proxy traffic, you need to either:
-1. Enable exit on this agent (see [Exit Routing](../features/exit-routing))
+1. Enable exit on this agent (see [Exit Routing](/features/exit-routing))
 2. Connect to another agent that has exit enabled
 
 ## Adding Exit Capability
@@ -214,10 +214,10 @@ http:
 
 ## Next Steps
 
-- [Your First Mesh](first-mesh) - Connect multiple agents
-- [Configuration Reference](../configuration/overview) - All configuration options
-- [SOCKS5 Proxy](../features/socks5-proxy) - Authentication and advanced usage
-- [Exit Routing](../features/exit-routing) - Route configuration and DNS
+- [Your First Mesh](/getting-started/first-mesh) - Connect multiple agents
+- [Configuration Reference](/configuration/overview) - All configuration options
+- [SOCKS5 Proxy](/features/socks5-proxy) - Authentication and advanced usage
+- [Exit Routing](/features/exit-routing) - Route configuration and DNS
 
 ## Troubleshooting
 
@@ -257,4 +257,4 @@ openssl x509 -in ./certs/agent.crt -text -noout | grep -A2 "Validity"
 - Check the bind address (use `127.0.0.1` for local-only, `0.0.0.0` for network access)
 - Verify firewall rules
 
-See [Troubleshooting](../troubleshooting/common-issues) for more help.
+See [Troubleshooting](/troubleshooting/common-issues) for more help.

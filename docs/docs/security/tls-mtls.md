@@ -303,6 +303,6 @@ Error: tls: client didn't provide a certificate
 
 ## Next Steps
 
-- [Authentication](authentication) - Additional authentication layers
-- [TLS Certificates](../configuration/tls-certificates) - Configuration reference
-- [Best Practices](best-practices) - Production hardening
+- [Authentication](/security/authentication) - Additional authentication layers
+- [TLS Certificates](/configuration/tls-certificates) - Configuration reference
+- [Best Practices](/security/best-practices) - Production hardening

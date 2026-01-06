@@ -339,7 +339,7 @@ chmod 644 /etc/muti-metroo/certs/*.crt  # Certificates
 
 ## Next Steps
 
-- [TLS/mTLS](tls-mtls) - Certificate security
-- [Authentication](authentication) - Password security
-- [Access Control](access-control) - Restrict access
-- [Troubleshooting](../troubleshooting/common-issues) - Security issues
+- [TLS/mTLS](/security/tls-mtls) - Certificate security
+- [Authentication](/security/authentication) - Password security
+- [Access Control](/security/access-control) - Restrict access
+- [Troubleshooting](/troubleshooting/common-issues) - Security issues

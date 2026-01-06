@@ -202,7 +202,7 @@ file_transfer:
 
 ## Related
 
-- [CLI - File Transfer](../cli/file-transfer) - CLI reference
-- [API - File Transfer](../api/file-transfer) - HTTP API reference
-- [Security - Access Control](../security/access-control) - Path restrictions
-- [Troubleshooting - Common Issues](../troubleshooting/common-issues) - File transfer issues
+- [CLI - File Transfer](/cli/file-transfer) - CLI reference
+- [API - File Transfer](/api/file-transfer) - HTTP API reference
+- [Security - Access Control](/security/access-control) - Path restrictions
+- [Troubleshooting - Common Issues](/troubleshooting/common-issues) - File transfer issues

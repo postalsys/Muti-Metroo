@@ -152,5 +152,5 @@ For a complete implementation example, see the CLI source code in the project re
 
 ## See Also
 
-- [Shell Feature](../features/shell) - Feature overview
-- [CLI - Shell](../cli/shell) - CLI reference
+- [Shell Feature](/features/shell) - Feature overview
+- [CLI - Shell](/cli/shell) - CLI reference

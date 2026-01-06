@@ -347,5 +347,5 @@ chaosMonkey.DisconnectRandomPeer()
 
 ## Next Steps
 
-- [Troubleshooting](../troubleshooting/connectivity) - Debug connectivity
-- [Deployment Scenarios](scenarios) - More deployment patterns
+- [Troubleshooting](/troubleshooting/connectivity) - Debug connectivity
+- [Deployment Scenarios](/deployment/scenarios) - More deployment patterns

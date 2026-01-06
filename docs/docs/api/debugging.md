@@ -246,5 +246,5 @@ http:
 
 ## Related
 
-- [Troubleshooting - Performance](../troubleshooting/performance) - Performance issues
-- [API - Health](health) - Health check endpoints
+- [Troubleshooting - Performance](/troubleshooting/performance) - Performance issues
+- [API - Health](/api/health) - Health check endpoints

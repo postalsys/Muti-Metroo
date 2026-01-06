@@ -281,6 +281,6 @@ The wizard will load existing values as defaults.
 
 ## Next Steps
 
-- [Your First Mesh](first-mesh) - Connect multiple agents
-- [Configuration Reference](../configuration/overview) - All options explained
-- [Deployment](../deployment/scenarios) - Production deployment patterns
+- [Your First Mesh](/getting-started/first-mesh) - Connect multiple agents
+- [Configuration Reference](/configuration/overview) - All options explained
+- [Deployment](/deployment/scenarios) - Production deployment patterns

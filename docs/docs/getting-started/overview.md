@@ -34,7 +34,7 @@ The wizard guides you through all configuration steps with sensible defaults.
 
 **Time: 5-10 minutes**
 
-[Go to Interactive Setup](interactive-setup)
+[Go to Interactive Setup](/getting-started/interactive-setup)
 
 ### Manual Configuration
 
@@ -49,13 +49,13 @@ muti-metroo run -c ./config.yaml
 
 **Time: 15-30 minutes**
 
-[Go to Quick Start](quick-start)
+[Go to Quick Start](/getting-started/quick-start)
 
 ### Docker Deployment
 
 For containerized deployments, see the **Docker guide**:
 
-[Go to Docker Deployment](../deployment/docker)
+[Go to Docker Deployment](/deployment/docker)
 
 ## What You Will Learn
 
@@ -70,13 +70,13 @@ By the end of the Getting Started guides, you will:
 
 ## Next Steps
 
-1. **[Installation](installation)** - Download binaries for your platform
-2. **[Quick Start](quick-start)** - Manual configuration walkthrough
-3. **[Interactive Setup](interactive-setup)** - Guided wizard
-4. **[Your First Mesh](first-mesh)** - Connect multiple agents
+1. **[Installation](/getting-started/installation)** - Download binaries for your platform
+2. **[Quick Start](/getting-started/quick-start)** - Manual configuration walkthrough
+3. **[Interactive Setup](/getting-started/interactive-setup)** - Guided wizard
+4. **[Your First Mesh](/getting-started/first-mesh)** - Connect multiple agents
 
 ## Need Help?
 
-- Check [Troubleshooting](../troubleshooting/common-issues) for common issues
-- Review [Configuration Reference](../configuration/overview) for all options
-- Read [Core Concepts](../concepts/architecture) to understand the architecture
+- Check [Troubleshooting](/troubleshooting/common-issues) for common issues
+- Review [Configuration Reference](/configuration/overview) for all options
+- Read [Core Concepts](/concepts/architecture) to understand the architecture

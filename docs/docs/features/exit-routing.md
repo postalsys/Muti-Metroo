@@ -117,7 +117,7 @@ Connections to other IPs will be rejected.
 
 ## Related
 
-- [Configuration - Exit](../configuration/exit) - Full configuration reference
-- [Concepts - Agent Roles](../concepts/agent-roles) - Understanding exit role
-- [Concepts - Routing](../concepts/routing) - How routes propagate
-- [Security - Access Control](../security/access-control) - Route-based access control
+- [Configuration - Exit](/configuration/exit) - Full configuration reference
+- [Concepts - Agent Roles](/concepts/agent-roles) - Understanding exit role
+- [Concepts - Routing](/concepts/routing) - How routes propagate
+- [Security - Access Control](/security/access-control) - Route-based access control

@@ -257,6 +257,6 @@ The payload exceeds `max_datagram_size`. Either:
 
 ## Related
 
-- [Features - UDP Relay](../features/udp-relay) - Feature overview
-- [Configuration - Exit](./exit) - Exit node configuration
-- [Configuration - SOCKS5](./socks5) - SOCKS5 ingress setup
+- [Features - UDP Relay](/features/udp-relay) - Feature overview
+- [Configuration - Exit](/configuration/exit) - Exit node configuration
+- [Configuration - SOCKS5](/configuration/socks5) - SOCKS5 ingress setup

@@ -43,7 +43,7 @@ Go 1.23 or later for building from source.
 | Through HTTP proxy | WebSocket |
 | Maximum compatibility | WebSocket |
 
-See [Transports](../concepts/transports) for details.
+See [Transports](/concepts/transports) for details.
 
 ### How many hops can I have?
 
@@ -137,7 +137,7 @@ Yes, for listeners. However, you'll also need:
 3. Restart agents
 4. Remove old certificates
 
-See [TLS Certificates](../configuration/tls-certificates) for details.
+See [TLS Certificates](/configuration/tls-certificates) for details.
 
 ## SOCKS5
 
@@ -239,11 +239,11 @@ muti-metroo.exe service install -c C:\config\config.yaml
 
 ### Can I run Muti Metroo in Docker?
 
-Yes. See [Docker Deployment](../deployment/docker).
+Yes. See [Docker Deployment](/deployment/docker).
 
 ### Can I run Muti Metroo in Kubernetes?
 
-Yes. See [Kubernetes Deployment](../deployment/kubernetes).
+Yes. See [Kubernetes Deployment](/deployment/kubernetes).
 
 ## Troubleshooting
 
@@ -302,7 +302,7 @@ muti-metroo shell agent-id whoami
 muti-metroo shell --tty agent-id bash
 ```
 
-Shell must be enabled and configured. See [Remote Shell](../features/shell).
+Shell must be enabled and configured. See [Remote Shell](/features/shell).
 
 ### Can I transfer files?
 
@@ -316,7 +316,7 @@ muti-metroo upload agent-id ./local.txt /remote/path.txt
 muti-metroo download agent-id /remote/path.txt ./local.txt
 ```
 
-File transfer must be enabled. See [File Transfer](../features/file-transfer).
+File transfer must be enabled. See [File Transfer](/features/file-transfer).
 
 ### Is there a web interface?
 
@@ -326,10 +326,10 @@ Yes. Access the dashboard at:
 http://localhost:8080/ui/
 ```
 
-See [Web Dashboard](../features/web-dashboard).
+See [Web Dashboard](/features/web-dashboard).
 
 ## Next Steps
 
-- [Common Issues](common-issues)
-- [Connectivity Troubleshooting](connectivity)
-- [Performance Troubleshooting](performance)
+- [Common Issues](/troubleshooting/common-issues)
+- [Connectivity Troubleshooting](/troubleshooting/connectivity)
+- [Performance Troubleshooting](/troubleshooting/performance)

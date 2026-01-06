@@ -98,13 +98,13 @@ udp:
     - "123"   # NTP
 ```
 
-See [Features - UDP Relay](./udp-relay) for details.
+See [Features - UDP Relay](/features/udp-relay) for details.
 
 ## Related
 
-- [Features - UDP Relay](./udp-relay) - UDP tunneling through SOCKS5
-- [Configuration - SOCKS5](../configuration/socks5) - Full configuration reference
-- [Configuration - UDP](../configuration/udp) - UDP relay configuration
-- [Security - Authentication](../security/authentication) - Password security
-- [Concepts - Agent Roles](../concepts/agent-roles) - Understanding ingress role
-- [Troubleshooting - Common Issues](../troubleshooting/common-issues) - SOCKS5 troubleshooting
+- [Features - UDP Relay](/features/udp-relay) - UDP tunneling through SOCKS5
+- [Configuration - SOCKS5](/configuration/socks5) - Full configuration reference
+- [Configuration - UDP](/configuration/udp) - UDP relay configuration
+- [Security - Authentication](/security/authentication) - Password security
+- [Concepts - Agent Roles](/concepts/agent-roles) - Understanding ingress role
+- [Troubleshooting - Common Issues](/troubleshooting/common-issues) - SOCKS5 troubleshooting

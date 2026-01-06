@@ -21,7 +21,7 @@ Deploy Muti Metroo on Kubernetes.
 
 ### Create Dockerfile
 
-Create a Dockerfile using the pre-built binary (see [Docker Deployment](docker) for the Dockerfile):
+Create a Dockerfile using the pre-built binary (see [Docker Deployment](/deployment/docker) for the Dockerfile):
 
 ```dockerfile
 FROM alpine:latest
@@ -467,5 +467,5 @@ kubectl exec deployment/muti-metroo -n muti-metroo -- env | grep -i tls
 
 ## Next Steps
 
-- [System Service](system-service) - Native installation
-- [High Availability](high-availability) - Redundancy patterns
+- [System Service](/deployment/system-service) - Native installation
+- [High Availability](/deployment/high-availability) - Redundancy patterns

@@ -107,5 +107,5 @@ The command exits with:
 
 ## See Also
 
-- [Shell Feature](../features/shell) - Detailed shell documentation
-- [Configuration](../configuration/overview) - Shell configuration
+- [Shell Feature](/features/shell) - Detailed shell documentation
+- [Configuration](/configuration/overview) - Shell configuration

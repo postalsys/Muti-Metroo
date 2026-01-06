@@ -22,7 +22,7 @@ All stream data is encrypted end-to-end between ingress and exit agents:
 - **Transit Opacity**: Transit agents cannot decrypt payload data
 - **Key Derivation**: HKDF-SHA256 with stream context
 
-See [End-to-End Encryption](e2e-encryption) for details.
+See [End-to-End Encryption](/security/e2e-encryption) for details.
 
 ### Transport Security
 
@@ -160,11 +160,11 @@ listeners:
 
 | Topic | Description |
 |-------|-------------|
-| [E2E Encryption](e2e-encryption) | Stream payload encryption |
-| [TLS/mTLS](tls-mtls) | Certificate-based security |
-| [Authentication](authentication) | Client and shell authentication |
-| [Access Control](access-control) | Route and command restrictions |
-| [Best Practices](best-practices) | Production hardening guide |
+| [E2E Encryption](/security/e2e-encryption) | Stream payload encryption |
+| [TLS/mTLS](/security/tls-mtls) | Certificate-based security |
+| [Authentication](/security/authentication) | Client and shell authentication |
+| [Access Control](/security/access-control) | Route and command restrictions |
+| [Best Practices](/security/best-practices) | Production hardening guide |
 
 ## Reporting Security Issues
 
@@ -177,7 +177,7 @@ If you discover a security vulnerability:
 
 ## Next Steps
 
-- [End-to-End Encryption](e2e-encryption)
-- [TLS/mTLS Configuration](tls-mtls)
-- [Authentication](authentication)
-- [Best Practices](best-practices)
+- [End-to-End Encryption](/security/e2e-encryption)
+- [TLS/mTLS Configuration](/security/tls-mtls)
+- [Authentication](/security/authentication)
+- [Best Practices](/security/best-practices)

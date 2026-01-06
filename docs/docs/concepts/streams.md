@@ -115,5 +115,5 @@ muti-metroo run --log-level debug
 
 ## Next Steps
 
-- [End-to-End Encryption](../security/e2e-encryption) - How stream data is protected
-- [Performance Troubleshooting](../troubleshooting/performance) - Optimization tips
+- [End-to-End Encryption](/security/e2e-encryption) - How stream data is protected
+- [Performance Troubleshooting](/troubleshooting/performance) - Optimization tips

@@ -121,7 +121,7 @@ Shell sessions use WebSocket for bidirectional communication.
 
 **Endpoint**: `GET /agents/{agent-id}/shell?mode=tty|stream`
 
-See [API - Shell](../api/shell) for protocol details.
+See [API - Shell](/api/shell) for protocol details.
 
 ## Platform Support
 
@@ -149,6 +149,6 @@ muti-metroo shell --tty abc123 powershell
 
 ## Related
 
-- [CLI - Shell](../cli/shell) - CLI reference
-- [API - Shell](../api/shell) - WebSocket API reference
-- [Security - Access Control](../security/access-control) - Whitelist configuration
+- [CLI - Shell](/cli/shell) - CLI reference
+- [API - Shell](/api/shell) - WebSocket API reference
+- [Security - Access Control](/security/access-control) - Whitelist configuration

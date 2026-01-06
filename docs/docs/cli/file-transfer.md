@@ -102,4 +102,4 @@ muti-metroo download --rate-limit 500KB --resume abc123 /data/huge.iso ./huge.is
 
 ## See Also
 
-- [File Transfer Feature](../features/file-transfer) - Detailed documentation
+- [File Transfer Feature](/features/file-transfer) - Detailed documentation

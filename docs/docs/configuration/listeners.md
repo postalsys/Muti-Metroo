@@ -91,7 +91,7 @@ The `plaintext` option:
 - mTLS client authentication is not available in this mode
 - Peer authentication and end-to-end encryption still work
 
-See [Reverse Proxy Deployment](../deployment/reverse-proxy) for Nginx, Caddy, and Apache configuration examples.
+See [Reverse Proxy Deployment](/deployment/reverse-proxy) for Nginx, Caddy, and Apache configuration examples.
 
 ## Multiple Listeners
 
@@ -196,7 +196,7 @@ With mTLS:
 - Provides mutual authentication
 - Recommended for production
 
-See [TLS Configuration](tls-certificates) for details.
+See [TLS Configuration](/configuration/tls-certificates) for details.
 
 ## Bind Address
 
@@ -372,6 +372,6 @@ openssl ec -in agent.key -pubout 2>/dev/null | openssl md5
 
 ## Related
 
-- [Peers](peers) - Outbound connections
-- [TLS Certificates](tls-certificates) - Certificate management
-- [Transports](../concepts/transports) - Transport comparison
+- [Peers](/configuration/peers) - Outbound connections
+- [TLS Certificates](/configuration/tls-certificates) - Certificate management
+- [Transports](/concepts/transports) - Transport comparison

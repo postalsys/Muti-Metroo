@@ -317,6 +317,6 @@ Agents with multiple roles display multiple concentric rings. Hover over any age
 
 ## Next Steps
 
-- [Transports](transports) - Choose the right transport for each role
-- [Routing](routing) - How routes propagate between roles
-- [Security](../security/overview) - Secure each role appropriately
+- [Transports](/concepts/transports) - Choose the right transport for each role
+- [Routing](/concepts/routing) - How routes propagate between roles
+- [Security](/security/overview) - Secure each role appropriately

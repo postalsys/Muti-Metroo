@@ -50,7 +50,7 @@ udp:
   max_datagram_size: 1472
 ```
 
-See [Configuration - UDP](../configuration/udp) for full reference.
+See [Configuration - UDP](/configuration/udp) for full reference.
 
 ### Ingress Node
 
@@ -214,7 +214,7 @@ UDP associations expire after `idle_timeout` (default 5 minutes) of inactivity. 
 
 ## Related
 
-- [Configuration - UDP](../configuration/udp) - Full configuration reference
-- [Features - SOCKS5 Proxy](./socks5-proxy) - SOCKS5 ingress setup
-- [Features - Exit Routing](./exit-routing) - Route configuration
-- [Configuration - Exit](../configuration/exit) - Exit node setup
+- [Configuration - UDP](/configuration/udp) - Full configuration reference
+- [Features - SOCKS5 Proxy](/features/socks5-proxy) - SOCKS5 ingress setup
+- [Features - Exit Routing](/features/exit-routing) - Route configuration
+- [Configuration - Exit](/configuration/exit) - Exit node setup

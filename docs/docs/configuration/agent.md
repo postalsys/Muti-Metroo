@@ -231,6 +231,6 @@ agent:
 
 ## Related
 
-- [Getting Started](../getting-started/quick-start) - Initial setup
-- [Listeners](listeners) - Transport configuration
-- [Deployment](../deployment/scenarios) - Production deployment
+- [Getting Started](/getting-started/quick-start) - Initial setup
+- [Listeners](/configuration/listeners) - Transport configuration
+- [Deployment](/deployment/scenarios) - Production deployment

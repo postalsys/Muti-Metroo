@@ -374,11 +374,11 @@ Error: certificate verify failed
 - Check certificate expiration
 - Verify peer ID matches certificate
 
-See [Troubleshooting Guide](../troubleshooting/common-issues) for more help.
+See [Troubleshooting Guide](/troubleshooting/common-issues) for more help.
 
 ## Next Steps
 
-- [Core Concepts](../concepts/architecture) - Understand the architecture
-- [Configuration Reference](../configuration/overview) - All configuration options
-- [Deployment Scenarios](../deployment/scenarios) - Real-world deployment patterns
-- [Security Best Practices](../security/best-practices) - Production hardening
+- [Core Concepts](/concepts/architecture) - Understand the architecture
+- [Configuration Reference](/configuration/overview) - All configuration options
+- [Deployment Scenarios](/deployment/scenarios) - Real-world deployment patterns
+- [Security Best Practices](/security/best-practices) - Production hardening

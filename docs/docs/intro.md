@@ -111,19 +111,19 @@ The wizard guides you through configuring your first agent, generating TLS certi
 
 | Section                                          | Description                                       |
 | ------------------------------------------------ | ------------------------------------------------- |
-| [Getting Started](getting-started/overview)      | Installation, setup, and your first mesh          |
-| [Core Concepts](concepts/architecture)           | Architecture, roles, transports, and routing      |
-| [Configuration](configuration/overview)          | Complete configuration reference                  |
-| [Features](features/socks5-proxy)                | SOCKS5, exit routing, file transfer, remote shell |
-| [Deployment](deployment/scenarios)               | Docker, Kubernetes, and production deployment     |
-| [Security](security/overview)                    | TLS, authentication, and best practices           |
-| [CLI Reference](cli/overview)                    | Command-line interface documentation              |
-| [HTTP API](api/overview)                         | REST API for monitoring and management            |
-| [Troubleshooting](troubleshooting/common-issues) | Common issues and FAQ                             |
+| [Getting Started](/getting-started/overview)      | Installation, setup, and your first mesh          |
+| [Core Concepts](/concepts/architecture)           | Architecture, roles, transports, and routing      |
+| [Configuration](/configuration/overview)          | Complete configuration reference                  |
+| [Features](/features/socks5-proxy)                | SOCKS5, exit routing, file transfer, remote shell |
+| [Deployment](/deployment/scenarios)               | Docker, Kubernetes, and production deployment     |
+| [Security](/security/overview)                    | TLS, authentication, and best practices           |
+| [CLI Reference](/cli/overview)                    | Command-line interface documentation              |
+| [HTTP API](/api/overview)                         | REST API for monitoring and management            |
+| [Troubleshooting](/troubleshooting/common-issues) | Common issues and FAQ                             |
 
 ## Next Steps
 
-- **New to Muti Metroo?** Start with [Getting Started](getting-started/overview)
-- **Want to understand the architecture?** Read [Core Concepts](concepts/architecture)
-- **Ready to deploy?** Check out [Deployment Scenarios](deployment/scenarios)
-- **Need help?** Visit [Troubleshooting](troubleshooting/common-issues)
+- **New to Muti Metroo?** Start with [Getting Started](/getting-started/overview)
+- **Want to understand the architecture?** Read [Core Concepts](/concepts/architecture)
+- **Ready to deploy?** Check out [Deployment Scenarios](/deployment/scenarios)
+- **Need help?** Visit [Troubleshooting](/troubleshooting/common-issues)

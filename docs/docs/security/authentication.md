@@ -282,6 +282,6 @@ Error: user not found
 
 ## Next Steps
 
-- [Access Control](access-control) - Route and command restrictions
-- [Best Practices](best-practices) - Production hardening
-- [TLS/mTLS](tls-mtls) - Certificate authentication
+- [Access Control](/security/access-control) - Route and command restrictions
+- [Best Practices](/security/best-practices) - Production hardening
+- [TLS/mTLS](/security/tls-mtls) - Certificate authentication
