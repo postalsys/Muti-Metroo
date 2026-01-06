@@ -72,7 +72,19 @@ class Dashboard {
             // Protocol badges
             let protoBadges = '<span class="proto-badge proto-tcp">TCP</span>';
             if (route.udp) {
-                protoBadges += '<span class="proto-badge proto-udp">UDP</span>';
+                const ports = route.udp_allowed_ports || [];
+                let portsDisplay;
+                if (ports.length === 0) {
+                    portsDisplay = 'none';
+                } else if (ports.includes('*')) {
+                    portsDisplay = '*';
+                } else if (ports.length <= 2) {
+                    portsDisplay = ports.join(',');
+                } else {
+                    portsDisplay = ports.slice(0, 2).join(',') + '...';
+                }
+                const portsTitle = ports.length > 0 ? `Allowed ports: ${ports.join(', ')}` : 'No ports configured';
+                protoBadges += `<span class="proto-badge proto-udp" title="${portsTitle}">UDP:${portsDisplay}</span>`;
             }
 
             // Path IDs for hover highlighting (JSON-encoded for data attribute)
