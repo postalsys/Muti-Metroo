@@ -952,15 +952,17 @@ const MaxPeersInNodeInfo = 50
 
 // NodeInfo contains metadata about an agent in the mesh.
 type NodeInfo struct {
-	DisplayName string                     // Human-readable name (from config)
-	Hostname    string                     // System hostname
-	OS          string                     // Operating system (runtime.GOOS)
-	Arch        string                     // Architecture (runtime.GOARCH)
-	Version     string                     // Agent version
-	StartTime   int64                      // Agent start time (Unix timestamp)
-	IPAddresses []string                   // Local IP addresses (non-loopback)
-	Peers       []PeerConnectionInfo       // Connected peers (max 50)
-	PublicKey   [EphemeralKeySize]byte     // Agent's static X25519 public key for E2E encryption
+	DisplayName     string                 // Human-readable name (from config)
+	Hostname        string                 // System hostname
+	OS              string                 // Operating system (runtime.GOOS)
+	Arch            string                 // Architecture (runtime.GOARCH)
+	Version         string                 // Agent version
+	StartTime       int64                  // Agent start time (Unix timestamp)
+	IPAddresses     []string               // Local IP addresses (non-loopback)
+	Peers           []PeerConnectionInfo   // Connected peers (max 50)
+	PublicKey       [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
+	UDPEnabled      bool                   // UDP relay enabled (for exit agents)
+	UDPAllowedPorts []string               // UDP allowed ports (["*"] = all, empty = none)
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -992,6 +994,12 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 		size += 1                       // IsDialer
 	}
 	size += EphemeralKeySize // PublicKey
+	// UDP info
+	size += 1 // UDPEnabled (bool)
+	size += 1 // UDPAllowedPorts count
+	for _, port := range info.UDPAllowedPorts {
+		size += 1 + len(port) // PortLen + Port
+	}
 
 	buf := make([]byte, size)
 	offset := 0
@@ -1062,6 +1070,23 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 
 	// PublicKey
 	copy(buf[offset:], info.PublicKey[:])
+	offset += EphemeralKeySize
+
+	// UDP info
+	if info.UDPEnabled {
+		buf[offset] = 1
+	} else {
+		buf[offset] = 0
+	}
+	offset++
+	buf[offset] = uint8(len(info.UDPAllowedPorts))
+	offset++
+	for _, port := range info.UDPAllowedPorts {
+		buf[offset] = uint8(len(port))
+		offset++
+		copy(buf[offset:], port)
+		offset += len(port)
+	}
 
 	return buf
 }
@@ -1212,6 +1237,27 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 		return nil, fmt.Errorf("%w: NodeInfo publicKey missing", ErrInvalidFrame)
 	}
 	copy(info.PublicKey[:], buf[offset:offset+EphemeralKeySize])
+	offset += EphemeralKeySize
+
+	// UDP info (optional - for backward compatibility with older agents)
+	if offset < len(buf) {
+		info.UDPEnabled = buf[offset] != 0
+		offset++
+		if offset < len(buf) {
+			portCount := int(buf[offset])
+			offset++
+			info.UDPAllowedPorts = make([]string, 0, portCount)
+			for i := 0; i < portCount && offset < len(buf); i++ {
+				portLen := int(buf[offset])
+				offset++
+				if offset+portLen > len(buf) {
+					break
+				}
+				info.UDPAllowedPorts = append(info.UDPAllowedPorts, string(buf[offset:offset+portLen]))
+				offset += portLen
+			}
+		}
+	}
 
 	return info, nil
 }

@@ -1209,6 +1209,11 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			if existing.DisplayName == existing.ShortID && nodeInfo.DisplayName != "" {
 				existing.DisplayName = nodeInfo.DisplayName
 			}
+			// Add UDP info from node info
+			if nodeInfo.UDPEnabled {
+				existing.UDPEnabled = true
+				existing.UDPAllowedPorts = nodeInfo.UDPAllowedPorts
+			}
 			agentMap[agentID.String()] = existing
 		}
 	}

@@ -1381,6 +1381,8 @@ func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
 			{Transport: "quic", RTTMs: 15, IsDialer: true},
 			{Transport: "h2", RTTMs: 25, IsDialer: false},
 		},
+		UDPEnabled:      true,
+		UDPAllowedPorts: []string{"53", "123", "*"},
 	}
 	copy(original.PublicKey[:], bytes.Repeat([]byte{0xAB}, EphemeralKeySize))
 
@@ -1416,6 +1418,18 @@ func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
 	}
 	if decoded.PublicKey != original.PublicKey {
 		t.Errorf("PublicKey mismatch")
+	}
+	if decoded.UDPEnabled != original.UDPEnabled {
+		t.Errorf("UDPEnabled = %v, want %v", decoded.UDPEnabled, original.UDPEnabled)
+	}
+	if len(decoded.UDPAllowedPorts) != len(original.UDPAllowedPorts) {
+		t.Errorf("UDPAllowedPorts count = %d, want %d", len(decoded.UDPAllowedPorts), len(original.UDPAllowedPorts))
+	} else {
+		for i, port := range decoded.UDPAllowedPorts {
+			if port != original.UDPAllowedPorts[i] {
+				t.Errorf("UDPAllowedPorts[%d] = %s, want %s", i, port, original.UDPAllowedPorts[i])
+			}
+		}
 	}
 }
 

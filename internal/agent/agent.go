@@ -483,7 +483,7 @@ func (a *Agent) Start() error {
 	// Initial node info announcement (with small delay for peer connections)
 	go func() {
 		time.Sleep(2 * time.Second) // Wait for initial peer connections
-		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
+		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
@@ -1074,7 +1074,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			}
 
 			// Collect and announce local node info with current peer connections
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -2764,7 +2764,15 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey)
+	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig())
+}
+
+// getUDPConfig returns the UDP configuration for node info advertisements.
+func (a *Agent) getUDPConfig() *sysinfo.UDPConfig {
+	return &sysinfo.UDPConfig{
+		Enabled:      a.cfg.UDP.Enabled,
+		AllowedPorts: a.cfg.UDP.AllowedPorts,
+	}
 }
 
 // GetSOCKS5Info returns SOCKS5 configuration info for the dashboard.

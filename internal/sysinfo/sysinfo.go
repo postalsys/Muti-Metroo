@@ -71,12 +71,19 @@ func enhanceDevVersion() string {
 }
 
 // Collect gathers local system information and returns a NodeInfo struct.
+// UDPConfig contains UDP relay configuration for node info advertisements.
+type UDPConfig struct {
+	Enabled      bool
+	AllowedPorts []string
+}
+
 // The peers parameter contains current peer connection details to include in the advertisement.
 // The publicKey parameter is the agent's X25519 public key for E2E encryption.
-func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte) *protocol.NodeInfo {
+// The udpConfig parameter is optional and can be nil if UDP is not configured.
+func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte, udpConfig *UDPConfig) *protocol.NodeInfo {
 	hostname, _ := os.Hostname()
 
-	return &protocol.NodeInfo{
+	info := &protocol.NodeInfo{
 		DisplayName: displayName,
 		Hostname:    hostname,
 		OS:          runtime.GOOS,
@@ -87,6 +94,14 @@ func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey 
 		Peers:       peers,
 		PublicKey:   publicKey,
 	}
+
+	// Add UDP config if provided
+	if udpConfig != nil {
+		info.UDPEnabled = udpConfig.Enabled
+		info.UDPAllowedPorts = udpConfig.AllowedPorts
+	}
+
+	return info
 }
 
 // GetLocalIPs returns non-loopback IPv4 addresses.
