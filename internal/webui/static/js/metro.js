@@ -48,6 +48,7 @@ class MetroMap {
             <div class="tooltip-roles"></div>
             <div class="tooltip-info"></div>
             <div class="tooltip-socks5"></div>
+            <div class="tooltip-udp"></div>
             <div class="tooltip-exits"></div>
             <div class="tooltip-domains"></div>
             <div class="tooltip-id-section">
@@ -620,6 +621,30 @@ class MetroMap {
         } else {
             socks5El.innerHTML = '';
             socks5El.style.display = 'none';
+        }
+
+        // Build UDP relay info section (for exit agents)
+        const udpEl = this.stationTooltip.querySelector('.tooltip-udp');
+        if (agent.udp_enabled) {
+            const ports = agent.udp_allowed_ports || [];
+            let portsDisplay;
+            if (ports.length === 0) {
+                portsDisplay = 'none';
+            } else if (ports.includes('*')) {
+                portsDisplay = 'all ports';
+            } else if (ports.length <= 3) {
+                portsDisplay = ports.join(', ');
+            } else {
+                portsDisplay = ports.slice(0, 3).join(', ') + ` (+${ports.length - 3})`;
+            }
+            udpEl.innerHTML = `
+                <div class="tooltip-udp-header">UDP Relay</div>
+                <div class="tooltip-udp-ports">Ports: ${portsDisplay}</div>
+            `;
+            udpEl.style.display = 'block';
+        } else {
+            udpEl.innerHTML = '';
+            udpEl.style.display = 'none';
         }
 
         // Build exit routes section (CIDR routes)

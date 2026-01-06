@@ -2775,6 +2775,14 @@ func (a *Agent) GetSOCKS5Info() health.SOCKS5Info {
 	}
 }
 
+// GetUDPInfo returns UDP relay configuration info for the dashboard.
+func (a *Agent) GetUDPInfo() health.UDPInfo {
+	return health.UDPInfo{
+		Enabled:      a.cfg.UDP.Enabled,
+		AllowedPorts: a.cfg.UDP.AllowedPorts,
+	}
+}
+
 // getPeerConnectionInfo returns peer connection info for NodeInfo advertisement.
 func (a *Agent) getPeerConnectionInfo() []protocol.PeerConnectionInfo {
 	peers := a.peerMgr.GetAllPeers()

@@ -43,6 +43,12 @@ type SOCKS5Info struct {
 	Address string
 }
 
+// UDPInfo contains UDP relay configuration for display.
+type UDPInfo struct {
+	Enabled      bool
+	AllowedPorts []string
+}
+
 // RemoteStatusProvider provides the ability to fetch status from remote agents.
 type RemoteStatusProvider interface {
 	// ID returns the local agent's ID.
@@ -83,6 +89,9 @@ type RemoteStatusProvider interface {
 
 	// GetSOCKS5Info returns SOCKS5 configuration for the local agent.
 	GetSOCKS5Info() SOCKS5Info
+
+	// GetUDPInfo returns UDP relay configuration for the local agent.
+	GetUDPInfo() UDPInfo
 
 	// UploadFile uploads a file or directory to a remote agent via stream-based transfer.
 	// localPath is the local file/directory path, remotePath is the destination on the remote agent.
@@ -165,21 +174,23 @@ type Stats struct {
 
 // TopologyAgentInfo contains information about an agent for the topology API.
 type TopologyAgentInfo struct {
-	ID           string   `json:"id"`
-	ShortID      string   `json:"short_id"`
-	DisplayName  string   `json:"display_name"`
-	IsLocal      bool     `json:"is_local"`
-	IsConnected  bool     `json:"is_connected"`
-	Hostname     string   `json:"hostname,omitempty"`
-	OS           string   `json:"os,omitempty"`
-	Arch         string   `json:"arch,omitempty"`
-	Version      string   `json:"version,omitempty"`
-	UptimeHours  float64  `json:"uptime_hours,omitempty"`
-	IPAddresses  []string `json:"ip_addresses,omitempty"`
-	Roles        []string `json:"roles,omitempty"`          // Agent roles: "ingress", "exit", "transit"
-	SOCKS5Addr   string   `json:"socks5_addr,omitempty"`    // SOCKS5 listen address (for ingress)
-	ExitRoutes   []string `json:"exit_routes,omitempty"`    // CIDR routes (for exit)
-	DomainRoutes []string `json:"domain_routes,omitempty"`  // Domain patterns (for exit)
+	ID              string   `json:"id"`
+	ShortID         string   `json:"short_id"`
+	DisplayName     string   `json:"display_name"`
+	IsLocal         bool     `json:"is_local"`
+	IsConnected     bool     `json:"is_connected"`
+	Hostname        string   `json:"hostname,omitempty"`
+	OS              string   `json:"os,omitempty"`
+	Arch            string   `json:"arch,omitempty"`
+	Version         string   `json:"version,omitempty"`
+	UptimeHours     float64  `json:"uptime_hours,omitempty"`
+	IPAddresses     []string `json:"ip_addresses,omitempty"`
+	Roles           []string `json:"roles,omitempty"`           // Agent roles: "ingress", "exit", "transit"
+	SOCKS5Addr      string   `json:"socks5_addr,omitempty"`     // SOCKS5 listen address (for ingress)
+	ExitRoutes      []string `json:"exit_routes,omitempty"`     // CIDR routes (for exit)
+	DomainRoutes    []string `json:"domain_routes,omitempty"`   // Domain patterns (for exit)
+	UDPEnabled      bool     `json:"udp_enabled,omitempty"`     // UDP relay enabled (for exit)
+	UDPAllowedPorts []string `json:"udp_allowed_ports,omitempty"` // UDP allowed ports (for exit)
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -985,6 +996,9 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	// Get SOCKS5 info for local agent
 	socks5Info := s.remoteProvider.GetSOCKS5Info()
 
+	// Get UDP info for local agent
+	udpInfo := s.remoteProvider.GetUDPInfo()
+
 	// If management key encryption is enabled but we can't decrypt,
 	// only return local agent info (no peers, routes, or other agents)
 	if s.shouldRestrictTopology() {
@@ -1010,6 +1024,11 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		localAgent.Roles = s.buildAgentRoles(true, localStats.SOCKS5Running, localStats.ExitHandlerRun)
 		if socks5Info.Enabled {
 			localAgent.SOCKS5Addr = socks5Info.Address
+		}
+		// Add UDP info
+		if udpInfo.Enabled {
+			localAgent.UDPEnabled = true
+			localAgent.UDPAllowedPorts = udpInfo.AllowedPorts
 		}
 		response := TopologyResponse{
 			LocalAgent:  localAgent,
@@ -1077,6 +1096,11 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	}
 	if domains, ok := domainRoutesPerAgent[localID.String()]; ok {
 		localAgent.DomainRoutes = domains
+	}
+	// Add local agent UDP info
+	if udpInfo.Enabled {
+		localAgent.UDPEnabled = true
+		localAgent.UDPAllowedPorts = udpInfo.AllowedPorts
 	}
 
 	// Track all agents and connections

@@ -302,6 +302,28 @@
     color: #f5ebe0;
 }
 
+/* UDP Relay Section */
+.station-tooltip .tooltip-udp {
+    padding: 0.5rem 0.8rem;
+    border-top: 1px solid #4a3f35;
+    background: #3d3d3d;
+}
+
+.station-tooltip .tooltip-udp-header {
+    font-size: 0.65rem;
+    color: #9b59b6;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.station-tooltip .tooltip-udp-ports {
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    color: #f5ebe0;
+}
+
 /* Exit Routes Section */
 .station-tooltip .tooltip-exits {
     padding: 0.5rem 0.8rem;
