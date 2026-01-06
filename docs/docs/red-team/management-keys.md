@@ -11,10 +11,10 @@ Management key encryption provides cryptographic compartmentalization. When enab
 ## Threat Model
 
 **Protected against:**
-- Blue team captures agent, enables dashboard -> sees encrypted blobs only
-- Blue team dumps agent memory -> no private key present
-- Blue team analyzes network traffic -> NodeInfo encrypted
-- Compromised field agent -> cannot expose other agents' details
+- Blue team captures agent, enables dashboard → sees encrypted blobs only
+- Blue team dumps agent memory → no private key present
+- Blue team analyzes network traffic → NodeInfo encrypted
+- Compromised field agent → cannot expose other agents' details
 
 **Not protected against:**
 - Traffic analysis (connection patterns visible)
@@ -64,7 +64,7 @@ management:
 | Agent display name | Yes | | Operational naming |
 | Agent IDs | | Yes | Required for routing |
 | Route CIDRs/metrics | | Yes | Required for routing |
-| Stream data | | Yes | Separate E2E encryption |
+| Stream data | N/A | N/A | Has its own E2E encryption |
 
 ## API Behavior Without Private Key
 

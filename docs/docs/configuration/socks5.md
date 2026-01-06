@@ -190,7 +190,7 @@ Host remote-host
 
 ### Firefox
 
-1. Settings -> Network Settings
+1. Settings → Network Settings
 2. Manual proxy configuration
 3. SOCKS Host: localhost, Port: 1080
 4. SOCKS v5

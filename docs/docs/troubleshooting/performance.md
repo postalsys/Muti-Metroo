@@ -37,8 +37,8 @@ journalctl -u muti-metroo | grep -i "latency\|timeout"
 Fewer hops = lower latency.
 
 ```
-Before: A -> B -> C -> D -> E (4 hops)
-After:  A -> B -> E (2 hops)
+Before: A → B → C → D → E (4 hops)
+After:  A → B → E (2 hops)
 ```
 
 **2. Use faster transports**

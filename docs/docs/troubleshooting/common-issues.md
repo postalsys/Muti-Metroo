@@ -482,7 +482,7 @@ When deploying multiple agents, start them in the correct order:
 1. **Listeners first** - Agents that accept connections (have `listeners:` configured)
 2. **Dialers second** - Agents that connect outbound (have `peers:` configured)
 
-Example for a chain A -> B -> C:
+Example for a chain A → B → C:
 1. Start Agent C (has listener, exit role)
 2. Start Agent B (has listener, connects to C)
 3. Start Agent A (connects to B, SOCKS5 ingress)

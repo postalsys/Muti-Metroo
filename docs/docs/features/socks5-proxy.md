@@ -80,7 +80,7 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 
 ### Firefox
 
-1. Preferences -> Network Settings -> Manual proxy configuration
+1. Preferences → Network Settings → Manual proxy configuration
 2. SOCKS Host: localhost, Port: 1080
 3. SOCKS v5
 4. Username/password if auth enabled

@@ -31,15 +31,15 @@ The WebSocket uses a binary message protocol. All messages have a 1-byte type pr
 
 | Name | Direction | Description |
 |------|-----------|-------------|
-| META | Client -> Server | JSON metadata to start session |
-| ACK | Server -> Client | JSON acknowledgment |
-| STDIN | Client -> Server | Keyboard input (raw bytes) |
-| STDOUT | Server -> Client | Command output (raw bytes) |
-| STDERR | Server -> Client | Error output (raw bytes, normal mode only) |
-| RESIZE | Client -> Server | Terminal resize notification |
-| SIGNAL | Client -> Server | Signal to send (e.g., SIGINT) |
-| EXIT | Server -> Client | Process exit code |
-| ERROR | Server -> Client | JSON error message |
+| META | Client → Server | JSON metadata to start session |
+| ACK | Server → Client | JSON acknowledgment |
+| STDIN | Client → Server | Keyboard input (raw bytes) |
+| STDOUT | Server → Client | Command output (raw bytes) |
+| STDERR | Server → Client | Error output (raw bytes, normal mode only) |
+| RESIZE | Client → Server | Terminal resize notification |
+| SIGNAL | Client → Server | Signal to send (e.g., SIGINT) |
+| EXIT | Server → Client | Process exit code |
+| ERROR | Server → Client | JSON error message |
 
 ## Session Flow
 

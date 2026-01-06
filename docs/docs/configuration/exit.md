@@ -349,8 +349,8 @@ exit:
 ```
 
 Traffic is routed:
-- `10.x.x.x` -> Exit A (longer prefix)
-- Everything else -> Exit B (default route)
+- `10.x.x.x` → Exit A (longer prefix)
+- Everything else → Exit B (default route)
 
 ### Domain-Based Routing
 
@@ -372,10 +372,10 @@ exit:
 ```
 
 Traffic is routed:
-- `api.internal.corp` -> This exit (exact domain match)
-- `foo.internal.corp` -> This exit (wildcard match)
-- `bar.prod.mycompany.local` -> This exit (wildcard match)
-- Domain not matching any pattern -> DNS resolved at ingress, then CIDR routing
+- `api.internal.corp` → This exit (exact domain match)
+- `foo.internal.corp` → This exit (wildcard match)
+- `bar.prod.mycompany.local` → This exit (wildcard match)
+- Domain not matching any pattern → DNS resolved at ingress, then CIDR routing
 
 ## Route Advertisement
 

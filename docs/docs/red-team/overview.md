@@ -9,7 +9,7 @@ sidebar_position: 1
 This guide covers operational security (OPSEC) considerations for using Muti Metroo in authorized red team engagements, penetration testing, and security assessments.
 
 :::warning Authorization Required
-This documentation is intended for authorized security professionals conducting legitimate penetration tests, red team exercises, or security research. Always ensure you have proper written authorization before deploying Muti Metroo in any environment.
+This documentation is intended for authorized security professionals conducting legitimate penetration tests, red team exercises, or security research. Always ensure you have proper written authorization before deploying Muti Metroo in any environment. Use of Muti Metroo is subject to the [Terms of Service](/terms-of-service).
 :::
 
 ## Operational Overview
@@ -22,12 +22,12 @@ Deploy agents across compromised hosts to create a self-organizing mesh network.
 
 ```mermaid
 flowchart LR
-    subgraph Operator
-        A[Operator<br/>SOCKS5]
+    subgraph Operator["Operator Machine"]
+        A[SOCKS5<br/>Client]
+        B[Ingress<br/>Agent]
     end
 
     subgraph Mesh["Mesh Network"]
-        B[Ingress<br/>Agent]
         C[Transit<br/>Agent]
         D[Transit<br/>Agent]
     end
@@ -37,10 +37,10 @@ flowchart LR
         F[(Internal<br/>Resources)]
     end
 
-    A -->|encrypted| B
-    B -->|relay| C
-    C -->|relay| D
-    D -->|encrypted| E
+    A -->|localhost| B
+    B <-->|E2E encrypted| C
+    C <-->|relay| D
+    D <-->|E2E encrypted| E
     E --> F
 ```
 
