@@ -153,6 +153,12 @@ func (s *Server) IsRunning() bool {
 	return s.running.Load()
 }
 
+// SetUDPHandler sets the UDP association handler.
+// This enables SOCKS5 UDP ASSOCIATE support.
+func (s *Server) SetUDPHandler(handler UDPAssociationHandler) {
+	s.handler.SetUDPHandler(handler)
+}
+
 // acceptLoop accepts new connections.
 func (s *Server) acceptLoop() {
 	defer s.wg.Done()

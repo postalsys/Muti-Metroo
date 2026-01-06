@@ -36,6 +36,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/stream"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/transport"
+	"github.com/postalsys/muti-metroo/internal/udp"
 )
 
 // directDialTimeout is the timeout for direct TCP connections (no mesh route).
@@ -112,6 +113,9 @@ type Agent struct {
 	shellHandler        *shell.Handler
 	shellClientMu       sync.RWMutex
 	shellClientStreams  map[uint64]*health.ShellStreamAdapter // StreamID -> active client session
+
+	// UDP relay (for exit nodes)
+	udpHandler *udp.Handler
 
 	// Relay stream tracking
 	relayMu          sync.RWMutex
@@ -359,6 +363,23 @@ func (a *Agent) initComponents() error {
 	}
 	shellExecutor := shell.NewExecutor(shellCfg)
 	a.shellHandler = shell.NewHandler(shellExecutor, a, a.logger)
+
+	// Initialize UDP handler for exit nodes
+	if a.cfg.UDP.Enabled {
+		udpCfg := udp.Config{
+			Enabled:         a.cfg.UDP.Enabled,
+			AllowedPorts:    a.cfg.UDP.AllowedPorts,
+			MaxAssociations: a.cfg.UDP.MaxAssociations,
+			IdleTimeout:     a.cfg.UDP.IdleTimeout,
+			MaxDatagramSize: a.cfg.UDP.MaxDatagramSize,
+		}
+		a.udpHandler = udp.NewHandler(udpCfg, a, a.logger)
+	}
+
+	// Set UDP handler on SOCKS5 server (for ingress UDP ASSOCIATE)
+	if a.socks5Srv != nil {
+		a.socks5Srv.SetUDPHandler(a)
+	}
 
 	return nil
 }
@@ -1092,6 +1113,17 @@ func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
 		a.handleControlRequest(peerID, frame)
 	case protocol.FrameControlResponse:
 		a.handleControlResponse(peerID, frame)
+	// UDP frames
+	case protocol.FrameUDPOpen:
+		a.handleUDPOpen(peerID, frame)
+	case protocol.FrameUDPOpenAck:
+		a.handleUDPOpenAck(peerID, frame)
+	case protocol.FrameUDPOpenErr:
+		a.handleUDPOpenErr(peerID, frame)
+	case protocol.FrameUDPDatagram:
+		a.handleUDPDatagram(peerID, frame)
+	case protocol.FrameUDPClose:
+		a.handleUDPClose(peerID, frame)
 	}
 }
 

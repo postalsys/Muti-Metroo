@@ -29,6 +29,7 @@ type Config struct {
 	HTTP         HTTPConfig         `yaml:"http"`
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
 	Shell        ShellConfig        `yaml:"shell"`
+	UDP          UDPConfig          `yaml:"udp"`
 }
 
 // ProtocolConfig defines protocol identifiers used for transport negotiation.
@@ -491,6 +492,29 @@ type ShellConfig struct {
 	MaxSessions int `yaml:"max_sessions"`
 }
 
+// UDPConfig configures UDP relay support for exit nodes.
+// UDP relay enables SOCKS5 UDP ASSOCIATE for tunneling UDP traffic through the mesh.
+type UDPConfig struct {
+	// Enabled controls whether UDP relay is available on this exit node.
+	Enabled bool `yaml:"enabled"`
+
+	// AllowedPorts contains the UDP ports that are allowed.
+	// Empty list = no ports allowed (default).
+	// Use ["*"] to allow all ports.
+	// Use specific ports like ["53", "123"] to allow only DNS and NTP.
+	AllowedPorts []string `yaml:"allowed_ports"`
+
+	// MaxAssociations limits concurrent UDP associations (0 = unlimited).
+	MaxAssociations int `yaml:"max_associations"`
+
+	// IdleTimeout is the timeout for inactive UDP associations.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+
+	// MaxDatagramSize is the maximum UDP payload size in bytes.
+	// Default is 1472 (Ethernet MTU minus IP and UDP headers).
+	MaxDatagramSize int `yaml:"max_datagram_size"`
+}
+
 // Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
@@ -559,6 +583,13 @@ func Default() *Config {
 			Enabled:     false,      // Disabled by default for security
 			Whitelist:   []string{}, // Empty = no commands allowed
 			MaxSessions: 0,          // 0 = unlimited (trusted network)
+		},
+		UDP: UDPConfig{
+			Enabled:         false,            // Disabled by default
+			AllowedPorts:    []string{},       // Empty = no ports allowed
+			MaxAssociations: 1000,             // Default limit
+			IdleTimeout:     5 * time.Minute,  // Same as connection idle threshold
+			MaxDatagramSize: 1472,             // MTU - IP/UDP headers
 		},
 	}
 }

@@ -1530,6 +1530,371 @@ func DecodeControlResponse(buf []byte) (*ControlResponse, error) {
 }
 
 // ============================================================================
+// UDP frames (for SOCKS5 UDP ASSOCIATE)
+// ============================================================================
+
+// UDPOpen is the payload for UDP_OPEN frames.
+// Requests a UDP association through the mesh network.
+type UDPOpen struct {
+	RequestID       uint64             // Stable across hops for correlation
+	AddressType     uint8              // Bind address type (typically 0x01 for IPv4)
+	Address         []byte             // Bind address (usually 0.0.0.0)
+	Port            uint16             // Bind port (usually 0)
+	TTL             uint8              // Hop limit
+	RemainingPath   []identity.AgentID // Route to exit agent
+	EphemeralPubKey [EphemeralKeySize]byte // Initiator's ephemeral public key for E2E encryption
+}
+
+// Encode serializes UDPOpen to bytes.
+func (u *UDPOpen) Encode() []byte {
+	size := 8 + 1 + len(u.Address) + 2 + 1 + 1 + len(u.RemainingPath)*16 + EphemeralKeySize
+	buf := make([]byte, size)
+	offset := 0
+
+	binary.BigEndian.PutUint64(buf[offset:], u.RequestID)
+	offset += 8
+
+	buf[offset] = u.AddressType
+	offset++
+
+	copy(buf[offset:], u.Address)
+	offset += len(u.Address)
+
+	binary.BigEndian.PutUint16(buf[offset:], u.Port)
+	offset += 2
+
+	buf[offset] = u.TTL
+	offset++
+
+	buf[offset] = uint8(len(u.RemainingPath))
+	offset++
+
+	for _, agentID := range u.RemainingPath {
+		copy(buf[offset:], agentID[:])
+		offset += 16
+	}
+
+	copy(buf[offset:], u.EphemeralPubKey[:])
+
+	return buf
+}
+
+// DecodeUDPOpen deserializes UDPOpen from bytes.
+func DecodeUDPOpen(buf []byte) (*UDPOpen, error) {
+	if len(buf) < 13+EphemeralKeySize { // 8 + 1 + 2 + 1 + 1 + 32 minimum
+		return nil, fmt.Errorf("%w: UDPOpen too short", ErrInvalidFrame)
+	}
+
+	u := &UDPOpen{}
+	offset := 0
+
+	u.RequestID = binary.BigEndian.Uint64(buf[offset:])
+	offset += 8
+
+	u.AddressType = buf[offset]
+	offset++
+
+	var addrLen int
+	switch u.AddressType {
+	case AddrTypeIPv4:
+		addrLen = 4
+	case AddrTypeIPv6:
+		addrLen = 16
+	case AddrTypeDomain:
+		if offset >= len(buf) {
+			return nil, fmt.Errorf("%w: UDPOpen domain length missing", ErrInvalidFrame)
+		}
+		addrLen = 1 + int(buf[offset])
+	default:
+		return nil, fmt.Errorf("%w: unknown address type %d", ErrInvalidFrame, u.AddressType)
+	}
+
+	if offset+addrLen > len(buf) {
+		return nil, fmt.Errorf("%w: UDPOpen address truncated", ErrInvalidFrame)
+	}
+	u.Address = make([]byte, addrLen)
+	copy(u.Address, buf[offset:offset+addrLen])
+	offset += addrLen
+
+	if offset+4 > len(buf) {
+		return nil, fmt.Errorf("%w: UDPOpen port/TTL missing", ErrInvalidFrame)
+	}
+
+	u.Port = binary.BigEndian.Uint16(buf[offset:])
+	offset += 2
+
+	u.TTL = buf[offset]
+	offset++
+
+	pathLen := int(buf[offset])
+	offset++
+
+	u.RemainingPath = make([]identity.AgentID, pathLen)
+	for i := 0; i < pathLen; i++ {
+		if offset+16 > len(buf) {
+			return nil, fmt.Errorf("%w: UDPOpen path truncated", ErrInvalidFrame)
+		}
+		copy(u.RemainingPath[i][:], buf[offset:offset+16])
+		offset += 16
+	}
+
+	if offset+EphemeralKeySize > len(buf) {
+		return nil, fmt.Errorf("%w: UDPOpen ephemeral key missing", ErrInvalidFrame)
+	}
+	copy(u.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
+
+	return u, nil
+}
+
+// UDPOpenAck is the payload for UDP_OPEN_ACK frames.
+// Confirms the UDP association with relay address information.
+type UDPOpenAck struct {
+	RequestID       uint64                 // Correlation ID
+	BoundAddrType   uint8                  // Relay address type
+	BoundAddr       []byte                 // Relay bind address
+	BoundPort       uint16                 // Relay bind port
+	EphemeralPubKey [EphemeralKeySize]byte // Responder's ephemeral public key for E2E encryption
+}
+
+// Encode serializes UDPOpenAck to bytes.
+func (u *UDPOpenAck) Encode() []byte {
+	buf := make([]byte, 8+1+len(u.BoundAddr)+2+EphemeralKeySize)
+	offset := 0
+
+	binary.BigEndian.PutUint64(buf[offset:], u.RequestID)
+	offset += 8
+
+	buf[offset] = u.BoundAddrType
+	offset++
+
+	copy(buf[offset:], u.BoundAddr)
+	offset += len(u.BoundAddr)
+
+	binary.BigEndian.PutUint16(buf[offset:], u.BoundPort)
+	offset += 2
+
+	copy(buf[offset:], u.EphemeralPubKey[:])
+
+	return buf
+}
+
+// DecodeUDPOpenAck deserializes UDPOpenAck from bytes.
+func DecodeUDPOpenAck(buf []byte) (*UDPOpenAck, error) {
+	if len(buf) < 12+EphemeralKeySize { // 8 + 1 + 1 + 2 + 32 minimum
+		return nil, fmt.Errorf("%w: UDPOpenAck too short", ErrInvalidFrame)
+	}
+
+	u := &UDPOpenAck{}
+	offset := 0
+
+	u.RequestID = binary.BigEndian.Uint64(buf[offset:])
+	offset += 8
+
+	u.BoundAddrType = buf[offset]
+	offset++
+
+	var addrLen int
+	switch u.BoundAddrType {
+	case AddrTypeIPv4:
+		addrLen = 4
+	case AddrTypeIPv6:
+		addrLen = 16
+	default:
+		addrLen = 0
+	}
+
+	if offset+addrLen+2+EphemeralKeySize > len(buf) {
+		return nil, fmt.Errorf("%w: UDPOpenAck address truncated", ErrInvalidFrame)
+	}
+
+	u.BoundAddr = make([]byte, addrLen)
+	copy(u.BoundAddr, buf[offset:offset+addrLen])
+	offset += addrLen
+
+	u.BoundPort = binary.BigEndian.Uint16(buf[offset:])
+	offset += 2
+
+	copy(u.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
+
+	return u, nil
+}
+
+// UDPOpenErr is the payload for UDP_OPEN_ERR frames.
+// Indicates failure to establish the UDP association.
+type UDPOpenErr struct {
+	RequestID uint64 // Correlation ID
+	ErrorCode uint16 // Error code (ErrUDPDisabled, etc.)
+	Message   string // Human-readable error message
+}
+
+// Encode serializes UDPOpenErr to bytes.
+func (u *UDPOpenErr) Encode() []byte {
+	msgBytes := []byte(u.Message)
+	if len(msgBytes) > 255 {
+		msgBytes = msgBytes[:255]
+	}
+
+	buf := make([]byte, 8+2+1+len(msgBytes))
+	offset := 0
+
+	binary.BigEndian.PutUint64(buf[offset:], u.RequestID)
+	offset += 8
+
+	binary.BigEndian.PutUint16(buf[offset:], u.ErrorCode)
+	offset += 2
+
+	buf[offset] = uint8(len(msgBytes))
+	offset++
+
+	copy(buf[offset:], msgBytes)
+
+	return buf
+}
+
+// DecodeUDPOpenErr deserializes UDPOpenErr from bytes.
+func DecodeUDPOpenErr(buf []byte) (*UDPOpenErr, error) {
+	if len(buf) < 11 { // 8 + 2 + 1
+		return nil, fmt.Errorf("%w: UDPOpenErr too short", ErrInvalidFrame)
+	}
+
+	u := &UDPOpenErr{}
+	offset := 0
+
+	u.RequestID = binary.BigEndian.Uint64(buf[offset:])
+	offset += 8
+
+	u.ErrorCode = binary.BigEndian.Uint16(buf[offset:])
+	offset += 2
+
+	msgLen := int(buf[offset])
+	offset++
+
+	if offset+msgLen > len(buf) {
+		return nil, fmt.Errorf("%w: UDPOpenErr message truncated", ErrInvalidFrame)
+	}
+
+	u.Message = string(buf[offset : offset+msgLen])
+
+	return u, nil
+}
+
+// UDPDatagram is the payload for UDP_DATAGRAM frames.
+// Carries a single UDP datagram through the mesh.
+type UDPDatagram struct {
+	AddressType uint8  // Destination address type
+	Address     []byte // Destination IP or domain
+	Port        uint16 // Destination port
+	Data        []byte // UDP payload (encrypted with E2E session key)
+}
+
+// MaxUDPDatagramSize is the maximum UDP payload size (typical MTU - IP/UDP headers).
+const MaxUDPDatagramSize = 1472
+
+// Encode serializes UDPDatagram to bytes.
+func (u *UDPDatagram) Encode() []byte {
+	// Format: AddrType(1) + Address(var) + Port(2) + DataLen(2) + Data
+	buf := make([]byte, 1+len(u.Address)+2+2+len(u.Data))
+	offset := 0
+
+	buf[offset] = u.AddressType
+	offset++
+
+	copy(buf[offset:], u.Address)
+	offset += len(u.Address)
+
+	binary.BigEndian.PutUint16(buf[offset:], u.Port)
+	offset += 2
+
+	binary.BigEndian.PutUint16(buf[offset:], uint16(len(u.Data)))
+	offset += 2
+
+	copy(buf[offset:], u.Data)
+
+	return buf
+}
+
+// DecodeUDPDatagram deserializes UDPDatagram from bytes.
+func DecodeUDPDatagram(buf []byte) (*UDPDatagram, error) {
+	if len(buf) < 6 { // 1 + 1 + 2 + 2 minimum (IPv4 with empty data)
+		return nil, fmt.Errorf("%w: UDPDatagram too short", ErrInvalidFrame)
+	}
+
+	u := &UDPDatagram{}
+	offset := 0
+
+	u.AddressType = buf[offset]
+	offset++
+
+	var addrLen int
+	switch u.AddressType {
+	case AddrTypeIPv4:
+		addrLen = 4
+	case AddrTypeIPv6:
+		addrLen = 16
+	case AddrTypeDomain:
+		if offset >= len(buf) {
+			return nil, fmt.Errorf("%w: UDPDatagram domain length missing", ErrInvalidFrame)
+		}
+		addrLen = 1 + int(buf[offset])
+	default:
+		return nil, fmt.Errorf("%w: unknown address type %d", ErrInvalidFrame, u.AddressType)
+	}
+
+	if offset+addrLen+4 > len(buf) { // addr + port(2) + dataLen(2)
+		return nil, fmt.Errorf("%w: UDPDatagram address truncated", ErrInvalidFrame)
+	}
+
+	u.Address = make([]byte, addrLen)
+	copy(u.Address, buf[offset:offset+addrLen])
+	offset += addrLen
+
+	u.Port = binary.BigEndian.Uint16(buf[offset:])
+	offset += 2
+
+	dataLen := int(binary.BigEndian.Uint16(buf[offset:]))
+	offset += 2
+
+	if offset+dataLen > len(buf) {
+		return nil, fmt.Errorf("%w: UDPDatagram data truncated", ErrInvalidFrame)
+	}
+
+	u.Data = make([]byte, dataLen)
+	copy(u.Data, buf[offset:offset+dataLen])
+
+	return u, nil
+}
+
+// UDPClose is the payload for UDP_CLOSE frames.
+// Terminates a UDP association.
+type UDPClose struct {
+	Reason uint8 // Close reason code
+}
+
+// UDP close reason codes
+const (
+	UDPCloseNormal       uint8 = 0 // Normal termination
+	UDPCloseTimeout      uint8 = 1 // Idle timeout
+	UDPCloseError        uint8 = 2 // Error occurred
+	UDPCloseTCPClosed    uint8 = 3 // TCP control connection closed
+	UDPCloseAdminClose   uint8 = 4 // Administrative close
+)
+
+// Encode serializes UDPClose to bytes.
+func (u *UDPClose) Encode() []byte {
+	return []byte{u.Reason}
+}
+
+// DecodeUDPClose deserializes UDPClose from bytes.
+func DecodeUDPClose(buf []byte) (*UDPClose, error) {
+	if len(buf) < 1 {
+		return nil, fmt.Errorf("%w: UDPClose too short", ErrInvalidFrame)
+	}
+	return &UDPClose{
+		Reason: buf[0],
+	}, nil
+}
+
+// ============================================================================
 // Frame Reader/Writer
 // ============================================================================
 

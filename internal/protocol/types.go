@@ -25,6 +25,13 @@ const (
 	// Mesh control frames (for remote status queries)
 	FrameControlRequest  uint8 = 0x24 // Request status from remote agent
 	FrameControlResponse uint8 = 0x25 // Response with status data
+
+	// UDP frames (for SOCKS5 UDP ASSOCIATE)
+	FrameUDPOpen     uint8 = 0x30 // Request UDP association
+	FrameUDPOpenAck  uint8 = 0x31 // Association established
+	FrameUDPOpenErr  uint8 = 0x32 // Association failed
+	FrameUDPDatagram uint8 = 0x33 // UDP datagram payload
+	FrameUDPClose    uint8 = 0x34 // Close association
 )
 
 // Control request types
@@ -82,6 +89,8 @@ const (
 	ErrShellAuthFailed    uint16 = 21 // Shell authentication failed
 	ErrPTYFailed          uint16 = 22 // PTY allocation failed
 	ErrCommandNotAllowed  uint16 = 23 // Command not in whitelist
+	ErrUDPDisabled        uint16 = 30 // UDP relay is disabled
+	ErrUDPPortNotAllowed  uint16 = 31 // UDP port not in whitelist
 )
 
 // Protocol constants
@@ -120,6 +129,12 @@ const (
 	ShellInteractive = "shell:tty"
 )
 
+// UDP stream addresses (used with AddrTypeDomain)
+const (
+	// UDPAssociation is the domain address for UDP ASSOCIATE streams
+	UDPAssociation = "udp:assoc"
+)
+
 // FrameTypeName returns a human-readable name for a frame type.
 func FrameTypeName(t uint8) string {
 	switch t {
@@ -153,6 +168,16 @@ func FrameTypeName(t uint8) string {
 		return "CONTROL_REQUEST"
 	case FrameControlResponse:
 		return "CONTROL_RESPONSE"
+	case FrameUDPOpen:
+		return "UDP_OPEN"
+	case FrameUDPOpenAck:
+		return "UDP_OPEN_ACK"
+	case FrameUDPOpenErr:
+		return "UDP_OPEN_ERR"
+	case FrameUDPDatagram:
+		return "UDP_DATAGRAM"
+	case FrameUDPClose:
+		return "UDP_CLOSE"
 	default:
 		return "UNKNOWN"
 	}
@@ -207,6 +232,10 @@ func ErrorCodeName(code uint16) string {
 		return "PTY_FAILED"
 	case ErrCommandNotAllowed:
 		return "COMMAND_NOT_ALLOWED"
+	case ErrUDPDisabled:
+		return "UDP_DISABLED"
+	case ErrUDPPortNotAllowed:
+		return "UDP_PORT_NOT_ALLOWED"
 	default:
 		return "UNKNOWN"
 	}
@@ -225,4 +254,9 @@ func IsRoutingFrame(t uint8) bool {
 // IsControlFrame returns true if the frame type is a control frame.
 func IsControlFrame(t uint8) bool {
 	return t >= FramePeerHello && t <= FrameControlResponse
+}
+
+// IsUDPFrame returns true if the frame type is a UDP-related frame.
+func IsUDPFrame(t uint8) bool {
+	return t >= FrameUDPOpen && t <= FrameUDPClose
 }

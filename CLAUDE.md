@@ -630,6 +630,51 @@ Response: Binary file data with headers:
 - **Permissions**: File mode is preserved during transfer
 - **Authentication**: bcrypt password hashing
 
+## UDP Relay
+
+UDP relay enables SOCKS5 UDP ASSOCIATE (RFC 1928) support, allowing UDP traffic to be tunneled through the mesh network.
+
+### Configuration
+
+```yaml
+udp:
+  enabled: false               # Disabled by default
+  allowed_ports: []            # Port whitelist: [] = none, ["*"] = all
+  # allowed_ports:
+  #   - "53"                   # DNS
+  #   - "123"                  # NTP
+  max_associations: 1000       # Max concurrent UDP associations
+  idle_timeout: 5m             # Association timeout after inactivity
+  max_datagram_size: 1472      # Max UDP payload (MTU - IP/UDP headers)
+```
+
+### Usage
+
+UDP relay uses standard SOCKS5 UDP ASSOCIATE. Test with tools like `proxychains`:
+
+```bash
+# DNS query through proxy
+proxychains4 dig @8.8.8.8 example.com
+
+# Using socksify
+socksify dig @8.8.8.8 example.com
+```
+
+### Security Features
+
+1. **Port Whitelist**: Only ports in `allowed_ports` are allowed
+   - Empty list = no ports allowed (default)
+   - `["*"]` = all ports allowed (testing only!)
+   - Specific ports: `["53", "123"]`
+
+2. **Authentication**: Uses SOCKS5 authentication (not separate password)
+
+### Limitations
+
+- Maximum datagram size: 1472 bytes
+- No fragmentation support (frag > 0 rejected)
+- UDP association tied to TCP control connection lifetime
+
 ## Design Decisions
 
 ### No Prometheus Metrics

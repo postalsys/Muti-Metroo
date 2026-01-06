@@ -270,6 +270,21 @@ file_transfer:
                                # Generate with: muti-metroo hash <password>
 
 # ------------------------------------------------------------------------------
+# UDP Relay Configuration
+# Enable UDP relay for SOCKS5 UDP ASSOCIATE (RFC 1928)
+# ------------------------------------------------------------------------------
+udp:
+  enabled: false               # Disabled by default
+  allowed_ports: []            # Port whitelist: [] = none, ["*"] = all
+  # allowed_ports:             # Common UDP ports to allow:
+  #   - "53"                   # DNS
+  #   - "123"                  # NTP
+  #   - "*"                    # All ports (testing only!)
+  max_associations: 1000       # Max concurrent UDP associations
+  idle_timeout: 5m             # Association timeout after inactivity
+  max_datagram_size: 1472      # Max UDP payload (MTU - IP/UDP headers)
+
+# ------------------------------------------------------------------------------
 # Management Key Encryption
 # Encrypt mesh topology data for OPSEC protection
 # ------------------------------------------------------------------------------

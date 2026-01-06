@@ -695,6 +695,17 @@ All communication uses a consistent framing protocol:
 │  │ 0x05 │ RPC                │ Remote procedure call (shell command)    │  │
 │  └──────┴────────────────────┴──────────────────────────────────────────┘  │
 │                                                                             │
+│  UDP Frames (for SOCKS5 UDP ASSOCIATE):                                     │
+│  ┌──────┬────────────────────┬─────────────┬─────────────────────────────┐ │
+│  │ Type │ Name               │ Direction   │ Purpose                     │ │
+│  ├──────┼────────────────────┼─────────────┼─────────────────────────────┤ │
+│  │ 0x30 │ UDP_OPEN           │ Forward     │ Request UDP association     │ │
+│  │ 0x31 │ UDP_OPEN_ACK       │ Backward    │ Association established     │ │
+│  │ 0x32 │ UDP_OPEN_ERR       │ Backward    │ Association failed          │ │
+│  │ 0x33 │ UDP_DATAGRAM       │ Both        │ UDP datagram payload        │ │
+│  │ 0x34 │ UDP_CLOSE          │ Both        │ Close association           │ │
+│  └──────┴────────────────────┴─────────────┴─────────────────────────────┘ │
+│                                                                             │
 │  File Transfer: Uses special domain addresses in STREAM_OPEN:               │
 │  • "file:upload" - Upload file to remote agent                              │
 │  • "file:download" - Download file from remote agent                        │
@@ -861,10 +872,134 @@ All communication uses a consistent framing protocol:
 │   │ 16    │ FILE_NOT_FOUND       │ File does not exist                │   │
 │   │ 17    │ WRITE_FAILED         │ Write operation failed             │   │
 │   │ 18    │ GENERAL_FAILURE      │ General error (e.g., key exchange) │   │
+│   │ 30    │ UDP_DISABLED         │ UDP relay is disabled              │   │
+│   │ 31    │ UDP_PORT_NOT_ALLOWED │ UDP port not in whitelist          │   │
 │   └───────┴──────────────────────┴────────────────────────────────────┘   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 6.5 UDP Relay Protocol
+
+SOCKS5 UDP ASSOCIATE (RFC 1928) enables tunneling UDP traffic through the mesh network.
+
+### UDP Association Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     UDP ASSOCIATION LIFECYCLE                                │
+│                                                                              │
+│  Client              Ingress              Transit             Exit           │
+│    │                    │                    │                  │            │
+│    │ UDP ASSOCIATE      │                    │                  │            │
+│    │───────────────────>│                    │                  │            │
+│    │                    │                    │                  │            │
+│    │  Reply (relay addr)│                    │                  │            │
+│    │<───────────────────│                    │                  │            │
+│    │                    │                    │                  │            │
+│    │                    │    UDP_OPEN        │                  │            │
+│    │                    │───────────────────>│   UDP_OPEN       │            │
+│    │                    │                    │─────────────────>│            │
+│    │                    │                    │                  │            │
+│    │                    │                    │   UDP_OPEN_ACK   │            │
+│    │                    │   UDP_OPEN_ACK     │<─────────────────│            │
+│    │                    │<───────────────────│                  │            │
+│    │                    │                    │                  │            │
+│    │ UDP datagram       │                    │                  │            │
+│    │~~~~~~~~~~~~~~~~~~~>│  UDP_DATAGRAM      │  UDP_DATAGRAM    │ UDP packet │
+│    │                    │~~~~~~~~~~~~~~~~~~~>│~~~~~~~~~~~~~~~~~>│~~~~~~~~~~~>│
+│    │                    │                    │                  │            │
+│    │ UDP response       │                    │                  │ UDP reply  │
+│    │<~~~~~~~~~~~~~~~~~~~│  UDP_DATAGRAM      │  UDP_DATAGRAM    │<~~~~~~~~~~~│
+│    │                    │<~~~~~~~~~~~~~~~~~~~│<~~~~~~~~~~~~~~~~~│            │
+│    │                    │                    │                  │            │
+│    │ TCP close          │                    │                  │            │
+│    │───────────────────>│   UDP_CLOSE        │   UDP_CLOSE      │            │
+│    │                    │───────────────────>│─────────────────>│            │
+│                                                                              │
+│  Legend: ───> = TCP/Control  ~~~> = UDP/Datagram                            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### UDP Payload Definitions
+
+#### UDP_OPEN (0x30)
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ RequestID       │ 8      │ Stable correlation ID across hops        │
+│ AddressType     │ 1      │ 0x01=IPv4, 0x02=IPv6, 0x03=Domain        │
+│ Address         │ varies │ Destination address (4/16/1+N bytes)     │
+│ Port            │ 2      │ Destination port                         │
+│ TTL             │ 1      │ Hop limit                                │
+│ PathLen         │ 1      │ Number of remaining hops                 │
+│ RemainingPath   │ 16*N   │ AgentIDs of remaining path nodes         │
+│ EphemeralPubKey │ 32     │ X25519 public key for E2E encryption     │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+#### UDP_OPEN_ACK (0x31)
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ RequestID       │ 8      │ Correlation ID from UDP_OPEN             │
+│ AddressType     │ 1      │ Relay address type                       │
+│ Address         │ varies │ Relay bind address                       │
+│ Port            │ 2      │ Relay bind port                          │
+│ EphemeralPubKey │ 32     │ X25519 public key for E2E encryption     │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+#### UDP_OPEN_ERR (0x32)
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ RequestID       │ 8      │ Correlation ID from UDP_OPEN             │
+│ ErrorCode       │ 2      │ Error code (see error codes table)       │
+│ MessageLen      │ 1      │ Length of error message                  │
+│ Message         │ N      │ Human-readable error message             │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+#### UDP_DATAGRAM (0x33)
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ AddressType     │ 1      │ Target address type                      │
+│ Address         │ varies │ Target IP or domain                      │
+│ Port            │ 2      │ Target port                              │
+│ Data            │ varies │ UDP payload (max ~1400 bytes)            │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+#### UDP_CLOSE (0x34)
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ Reason          │ 1      │ Close reason (0=normal, 1+=error)        │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+### Design Notes
+
+- **Fragmentation**: Not supported. Datagrams with frag > 0 are rejected.
+- **Max Datagram Size**: 1472 bytes (MTU - IP/UDP headers)
+- **Association Lifetime**: Tied to TCP control connection. When TCP closes, UDP association terminates.
+- **Port Whitelist**: Exit nodes can restrict allowed UDP ports via configuration.
+- **Authentication**: Uses existing SOCKS5 authentication (not separate password).
 
 ---
 

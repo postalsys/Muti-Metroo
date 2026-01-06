@@ -1,12 +1,14 @@
 package socks5
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -63,6 +65,11 @@ type Request struct {
 type Handler struct {
 	authenticators []Authenticator
 	dialer         Dialer
+
+	// UDP support
+	udpHandler     UDPAssociationHandler
+	udpAssocMu     sync.Mutex
+	udpAssociations map[uint64]*UDPAssociation
 }
 
 // Dialer interface for making outbound connections.
@@ -87,9 +94,16 @@ func NewHandler(auths []Authenticator, dialer Dialer) *Handler {
 		auths = []Authenticator{&NoAuthAuthenticator{}}
 	}
 	return &Handler{
-		authenticators: auths,
-		dialer:         dialer,
+		authenticators:  auths,
+		dialer:          dialer,
+		udpAssociations: make(map[uint64]*UDPAssociation),
 	}
+}
+
+// SetUDPHandler sets the UDP association handler.
+// This must be called before handling UDP ASSOCIATE requests.
+func (h *Handler) SetUDPHandler(handler UDPAssociationHandler) {
+	h.udpHandler = handler
 }
 
 // Handle processes a SOCKS5 connection.
@@ -106,12 +120,20 @@ func (h *Handler) Handle(conn net.Conn) error {
 		return fmt.Errorf("read request: %w", err)
 	}
 
-	// Only CONNECT is supported for now
-	if req.Command != CmdConnect {
+	// Dispatch based on command
+	switch req.Command {
+	case CmdConnect:
+		return h.handleConnect(conn, req)
+	case CmdUDPAssociate:
+		return h.handleUDPAssociate(conn, req)
+	default:
 		h.sendReply(conn, ReplyCmdNotSupported, nil, 0)
 		return fmt.Errorf("unsupported command: %d", req.Command)
 	}
+}
 
+// handleConnect handles CONNECT commands.
+func (h *Handler) handleConnect(conn net.Conn, req *Request) error {
 	// Connect to destination
 	targetAddr := net.JoinHostPort(req.DestAddr, strconv.Itoa(int(req.DestPort)))
 	target, err := h.dialer.Dial("tcp", targetAddr)
@@ -133,6 +155,91 @@ func (h *Handler) Handle(conn net.Conn) error {
 
 	// Bidirectional relay
 	return relay(conn, target)
+}
+
+// handleUDPAssociate handles UDP ASSOCIATE commands (RFC 1928 Section 4).
+// Creates a UDP relay socket and manages the association lifetime.
+func (h *Handler) handleUDPAssociate(conn net.Conn, req *Request) error {
+	// Check if UDP is enabled
+	if h.udpHandler == nil || !h.udpHandler.IsUDPEnabled() {
+		h.sendReply(conn, ReplyCmdNotSupported, nil, 0)
+		return ErrUDPDisabled
+	}
+
+	// Parse expected client address from request
+	// The client MAY specify the address/port it will use, or 0.0.0.0:0
+	var expectedClient *net.UDPAddr
+	if req.DestIP != nil && !req.DestIP.IsUnspecified() {
+		expectedClient = &net.UDPAddr{
+			IP:   req.DestIP,
+			Port: int(req.DestPort),
+		}
+	}
+
+	// Create UDP association
+	assoc, err := NewUDPAssociation(conn, h.udpHandler)
+	if err != nil {
+		h.sendReply(conn, ReplyServerFailure, nil, 0)
+		return fmt.Errorf("create UDP association: %w", err)
+	}
+
+	// Set expected client address
+	if expectedClient != nil {
+		assoc.SetExpectedClientAddr(expectedClient)
+	}
+
+	// Create association in mesh (get stream ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	streamID, err := h.udpHandler.CreateUDPAssociation(ctx, expectedClient)
+	if err != nil {
+		assoc.Close()
+		h.sendReply(conn, ReplyServerFailure, nil, 0)
+		return fmt.Errorf("create mesh association: %w", err)
+	}
+	assoc.SetStreamID(streamID)
+
+	// Track the association
+	h.udpAssocMu.Lock()
+	h.udpAssociations[streamID] = assoc
+	h.udpAssocMu.Unlock()
+
+	// Send success reply with relay address
+	relayAddr := assoc.LocalAddr()
+	h.sendReply(conn, ReplySucceeded, relayAddr.IP, uint16(relayAddr.Port))
+
+	// Clear deadlines
+	conn.SetDeadline(time.Time{})
+
+	// Start reading from UDP socket
+	go assoc.ReadLoop()
+
+	// Wait for TCP control connection to close
+	// Per RFC 1928: "A UDP association terminates when the TCP connection
+	// that the UDP ASSOCIATE request arrived terminates."
+	buf := make([]byte, 1)
+	for {
+		_, err := conn.Read(buf)
+		if err != nil {
+			break
+		}
+	}
+
+	// Clean up
+	h.udpAssocMu.Lock()
+	delete(h.udpAssociations, streamID)
+	h.udpAssocMu.Unlock()
+
+	assoc.Close()
+	return nil
+}
+
+// GetUDPAssociation returns a UDP association by stream ID.
+func (h *Handler) GetUDPAssociation(streamID uint64) *UDPAssociation {
+	h.udpAssocMu.Lock()
+	defer h.udpAssocMu.Unlock()
+	return h.udpAssociations[streamID]
 }
 
 // authenticate performs the authentication handshake.
@@ -234,6 +341,10 @@ func (h *Handler) readRequest(conn net.Conn) (*Request, error) {
 			return nil, err
 		}
 		domainLen := int(lenBuf[0])
+		if domainLen == 0 {
+			h.sendReply(conn, ReplyServerFailure, nil, 0)
+			return nil, fmt.Errorf("invalid zero-length domain name")
+		}
 		domain := make([]byte, domainLen)
 		if _, err := io.ReadFull(conn, domain); err != nil {
 			return nil, err
