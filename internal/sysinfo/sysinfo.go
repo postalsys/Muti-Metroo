@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -25,6 +26,48 @@ func init() {
 	startTimeOnce.Do(func() {
 		startTime = time.Now()
 	})
+
+	// Enhance "dev" version with VCS info from Go build system
+	if Version == "dev" {
+		Version = enhanceDevVersion()
+	}
+}
+
+// enhanceDevVersion adds git commit info to dev version using Go's build info.
+// Returns formats like: "dev-a1b2c3d", "dev-a1b2c3d-dirty", or "dev-<timestamp>" as fallback.
+func enhanceDevVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		// Fallback to build timestamp if no build info available
+		return "dev-" + startTime.UTC().Format("20060102-150405")
+	}
+
+	var revision string
+	var dirty bool
+
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			dirty = setting.Value == "true"
+		}
+	}
+
+	if revision == "" {
+		// No VCS info, use timestamp fallback
+		return "dev-" + startTime.UTC().Format("20060102-150405")
+	}
+
+	// Shorten commit hash to 7 characters (standard git short hash)
+	if len(revision) > 7 {
+		revision = revision[:7]
+	}
+
+	if dirty {
+		return "dev-" + revision + "-dirty"
+	}
+	return "dev-" + revision
 }
 
 // Collect gathers local system information and returns a NodeInfo struct.

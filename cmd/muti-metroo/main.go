@@ -29,6 +29,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/licenses"
 	"github.com/postalsys/muti-metroo/internal/service"
 	"github.com/postalsys/muti-metroo/internal/shell"
+	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/wizard"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
@@ -36,9 +37,21 @@ import (
 )
 
 var (
-	// Version is set at build time
+	// Version is set at build time via ldflags.
+	// When "dev", we use sysinfo.Version which has enhanced dev version info.
 	Version = "dev"
 )
+
+func init() {
+	// If Version wasn't set via ldflags, use the enhanced version from sysinfo
+	// which includes git commit or build timestamp
+	if Version == "dev" {
+		Version = sysinfo.Version
+	} else {
+		// Sync sysinfo.Version with ldflags-set version for consistency
+		sysinfo.Version = Version
+	}
+}
 
 func main() {
 	rootCmd := &cobra.Command{
