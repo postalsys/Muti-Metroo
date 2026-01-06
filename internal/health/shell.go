@@ -10,6 +10,7 @@ import (
 
 	"nhooyr.io/websocket"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 	"github.com/postalsys/muti-metroo/internal/shell"
@@ -273,6 +274,7 @@ type ShellStreamAdapter struct {
 	closeFunc  func()
 	nextHop    identity.AgentID
 	peerSender PeerSender
+	sessionKey *crypto.SessionKey // E2E encryption session key
 	mu         sync.Mutex
 }
 
@@ -388,4 +390,18 @@ func (a *ShellStreamAdapter) SetNextHop(nextHop identity.AgentID, sender PeerSen
 // GetStreamID returns the stream ID.
 func (a *ShellStreamAdapter) GetStreamID() uint64 {
 	return a.streamID
+}
+
+// SetSessionKey sets the E2E encryption session key.
+func (a *ShellStreamAdapter) SetSessionKey(key *crypto.SessionKey) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.sessionKey = key
+}
+
+// GetSessionKey returns the E2E encryption session key.
+func (a *ShellStreamAdapter) GetSessionKey() *crypto.SessionKey {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.sessionKey
 }

@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/logging"
 	"github.com/postalsys/muti-metroo/internal/protocol"
@@ -21,17 +22,18 @@ type DataWriter interface {
 
 // ShellStream tracks an active shell stream.
 type ShellStream struct {
-	StreamID     uint64
-	PeerID       identity.AgentID
-	RequestID    uint64
-	IsInteractive bool              // true for TTY mode
-	Meta         *ShellMeta        // Metadata after first frame
-	MetaReceived bool              // true after metadata frame received
-	Session      *Session          // Command session (streaming mode)
-	PTYSession   PTYSessionInterface // PTY session (interactive mode)
-	Closed       bool
-	StartTime    time.Time
-	mu           sync.Mutex
+	StreamID      uint64
+	PeerID        identity.AgentID
+	RequestID     uint64
+	IsInteractive bool                // true for TTY mode
+	Meta          *ShellMeta          // Metadata after first frame
+	MetaReceived  bool                // true after metadata frame received
+	Session       *Session            // Command session (normal mode)
+	PTYSession    PTYSessionInterface // PTY session (interactive mode)
+	Closed        bool
+	StartTime     time.Time
+	sessionKey    *crypto.SessionKey // E2E encryption session key
+	mu            sync.Mutex
 }
 
 // Handler handles shell stream operations.
@@ -53,21 +55,56 @@ func NewHandler(executor *Executor, writer DataWriter, logger *slog.Logger) *Han
 	}
 }
 
-// HandleStreamOpen handles a shell stream open request.
-// Returns the error code to send, or 0 if successful.
-func (h *Handler) HandleStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, interactive bool) uint16 {
+// HandleStreamOpen handles a new shell stream open request.
+// Returns error code and local ephemeral public key for E2E encryption.
+func (h *Handler) HandleStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, interactive bool, remoteEphemeralPub [crypto.KeySize]byte) (uint16, [crypto.KeySize]byte) {
 	h.logger.Debug("shell stream open",
 		logging.KeyPeerID, peerID.ShortString(),
 		logging.KeyStreamID, streamID,
 		logging.KeyRequestID, requestID,
 		"interactive", interactive)
 
+	var zeroKey [crypto.KeySize]byte
+
 	// Check if shell is enabled
 	if h.executor == nil || !h.executor.config.Enabled {
-		return protocol.ErrShellDisabled
+		return protocol.ErrShellDisabled, zeroKey
 	}
 
-	// Create shell stream entry
+	// Check for zero key (strict encryption mode - reject unencrypted connections)
+	if remoteEphemeralPub == zeroKey {
+		h.logger.Warn("rejecting shell stream with zero ephemeral key (encryption required)",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyStreamID, streamID)
+		return protocol.ErrGeneralFailure, zeroKey
+	}
+
+	// Generate ephemeral keypair for E2E encryption
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		h.logger.Error("failed to generate ephemeral keypair",
+			logging.KeyError, err)
+		return protocol.ErrGeneralFailure, zeroKey
+	}
+
+	// Compute shared secret from ECDH
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		h.logger.Error("failed to compute ECDH shared secret",
+			logging.KeyError, err)
+		return protocol.ErrGeneralFailure, zeroKey
+	}
+
+	// Zero out ephemeral private key after computing shared secret
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the responder (shell target)
+	// Use requestID (not streamID) because streamID changes at each relay hop
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, remoteEphemeralPub, ephPub, false)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Create shell stream entry with session key
 	ss := &ShellStream{
 		StreamID:      streamID,
 		PeerID:        peerID,
@@ -75,13 +112,14 @@ func (h *Handler) HandleStreamOpen(peerID identity.AgentID, streamID uint64, req
 		IsInteractive: interactive,
 		MetaReceived:  false,
 		StartTime:     time.Now(),
+		sessionKey:    sessionKey,
 	}
 
 	h.mu.Lock()
 	h.streams[streamID] = ss
 	h.mu.Unlock()
 
-	return 0 // Success
+	return 0, ephPub // Success with our ephemeral public key
 }
 
 // HandleStreamData processes data for a shell stream.
@@ -94,14 +132,29 @@ func (h *Handler) HandleStreamData(peerID identity.AgentID, streamID uint64, dat
 		return
 	}
 
+	// Decrypt data using E2E session key
+	if ss.sessionKey == nil {
+		h.logger.Error("no session key for shell stream",
+			logging.KeyStreamID, streamID)
+		return
+	}
+
+	plaintext, err := ss.sessionKey.Decrypt(data)
+	if err != nil {
+		h.logger.Error("failed to decrypt shell data",
+			logging.KeyStreamID, streamID,
+			logging.KeyError, err)
+		return
+	}
+
 	// First data frame contains metadata
 	if !ss.MetaReceived {
-		h.handleMetadata(ss, data)
+		h.handleMetadata(ss, plaintext)
 		return
 	}
 
 	// Subsequent frames are messages
-	h.handleMessage(ss, data, flags)
+	h.handleMessage(ss, plaintext, flags)
 }
 
 // HandleStreamClose handles stream close.
@@ -283,6 +336,23 @@ func (h *Handler) handleSignal(ss *ShellStream, data []byte) {
 	}
 }
 
+// writeEncrypted encrypts data and sends it via the stream.
+func (h *Handler) writeEncrypted(ss *ShellStream, data []byte, flags uint8) error {
+	if ss.sessionKey == nil {
+		return nil // Should not happen, but handle gracefully
+	}
+
+	ciphertext, err := ss.sessionKey.Encrypt(data)
+	if err != nil {
+		h.logger.Error("failed to encrypt shell data",
+			logging.KeyStreamID, ss.StreamID,
+			logging.KeyError, err)
+		return err
+	}
+
+	return h.writer.WriteStreamData(ss.PeerID, ss.StreamID, ciphertext, flags)
+}
+
 // pumpStdout reads stdout and sends it to the client.
 func (h *Handler) pumpStdout(ss *ShellStream) {
 	h.logger.Debug("pumpStdout started", logging.KeyStreamID, ss.StreamID)
@@ -301,7 +371,7 @@ func (h *Handler) pumpStdout(ss *ShellStream) {
 		if n > 0 {
 			h.logger.Debug("pumpStdout: read data", logging.KeyStreamID, ss.StreamID, "bytes", n)
 			msg := EncodeStdout(buf[:n])
-			h.writer.WriteStreamData(ss.PeerID, ss.StreamID, msg, 0)
+			h.writeEncrypted(ss, msg, 0)
 		}
 		if err != nil {
 			h.logger.Debug("pumpStdout: read error, exiting", logging.KeyStreamID, ss.StreamID, logging.KeyError, err)
@@ -325,7 +395,7 @@ func (h *Handler) pumpStderr(ss *ShellStream) {
 		n, err := session.Stderr().Read(buf)
 		if n > 0 {
 			msg := EncodeStderr(buf[:n])
-			h.writer.WriteStreamData(ss.PeerID, ss.StreamID, msg, 0)
+			h.writeEncrypted(ss, msg, 0)
 		}
 		if err != nil {
 			return
@@ -349,7 +419,7 @@ func (h *Handler) pumpPTYOutput(ss *ShellStream) {
 		if n > 0 {
 			// PTY output goes to stdout
 			msg := EncodeStdout(buf[:n])
-			h.writer.WriteStreamData(ss.PeerID, ss.StreamID, msg, 0)
+			h.writeEncrypted(ss, msg, 0)
 		}
 		if err != nil {
 			if err != io.EOF {
@@ -408,7 +478,7 @@ func (h *Handler) sendAck(ss *ShellStream, success bool, errMsg string) {
 		h.logger.Error("failed to encode ack", logging.KeyError, err)
 		return
 	}
-	h.writer.WriteStreamData(ss.PeerID, ss.StreamID, data, 0)
+	h.writeEncrypted(ss, data, 0)
 }
 
 // sendError sends an error message.
@@ -421,13 +491,13 @@ func (h *Handler) sendError(ss *ShellStream, errMsg string) {
 		h.logger.Error("failed to encode error", logging.KeyError, err)
 		return
 	}
-	h.writer.WriteStreamData(ss.PeerID, ss.StreamID, data, 0)
+	h.writeEncrypted(ss, data, 0)
 }
 
 // sendExit sends an exit code message.
 func (h *Handler) sendExit(ss *ShellStream, exitCode int32) {
 	data := EncodeExit(exitCode)
-	h.writer.WriteStreamData(ss.PeerID, ss.StreamID, data, 0)
+	h.writeEncrypted(ss, data, 0)
 }
 
 // closeStream closes the stream.

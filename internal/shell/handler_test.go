@@ -8,8 +8,47 @@ import (
 	"testing"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 )
+
+// testEphemeralKey generates a test ephemeral key pair for testing.
+func testEphemeralKey(t *testing.T) [crypto.KeySize]byte {
+	t.Helper()
+	_, pub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		t.Fatalf("failed to generate ephemeral key: %v", err)
+	}
+	return pub
+}
+
+// openStreamWithSessionKey opens a stream and returns the session key for encrypting test data.
+func openStreamWithSessionKey(t *testing.T, handler *Handler, peerID identity.AgentID, streamID, requestID uint64, interactive bool) *crypto.SessionKey {
+	t.Helper()
+	// Generate client ephemeral keypair
+	clientPriv, clientPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		t.Fatalf("failed to generate client ephemeral key: %v", err)
+	}
+
+	// Open stream and get handler's ephemeral public key
+	errCode, handlerPub := handler.HandleStreamOpen(peerID, streamID, requestID, interactive, clientPub)
+	if errCode != 0 {
+		t.Fatalf("HandleStreamOpen() returned error code %d", errCode)
+	}
+
+	// Derive session key (as initiator)
+	sharedSecret, err := crypto.ComputeECDH(clientPriv, handlerPub)
+	if err != nil {
+		t.Fatalf("failed to compute ECDH: %v", err)
+	}
+	crypto.ZeroKey(&clientPriv)
+
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, clientPub, handlerPub, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	return sessionKey
+}
 
 // mockDataWriter is a mock implementation of DataWriter for testing.
 type mockDataWriter struct {
@@ -86,7 +125,8 @@ func TestHandler_HandleStreamOpen_Disabled(t *testing.T) {
 	requestID := uint64(1)
 
 	// Open should fail with shell disabled error
-	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, false)
+	ephKey := testEphemeralKey(t)
+	errCode, _ := handler.HandleStreamOpen(peerID, streamID, requestID, false, ephKey)
 	if errCode == 0 {
 		t.Error("HandleStreamOpen() should have returned error code for disabled shell")
 	}
@@ -109,7 +149,8 @@ func TestHandler_HandleStreamOpen_Success_Streaming(t *testing.T) {
 	requestID := uint64(1)
 
 	// Open should succeed (streaming mode)
-	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, false)
+	ephKey := testEphemeralKey(t)
+	errCode, _ := handler.HandleStreamOpen(peerID, streamID, requestID, false, ephKey)
 	if errCode != 0 {
 		t.Errorf("HandleStreamOpen() returned error code %d, want 0", errCode)
 	}
@@ -149,7 +190,8 @@ func TestHandler_HandleStreamOpen_Success_Interactive(t *testing.T) {
 	requestID := uint64(1)
 
 	// Open should succeed (interactive mode)
-	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, true)
+	ephKey := testEphemeralKey(t)
+	errCode, _ := handler.HandleStreamOpen(peerID, streamID, requestID, true, ephKey)
 	if errCode != 0 {
 		t.Errorf("HandleStreamOpen() interactive returned error code %d, want 0", errCode)
 	}
@@ -184,19 +226,20 @@ func TestHandler_StreamSessionFlow(t *testing.T) {
 	streamID := uint64(1)
 	requestID := uint64(1)
 
-	// Open stream
-	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, false)
-	if errCode != 0 {
-		t.Fatalf("HandleStreamOpen() returned error code %d", errCode)
-	}
+	// Open stream and get session key for encryption
+	sessionKey := openStreamWithSessionKey(t, handler, peerID, streamID, requestID, false)
 
-	// Send metadata - execute echo command
+	// Send metadata - execute echo command (encrypted)
 	meta := &ShellMeta{
 		Command: "echo",
 		Args:    []string{"hello world"},
 	}
 	metaMsg, _ := EncodeMeta(meta)
-	handler.HandleStreamData(peerID, streamID, metaMsg, 0)
+	encryptedMeta, err := sessionKey.Encrypt(metaMsg)
+	if err != nil {
+		t.Fatalf("failed to encrypt metadata: %v", err)
+	}
+	handler.HandleStreamData(peerID, streamID, encryptedMeta, 0)
 
 	// Wait for ACK message with timeout
 	deadline := time.Now().Add(5 * time.Second)
@@ -212,9 +255,13 @@ func TestHandler_StreamSessionFlow(t *testing.T) {
 		t.Fatal("Expected messages from handler")
 	}
 
-	// First message should be ACK
+	// First message should be ACK (decrypt first)
 	firstMsg := messages[0]
-	msgType, _, err := DecodeMessage(firstMsg.data)
+	decrypted, err := sessionKey.Decrypt(firstMsg.data)
+	if err != nil {
+		t.Fatalf("Failed to decrypt first message: %v", err)
+	}
+	msgType, _, err := DecodeMessage(decrypted)
 	if err != nil {
 		t.Fatalf("DecodeMessage() error = %v", err)
 	}
@@ -229,7 +276,11 @@ func TestHandler_StreamSessionFlow(t *testing.T) {
 	for time.Now().Before(deadline) {
 		messages = writer.getMessages()
 		for _, msg := range messages {
-			msgType, _, _ := DecodeMessage(msg.data)
+			decrypted, err := sessionKey.Decrypt(msg.data)
+			if err != nil {
+				continue // Skip messages we can't decrypt
+			}
+			msgType, _, _ := DecodeMessage(decrypted)
 			if msgType == MsgStdout {
 				hasStdout = true
 			}
@@ -270,28 +321,33 @@ func TestHandler_HandleMetadataError(t *testing.T) {
 	streamID := uint64(1)
 	requestID := uint64(1)
 
-	// Open stream
-	errCode := handler.HandleStreamOpen(peerID, streamID, requestID, false)
-	if errCode != 0 {
-		t.Fatalf("HandleStreamOpen() returned error code %d", errCode)
-	}
+	// Open stream and get session key for encryption
+	sessionKey := openStreamWithSessionKey(t, handler, peerID, streamID, requestID, false)
 
-	// Send metadata with non-whitelisted command
+	// Send metadata with non-whitelisted command (encrypted)
 	meta := &ShellMeta{
 		Command: "echo", // Not in whitelist
 		Args:    []string{"hello"},
 	}
 	metaMsg, _ := EncodeMeta(meta)
-	handler.HandleStreamData(peerID, streamID, metaMsg, 0)
+	encryptedMeta, err := sessionKey.Encrypt(metaMsg)
+	if err != nil {
+		t.Fatalf("failed to encrypt metadata: %v", err)
+	}
+	handler.HandleStreamData(peerID, streamID, encryptedMeta, 0)
 
 	// Wait for response
 	time.Sleep(100 * time.Millisecond)
 
-	// Check for error message
+	// Check for error message (decrypt first)
 	messages := writer.getMessages()
 	hasError := false
 	for _, msg := range messages {
-		msgType, _, _ := DecodeMessage(msg.data)
+		decrypted, err := sessionKey.Decrypt(msg.data)
+		if err != nil {
+			continue // Skip messages we can't decrypt
+		}
+		msgType, _, _ := DecodeMessage(decrypted)
 		if msgType == MsgError {
 			hasError = true
 		}
@@ -321,8 +377,9 @@ func TestHandler_Close(t *testing.T) {
 
 	// Open multiple streams
 	peerID := mustNewAgentID(t)
+	ephKey := testEphemeralKey(t)
 	for i := uint64(1); i <= 3; i++ {
-		handler.HandleStreamOpen(peerID, i, i, false)
+		handler.HandleStreamOpen(peerID, i, i, false, ephKey)
 	}
 
 	if handler.ActiveStreams() != 3 {

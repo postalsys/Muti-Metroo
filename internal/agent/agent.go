@@ -63,6 +63,8 @@ type fileTransferStream struct {
 	// Streaming upload fields (write directly to disk instead of buffering)
 	TempFile     *os.File // Temp file for streaming upload data
 	BytesWritten int64    // Bytes written to temp file
+	// E2E encryption
+	sessionKey *crypto.SessionKey // E2E encryption session key
 }
 
 // pendingControlRequest tracks an outbound control request awaiting response.
@@ -1108,20 +1110,20 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 		if open.AddressType == protocol.AddrTypeDomain {
 			destAddr := addressToString(open.AddressType, open.Address)
 			if destAddr == protocol.FileTransferUpload {
-				a.handleFileUploadStreamOpen(peerID, frame.StreamID, open.RequestID)
+				a.handleFileUploadStreamOpen(peerID, frame.StreamID, open.RequestID, open.EphemeralPubKey)
 				return
 			}
 			if destAddr == protocol.FileTransferDownload {
-				a.handleFileDownloadStreamOpen(peerID, frame.StreamID, open.RequestID)
+				a.handleFileDownloadStreamOpen(peerID, frame.StreamID, open.RequestID, open.EphemeralPubKey)
 				return
 			}
 			// Shell streams
 			if destAddr == protocol.ShellStream {
-				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, false)
+				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, false, open.EphemeralPubKey)
 				return
 			}
 			if destAddr == protocol.ShellInteractive {
-				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, true)
+				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, true, open.EphemeralPubKey)
 				return
 			}
 		}
@@ -2842,7 +2844,7 @@ func (a *Agent) WriteStreamClose(peerID identity.AgentID, streamID uint64) error
 }
 
 // handleFileUploadStreamOpen handles a file upload stream open request.
-func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64) {
+func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, remoteEphemeralPub [crypto.KeySize]byte) {
 	a.logger.Debug("file upload stream open",
 		logging.KeyPeerID, peerID.ShortString(),
 		logging.KeyStreamID, streamID,
@@ -2854,27 +2856,62 @@ func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uin
 		return
 	}
 
-	// Create file transfer stream entry (temp file created after metadata received)
+	// Check for zero key (strict encryption mode - reject unencrypted connections)
+	var zeroKey [crypto.KeySize]byte
+	if remoteEphemeralPub == zeroKey {
+		a.logger.Warn("rejecting file upload with zero ephemeral key (encryption required)",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyStreamID, streamID)
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "encryption required")
+		return
+	}
+
+	// Generate ephemeral keypair for E2E encryption
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		a.logger.Error("failed to generate ephemeral keypair for file upload",
+			logging.KeyError, err)
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key generation failed")
+		return
+	}
+
+	// Compute shared secret from ECDH
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		a.logger.Error("failed to compute ECDH for file upload",
+			logging.KeyError, err)
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key exchange failed")
+		return
+	}
+
+	// Zero out ephemeral private key
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the responder (file target)
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, remoteEphemeralPub, ephPub, false)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Create file transfer stream entry with session key
 	fts := &fileTransferStream{
 		StreamID:     streamID,
 		PeerID:       peerID,
 		RequestID:    requestID,
 		IsUpload:     true,
 		MetaReceived: false,
+		sessionKey:   sessionKey,
 	}
 
 	a.fileStreamsMu.Lock()
 	a.fileStreams[streamID] = fts
 	a.fileStreamsMu.Unlock()
 
-	// Send ACK to accept the stream (metadata will come in first data frame)
-	// File transfers use internal protocol and don't use E2E encryption
-	var zeroKey [crypto.KeySize]byte
-	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, zeroKey)
+	// Send ACK with our ephemeral public key for E2E encryption
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, ephPub)
 }
 
 // handleFileDownloadStreamOpen handles a file download stream open request.
-func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64) {
+func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, remoteEphemeralPub [crypto.KeySize]byte) {
 	a.logger.Debug("file download stream open",
 		logging.KeyPeerID, peerID.ShortString(),
 		logging.KeyStreamID, streamID,
@@ -2886,28 +2923,63 @@ func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID u
 		return
 	}
 
-	// Create file transfer stream entry
+	// Check for zero key (strict encryption mode - reject unencrypted connections)
+	var zeroKey [crypto.KeySize]byte
+	if remoteEphemeralPub == zeroKey {
+		a.logger.Warn("rejecting file download with zero ephemeral key (encryption required)",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyStreamID, streamID)
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "encryption required")
+		return
+	}
+
+	// Generate ephemeral keypair for E2E encryption
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		a.logger.Error("failed to generate ephemeral keypair for file download",
+			logging.KeyError, err)
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key generation failed")
+		return
+	}
+
+	// Compute shared secret from ECDH
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		a.logger.Error("failed to compute ECDH for file download",
+			logging.KeyError, err)
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key exchange failed")
+		return
+	}
+
+	// Zero out ephemeral private key
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the responder (file source)
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, remoteEphemeralPub, ephPub, false)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Create file transfer stream entry with session key
 	fts := &fileTransferStream{
 		StreamID:     streamID,
 		PeerID:       peerID,
 		RequestID:    requestID,
 		IsUpload:     false,
 		MetaReceived: false,
+		sessionKey:   sessionKey,
 	}
 
 	a.fileStreamsMu.Lock()
 	a.fileStreams[streamID] = fts
 	a.fileStreamsMu.Unlock()
 
-	// Send ACK to accept the stream (metadata will come in first data frame)
-	// File transfers use internal protocol and don't use E2E encryption
-	var zeroKey [crypto.KeySize]byte
-	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, zeroKey)
+	// Send ACK with our ephemeral public key for E2E encryption
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, ephPub)
 }
 
 // handleShellStreamOpen handles a shell stream open request.
-func (a *Agent) handleShellStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, interactive bool) {
-	modeStr := "streaming"
+func (a *Agent) handleShellStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, interactive bool, remoteEphemeralPub [crypto.KeySize]byte) {
+	modeStr := "normal"
 	if interactive {
 		modeStr = "interactive"
 	}
@@ -2917,17 +2989,15 @@ func (a *Agent) handleShellStreamOpen(peerID identity.AgentID, streamID uint64, 
 		logging.KeyRequestID, requestID,
 		"mode", modeStr)
 
-	// Delegate to shell handler
-	errCode := a.shellHandler.HandleStreamOpen(peerID, streamID, requestID, interactive)
+	// Delegate to shell handler - performs E2E key exchange
+	errCode, localEphemeralPub := a.shellHandler.HandleStreamOpen(peerID, streamID, requestID, interactive, remoteEphemeralPub)
 	if errCode != 0 {
 		a.WriteStreamOpenErr(peerID, streamID, requestID, errCode, protocol.ErrorCodeName(errCode))
 		return
 	}
 
-	// Send ACK to accept the stream (metadata will come in first data frame)
-	// Shell streams use internal protocol and don't use E2E encryption
-	var zeroKey [crypto.KeySize]byte
-	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, zeroKey)
+	// Send ACK with our ephemeral public key for E2E encryption
+	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, localEphemeralPub)
 }
 
 // handleFileTransferStreamData processes data for a file transfer stream.
@@ -2940,9 +3010,26 @@ func (a *Agent) handleFileTransferStreamData(peerID identity.AgentID, streamID u
 		return
 	}
 
+	// Decrypt data using E2E session key
+	if fts.sessionKey == nil {
+		a.logger.Error("no session key for file transfer stream",
+			logging.KeyStreamID, streamID)
+		a.closeFileTransferStream(streamID, protocol.ErrGeneralFailure, "no session key")
+		return
+	}
+
+	plaintext, err := fts.sessionKey.Decrypt(data)
+	if err != nil {
+		a.logger.Error("failed to decrypt file transfer data",
+			logging.KeyStreamID, streamID,
+			logging.KeyError, err)
+		a.closeFileTransferStream(streamID, protocol.ErrGeneralFailure, "decryption failed")
+		return
+	}
+
 	// First data frame contains metadata
 	if !fts.MetaReceived {
-		meta, err := filetransfer.ParseMetadata(data)
+		meta, err := filetransfer.ParseMetadata(plaintext)
 		if err != nil {
 			a.logger.Error("invalid file transfer metadata",
 				logging.KeyStreamID, streamID,
@@ -2996,8 +3083,8 @@ func (a *Agent) handleFileTransferStreamData(peerID identity.AgentID, streamID u
 
 	// Subsequent data frames contain file content (only for uploads)
 	if fts.IsUpload && fts.TempFile != nil {
-		// Write directly to disk (streaming, no memory buffering)
-		n, err := fts.TempFile.Write(data)
+		// Write decrypted data directly to disk (streaming, no memory buffering)
+		n, err := fts.TempFile.Write(plaintext)
 		if err != nil {
 			a.logger.Error("failed to write upload data to temp file",
 				logging.KeyStreamID, streamID,
@@ -3075,6 +3162,13 @@ func (a *Agent) sendFileDownload(fts *fileTransferStream) {
 
 	if fts.Meta == nil {
 		a.logger.Error("file download missing metadata", logging.KeyStreamID, fts.StreamID)
+		return
+	}
+
+	// Check session key for E2E encryption
+	if fts.sessionKey == nil {
+		a.logger.Error("no session key for file download stream",
+			logging.KeyStreamID, fts.StreamID)
 		return
 	}
 
@@ -3161,7 +3255,15 @@ func (a *Agent) sendFileDownload(fts *fileTransferStream) {
 			logging.KeyError, err)
 		return
 	}
-	a.WriteStreamData(fts.PeerID, fts.StreamID, metaData, 0)
+	// Encrypt metadata before sending
+	encryptedMeta, err := fts.sessionKey.Encrypt(metaData)
+	if err != nil {
+		a.logger.Error("failed to encrypt response metadata",
+			logging.KeyStreamID, fts.StreamID,
+			logging.KeyError, err)
+		return
+	}
+	a.WriteStreamData(fts.PeerID, fts.StreamID, encryptedMeta, 0)
 
 	a.logger.Info("file download started",
 		"path", fts.Meta.Path,
@@ -3171,15 +3273,25 @@ func (a *Agent) sendFileDownload(fts *fileTransferStream) {
 		"is_directory", isDir)
 
 	// Stream file data in chunks
-	buf := make([]byte, protocol.MaxPayloadSize-100) // Leave room for overhead
+	// Leave room for encryption overhead (nonce + auth tag) plus protocol overhead
+	buf := make([]byte, protocol.MaxPayloadSize-100-crypto.NonceSize-crypto.TagSize)
 	for {
 		n, readErr := reader.Read(buf)
 		if n > 0 {
+			// Encrypt file data before sending
+			encryptedData, encErr := fts.sessionKey.Encrypt(buf[:n])
+			if encErr != nil {
+				a.logger.Error("failed to encrypt file data",
+					logging.KeyStreamID, fts.StreamID,
+					logging.KeyError, encErr)
+				return
+			}
+
 			flags := uint8(0)
 			if readErr == io.EOF {
 				flags = protocol.FlagFinWrite
 			}
-			if err := a.WriteStreamData(fts.PeerID, fts.StreamID, buf[:n], flags); err != nil {
+			if err := a.WriteStreamData(fts.PeerID, fts.StreamID, encryptedData, flags); err != nil {
 				a.logger.Error("failed to send file data",
 					logging.KeyStreamID, fts.StreamID,
 					logging.KeyError, err)
@@ -3271,19 +3383,29 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 	// Allocate stream ID
 	streamID := conn.NextStreamID()
 
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
 	// Create pending stream (5 min timeout for large files)
 	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferUpload, 0, 5*time.Minute)
 
-	// Build and send STREAM_OPEN
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with ephemeral public key
 	// Domain addresses need length prefix byte
 	domainAddr := protocol.FileTransferUpload
 	domainBytes := append([]byte{byte(len(domainAddr))}, []byte(domainAddr)...)
 	openPayload := &protocol.StreamOpen{
-		RequestID:     pending.RequestID,
-		AddressType:   protocol.AddrTypeDomain,
-		Address:       domainBytes,
-		Port:          0,
-		RemainingPath: remainingPath,
+		RequestID:       pending.RequestID,
+		AddressType:     protocol.AddrTypeDomain,
+		Address:         domainBytes,
+		Port:            0,
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
 	}
 
 	frame := &protocol.Frame{
@@ -3293,18 +3415,36 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 	}
 
 	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		crypto.ZeroKey(&ephPriv)
 		return fmt.Errorf("send stream open: %w", err)
 	}
 
 	// Wait for STREAM_OPEN_ACK
+	var result *stream.StreamOpenResult
 	select {
-	case result := <-pending.ResultCh:
+	case result = <-pending.ResultCh:
 		if result.Error != nil {
+			crypto.ZeroKey(&ephPriv)
 			return fmt.Errorf("stream open failed: %w", result.Error)
 		}
 	case <-ctx.Done():
+		crypto.ZeroKey(&ephPriv)
 		return ctx.Err()
 	}
+
+	// Derive session key from ECDH with remote agent's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	// Zero out ephemeral private key after computing shared secret
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
 
 	// Build metadata
 	var fileSize int64 = -1
@@ -3324,18 +3464,24 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 		RateLimit:   opts.RateLimit,
 	}
 
-	// Send metadata as first data frame
+	// Encode and encrypt metadata
 	metaData, err := filetransfer.EncodeMetadata(meta)
 	if err != nil {
 		a.WriteStreamClose(nextHop, streamID)
 		return fmt.Errorf("encode metadata: %w", err)
 	}
 
-	if err := a.WriteStreamData(nextHop, streamID, metaData, 0); err != nil {
+	encryptedMeta, err := sessionKey.Encrypt(metaData)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return fmt.Errorf("encrypt metadata: %w", err)
+	}
+
+	if err := a.WriteStreamData(nextHop, streamID, encryptedMeta, 0); err != nil {
 		return fmt.Errorf("send metadata: %w", err)
 	}
 
-	// Stream file/directory content
+	// Stream file/directory content with E2E encryption
 	var written int64
 	if isDirectory {
 		// Tar and stream directory
@@ -3357,8 +3503,8 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 			reader = filetransfer.NewRateLimitedReader(ctx, pr, opts.RateLimit)
 		}
 
-		// Stream tar data in chunks
-		written, err = a.streamFileContent(ctx, nextHop, streamID, reader, -1, progress)
+		// Stream tar data in chunks with encryption
+		written, err = a.streamFileContent(ctx, nextHop, streamID, reader, -1, progress, sessionKey)
 		if err != nil {
 			pr.Close()
 			return fmt.Errorf("stream directory: %w", err)
@@ -3392,7 +3538,7 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 				reader = filetransfer.NewRateLimitedReader(ctx, pr, opts.RateLimit)
 			}
 
-			written, err = a.streamFileContent(ctx, nextHop, streamID, reader, -1, progress)
+			written, err = a.streamFileContent(ctx, nextHop, streamID, reader, -1, progress, sessionKey)
 			if err != nil {
 				pr.Close()
 				return fmt.Errorf("stream file: %w", err)
@@ -3404,7 +3550,7 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 				reader = filetransfer.NewRateLimitedReader(ctx, f, opts.RateLimit)
 			}
 
-			written, err = a.streamFileContent(ctx, nextHop, streamID, reader, fileSize, progress)
+			written, err = a.streamFileContent(ctx, nextHop, streamID, reader, fileSize, progress, sessionKey)
 			if err != nil {
 				return fmt.Errorf("stream file: %w", err)
 			}
@@ -3448,19 +3594,29 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 	// Allocate stream ID
 	streamID := conn.NextStreamID()
 
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
 	// Create pending stream (5 min timeout for large files)
 	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferDownload, 0, 5*time.Minute)
 
-	// Build and send STREAM_OPEN
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with ephemeral public key
 	// Domain addresses need length prefix byte
 	downloadDomainAddr := protocol.FileTransferDownload
 	downloadDomainBytes := append([]byte{byte(len(downloadDomainAddr))}, []byte(downloadDomainAddr)...)
 	openPayload := &protocol.StreamOpen{
-		RequestID:     pending.RequestID,
-		AddressType:   protocol.AddrTypeDomain,
-		Address:       downloadDomainBytes,
-		Port:          0,
-		RemainingPath: remainingPath,
+		RequestID:       pending.RequestID,
+		AddressType:     protocol.AddrTypeDomain,
+		Address:         downloadDomainBytes,
+		Port:            0,
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
 	}
 
 	frame := &protocol.Frame{
@@ -3470,6 +3626,7 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 	}
 
 	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		crypto.ZeroKey(&ephPriv)
 		return fmt.Errorf("send stream open: %w", err)
 	}
 
@@ -3478,14 +3635,30 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 	select {
 	case result := <-pending.ResultCh:
 		if result.Error != nil {
+			crypto.ZeroKey(&ephPriv)
 			return fmt.Errorf("stream open failed: %w", result.Error)
 		}
 		openResult = result
 	case <-ctx.Done():
+		crypto.ZeroKey(&ephPriv)
 		return ctx.Err()
 	}
 
-	// Send request metadata (path to download)
+	// Derive session key from ECDH with remote agent's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, openResult.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	// Zero out ephemeral private key after computing shared secret
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, openResult.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Send encrypted request metadata (path to download)
 	meta := &filetransfer.TransferMetadata{
 		Path:         remotePath,
 		Password:     opts.Password,
@@ -3501,18 +3674,29 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 		return fmt.Errorf("encode metadata: %w", err)
 	}
 
-	if err := a.WriteStreamData(nextHop, streamID, metaData, 0); err != nil {
+	encryptedMeta, err := sessionKey.Encrypt(metaData)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return fmt.Errorf("encrypt metadata: %w", err)
+	}
+
+	if err := a.WriteStreamData(nextHop, streamID, encryptedMeta, 0); err != nil {
 		return fmt.Errorf("send metadata: %w", err)
 	}
 
-	// Wait for response metadata (first data frame)
-	stream := openResult.Stream
-	responseData, err := stream.ReadWithTimeout(30 * time.Second)
+	// Wait for response metadata (first data frame) and decrypt
+	s := openResult.Stream
+	responseData, err := s.ReadWithTimeout(30 * time.Second)
 	if err != nil {
 		return fmt.Errorf("read response metadata: %w", err)
 	}
 
-	responseMeta, err := filetransfer.ParseMetadata(responseData)
+	decryptedResponse, err := sessionKey.Decrypt(responseData)
+	if err != nil {
+		return fmt.Errorf("decrypt response metadata: %w", err)
+	}
+
+	responseMeta, err := filetransfer.ParseMetadata(decryptedResponse)
 	if err != nil {
 		return fmt.Errorf("parse response metadata: %w", err)
 	}
@@ -3524,17 +3708,17 @@ func (a *Agent) DownloadFile(ctx context.Context, targetID identity.AgentID, rem
 		"size", responseMeta.Size,
 		"is_directory", responseMeta.IsDirectory)
 
-	// Receive file data and write to local path
+	// Receive file data with E2E decryption and write to local path
 	var written int64
 	if responseMeta.IsDirectory {
 		// Receive tar stream and extract
-		written, err = a.receiveAndExtractDirectory(ctx, stream, localPath, responseMeta.Size, progress)
+		written, err = a.receiveAndExtractDirectory(ctx, s, localPath, responseMeta.Size, progress, sessionKey)
 		if err != nil {
 			return fmt.Errorf("receive directory: %w", err)
 		}
 	} else {
 		// Receive file data
-		written, err = a.receiveAndWriteFile(ctx, stream, localPath, responseMeta.Mode, responseMeta.Size, responseMeta.Compress, progress)
+		written, err = a.receiveAndWriteFile(ctx, s, localPath, responseMeta.Mode, responseMeta.Size, responseMeta.Compress, progress, sessionKey)
 		if err != nil {
 			return fmt.Errorf("receive file: %w", err)
 		}
@@ -3570,18 +3754,28 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 	// Allocate stream ID
 	streamID := conn.NextStreamID()
 
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
 	// Create pending stream (5 min timeout for large files)
 	pending := a.streamMgr.OpenStream(streamID, nextHop, protocol.FileTransferDownload, 0, 5*time.Minute)
 
-	// Build and send STREAM_OPEN
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with ephemeral public key
 	downloadDomainAddr := protocol.FileTransferDownload
 	downloadDomainBytes := append([]byte{byte(len(downloadDomainAddr))}, []byte(downloadDomainAddr)...)
 	openPayload := &protocol.StreamOpen{
-		RequestID:     pending.RequestID,
-		AddressType:   protocol.AddrTypeDomain,
-		Address:       downloadDomainBytes,
-		Port:          0,
-		RemainingPath: remainingPath,
+		RequestID:       pending.RequestID,
+		AddressType:     protocol.AddrTypeDomain,
+		Address:         downloadDomainBytes,
+		Port:            0,
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
 	}
 
 	frame := &protocol.Frame{
@@ -3591,6 +3785,7 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 	}
 
 	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		crypto.ZeroKey(&ephPriv)
 		return nil, fmt.Errorf("send stream open: %w", err)
 	}
 
@@ -3599,14 +3794,30 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 	select {
 	case result := <-pending.ResultCh:
 		if result.Error != nil {
+			crypto.ZeroKey(&ephPriv)
 			return nil, fmt.Errorf("stream open failed: %w", result.Error)
 		}
 		openResult = result
 	case <-ctx.Done():
+		crypto.ZeroKey(&ephPriv)
 		return nil, ctx.Err()
 	}
 
-	// Send request metadata (path to download)
+	// Derive session key from ECDH with remote agent's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, openResult.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	// Zero out ephemeral private key after computing shared secret
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, openResult.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Send encrypted request metadata (path to download)
 	meta := &filetransfer.TransferMetadata{
 		Path:         remotePath,
 		Password:     opts.Password,
@@ -3622,11 +3833,17 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 		return nil, fmt.Errorf("encode metadata: %w", err)
 	}
 
-	if err := a.WriteStreamData(nextHop, streamID, metaData, 0); err != nil {
+	encryptedMeta, err := sessionKey.Encrypt(metaData)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return nil, fmt.Errorf("encrypt metadata: %w", err)
+	}
+
+	if err := a.WriteStreamData(nextHop, streamID, encryptedMeta, 0); err != nil {
 		return nil, fmt.Errorf("send metadata: %w", err)
 	}
 
-	// Wait for response metadata (first data frame)
+	// Wait for response metadata (first data frame) and decrypt
 	s := openResult.Stream
 	responseData, err := s.ReadWithTimeout(30 * time.Second)
 	if err != nil {
@@ -3634,7 +3851,13 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 		return nil, fmt.Errorf("read response metadata: %w", err)
 	}
 
-	responseMeta, err := filetransfer.ParseMetadata(responseData)
+	decryptedResponse, err := sessionKey.Decrypt(responseData)
+	if err != nil {
+		a.WriteStreamClose(nextHop, streamID)
+		return nil, fmt.Errorf("decrypt response metadata: %w", err)
+	}
+
+	responseMeta, err := filetransfer.ParseMetadata(decryptedResponse)
 	if err != nil {
 		a.WriteStreamClose(nextHop, streamID)
 		return nil, fmt.Errorf("parse response metadata: %w", err)
@@ -3648,11 +3871,12 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 		"is_directory", responseMeta.IsDirectory,
 		"compressed", responseMeta.Compress)
 
-	// Create a stream reader that reads from the stream
+	// Create a stream reader that reads from the stream with E2E decryption
 	reader := &streamReader{
 		stream:     s,
 		ctx:        ctx,
 		compressed: responseMeta.Compress,
+		sessionKey: sessionKey,
 	}
 
 	// Cleanup function to close the stream when done
@@ -3671,7 +3895,7 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 	}, nil
 }
 
-// streamReader wraps a stream for io.Reader interface.
+// streamReader wraps a stream for io.Reader interface with E2E decryption.
 type streamReader struct {
 	stream     *stream.Stream
 	ctx        context.Context
@@ -3680,6 +3904,7 @@ type streamReader struct {
 	buffer     []byte
 	bufOffset  int
 	eof        bool
+	sessionKey *crypto.SessionKey
 }
 
 func (r *streamReader) Read(p []byte) (int, error) {
@@ -3708,6 +3933,15 @@ func (r *streamReader) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
+	// Decrypt data using E2E session key
+	if r.sessionKey != nil {
+		plaintext, decErr := r.sessionKey.Decrypt(data)
+		if decErr != nil {
+			return 0, fmt.Errorf("decrypt stream data: %w", decErr)
+		}
+		data = plaintext
+	}
+
 	// If compressed and this is the first read, set up gzip reader
 	if r.compressed && r.gzReader == nil {
 		// We need to create a gzip reader, but it needs an io.Reader
@@ -3716,7 +3950,7 @@ func (r *streamReader) Read(p []byte) (int, error) {
 
 		// Start goroutine to feed data to the pipe
 		go func() {
-			// Write the first chunk
+			// Write the first chunk (already decrypted)
 			pw.Write(data)
 
 			// Continue reading from stream and writing to pipe
@@ -3729,6 +3963,15 @@ func (r *streamReader) Read(p []byte) (int, error) {
 						pw.CloseWithError(err)
 					}
 					return
+				}
+				// Decrypt chunk using E2E session key
+				if r.sessionKey != nil {
+					plaintext, decErr := r.sessionKey.Decrypt(chunk)
+					if decErr != nil {
+						pw.CloseWithError(fmt.Errorf("decrypt stream chunk: %w", decErr))
+						return
+					}
+					chunk = plaintext
 				}
 				if _, err := pw.Write(chunk); err != nil {
 					pw.CloseWithError(err)
@@ -3802,9 +4045,10 @@ func (a *Agent) findPathToAgent(targetID identity.AgentID) (identity.AgentID, []
 	return bestRoute.NextHop, remainingPath, conn, nil
 }
 
-// streamFileContent streams data from a reader to the peer in chunks.
-func (a *Agent) streamFileContent(ctx context.Context, peerID identity.AgentID, streamID uint64, r io.Reader, totalSize int64, progress health.FileTransferProgress) (int64, error) {
-	buf := make([]byte, protocol.MaxPayloadSize-100) // Leave room for frame overhead
+// streamFileContent streams data from a reader to the peer in chunks with E2E encryption.
+func (a *Agent) streamFileContent(ctx context.Context, peerID identity.AgentID, streamID uint64, r io.Reader, totalSize int64, progress health.FileTransferProgress, sessionKey *crypto.SessionKey) (int64, error) {
+	// Leave room for frame overhead and encryption overhead (nonce + auth tag)
+	buf := make([]byte, protocol.MaxPayloadSize-100-crypto.EncryptionOverhead)
 	var totalWritten int64
 
 	for {
@@ -3816,12 +4060,18 @@ func (a *Agent) streamFileContent(ctx context.Context, peerID identity.AgentID, 
 
 		n, readErr := r.Read(buf)
 		if n > 0 {
+			// Encrypt data before sending
+			encryptedData, encErr := sessionKey.Encrypt(buf[:n])
+			if encErr != nil {
+				return totalWritten, fmt.Errorf("encrypt data: %w", encErr)
+			}
+
 			flags := uint8(0)
 			if readErr == io.EOF {
 				flags = protocol.FlagFinWrite
 			}
 
-			if err := a.WriteStreamData(peerID, streamID, buf[:n], flags); err != nil {
+			if err := a.WriteStreamData(peerID, streamID, encryptedData, flags); err != nil {
 				return totalWritten, fmt.Errorf("write data: %w", err)
 			}
 			totalWritten += int64(n)
@@ -3835,7 +4085,12 @@ func (a *Agent) streamFileContent(ctx context.Context, peerID identity.AgentID, 
 			if readErr == io.EOF {
 				// Ensure FIN_WRITE is sent even if last read was empty
 				if n == 0 {
-					if err := a.WriteStreamData(peerID, streamID, nil, protocol.FlagFinWrite); err != nil {
+					// Send empty encrypted payload with FIN flag
+					emptyEncrypted, encErr := sessionKey.Encrypt(nil)
+					if encErr != nil {
+						return totalWritten, fmt.Errorf("encrypt fin: %w", encErr)
+					}
+					if err := a.WriteStreamData(peerID, streamID, emptyEncrypted, protocol.FlagFinWrite); err != nil {
 						return totalWritten, fmt.Errorf("write fin: %w", err)
 					}
 				}
@@ -3848,8 +4103,8 @@ func (a *Agent) streamFileContent(ctx context.Context, peerID identity.AgentID, 
 	return totalWritten, nil
 }
 
-// receiveAndWriteFile receives file data from a stream and writes to disk.
-func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, localPath string, mode uint32, totalSize int64, compressed bool, progress health.FileTransferProgress) (int64, error) {
+// receiveAndWriteFile receives file data from a stream, decrypts with E2E session key, and writes to disk.
+func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, localPath string, mode uint32, totalSize int64, compressed bool, progress health.FileTransferProgress, sessionKey *crypto.SessionKey) (int64, error) {
 	// Create parent directories
 	dir := filepath.Dir(localPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -3886,8 +4141,13 @@ func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, local
 				for {
 					select {
 					case remaining := <-s.ReadBuffer():
-						dataBuf.Write(remaining)
-						totalReceived += int64(len(remaining))
+						// Decrypt remaining data
+						plaintext, decErr := sessionKey.Decrypt(remaining)
+						if decErr != nil {
+							return totalReceived, fmt.Errorf("decrypt remaining data: %w", decErr)
+						}
+						dataBuf.Write(plaintext)
+						totalReceived += int64(len(plaintext))
 					default:
 						// No more data
 						goto done
@@ -3901,8 +4161,14 @@ func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, local
 			continue
 		}
 
-		dataBuf.Write(data)
-		totalReceived += int64(len(data))
+		// Decrypt received data
+		plaintext, decErr := sessionKey.Decrypt(data)
+		if decErr != nil {
+			return totalReceived, fmt.Errorf("decrypt data: %w", decErr)
+		}
+
+		dataBuf.Write(plaintext)
+		totalReceived += int64(len(plaintext))
 
 		if progress != nil {
 			progress(totalReceived, totalSize)
@@ -3929,8 +4195,8 @@ done:
 	return written, nil
 }
 
-// receiveAndExtractDirectory receives tar stream data and extracts to a directory.
-func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream, localPath string, totalSize int64, progress health.FileTransferProgress) (int64, error) {
+// receiveAndExtractDirectory receives tar stream data, decrypts with E2E session key, and extracts to a directory.
+func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream, localPath string, totalSize int64, progress health.FileTransferProgress, sessionKey *crypto.SessionKey) (int64, error) {
 	// Receive all data first
 	var dataBuf bytes.Buffer
 	var totalReceived int64
@@ -3954,8 +4220,13 @@ func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream
 				for {
 					select {
 					case remaining := <-s.ReadBuffer():
-						dataBuf.Write(remaining)
-						totalReceived += int64(len(remaining))
+						// Decrypt remaining data
+						plaintext, decErr := sessionKey.Decrypt(remaining)
+						if decErr != nil {
+							return totalReceived, fmt.Errorf("decrypt remaining data: %w", decErr)
+						}
+						dataBuf.Write(plaintext)
+						totalReceived += int64(len(plaintext))
 					default:
 						// No more data
 						goto doneDir
@@ -3969,8 +4240,14 @@ func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream
 			continue
 		}
 
-		dataBuf.Write(data)
-		totalReceived += int64(len(data))
+		// Decrypt received data
+		plaintext, decErr := sessionKey.Decrypt(data)
+		if decErr != nil {
+			return totalReceived, fmt.Errorf("decrypt data: %w", decErr)
+		}
+
+		dataBuf.Write(plaintext)
+		totalReceived += int64(len(plaintext))
 
 		if progress != nil {
 			progress(totalReceived, totalSize)
@@ -4006,8 +4283,17 @@ func (a *Agent) OpenShellStream(ctx context.Context, targetID identity.AgentID, 
 	// Allocate stream ID from connection
 	streamID := conn.NextStreamID()
 
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
 	// Create pending stream request
 	pending := a.streamMgr.OpenStream(streamID, nextHop, destAddr, 0, a.cfg.Limits.StreamOpenTimeout)
+
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
 
 	// Create adapter for this client session
 	adapter := health.NewShellStreamAdapter(streamID, targetID, func() {
@@ -4022,13 +4308,14 @@ func (a *Agent) OpenShellStream(ctx context.Context, targetID identity.AgentID, 
 	// Build domain address with length prefix (same as file transfer)
 	domainBytes := append([]byte{byte(len(destAddr))}, []byte(destAddr)...)
 
-	// Build and send STREAM_OPEN
+	// Build and send STREAM_OPEN with ephemeral public key for E2E encryption
 	openPayload := &protocol.StreamOpen{
-		RequestID:     pending.RequestID,
-		AddressType:   protocol.AddrTypeDomain,
-		Address:       domainBytes,
-		Port:          0,
-		RemainingPath: remainingPath,
+		RequestID:       pending.RequestID,
+		AddressType:     protocol.AddrTypeDomain,
+		Address:         domainBytes,
+		Port:            0,
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
 	}
 
 	frame := &protocol.Frame{
@@ -4038,22 +4325,45 @@ func (a *Agent) OpenShellStream(ctx context.Context, targetID identity.AgentID, 
 	}
 
 	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		crypto.ZeroKey(&ephPriv)
 		a.cleanupShellClientStream(streamID)
 		return nil, fmt.Errorf("send stream open: %w", err)
 	}
 
 	// Wait for STREAM_OPEN_ACK
+	var result *stream.StreamOpenResult
 	select {
 	case <-ctx.Done():
+		crypto.ZeroKey(&ephPriv)
 		a.cleanupShellClientStream(streamID)
 		return nil, ctx.Err()
-	case result := <-pending.ResultCh:
+	case result = <-pending.ResultCh:
 		if result.Error != nil {
+			crypto.ZeroKey(&ephPriv)
 			a.cleanupShellClientStream(streamID)
 			return nil, result.Error
 		}
 		// Stream opened successfully
 	}
+
+	// Derive session key from ECDH with remote agent's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		a.cleanupShellClientStream(streamID)
+		return nil, fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	// Zero out ephemeral private key after computing shared secret
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	// Use requestID (not streamID) because streamID changes at each relay hop
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Store session key in adapter for E2E encryption
+	adapter.SetSessionKey(sessionKey)
 
 	// Encode metadata with shell message format (MsgMeta prefix)
 	metaBytes, err := shell.EncodeMeta(meta)
@@ -4062,11 +4372,18 @@ func (a *Agent) OpenShellStream(ctx context.Context, targetID identity.AgentID, 
 		return nil, fmt.Errorf("encode shell metadata: %w", err)
 	}
 
-	// Send metadata as first data frame
+	// Encrypt metadata before sending
+	encryptedMeta, err := sessionKey.Encrypt(metaBytes)
+	if err != nil {
+		a.cleanupShellClientStream(streamID)
+		return nil, fmt.Errorf("encrypt metadata: %w", err)
+	}
+
+	// Send encrypted metadata as first data frame
 	dataFrame := &protocol.Frame{
 		Type:     protocol.FrameStreamData,
 		StreamID: streamID,
-		Payload:  metaBytes,
+		Payload:  encryptedMeta,
 	}
 	if err := a.peerMgr.SendToPeer(nextHop, dataFrame); err != nil {
 		a.cleanupShellClientStream(streamID)
@@ -4089,16 +4406,34 @@ func (a *Agent) OpenShellStream(ctx context.Context, targetID identity.AgentID, 
 
 // forwardShellClientData forwards data from the shell client adapter to the peer.
 func (a *Agent) forwardShellClientData(streamID uint64, nextHop identity.AgentID, adapter *health.ShellStreamAdapter) {
+	sessionKey := adapter.GetSessionKey()
+	if sessionKey == nil {
+		a.logger.Error("no session key for shell client stream",
+			logging.KeyStreamID, streamID)
+		adapter.Close()
+		return
+	}
+
 	for {
 		data, ok := adapter.PopSend()
 		if !ok {
 			return // Adapter closed
 		}
 
+		// Encrypt data before sending
+		encryptedData, err := sessionKey.Encrypt(data)
+		if err != nil {
+			a.logger.Error("failed to encrypt shell client data",
+				logging.KeyStreamID, streamID,
+				logging.KeyError, err)
+			adapter.Close()
+			return
+		}
+
 		frame := &protocol.Frame{
 			Type:     protocol.FrameStreamData,
 			StreamID: streamID,
-			Payload:  data,
+			Payload:  encryptedData,
 		}
 		if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
 			a.logger.Debug("shell client send error",
@@ -4129,9 +4464,27 @@ func (a *Agent) handleShellClientData(streamID uint64, data []byte, flags uint8)
 		return false
 	}
 
-	a.logger.Debug("handleShellClientData: pushing data", logging.KeyStreamID, streamID, "bytes", len(data))
-	// Push data to adapter for reading by HTTP handler
-	adapter.PushReceive(data)
+	// Decrypt incoming data using E2E session key
+	sessionKey := adapter.GetSessionKey()
+	if sessionKey == nil {
+		a.logger.Error("handleShellClientData: no session key",
+			logging.KeyStreamID, streamID)
+		adapter.Close()
+		return false
+	}
+
+	plaintext, err := sessionKey.Decrypt(data)
+	if err != nil {
+		a.logger.Error("handleShellClientData: decryption failed",
+			logging.KeyStreamID, streamID,
+			logging.KeyError, err)
+		adapter.Close()
+		return false
+	}
+
+	a.logger.Debug("handleShellClientData: pushing data", logging.KeyStreamID, streamID, "bytes", len(plaintext))
+	// Push decrypted data to adapter for reading by HTTP handler
+	adapter.PushReceive(plaintext)
 
 	// Check for exit code in flags or parse from data
 	// Exit code is sent as last frame with FIN flag
