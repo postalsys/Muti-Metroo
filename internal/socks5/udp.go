@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -159,13 +158,10 @@ func (a *UDPAssociation) Context() context.Context {
 // This should be run in a goroutine.
 func (a *UDPAssociation) ReadLoop() {
 	buf := make([]byte, 65535) // Max UDP datagram size
-	localAddr := a.UDPConn.LocalAddr()
-	log.Printf("[UDP] ReadLoop started, listening on %v", localAddr)
 
 	for {
 		select {
 		case <-a.ctx.Done():
-			log.Printf("[UDP] ReadLoop context done, exiting")
 			return
 		default:
 		}
@@ -173,13 +169,10 @@ func (a *UDPAssociation) ReadLoop() {
 		n, clientAddr, err := a.UDPConn.ReadFromUDP(buf)
 		if err != nil {
 			if a.IsClosed() {
-				log.Printf("[UDP] ReadLoop socket closed, exiting")
 				return
 			}
-			log.Printf("[UDP] ReadFromUDP error (ignoring): %v", err)
 			continue
 		}
-		log.Printf("[UDP] ReadFromUDP received %d bytes from %v", n, clientAddr)
 
 		// Update actual client address on first datagram
 		a.mu.Lock()
@@ -212,10 +205,6 @@ func (a *UDPAssociation) ReadLoop() {
 		streamID := a.StreamID
 		handler := a.Handler
 		a.mu.RUnlock()
-
-		// Log the datagram
-		log.Printf("[UDP] Received datagram from %v: streamID=%d, handler=%v, dest=%v:%d, payload=%d bytes",
-			clientAddr, streamID, handler != nil, header.Address, header.Port, len(payload))
 
 		if handler != nil && streamID != 0 {
 			var destAddr net.Addr

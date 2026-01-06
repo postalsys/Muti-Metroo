@@ -79,10 +79,6 @@ func (h *Handler) HandleUDPOpen(
 ) error {
 	// Check if UDP is enabled
 	if !h.config.Enabled {
-		h.logger.Debug("UDP disabled, rejecting UDP_OPEN",
-			logging.KeyStreamID, streamID,
-			logging.KeyPeerID, peerID.ShortString())
-
 		h.writer.WriteUDPOpenErr(peerID, streamID, &protocol.UDPOpenErr{
 			RequestID: open.RequestID,
 			ErrorCode: protocol.ErrUDPDisabled,
@@ -97,11 +93,6 @@ func (h *Handler) HandleUDPOpen(
 	h.mu.RUnlock()
 
 	if h.config.MaxAssociations > 0 && count >= h.config.MaxAssociations {
-		h.logger.Debug("UDP association limit reached",
-			logging.KeyStreamID, streamID,
-			"count", count,
-			"max", h.config.MaxAssociations)
-
 		h.writer.WriteUDPOpenErr(peerID, streamID, &protocol.UDPOpenErr{
 			RequestID: open.RequestID,
 			ErrorCode: protocol.ErrResourceLimit,
@@ -116,10 +107,6 @@ func (h *Handler) HandleUDPOpen(
 	// Create UDP socket
 	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 	if err != nil {
-		h.logger.Error("failed to create UDP socket",
-			logging.KeyStreamID, streamID,
-			logging.KeyError, err)
-
 		h.writer.WriteUDPOpenErr(peerID, streamID, &protocol.UDPOpenErr{
 			RequestID: open.RequestID,
 			ErrorCode: protocol.ErrGeneralFailure,
@@ -254,20 +241,11 @@ func (h *Handler) HandleUDPOpen(
 // HandleUDPDatagram processes a UDP_DATAGRAM frame.
 // Decrypts and forwards the datagram to the destination.
 func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, datagram *protocol.UDPDatagram) error {
-	h.logger.Debug("exit node HandleUDPDatagram called",
-		logging.KeyPeerID, peerID.ShortString(),
-		logging.KeyStreamID, streamID,
-		"addr_type", datagram.AddressType,
-		"port", datagram.Port,
-		"data_len", len(datagram.Data))
-
 	h.mu.RLock()
 	assoc := h.associations[streamID]
 	h.mu.RUnlock()
 
 	if assoc == nil {
-		h.logger.Debug("datagram for unknown association",
-			logging.KeyStreamID, streamID)
 		return fmt.Errorf("unknown stream ID: %d", streamID)
 	}
 
@@ -279,27 +257,17 @@ func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, da
 
 	// Check port whitelist
 	if !h.config.IsPortAllowed(datagram.Port) {
-		h.logger.Debug("UDP port not allowed",
-			logging.KeyStreamID, streamID,
-			"port", datagram.Port)
 		return fmt.Errorf("port %d not allowed", datagram.Port)
 	}
 
 	// Decrypt payload
 	plaintext, err := assoc.Decrypt(datagram.Data)
 	if err != nil {
-		h.logger.Debug("failed to decrypt UDP datagram",
-			logging.KeyStreamID, streamID,
-			logging.KeyError, err)
 		return fmt.Errorf("decrypt: %w", err)
 	}
 
 	// Check size
 	if len(plaintext) > h.config.MaxDatagramSize {
-		h.logger.Debug("UDP datagram too large",
-			logging.KeyStreamID, streamID,
-			"size", len(plaintext),
-			"max", h.config.MaxDatagramSize)
 		return fmt.Errorf("datagram too large: %d > %d", len(plaintext), h.config.MaxDatagramSize)
 	}
 
@@ -347,10 +315,6 @@ func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, da
 
 	_, err = conn.WriteToUDP(plaintext, destAddr)
 	if err != nil {
-		h.logger.Debug("failed to send UDP datagram",
-			logging.KeyStreamID, streamID,
-			"dest", destAddr.String(),
-			logging.KeyError, err)
 		return fmt.Errorf("send: %w", err)
 	}
 
@@ -366,10 +330,6 @@ func (h *Handler) HandleUDPClose(peerID identity.AgentID, streamID uint64) error
 	if assoc == nil {
 		return nil // Already closed
 	}
-
-	h.logger.Debug("UDP association closed by peer",
-		logging.KeyStreamID, streamID,
-		logging.KeyPeerID, peerID.ShortString())
 
 	h.removeAssociation(streamID)
 	return nil
@@ -467,9 +427,6 @@ func (h *Handler) readLoop(assoc *Association) {
 			if assoc.IsClosed() {
 				return
 			}
-			h.logger.Debug("UDP read error",
-				logging.KeyStreamID, assoc.StreamID,
-				logging.KeyError, err)
 			continue
 		}
 
@@ -479,9 +436,6 @@ func (h *Handler) readLoop(assoc *Association) {
 		plaintext := buf[:n]
 		ciphertext, err := assoc.Encrypt(plaintext)
 		if err != nil {
-			h.logger.Debug("failed to encrypt UDP datagram",
-				logging.KeyStreamID, assoc.StreamID,
-				logging.KeyError, err)
 			continue
 		}
 
@@ -504,12 +458,7 @@ func (h *Handler) readLoop(assoc *Association) {
 		}
 
 		// Send back through mesh
-		if err := h.writer.WriteUDPDatagram(assoc.PeerID, assoc.StreamID, datagram); err != nil {
-			h.logger.Debug("failed to send UDP datagram",
-				logging.KeyStreamID, assoc.StreamID,
-				logging.KeyError, err)
-			continue
-		}
+		h.writer.WriteUDPDatagram(assoc.PeerID, assoc.StreamID, datagram)
 	}
 }
 
@@ -547,13 +496,8 @@ func (h *Handler) cleanupExpired() {
 		h.mu.RUnlock()
 
 		if assoc != nil {
-			h.logger.Debug("closing expired UDP association",
-				logging.KeyStreamID, streamID,
-				logging.KeyRequestID, assoc.RequestID)
-
 			// Send close to peer
 			h.writer.WriteUDPClose(assoc.PeerID, streamID, protocol.UDPCloseTimeout)
-
 			h.removeAssociation(streamID)
 		}
 	}
