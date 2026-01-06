@@ -309,6 +309,60 @@ tbody tr:hover {
     color: var(--warning);
 }
 
+/* Route Table Enhancements */
+.table-hint {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    font-style: italic;
+}
+
+.route-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.route-row:hover {
+    background: rgba(196, 136, 58, 0.15);
+}
+
+.route-cidr {
+    color: var(--text-primary);
+}
+
+.route-domain {
+    color: #5b9bd5;
+}
+
+.proto-cell {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.proto-badge {
+    display: inline-block;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-family: 'Segoe UI', 'Roboto', sans-serif;
+}
+
+.proto-tcp {
+    background: rgba(109, 179, 109, 0.2);
+    color: #6db36d;
+    border: 1px solid rgba(109, 179, 109, 0.4);
+}
+
+.proto-udp {
+    background: rgba(155, 89, 182, 0.2);
+    color: #9b59b6;
+    border: 1px solid rgba(155, 89, 182, 0.4);
+}
+
 /* Footer */
 footer {
     max-width: 1400px;

@@ -383,6 +383,8 @@ class MetroMap {
     renderConnection(from, to, conn) {
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('class', 'connection-group');
+        g.setAttribute('data-from-id', from.short_id);
+        g.setAttribute('data-to-id', to.short_id);
 
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', this.createMetroPath(from.x, from.y, to.x, to.y));
@@ -747,6 +749,64 @@ class MetroMap {
     hideStationTooltip() {
         this.stationTooltip.style.display = 'none';
         this.currentHoveredStation = null;
+    }
+
+    // Highlight a path (array of short IDs) on the map
+    highlightPath(pathIds) {
+        if (!pathIds || pathIds.length === 0) return;
+
+        // Create a Set for faster lookups
+        const pathSet = new Set(pathIds);
+
+        // Highlight stations in the path
+        const stations = this.stationsLayer.querySelectorAll('.station');
+        stations.forEach(station => {
+            const agentId = station.dataset.agentId;
+            if (pathSet.has(agentId)) {
+                station.classList.add('path-highlighted');
+            } else {
+                station.classList.add('path-dimmed');
+            }
+        });
+
+        // Highlight connections that are part of the path
+        // A connection is highlighted if both endpoints are in the path and adjacent
+        const connections = this.connectionsLayer.querySelectorAll('.connection-group');
+        connections.forEach(connGroup => {
+            const fromId = connGroup.dataset.fromId;
+            const toId = connGroup.dataset.toId;
+
+            // Check if this connection is between adjacent nodes in the path
+            let isInPath = false;
+            for (let i = 0; i < pathIds.length - 1; i++) {
+                if ((pathIds[i] === fromId && pathIds[i + 1] === toId) ||
+                    (pathIds[i] === toId && pathIds[i + 1] === fromId)) {
+                    isInPath = true;
+                    break;
+                }
+            }
+
+            if (isInPath) {
+                connGroup.classList.add('path-highlighted');
+            } else {
+                connGroup.classList.add('path-dimmed');
+            }
+        });
+    }
+
+    // Clear all path highlighting
+    clearHighlight() {
+        // Remove highlighting from stations
+        const stations = this.stationsLayer.querySelectorAll('.station');
+        stations.forEach(station => {
+            station.classList.remove('path-highlighted', 'path-dimmed');
+        });
+
+        // Remove highlighting from connections
+        const connections = this.connectionsLayer.querySelectorAll('.connection-group');
+        connections.forEach(conn => {
+            conn.classList.remove('path-highlighted', 'path-dimmed');
+        });
     }
 }
 

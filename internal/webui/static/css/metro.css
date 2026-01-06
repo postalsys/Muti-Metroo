@@ -483,3 +483,51 @@
     text-anchor: middle;
     dominant-baseline: middle;
 }
+
+/* Path Highlighting (for route table hover) */
+.station.path-highlighted .station-outer {
+    stroke-width: 4;
+    filter: drop-shadow(0 0 8px currentColor);
+}
+
+.station.path-highlighted .station-inner {
+    filter: brightness(1.3);
+}
+
+.station.path-highlighted .station-role {
+    stroke-width: 4;
+    filter: drop-shadow(0 0 6px currentColor);
+}
+
+.station.path-dimmed {
+    opacity: 0.25;
+}
+
+.station.path-dimmed .station-outer,
+.station.path-dimmed .station-inner,
+.station.path-dimmed .station-role {
+    filter: none;
+}
+
+.connection-group.path-highlighted .connection {
+    stroke-width: 10;
+    filter: drop-shadow(0 0 8px currentColor);
+}
+
+.connection-group.path-dimmed {
+    opacity: 0.15;
+}
+
+.connection-group.path-dimmed .connection {
+    filter: none;
+}
+
+/* Smooth transitions for highlighting */
+.station,
+.station .station-outer,
+.station .station-inner,
+.station .station-role,
+.connection-group,
+.connection-group .connection {
+    transition: opacity 0.2s ease, filter 0.2s ease, stroke-width 0.2s ease;
+}

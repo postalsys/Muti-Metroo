@@ -222,10 +222,14 @@ type DashboardPeerInfo struct {
 // DashboardRouteInfo contains information about a route.
 type DashboardRouteInfo struct {
 	Network     string   `json:"network"`
+	RouteType   string   `json:"route_type"`    // "cidr" or "domain"
 	Origin      string   `json:"origin"`        // Display name of origin
 	OriginID    string   `json:"origin_id"`     // Short ID of origin
 	HopCount    int      `json:"hop_count"`
 	PathDisplay []string `json:"path_display"`  // Display names: [local, peer1, ..., origin]
+	PathIDs     []string `json:"path_ids"`      // Short IDs for path highlighting
+	TCP         bool     `json:"tcp"`           // TCP support (always true)
+	UDP         bool     `json:"udp"`           // UDP support (exit has UDP enabled)
 }
 
 // DashboardDomainRouteInfo contains information about a domain route.
@@ -236,6 +240,9 @@ type DashboardDomainRouteInfo struct {
 	OriginID    string   `json:"origin_id"`     // Short ID of origin
 	HopCount    int      `json:"hop_count"`
 	PathDisplay []string `json:"path_display"`  // Display names: [local, peer1, ..., origin]
+	PathIDs     []string `json:"path_ids"`      // Short IDs for path highlighting
+	TCP         bool     `json:"tcp"`           // TCP support (always true)
+	UDP         bool     `json:"udp"`           // UDP support (exit has UDP enabled)
 }
 
 // DashboardResponse is the response for the /api/dashboard endpoint.
@@ -1335,6 +1342,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Get display names for building path display
 	displayNames := s.remoteProvider.GetAllDisplayNames()
+	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
 
 	// Helper to get display name or fall back to short ID
 	getDisplayName := func(id identity.AgentID) string {
@@ -1347,41 +1355,83 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return id.ShortString()
 	}
 
-	// Build route info
+	// Helper to check if an agent has UDP enabled
+	hasUDPEnabled := func(id identity.AgentID) bool {
+		if info, ok := allNodeInfo[id]; ok {
+			return info.UDPEnabled
+		}
+		return false
+	}
+
+	// Build route info (CIDR routes)
 	routes := []DashboardRouteInfo{}
 	routeDetails := s.remoteProvider.GetRouteDetails()
 	for _, route := range routeDetails {
-		// Build path display: [local, peer1, peer2, ..., origin]
+		// Build path display and IDs: [local, peer1, peer2, ..., origin]
 		pathDisplay := []string{localName} // Start with local
+		pathIDs := []string{localID.ShortString()}
 		for _, agentID := range route.Path {
 			pathDisplay = append(pathDisplay, getDisplayName(agentID))
+			pathIDs = append(pathIDs, agentID.ShortString())
 		}
 
 		routes = append(routes, DashboardRouteInfo{
 			Network:     route.Network,
+			RouteType:   "cidr",
 			Origin:      getDisplayName(route.Origin),
 			OriginID:    route.Origin.ShortString(),
 			HopCount:    route.HopCount,
 			PathDisplay: pathDisplay,
+			PathIDs:     pathIDs,
+			TCP:         true,
+			UDP:         hasUDPEnabled(route.Origin),
 		})
 	}
 
-	// Sort routes deterministically by network, then by origin
+	// Add domain routes as DashboardRouteInfo entries
+	domainRouteDetails := s.remoteProvider.GetDomainRouteDetails()
+	for _, route := range domainRouteDetails {
+		// Build path display and IDs: [local, peer1, peer2, ..., origin]
+		pathDisplay := []string{localName} // Start with local
+		pathIDs := []string{localID.ShortString()}
+		for _, agentID := range route.Path {
+			pathDisplay = append(pathDisplay, getDisplayName(agentID))
+			pathIDs = append(pathIDs, agentID.ShortString())
+		}
+
+		routes = append(routes, DashboardRouteInfo{
+			Network:     route.Pattern,
+			RouteType:   "domain",
+			Origin:      getDisplayName(route.Origin),
+			OriginID:    route.Origin.ShortString(),
+			HopCount:    route.HopCount,
+			PathDisplay: pathDisplay,
+			PathIDs:     pathIDs,
+			TCP:         true,
+			UDP:         hasUDPEnabled(route.Origin),
+		})
+	}
+
+	// Sort routes: CIDR first (by network), then domains (by pattern)
 	sort.Slice(routes, func(i, j int) bool {
+		// CIDR routes come before domain routes
+		if routes[i].RouteType != routes[j].RouteType {
+			return routes[i].RouteType == "cidr"
+		}
 		if routes[i].Network != routes[j].Network {
 			return routes[i].Network < routes[j].Network
 		}
 		return routes[i].OriginID < routes[j].OriginID
 	})
 
-	// Build domain route info
+	// Build legacy domain routes for backward compatibility
 	domainRoutes := []DashboardDomainRouteInfo{}
-	domainRouteDetails := s.remoteProvider.GetDomainRouteDetails()
 	for _, route := range domainRouteDetails {
-		// Build path display: [local, peer1, peer2, ..., origin]
-		pathDisplay := []string{localName} // Start with local
+		pathDisplay := []string{localName}
+		pathIDs := []string{localID.ShortString()}
 		for _, agentID := range route.Path {
 			pathDisplay = append(pathDisplay, getDisplayName(agentID))
+			pathIDs = append(pathIDs, agentID.ShortString())
 		}
 
 		domainRoutes = append(domainRoutes, DashboardDomainRouteInfo{
@@ -1391,6 +1441,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			OriginID:    route.Origin.ShortString(),
 			HopCount:    route.HopCount,
 			PathDisplay: pathDisplay,
+			PathIDs:     pathIDs,
+			TCP:         true,
+			UDP:         hasUDPEnabled(route.Origin),
 		})
 	}
 

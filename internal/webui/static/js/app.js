@@ -65,17 +65,48 @@ class Dashboard {
         }
 
         tbody.innerHTML = routes.map(route => {
-            // Build path display as arrow-separated string
-            const pathStr = route.path_display ? route.path_display.join(' -> ') : route.origin;
+            // Route type indicator
+            const typeClass = route.route_type === 'domain' ? 'route-domain' : 'route-cidr';
+            const typeIcon = route.route_type === 'domain' ? '@' : '';
+
+            // Protocol badges
+            let protoBadges = '<span class="proto-badge proto-tcp">TCP</span>';
+            if (route.udp) {
+                protoBadges += '<span class="proto-badge proto-udp">UDP</span>';
+            }
+
+            // Path IDs for hover highlighting (JSON-encoded for data attribute)
+            const pathData = JSON.stringify(route.path_ids || []);
+
             return `
-                <tr>
-                    <td>${route.network}</td>
+                <tr class="route-row" data-path-ids='${pathData}'>
+                    <td class="${typeClass}">${typeIcon}${route.network}</td>
                     <td title="${route.origin_id}">${route.origin}</td>
-                    <td>${pathStr}</td>
+                    <td class="proto-cell">${protoBadges}</td>
                     <td>${route.hop_count}</td>
                 </tr>
             `;
         }).join('');
+
+        // Add hover event listeners for path highlighting
+        this.setupRouteHoverEvents();
+    }
+
+    setupRouteHoverEvents() {
+        const rows = document.querySelectorAll('.route-row');
+        rows.forEach(row => {
+            row.addEventListener('mouseenter', () => {
+                const pathIds = JSON.parse(row.dataset.pathIds || '[]');
+                if (pathIds.length > 0 && this.metroMap) {
+                    this.metroMap.highlightPath(pathIds);
+                }
+            });
+            row.addEventListener('mouseleave', () => {
+                if (this.metroMap) {
+                    this.metroMap.clearHighlight();
+                }
+            });
+        });
     }
 
     updateLastRefresh() {
