@@ -47,3 +47,6 @@ testbed/
 
 # Third-party license files (generated at release time)
 internal/licenses/third_party/
+
+# Local notes and reviews
+notes/
