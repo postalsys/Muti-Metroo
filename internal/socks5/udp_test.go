@@ -237,7 +237,7 @@ func TestUDPAssociation_NewAndClose(t *testing.T) {
 	defer client.Close()
 
 	handler := &mockUDPHandler{enabled: true}
-	assoc, err := NewUDPAssociation(server, handler)
+	assoc, err := NewUDPAssociation(server, handler, nil)
 	if err != nil {
 		t.Fatalf("NewUDPAssociation error: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestUDPAssociation_Context(t *testing.T) {
 	defer client.Close()
 
 	handler := &mockUDPHandler{enabled: true}
-	assoc, err := NewUDPAssociation(server, handler)
+	assoc, err := NewUDPAssociation(server, handler, nil)
 	if err != nil {
 		t.Fatalf("NewUDPAssociation error: %v", err)
 	}

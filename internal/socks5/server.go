@@ -157,6 +157,14 @@ func (s *Server) IsRunning() bool {
 // This enables SOCKS5 UDP ASSOCIATE support.
 func (s *Server) SetUDPHandler(handler UDPAssociationHandler) {
 	s.handler.SetUDPHandler(handler)
+
+	// Set the UDP bind IP from the server's configured address
+	// This ensures UDP relay sockets bind to the same interface as the TCP listener
+	if host, _, err := net.SplitHostPort(s.cfg.Address); err == nil {
+		if ip := net.ParseIP(host); ip != nil {
+			s.handler.SetUDPBindIP(ip)
+		}
+	}
 }
 
 // acceptLoop accepts new connections.

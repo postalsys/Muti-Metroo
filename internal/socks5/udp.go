@@ -72,13 +72,19 @@ type UDPAssociation struct {
 }
 
 // NewUDPAssociation creates a new UDP association.
-func NewUDPAssociation(tcpConn net.Conn, handler UDPAssociationHandler) (*UDPAssociation, error) {
+// bindIP specifies the IP to bind the UDP relay socket to (nil defaults to 0.0.0.0).
+func NewUDPAssociation(tcpConn net.Conn, handler UDPAssociationHandler, bindIP net.IP) (*UDPAssociation, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create UDP relay socket
 	// Use "udp4" to force IPv4 - on macOS "udp" creates a dual-stack IPv6 socket
 	// which reports [::] as the local address and causes issues with SOCKS5 clients
-	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	// Bind to the same IP as the SOCKS5 TCP listener for security
+	udpBindIP := net.IPv4zero
+	if bindIP != nil && !bindIP.IsUnspecified() {
+		udpBindIP = bindIP
+	}
+	udpConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: udpBindIP, Port: 0})
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("create UDP socket: %w", err)

@@ -67,8 +67,9 @@ type Handler struct {
 	dialer         Dialer
 
 	// UDP support
-	udpHandler     UDPAssociationHandler
-	udpAssocMu     sync.Mutex
+	udpHandler      UDPAssociationHandler
+	udpBindIP       net.IP // IP to bind UDP relay sockets (inherited from SOCKS5 listener)
+	udpAssocMu      sync.Mutex
 	udpAssociations map[uint64]*UDPAssociation
 }
 
@@ -104,6 +105,12 @@ func NewHandler(auths []Authenticator, dialer Dialer) *Handler {
 // This must be called before handling UDP ASSOCIATE requests.
 func (h *Handler) SetUDPHandler(handler UDPAssociationHandler) {
 	h.udpHandler = handler
+}
+
+// SetUDPBindIP sets the IP address for UDP relay sockets.
+// This should match the SOCKS5 TCP listener's bind address.
+func (h *Handler) SetUDPBindIP(ip net.IP) {
+	h.udpBindIP = ip
 }
 
 // Handle processes a SOCKS5 connection.
@@ -177,7 +184,8 @@ func (h *Handler) handleUDPAssociate(conn net.Conn, req *Request) error {
 	}
 
 	// Create UDP association
-	assoc, err := NewUDPAssociation(conn, h.udpHandler)
+	// Use the configured bind IP (inherited from SOCKS5 TCP listener)
+	assoc, err := NewUDPAssociation(conn, h.udpHandler, h.udpBindIP)
 	if err != nil {
 		h.sendReply(conn, ReplyServerFailure, nil, 0)
 		return fmt.Errorf("create UDP association: %w", err)
