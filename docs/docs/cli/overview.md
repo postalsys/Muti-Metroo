@@ -59,6 +59,7 @@ Available for all commands:
 | `status` | Show agent status via HTTP API |
 | `peers` | List connected peers via HTTP API |
 | `routes` | List route table via HTTP API |
+| `probe` | Test connectivity to a listener (standalone) |
 | `shell` | Interactive or streaming remote shell |
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
@@ -86,6 +87,10 @@ muti-metroo status
 
 # Check agent on different port
 muti-metroo status -a localhost:9090
+
+# Test connectivity to a listener (no running agent needed)
+muti-metroo probe server.example.com:4433
+muti-metroo probe --transport h2 server.example.com:443
 
 # List connected peers
 muti-metroo peers
