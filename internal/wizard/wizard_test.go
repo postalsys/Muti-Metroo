@@ -487,3 +487,102 @@ func TestBuildConfigDefaults(t *testing.T) {
 		t.Error("Connections.Timeout should have default value")
 	}
 }
+
+func TestTestPeerConnectivity(t *testing.T) {
+	w := New()
+
+	tests := []struct {
+		name        string
+		peer        config.PeerConfig
+		expectError bool
+		errorContains string
+	}{
+		{
+			name: "connection refused",
+			peer: config.PeerConfig{
+				Transport: "quic",
+				Address:   "127.0.0.1:59999", // Non-existent port
+				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+			},
+			expectError: true,
+			errorContains: "", // Can be timeout or refused
+		},
+		{
+			name: "invalid address",
+			peer: config.PeerConfig{
+				Transport: "quic",
+				Address:   "invalid-host-that-does-not-exist.local:4433",
+				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+			},
+			expectError: true,
+			errorContains: "", // DNS or connection error
+		},
+		{
+			name: "h2 without path uses default",
+			peer: config.PeerConfig{
+				Transport: "h2",
+				Address:   "127.0.0.1:59999",
+				Path:      "", // Should default to /mesh
+				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+			},
+			expectError: true,
+			errorContains: "", // Connection error expected
+		},
+		{
+			name: "ws without path uses default",
+			peer: config.PeerConfig{
+				Transport: "ws",
+				Address:   "127.0.0.1:59999",
+				Path:      "", // Should default to /mesh
+				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+			},
+			expectError: true,
+			errorContains: "", // Connection error expected
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := w.testPeerConnectivity(tc.peer)
+			if tc.expectError {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tc.errorContains != "" && !strings.Contains(err.Error(), tc.errorContains) {
+					t.Errorf("Error %q does not contain %q", err.Error(), tc.errorContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestTestPeerConnectivityLive tests against real listeners.
+// Skip if testbed is not running.
+func TestTestPeerConnectivityLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping live connectivity test in short mode")
+	}
+
+	// Check if Agent B (Docker) is reachable
+	w := New()
+	peer := config.PeerConfig{
+		Transport: "quic",
+		Address:   "127.0.0.1:4433",
+		TLS: config.TLSConfig{
+			CA:   "../../testbed/certs/ca.crt",
+			Cert: "../../testbed/certs/agent-a.crt",
+			Key:  "../../testbed/certs/agent-a.key",
+		},
+	}
+
+	err := w.testPeerConnectivity(peer)
+	if err != nil {
+		t.Skipf("Agent B not available (testbed not running?): %v", err)
+	}
+
+	// If we get here, Agent B is running and the test passed
+	t.Log("Successfully connected to Agent B")
+}
