@@ -42,6 +42,7 @@ flowchart LR
 | **Remote Execution**      | Execute commands on remote agents (interactive shell)                |
 | **Web Dashboard**         | Visual topology with metro map visualization                         |
 | **No Root Required**      | Runs entirely in userspace                                           |
+| **TUN Interface**         | Transparent L3 routing with [Mutiauk](/mutiauk) companion tool       |
 
 ## Use Cases
 

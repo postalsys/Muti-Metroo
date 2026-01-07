@@ -8,6 +8,7 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     'intro',
     'download',
+    'mutiauk',
     {
       type: 'category',
       label: 'Red Team Operations',
