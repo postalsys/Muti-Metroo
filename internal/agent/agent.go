@@ -2282,6 +2282,176 @@ func (a *Agent) Dial(network, address string) (net.Conn, error) {
 	}, nil
 }
 
+// DialContext implements socks5.Dialer for SOCKS5 connections with context support.
+// This allows cancellation when the client disconnects during dial.
+func (a *Agent) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	// Parse the address
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %w", err)
+	}
+
+	port, err := net.LookupPort(network, portStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid port: %w", err)
+	}
+
+	// Check if host is already an IP address
+	destIP := net.ParseIP(host)
+
+	// If host is a domain, check domain routes BEFORE DNS resolution
+	if destIP == nil {
+		domainRoute := a.routeMgr.LookupDomain(host)
+		if domainRoute != nil {
+			// If domain route points to us (local exit), resolve DNS and dial directly
+			if domainRoute.OriginAgent == a.id {
+				ips, err := net.LookupIP(host)
+				if err != nil {
+					return nil, fmt.Errorf("resolve %s: %w", host, err)
+				}
+				if len(ips) == 0 {
+					return nil, fmt.Errorf("no IP addresses for %s", host)
+				}
+				var dialer net.Dialer
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), portStr))
+			}
+
+			// Route via domain route - exit node will resolve DNS
+			return a.dialViaDomainRouteWithContext(ctx, network, host, port, domainRoute)
+		}
+
+		// No domain route - resolve DNS at ingress
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no IP addresses for %s", host)
+		}
+		destIP = ips[0]
+	}
+
+	// Look up CIDR route in routing table
+	route := a.routeMgr.Lookup(destIP)
+
+	// If no route, or route is to ourselves (local exit), do direct dial
+	if route == nil || route.OriginAgent == a.id {
+		dialer := &net.Dialer{Timeout: directDialTimeout}
+		return dialer.DialContext(ctx, network, address)
+	}
+
+	// Route through mesh - get next hop connection
+	conn := a.peerMgr.GetPeer(route.NextHop)
+	if conn == nil {
+		// Next hop not connected, fall back to direct
+		dialer := &net.Dialer{Timeout: directDialTimeout}
+		return dialer.DialContext(ctx, network, address)
+	}
+
+	// Build the path for STREAM_OPEN
+	var remainingPath []identity.AgentID
+	if len(route.Path) > 1 {
+		remainingPath = make([]identity.AgentID, len(route.Path)-1)
+		copy(remainingPath, route.Path[1:])
+	}
+
+	// Generate stream ID
+	streamID := conn.NextStreamID()
+
+	// Build address bytes
+	var addrType uint8
+	var addrBytes []byte
+	if ip4 := destIP.To4(); ip4 != nil {
+		addrType = protocol.AddrTypeIPv4
+		addrBytes = ip4
+	} else {
+		addrType = protocol.AddrTypeIPv6
+		addrBytes = destIP
+	}
+
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
+	// Create the stream in stream manager
+	pending := a.streamMgr.OpenStream(streamID, route.NextHop, host, uint16(port), 30*time.Second)
+
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with ephemeral public key
+	openPayload := &protocol.StreamOpen{
+		RequestID:       pending.RequestID,
+		AddressType:     addrType,
+		Address:         addrBytes,
+		Port:            uint16(port),
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
+		a.streamMgr.CancelPendingRequest(pending.RequestID)
+		return nil, fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for response with context support
+	var result *stream.StreamOpenResult
+	select {
+	case result = <-pending.ResultCh:
+		// Got result
+	case <-ctx.Done():
+		// Context cancelled - clean up and return
+		a.streamMgr.CancelPendingRequest(pending.RequestID)
+		crypto.ZeroKey(&ephPriv)
+		return nil, ctx.Err()
+	}
+
+	if result.Error != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, result.Error
+	}
+
+	// Derive session key from ECDH with exit node's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Store session key in stream
+	result.Stream.SetSessionKey(sessionKey)
+
+	// Return a MeshConn wrapper
+	return &meshConn{
+		agent:    a,
+		stream:   result.Stream,
+		peerID:   route.NextHop,
+		streamID: streamID,
+		localAddr: &net.TCPAddr{
+			IP:   result.BoundIP,
+			Port: int(result.BoundPort),
+		},
+		remoteAddr: &net.TCPAddr{
+			IP:   destIP,
+			Port: port,
+		},
+	}, nil
+}
+
 // dialViaDomainRoute routes a connection through a domain route.
 // The domain name is passed to the exit node for DNS resolution.
 func (a *Agent) dialViaDomainRoute(network, host string, port int, route *routing.DomainRoute) (net.Conn, error) {
@@ -2381,6 +2551,112 @@ func (a *Agent) dialViaDomainRoute(network, host string, port int, route *routin
 
 	// Return a MeshConn wrapper
 	// Note: destIP is nil for domain routes since DNS is resolved at exit
+	return &meshConn{
+		agent:    a,
+		stream:   result.Stream,
+		peerID:   route.NextHop,
+		streamID: streamID,
+		localAddr: &net.TCPAddr{
+			IP:   result.BoundIP,
+			Port: int(result.BoundPort),
+		},
+		remoteAddr: &domainAddr{
+			domain: host,
+			port:   port,
+		},
+	}, nil
+}
+
+// dialViaDomainRouteWithContext routes a connection through a domain route with context support.
+func (a *Agent) dialViaDomainRouteWithContext(ctx context.Context, network, host string, port int, route *routing.DomainRoute) (net.Conn, error) {
+	// Get next hop connection
+	conn := a.peerMgr.GetPeer(route.NextHop)
+	if conn == nil {
+		return nil, fmt.Errorf("next hop %s not connected", route.NextHop.ShortString())
+	}
+
+	// Build the path for STREAM_OPEN
+	var remainingPath []identity.AgentID
+	if len(route.Path) > 1 {
+		remainingPath = make([]identity.AgentID, len(route.Path)-1)
+		copy(remainingPath, route.Path[1:])
+	}
+
+	// Generate stream ID
+	streamID := conn.NextStreamID()
+
+	// Build domain address bytes (length-prefixed string)
+	addrBytes := make([]byte, 1+len(host))
+	addrBytes[0] = byte(len(host))
+	copy(addrBytes[1:], host)
+
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
+	// Create the stream in stream manager
+	pending := a.streamMgr.OpenStream(streamID, route.NextHop, host, uint16(port), 30*time.Second)
+
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with domain address
+	openPayload := &protocol.StreamOpen{
+		RequestID:       pending.RequestID,
+		AddressType:     protocol.AddrTypeDomain,
+		Address:         addrBytes,
+		Port:            uint16(port),
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
+		a.streamMgr.CancelPendingRequest(pending.RequestID)
+		return nil, fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for response with context support
+	var result *stream.StreamOpenResult
+	select {
+	case result = <-pending.ResultCh:
+		// Got result
+	case <-ctx.Done():
+		// Context cancelled - clean up and return
+		a.streamMgr.CancelPendingRequest(pending.RequestID)
+		crypto.ZeroKey(&ephPriv)
+		return nil, ctx.Err()
+	}
+
+	if result.Error != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, result.Error
+	}
+
+	// Derive session key from ECDH with exit node's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Store session key in stream
+	result.Stream.SetSessionKey(sessionKey)
+
+	// Return a MeshConn wrapper
 	return &meshConn{
 		agent:    a,
 		stream:   result.Stream,

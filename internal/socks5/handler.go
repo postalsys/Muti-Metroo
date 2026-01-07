@@ -76,6 +76,9 @@ type Handler struct {
 // Dialer interface for making outbound connections.
 type Dialer interface {
 	Dial(network, address string) (net.Conn, error)
+	// DialContext dials with context support for cancellation.
+	// Implementations should cancel the dial when ctx is done.
+	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 // DirectDialer connects directly to destinations.
@@ -84,6 +87,12 @@ type DirectDialer struct{}
 // Dial makes a direct TCP connection.
 func (d *DirectDialer) Dial(network, address string) (net.Conn, error) {
 	return net.Dial(network, address)
+}
+
+// DialContext makes a direct TCP connection with context support.
+func (d *DirectDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	var dialer net.Dialer
+	return dialer.DialContext(ctx, network, address)
 }
 
 // NewHandler creates a new SOCKS5 handler.
@@ -141,10 +150,70 @@ func (h *Handler) Handle(conn net.Conn) error {
 
 // handleConnect handles CONNECT commands.
 func (h *Handler) handleConnect(conn net.Conn, req *Request) error {
-	// Connect to destination
 	targetAddr := net.JoinHostPort(req.DestAddr, strconv.Itoa(int(req.DestPort)))
-	target, err := h.dialer.Dial("tcp", targetAddr)
+
+	// Create context that cancels when client disconnects during dial.
+	// This prevents orphan streams when clients (like nmap) timeout early.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Monitor client connection for early disconnect.
+	// After SOCKS5 handshake, client should not send data until we reply,
+	// so any read returning means the client closed the connection.
+	dialDone := make(chan struct{})
+	monitorExited := make(chan struct{})
+	go func() {
+		defer close(monitorExited)
+		buf := make([]byte, 1)
+		// Use a short read deadline to periodically check if dial is done
+		for {
+			select {
+			case <-dialDone:
+				return
+			default:
+			}
+			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			_, err := conn.Read(buf)
+			// Check if dial completed while we were reading
+			select {
+			case <-dialDone:
+				return
+			default:
+			}
+			if err != nil {
+				// Check if it's a timeout (expected) or actual error (client closed)
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue // Just a timeout, keep monitoring
+				}
+				// Client closed or error - cancel the dial
+				cancel()
+				return
+			}
+			// Got unexpected data - protocol error, cancel
+			cancel()
+			return
+		}
+	}()
+
+	// Connect to destination with context
+	target, err := h.dialer.DialContext(ctx, "tcp", targetAddr)
+	close(dialDone) // Signal monitor goroutine to stop
+
+	// Force interrupt any ongoing Read by setting a deadline in the past
+	conn.SetReadDeadline(time.Now().Add(-time.Second))
+
+	// Wait for monitor goroutine to fully exit before proceeding
+	// This prevents the race where monitor reads data meant for TLS handshake
+	<-monitorExited
+
+	// Clear the read deadline
+	conn.SetReadDeadline(time.Time{})
+
 	if err != nil {
+		// Check if cancelled due to client disconnect
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("client disconnected during dial to %s", targetAddr)
+		}
 		// Map error to appropriate reply
 		h.sendReplyForError(conn, err)
 		return fmt.Errorf("dial %s: %w", targetAddr, err)
@@ -156,7 +225,6 @@ func (h *Handler) handleConnect(conn net.Conn, req *Request) error {
 	h.sendReply(conn, ReplySucceeded, localAddr.IP, uint16(localAddr.Port))
 
 	// Clear deadlines before relay - connections should stay open indefinitely
-	// The deadline was set for the handshake phase only
 	conn.SetDeadline(time.Time{})
 	target.SetDeadline(time.Time{})
 

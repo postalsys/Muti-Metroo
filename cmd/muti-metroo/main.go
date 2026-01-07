@@ -401,12 +401,13 @@ func peersCmd() *cobra.Command {
 
 			var dashboard struct {
 				Peers []struct {
-					ID          string `json:"id"`
-					ShortID     string `json:"short_id"`
-					DisplayName string `json:"display_name"`
-					State       string `json:"state"`
-					RTTMs       int64  `json:"rtt_ms"`
-					IsDialer    bool   `json:"is_dialer"`
+					ID           string `json:"id"`
+					ShortID      string `json:"short_id"`
+					DisplayName  string `json:"display_name"`
+					State        string `json:"state"`
+					RTTMs        int64  `json:"rtt_ms"`
+					Unresponsive bool   `json:"unresponsive"`
+					IsDialer     bool   `json:"is_dialer"`
 				} `json:"peers"`
 			}
 			if err := json.NewDecoder(resp.Body).Decode(&dashboard); err != nil {
@@ -419,13 +420,19 @@ func peersCmd() *cobra.Command {
 				return enc.Encode(dashboard.Peers)
 			}
 
+			// ANSI color codes
+			const (
+				colorRed   = "\033[31m"
+				colorReset = "\033[0m"
+			)
+
 			fmt.Printf("Connected Peers\n")
 			fmt.Printf("===============\n")
 			if len(dashboard.Peers) == 0 {
 				fmt.Println("No peers connected.")
 			} else {
-				fmt.Printf("%-12s %-20s %-10s %-10s %-8s\n", "ID", "NAME", "STATE", "ROLE", "RTT")
-				fmt.Printf("%-12s %-20s %-10s %-10s %-8s\n", "--", "----", "-----", "----", "---")
+				fmt.Printf("%-12s %-20s %-14s %-10s %-8s\n", "ID", "NAME", "STATE", "ROLE", "RTT")
+				fmt.Printf("%-12s %-20s %-14s %-10s %-8s\n", "--", "----", "-----", "----", "---")
 				for _, peer := range dashboard.Peers {
 					role := "listener"
 					if peer.IsDialer {
@@ -435,10 +442,14 @@ func peersCmd() *cobra.Command {
 					if peer.RTTMs == 0 {
 						rtt = "-"
 					}
-					fmt.Printf("%-12s %-20s %-10s %-10s %-8s\n",
+					state := peer.State
+					if peer.Unresponsive {
+						state = colorRed + "UNRESPONSIVE" + colorReset
+					}
+					fmt.Printf("%-12s %-20s %-14s %-10s %-8s\n",
 						peer.ShortID,
 						peer.DisplayName,
-						peer.State,
+						state,
 						role,
 						rtt,
 					)

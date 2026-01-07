@@ -388,7 +388,11 @@ class MetroMap {
 
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', this.createMetroPath(from.x, from.y, to.x, to.y));
-        path.setAttribute('class', `connection ${conn.is_direct ? 'direct' : 'indirect'}`);
+        let connClass = `connection ${conn.is_direct ? 'direct' : 'indirect'}`;
+        if (conn.unresponsive) {
+            connClass += ' unresponsive';
+        }
+        path.setAttribute('class', connClass);
         g.appendChild(path);
 
         // Connection hover events
@@ -425,6 +429,10 @@ class MetroMap {
 
         if (conn.rtt_ms && conn.rtt_ms > 0) {
             html += `<div class="connection-rtt">RTT: ${conn.rtt_ms}ms</div>`;
+        }
+
+        if (conn.unresponsive) {
+            html += `<div class="connection-rtt" style="color: #dc3545; font-weight: 600;">UNRESPONSIVE (RTT > 60s)</div>`;
         }
 
         this.connectionTooltip.innerHTML = html;

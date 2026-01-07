@@ -16,6 +16,11 @@
     stroke: #6db36d;
 }
 
+.connection.unresponsive {
+    stroke: #dc3545;
+    stroke-dasharray: 8, 4;
+}
+
 .connection:hover {
     stroke-width: 10;
     filter: drop-shadow(0 0 4px currentColor);
@@ -72,6 +77,16 @@
 
 .station.remote .station-inner {
     fill: transparent;
+}
+
+/* Unresponsive station - high RTT (>60s) */
+.station.unresponsive .station-outer {
+    stroke: #dc3545;
+    fill: #1a1a1a;
+}
+
+.station.unresponsive .station-inner {
+    fill: #dc3545;
 }
 
 /* Role indicator circles - colored rings around the station */

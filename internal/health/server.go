@@ -195,11 +195,12 @@ type TopologyAgentInfo struct {
 
 // TopologyConnection represents a connection between two agents.
 type TopologyConnection struct {
-	FromAgent string `json:"from_agent"`
-	ToAgent   string `json:"to_agent"`
-	IsDirect  bool   `json:"is_direct"`
-	RTTMs     int64  `json:"rtt_ms,omitempty"`
-	Transport string `json:"transport,omitempty"` // Transport type for direct connections: "quic", "h2", "ws"
+	FromAgent    string `json:"from_agent"`
+	ToAgent      string `json:"to_agent"`
+	IsDirect     bool   `json:"is_direct"`
+	RTTMs        int64  `json:"rtt_ms,omitempty"`
+	Unresponsive bool   `json:"unresponsive,omitempty"` // RTT > 60s indicates connection is stuck
+	Transport    string `json:"transport,omitempty"`    // Transport type for direct connections: "quic", "h2", "ws"
 }
 
 // TopologyResponse is the response for the /api/topology endpoint.
@@ -211,12 +212,13 @@ type TopologyResponse struct {
 
 // DashboardPeerInfo contains information about a connected peer.
 type DashboardPeerInfo struct {
-	ID          string `json:"id"`
-	ShortID     string `json:"short_id"`
-	DisplayName string `json:"display_name"`
-	State       string `json:"state"`
-	RTTMs       int64  `json:"rtt_ms"`
-	IsDialer    bool   `json:"is_dialer"`
+	ID           string `json:"id"`
+	ShortID      string `json:"short_id"`
+	DisplayName  string `json:"display_name"`
+	State        string `json:"state"`
+	RTTMs        int64  `json:"rtt_ms"`
+	Unresponsive bool   `json:"unresponsive,omitempty"` // RTT > 60s indicates connection is stuck
+	IsDialer     bool   `json:"is_dialer"`
 }
 
 // DashboardRouteInfo contains information about a route.
@@ -1146,11 +1148,12 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		// Add direct connection
 		connKey := localID.ShortString() + "->" + peer.ID.ShortString()
 		connectionSet[connKey] = TopologyConnection{
-			FromAgent: localID.ShortString(),
-			ToAgent:   peer.ID.ShortString(),
-			IsDirect:  true,
-			RTTMs:     peer.RTT.Milliseconds(),
-			Transport: peer.Transport,
+			FromAgent:    localID.ShortString(),
+			ToAgent:      peer.ID.ShortString(),
+			IsDirect:     true,
+			RTTMs:        peer.RTT.Milliseconds(),
+			Unresponsive: peer.RTT.Seconds() > 60,
+			Transport:    peer.Transport,
 		}
 	}
 
@@ -1194,6 +1197,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 						if peerAgentID == toID {
 							conn.Transport = peer.Transport
 							conn.RTTMs = peer.RTTMs
+							conn.Unresponsive = peer.RTTMs > 60000 // 60 seconds in ms
 							break
 						}
 					}
@@ -1333,12 +1337,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	peerDetails := s.remoteProvider.GetPeerDetails()
 	for _, peer := range peerDetails {
 		peers = append(peers, DashboardPeerInfo{
-			ID:          peer.ID.String(),
-			ShortID:     peer.ID.ShortString(),
-			DisplayName: peer.DisplayName,
-			State:       peer.State,
-			RTTMs:       peer.RTT.Milliseconds(),
-			IsDialer:    peer.IsDialer,
+			ID:           peer.ID.String(),
+			ShortID:      peer.ID.ShortString(),
+			DisplayName:  peer.DisplayName,
+			State:        peer.State,
+			RTTMs:        peer.RTT.Milliseconds(),
+			Unresponsive: peer.RTT.Seconds() > 60,
+			IsDialer:     peer.IsDialer,
 		})
 	}
 

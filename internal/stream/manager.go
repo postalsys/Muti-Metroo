@@ -477,6 +477,32 @@ func (m *Manager) HandleStreamOpenErr(requestID uint64, errorCode uint16, messag
 	return nil
 }
 
+// CancelPendingRequest cancels a pending stream open request.
+// This is called when the client disconnects before the stream is established.
+// Returns true if the request was found and cancelled.
+func (m *Manager) CancelPendingRequest(requestID uint64) bool {
+	m.mu.Lock()
+	pending, ok := m.pendingRequests[requestID]
+	if !ok {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.pendingRequests, requestID)
+	pending.Timer.Stop()
+	m.mu.Unlock()
+
+	// Send cancellation result (non-blocking in case channel is already closed)
+	select {
+	case pending.Result <- &StreamOpenResult{
+		Error:     fmt.Errorf("stream open cancelled"),
+		ErrorCode: protocol.ErrConnectionTimeout,
+	}:
+	default:
+	}
+
+	return true
+}
+
 // AcceptStream accepts an incoming stream.
 func (m *Manager) AcceptStream(streamID uint64, requestID uint64, remoteID identity.AgentID, destAddr string, destPort uint16) (*Stream, error) {
 	m.mu.Lock()
