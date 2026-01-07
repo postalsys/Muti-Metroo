@@ -69,13 +69,13 @@ flowchart LR
 **Current Version: v0.1.0** (Preview)
 
 <DownloadButtonGroup>
-  <DownloadButton href="#" primary>
+  <DownloadButton href="https://mutimetroo.com/downloads/mutiauk/mutiauk-linux-amd64" primary>
     Download for Linux (amd64)
   </DownloadButton>
 </DownloadButtonGroup>
 
 <DownloadButtonGroup>
-  <DownloadButton href="#">
+  <DownloadButton href="https://mutimetroo.com/downloads/mutiauk/mutiauk-linux-arm64">
     Download for Linux (arm64)
   </DownloadButton>
 </DownloadButtonGroup>
@@ -88,8 +88,26 @@ curl -L -o mutiauk https://mutimetroo.com/downloads/mutiauk/mutiauk-linux-amd64
 chmod +x mutiauk
 sudo mv mutiauk /usr/local/bin/
 
-# Run with default settings (requires Muti Metroo SOCKS5 on localhost:1080)
-sudo mutiauk --socks5 127.0.0.1:1080 --routes 10.0.0.0/8,192.168.0.0/16
+# Create config directory and file
+sudo mkdir -p /etc/mutiauk
+sudo tee /etc/mutiauk/config.yaml > /dev/null << 'EOF'
+tun:
+  name: tun0
+  mtu: 1400
+  address: 10.200.200.1/24
+
+socks5:
+  server: 127.0.0.1:1080
+
+routes:
+  - destination: 10.0.0.0/8
+    enabled: true
+  - destination: 192.168.0.0/16
+    enabled: true
+EOF
+
+# Start the daemon
+sudo mutiauk daemon start
 ```
 
 :::note Root Required
@@ -98,36 +116,81 @@ Mutiauk requires root privileges to create and manage the TUN interface.
 
 ## Configuration
 
-### Command Line Options
+Mutiauk uses a YAML configuration file (default: `/etc/mutiauk/config.yaml`).
+
+### Configuration File Structure
+
+```yaml
+daemon:
+  pid_file: /var/run/mutiauk.pid
+  socket_path: /var/run/mutiauk.sock
+
+tun:
+  name: tun0
+  mtu: 1400
+  address: 10.200.200.1/24
+  address6: fd00:200::1/64  # Optional IPv6
+
+socks5:
+  server: 127.0.0.1:1080
+  username: ""  # Optional auth
+  password: ""
+  timeout: 30s
+  keepalive: 60s
+
+routes:
+  - destination: 10.0.0.0/8
+    comment: "Internal network"
+    enabled: true
+  - destination: 192.168.0.0/16
+    comment: "Private network"
+    enabled: true
+
+nat:
+  table_size: 65536
+  tcp_timeout: 1h
+  udp_timeout: 5m
+
+logging:
+  level: info
+  format: json
+```
+
+### CLI Commands
+
+```bash
+# Daemon management
+mutiauk daemon start      # Start the daemon
+mutiauk daemon stop       # Stop the daemon
+mutiauk daemon reload     # Reload configuration (SIGHUP)
+mutiauk daemon status     # Check if daemon is running
+
+# Route management
+mutiauk route list        # List active routes
+mutiauk route add <cidr>  # Add a route
+mutiauk route remove <cidr>  # Remove a route
+mutiauk route plan        # Show pending route changes
+mutiauk route apply       # Apply routes from config file
+mutiauk route check       # Check for route conflicts
+
+# System status
+mutiauk status            # Show comprehensive status with connectivity tests
+
+# Service management (Linux systemd)
+sudo mutiauk service install -c /etc/mutiauk/config.yaml
+sudo mutiauk service uninstall
+mutiauk service status
+
+# Other
+mutiauk version           # Show version information
+```
+
+### Global CLI Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--socks5` | `127.0.0.1:1080` | Muti Metroo SOCKS5 proxy address |
-| `--routes` | - | Comma-separated CIDRs to route through TUN |
-| `--tun-name` | `mutiauk0` | Name of the TUN interface |
-| `--tun-addr` | `10.200.200.1/24` | IP address for TUN interface |
-| `--mtu` | `1500` | MTU for TUN interface |
-| `--dns` | - | DNS server to use for intercepted DNS queries |
-
-### Example: Route Specific Networks
-
-```bash
-# Route corporate network and cloud VPC through the mesh
-sudo mutiauk \
-  --socks5 127.0.0.1:1080 \
-  --routes 10.10.0.0/16,172.16.0.0/12 \
-  --dns 10.10.0.53
-```
-
-### Example: Route All Traffic
-
-```bash
-# Route all traffic (except local) through the mesh
-sudo mutiauk \
-  --socks5 127.0.0.1:1080 \
-  --routes 0.0.0.0/0 \
-  --exclude 127.0.0.0/8,192.168.1.0/24
-```
+| `-c, --config` | `/etc/mutiauk/config.yaml` | Path to configuration file |
+| `-v, --verbose` | `false` | Enable verbose logging |
 
 ## Use Cases
 
@@ -135,18 +198,35 @@ sudo mutiauk \
 
 Route traffic to corporate networks without configuring each application:
 
+```yaml
+# /etc/mutiauk/config.yaml
+tun:
+  name: tun0
+  address: 10.200.200.1/24
+
+socks5:
+  server: 127.0.0.1:1080
+
+routes:
+  - destination: 10.0.0.0/8
+    comment: "Corporate network"
+    enabled: true
+```
+
 ```bash
-# All traffic to 10.x.x.x goes through the mesh
-sudo mutiauk --socks5 127.0.0.1:1080 --routes 10.0.0.0/8
+sudo mutiauk daemon start
 ```
 
 ### Development Environment
 
 Test applications against remote environments transparently:
 
-```bash
-# Route staging environment traffic through mesh
-sudo mutiauk --socks5 127.0.0.1:1080 --routes 192.168.100.0/24
+```yaml
+# /etc/mutiauk/config.yaml
+routes:
+  - destination: 192.168.100.0/24
+    comment: "Staging environment"
+    enabled: true
 ```
 
 ### Container/VM Traffic
