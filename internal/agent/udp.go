@@ -336,17 +336,11 @@ func (d *udpDestAssociation) closePendingOpen(err error) {
 // Called when a SOCKS5 client sends a UDP datagram to relay through the mesh.
 // Routes based on actual destination IP, creating mesh paths on demand.
 func (a *Agent) RelayUDPDatagram(streamID uint64, destAddr net.Addr, destPort uint16, addrType byte, rawAddr []byte, data []byte) error {
-	a.logger.Debug("RelayUDPDatagram called",
-		logging.KeyStreamID, streamID,
-		"dest_port", destPort,
-		"data_len", len(data))
-
 	udpIngressMu.RLock()
 	ingress := udpIngressByBase[streamID]
 	udpIngressMu.RUnlock()
 
 	if ingress == nil {
-		a.logger.Debug("RelayUDPDatagram: ingress not found", logging.KeyStreamID, streamID)
 		return ErrUDPStreamNotFound
 	}
 
@@ -408,17 +402,7 @@ func (a *Agent) RelayUDPDatagram(streamID uint64, destAddr net.Addr, destPort ui
 		Payload:  datagram.Encode(),
 	}
 
-	a.logger.Debug("sending UDP_DATAGRAM to exit",
-		logging.KeyStreamID, exitStreamID,
-		"next_hop", nextHop.ShortString(),
-		"dest_port", destPort,
-		"payload_len", len(frame.Payload))
-
-	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
-		a.logger.Debug("failed to send UDP_DATAGRAM", "error", err)
-		return err
-	}
-	return nil
+	return a.peerMgr.SendToPeer(nextHop, frame)
 }
 
 // CloseUDPAssociation implements socks5.UDPAssociationHandler.
@@ -710,25 +694,11 @@ func (a *Agent) handleUDPOpenErr(peerID identity.AgentID, frame *protocol.Frame)
 
 // handleUDPDatagram processes a UDP_DATAGRAM frame.
 func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame) {
-	a.logger.Debug("received UDP_DATAGRAM",
-		logging.KeyStreamID, frame.StreamID,
-		"from_peer", peerID.ShortString(),
-		"payload_len", len(frame.Payload),
-		"has_udp_handler", a.udpHandler != nil)
-
 	// Check if this is for our UDP handler (exit node receiving from mesh)
 	if a.udpHandler != nil {
-		assoc := a.udpHandler.GetAssociation(frame.StreamID)
-		a.logger.Debug("UDP_DATAGRAM exit handler lookup",
-			logging.KeyStreamID, frame.StreamID,
-			"assoc_found", assoc != nil,
-			"active_count", a.udpHandler.ActiveCount())
-
-		if assoc != nil {
-			a.logger.Debug("UDP_DATAGRAM for exit handler", logging.KeyStreamID, frame.StreamID)
+		if assoc := a.udpHandler.GetAssociation(frame.StreamID); assoc != nil {
 			datagram, err := protocol.DecodeUDPDatagram(frame.Payload)
 			if err != nil {
-				a.logger.Debug("failed to decode UDP_DATAGRAM", "error", err)
 				return
 			}
 			a.udpHandler.HandleUDPDatagram(peerID, frame.StreamID, datagram)
@@ -788,11 +758,6 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	udpRelayMu.RUnlock()
 
 	if relayUp != nil && peerID == relayUp.UpstreamPeer {
-		a.logger.Debug("relaying UDP_DATAGRAM downstream",
-			"from_stream", frame.StreamID,
-			"to_stream", relayUp.DownstreamID,
-			"next_hop", relayUp.DownstreamPeer.ShortString())
-
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPDatagram,
@@ -804,11 +769,6 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	}
 
 	if relayDown != nil && peerID == relayDown.DownstreamPeer {
-		a.logger.Debug("relaying UDP_DATAGRAM upstream",
-			"from_stream", frame.StreamID,
-			"to_stream", relayDown.UpstreamID,
-			"upstream_peer", relayDown.UpstreamPeer.ShortString())
-
 		// Forward upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPDatagram,
