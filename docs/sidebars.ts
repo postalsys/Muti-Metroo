@@ -107,6 +107,7 @@ const sidebars: SidebarsConfig = {
         'cli/setup',
         'cli/cert',
         'cli/hash',
+        'cli/probe',
         'cli/shell',
         'cli/file-transfer',
         'cli/service',
