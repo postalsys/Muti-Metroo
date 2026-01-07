@@ -96,7 +96,7 @@ Get up and running in minutes:
 
 ```bash
 # Download the binary for your platform (example: Linux amd64)
-curl -L -o muti-metroo https://mutimetroo.com/downloads/latest/muti-metroo-linux-amd64
+curl -L -o muti-metroo https://mutimetroo.com/downloads/muti-metroo/muti-metroo-linux-amd64
 chmod +x muti-metroo
 sudo mv muti-metroo /usr/local/bin/
 

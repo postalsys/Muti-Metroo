@@ -693,8 +693,8 @@ upload_binaries_to_web() {
     fi
 
     local downloads_dir="$WEB_ROOT/downloads"
-    local latest_dir="$downloads_dir/latest"
-    local version_dir="$downloads_dir/v$version"
+    local latest_dir="$downloads_dir/muti-metroo"
+    local version_dir="$downloads_dir/muti-metroo-$version"
 
     # Create directories on remote server
     ssh "$WEB_SERVER_USER@$WEB_SERVER" "mkdir -p $latest_dir $version_dir"
@@ -706,8 +706,8 @@ upload_binaries_to_web() {
     ssh "$WEB_SERVER_USER@$WEB_SERVER" "cp -r $latest_dir/* $version_dir/"
 
     log_success "Binaries uploaded to $WEB_SERVER"
-    log_info "  Latest: https://mutimetroo.com/downloads/latest/"
-    log_info "  v$version: https://mutimetroo.com/downloads/v$version/"
+    log_info "  Latest: https://mutimetroo.com/downloads/muti-metroo/"
+    log_info "  v$version: https://mutimetroo.com/downloads/muti-metroo-$version/"
 }
 
 # Run tests
@@ -820,7 +820,7 @@ main() {
     echo ""
     log_info "Release URL: $GITEA_URL/$GITEA_OWNER/$GITEA_REPO/releases/tag/v$new_version"
     log_info "Documentation: https://mutimetroo.com/"
-    log_info "Downloads: https://mutimetroo.com/downloads/latest/"
+    log_info "Downloads: https://mutimetroo.com/downloads/muti-metroo/"
     echo ""
 }
 

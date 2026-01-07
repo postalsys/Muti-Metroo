@@ -91,7 +91,7 @@ If a release fails mid-way, do not attempt to complete it manually. Simply fix t
 - Server: `srv-04.emailengine.dev`
 - SSH user: `andris`
 - Web root: `/var/www/muti-metroo`
-- Downloads: `/var/www/muti-metroo/downloads/latest/` and `/var/www/muti-metroo/downloads/v{version}/`
+- Downloads: `/var/www/muti-metroo/downloads/muti-metroo/` (latest) and `/var/www/muti-metroo/downloads/muti-metroo-{version}/`
 
 ## Build & Development Commands
 

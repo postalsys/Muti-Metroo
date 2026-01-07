@@ -27,7 +27,7 @@ Pre-built binaries are available for:
 
 ```bash
 # Download for your platform (example: Linux amd64)
-curl -L -o muti-metroo https://mutimetroo.com/downloads/latest/muti-metroo-linux-amd64
+curl -L -o muti-metroo https://mutimetroo.com/downloads/muti-metroo/muti-metroo-linux-amd64
 
 # Make executable and install
 chmod +x muti-metroo
