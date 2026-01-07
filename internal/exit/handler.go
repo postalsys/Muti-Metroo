@@ -168,6 +168,7 @@ func (h *Handler) IsRunning() bool {
 }
 
 // HandleStreamOpen processes a STREAM_OPEN request.
+// The TCP dial is performed asynchronously to avoid blocking the frame processing loop.
 func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, requestID uint64, remoteID identity.AgentID, destAddr string, destPort uint16, remoteEphemeralPub [crypto.KeySize]byte) error {
 	if !h.running.Load() {
 		return fmt.Errorf("handler not running")
@@ -186,24 +187,33 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 		domainAllowed = h.isDomainAllowed(destAddr)
 	}
 
+	// Perform the rest asynchronously to avoid blocking the frame processing loop.
+	// TCP dials to filtered ports can take 20+ seconds to timeout.
+	go h.handleStreamOpenAsync(ctx, streamID, requestID, remoteID, destAddr, destPort, remoteEphemeralPub, domainAllowed)
+
+	return nil
+}
+
+// handleStreamOpenAsync performs the actual stream open work asynchronously.
+func (h *Handler) handleStreamOpenAsync(ctx context.Context, streamID uint64, requestID uint64, remoteID identity.AgentID, destAddr string, destPort uint16, remoteEphemeralPub [crypto.KeySize]byte, domainAllowed bool) {
 	// Resolve address
 	ip, err := h.resolver.Resolve(ctx, destAddr)
 	if err != nil {
 		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrHostUnreachable, err.Error())
-		return fmt.Errorf("resolve %s: %w", destAddr, err)
+		return
 	}
 
 	// Check if destination is allowed (domain patterns OR CIDR routes)
 	if !domainAllowed && !h.isAllowed(ip) {
 		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrNotAllowed, "destination not allowed")
-		return fmt.Errorf("destination not allowed: %s", ip)
+		return
 	}
 
 	// Generate ephemeral keypair for E2E encryption key exchange
 	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
 	if err != nil {
 		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrGeneralFailure, "key generation failed")
-		return fmt.Errorf("generate ephemeral key: %w", err)
+		return
 	}
 
 	// Compute shared secret from ECDH
@@ -211,7 +221,7 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 	if err != nil {
 		crypto.ZeroKey(&ephPriv)
 		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrGeneralFailure, "key exchange failed")
-		return fmt.Errorf("compute ECDH: %w", err)
+		return
 	}
 
 	// Zero out ephemeral private key after computing shared secret
@@ -230,7 +240,7 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 	if err != nil {
 		errorCode := h.mapDialError(err)
 		h.sendOpenErr(remoteID, streamID, requestID, errorCode, err.Error())
-		return fmt.Errorf("dial %s: %w", addr, err)
+		return
 	}
 
 	// Get local address for ACK
@@ -256,13 +266,11 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 	if err := h.writer.WriteStreamOpenAck(remoteID, streamID, requestID, localAddr.IP, uint16(localAddr.Port), ephPub); err != nil {
 		ac.Close()
 		h.removeConnection(streamID)
-		return fmt.Errorf("write ack: %w", err)
+		return
 	}
 
 	// Start reading from destination
 	go h.readLoop(ac)
-
-	return nil
 }
 
 // HandleStreamData processes incoming stream data.

@@ -347,9 +347,12 @@ func TestHandler_HandleStreamOpen_NotAllowed(t *testing.T) {
 	// Try to connect to 192.168.1.1 (not allowed)
 	var testEphemeralKey [crypto.KeySize]byte
 	err := h.HandleStreamOpen(context.Background(), 1, 100, remoteID, "192.168.1.1", 80, testEphemeralKey)
-	if err == nil {
-		t.Error("HandleStreamOpen() should fail for disallowed destination")
+	if err != nil {
+		t.Errorf("HandleStreamOpen() should return nil (async): %v", err)
 	}
+
+	// Wait for async operation to complete
+	time.Sleep(50 * time.Millisecond)
 
 	// Should have sent error
 	writer.mu.Lock()
