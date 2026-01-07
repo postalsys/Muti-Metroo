@@ -18,6 +18,19 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 - Multi-hop path routing via flood-based route propagation
 - Stream multiplexing with half-close support
 
+## Related Projects
+
+### Mutiauk
+
+**Mutiauk** is a companion TUN interface tool located in `../Mutiauk/` (relative to this repository). It provides transparent Layer 3 traffic interception, forwarding traffic through Muti Metroo's SOCKS5 proxy.
+
+- **Location**: `../Mutiauk/` (sibling directory)
+- **Platform**: Linux only (requires root for TUN interface)
+- **Purpose**: Route any application's traffic through Muti Metroo without SOCKS5 configuration
+- **Documentation**: `docs/docs/mutiauk.mdx` in this repository
+
+When updating Mutiauk documentation, you can explore the Mutiauk codebase to ensure accuracy.
+
 ## Documentation
 
 The project documentation is built with Docusaurus and lives in the `docs/` folder. The documentation is deployed at https://mutimetroo.com.
