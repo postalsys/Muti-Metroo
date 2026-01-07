@@ -62,6 +62,10 @@ socks5:
   address: "127.0.0.1:1080"
 ```
 
+:::info UDP Relay Binding
+The UDP relay socket binds to the same IP address as the SOCKS5 TCP listener. If SOCKS5 listens on `127.0.0.1:1080`, UDP relay sockets will bind to `127.0.0.1`. If SOCKS5 listens on `0.0.0.0:1080`, UDP relay sockets will bind to `0.0.0.0` (all interfaces).
+:::
+
 ## Usage
 
 ### DNS Queries

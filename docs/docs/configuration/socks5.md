@@ -159,6 +159,22 @@ When limit is reached:
 - New connections are rejected
 - Existing connections continue working
 
+## UDP Relay Binding
+
+When a client requests UDP ASSOCIATE, the server creates a UDP relay socket for that session. For security, the UDP relay socket binds to the **same IP address** as the SOCKS5 TCP listener.
+
+| SOCKS5 Address | UDP Relay Binds To |
+|----------------|-------------------|
+| `127.0.0.1:1080` | `127.0.0.1:<random>` |
+| `0.0.0.0:1080` | `0.0.0.0:<random>` |
+| `192.168.1.10:1080` | `192.168.1.10:<random>` |
+
+This ensures that if SOCKS5 is configured for localhost-only access, the UDP relay is also restricted to localhost.
+
+:::tip
+To restrict UDP relay to localhost only, configure SOCKS5 to bind to `127.0.0.1` instead of `0.0.0.0`.
+:::
+
 ## Client Configuration
 
 ### curl
@@ -220,12 +236,14 @@ Muti Metroo supports:
 |---------|-----------|
 | CONNECT command | Yes |
 | BIND command | No |
-| UDP ASSOCIATE | No |
+| UDP ASSOCIATE | Yes |
 | No Authentication | Yes |
 | Username/Password | Yes |
 | IPv4 addresses | Yes |
 | IPv6 addresses | Yes |
 | Domain names | Yes |
+
+See [UDP Relay](/features/udp-relay) for UDP ASSOCIATE configuration and usage.
 
 ## Examples
 
