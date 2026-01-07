@@ -2,6 +2,7 @@
 package wizard
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/identity"
+	"github.com/postalsys/muti-metroo/internal/probe"
 	"github.com/postalsys/muti-metroo/internal/service"
 	"github.com/postalsys/muti-metroo/internal/wizard/prompt"
 	"golang.org/x/crypto/bcrypt"
@@ -575,7 +577,40 @@ func (w *Wizard) askPeerConnections(transport string) ([]config.PeerConfig, erro
 		if err != nil {
 			return nil, err
 		}
-		peers = append(peers, peer)
+
+		// Test connectivity to the peer
+		fmt.Println()
+		prompt.PrintInfo("Testing connectivity to peer...")
+		if err := w.testPeerConnectivity(peer); err != nil {
+			prompt.PrintWarning(fmt.Sprintf("Could not connect to peer: %v", err))
+			prompt.PrintInfo("The listener may not be running yet, or a firewall may be blocking.")
+
+			options := []string{
+				"Continue anyway (I'll set up the listener later)",
+				"Retry the connection test",
+				"Re-enter peer configuration",
+				"Skip this peer",
+			}
+
+			action, err := prompt.Select("What would you like to do?", options, 0)
+			if err != nil {
+				return nil, err
+			}
+
+			switch action {
+			case 0: // Continue anyway
+				peers = append(peers, peer)
+			case 1: // Retry
+				continue // Loop will re-test same peer
+			case 2: // Re-enter
+				continue // Will prompt for new peer config
+			case 3: // Skip
+				// Don't add peer, continue to "add another?" prompt
+			}
+		} else {
+			prompt.PrintSuccess("Connected successfully!")
+			peers = append(peers, peer)
+		}
 
 		addMore, err = prompt.Confirm("Add another peer?", false)
 		if err != nil {
@@ -584,6 +619,43 @@ func (w *Wizard) askPeerConnections(transport string) ([]config.PeerConfig, erro
 	}
 
 	return peers, nil
+}
+
+// testPeerConnectivity tests if a peer is reachable.
+func (w *Wizard) testPeerConnectivity(peer config.PeerConfig) error {
+	opts := probe.Options{
+		Transport:          peer.Transport,
+		Address:            peer.Address,
+		Path:               peer.Path,
+		Timeout:            10 * time.Second,
+		InsecureSkipVerify: peer.TLS.InsecureSkipVerify,
+		CACert:             peer.TLS.CA,
+		ClientCert:         peer.TLS.Cert,
+		ClientKey:          peer.TLS.Key,
+	}
+
+	// Set default path if not specified
+	if opts.Path == "" && (peer.Transport == "h2" || peer.Transport == "ws") {
+		opts.Path = "/mesh"
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), opts.Timeout)
+	defer cancel()
+
+	result := probe.Probe(ctx, opts)
+	if !result.Success {
+		return fmt.Errorf("%s", result.ErrorDetail)
+	}
+
+	// Show remote agent info if available
+	if result.RemoteDisplayName != "" {
+		prompt.PrintInfo(fmt.Sprintf("Remote agent: %s (%s)", result.RemoteDisplayName, result.RemoteID[:12]))
+	} else if result.RemoteID != "" {
+		prompt.PrintInfo(fmt.Sprintf("Remote agent ID: %s", result.RemoteID[:12]))
+	}
+	prompt.PrintInfo(fmt.Sprintf("Round-trip time: %dms", result.RTT.Milliseconds()))
+
+	return nil
 }
 
 func (w *Wizard) askSinglePeer(defaultTransport string, peerNum int) (config.PeerConfig, error) {

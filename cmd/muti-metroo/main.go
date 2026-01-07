@@ -27,6 +27,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/licenses"
+	"github.com/postalsys/muti-metroo/internal/probe"
 	"github.com/postalsys/muti-metroo/internal/service"
 	"github.com/postalsys/muti-metroo/internal/shell"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
@@ -97,6 +98,10 @@ root privileges.`,
 	routes := routesCmd()
 	routes.GroupID = "status"
 	rootCmd.AddCommand(routes)
+
+	probeC := probeCmd()
+	probeC.GroupID = "status"
+	rootCmd.AddCommand(probeC)
 
 	// Remote Operations commands
 	shellC := shellCmd()
@@ -534,6 +539,145 @@ func routesCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+
+	return cmd
+}
+
+func probeCmd() *cobra.Command {
+	var (
+		transport  string
+		path       string
+		timeout    string
+		caCert     string
+		clientCert string
+		clientKey  string
+		insecure   bool
+		jsonOutput bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "probe <address>",
+		Short: "Test connectivity to a Muti Metroo listener",
+		Long: `Probe tests if a Muti Metroo listener is reachable and responding.
+
+This command performs:
+  1. Transport-level connection (TCP/TLS)
+  2. Protocol handshake verification (PEER_HELLO exchange)
+
+Use this to verify connectivity before deploying an agent, or to diagnose
+connection issues with existing listeners.
+
+The probe does not require a running agent - it operates standalone.`,
+		Example: `  # Test QUIC listener (default transport)
+  muti-metroo probe server.example.com:4433
+
+  # Test HTTP/2 listener
+  muti-metroo probe --transport h2 server.example.com:443 --path /mesh
+
+  # Test WebSocket listener
+  muti-metroo probe --transport ws server.example.com:443 --path /mesh
+
+  # Test with self-signed certificate
+  muti-metroo probe --insecure server.example.com:4433
+
+  # Test with specific CA certificate
+  muti-metroo probe --ca ./certs/ca.crt server.example.com:4433
+
+  # Test with mTLS (client certificate)
+  muti-metroo probe --ca ./certs/ca.crt --cert ./certs/client.crt --key ./certs/client.key server.example.com:4433
+
+  # Output as JSON (for scripting)
+  muti-metroo probe --json server.example.com:4433`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			address := args[0]
+
+			// Parse timeout
+			timeoutDuration, err := time.ParseDuration(timeout)
+			if err != nil {
+				return fmt.Errorf("invalid timeout: %w", err)
+			}
+
+			// Build probe options
+			opts := probe.Options{
+				Transport:          transport,
+				Address:            address,
+				Path:               path,
+				Timeout:            timeoutDuration,
+				InsecureSkipVerify: insecure,
+				CACert:             caCert,
+				ClientCert:         clientCert,
+				ClientKey:          clientKey,
+			}
+
+			// Run probe
+			if !jsonOutput {
+				fmt.Printf("Probing %s://%s...\n", transport, address)
+			}
+
+			ctx := context.Background()
+			result := probe.Probe(ctx, opts)
+
+			// Output results
+			if jsonOutput {
+				type probeJSON struct {
+					Success           bool    `json:"success"`
+					Transport         string  `json:"transport"`
+					Address           string  `json:"address"`
+					RemoteID          string  `json:"remote_id,omitempty"`
+					RemoteDisplayName string  `json:"remote_display_name,omitempty"`
+					RTTMs             float64 `json:"rtt_ms,omitempty"`
+					Error             string  `json:"error,omitempty"`
+				}
+				out := probeJSON{
+					Success:           result.Success,
+					Transport:         result.Transport,
+					Address:           result.Address,
+					RemoteID:          result.RemoteID,
+					RemoteDisplayName: result.RemoteDisplayName,
+				}
+				if result.RTT > 0 {
+					out.RTTMs = float64(result.RTT.Milliseconds())
+				}
+				if result.Error != nil {
+					out.Error = result.ErrorDetail
+				}
+
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(out)
+			}
+
+			fmt.Println()
+			if result.Success {
+				fmt.Printf("[OK] Connection successful!\n")
+				fmt.Printf("  Transport:    %s\n", result.Transport)
+				fmt.Printf("  Address:      %s\n", result.Address)
+				fmt.Printf("  Remote ID:    %s\n", result.RemoteID)
+				if result.RemoteDisplayName != "" {
+					fmt.Printf("  Display Name: %s\n", result.RemoteDisplayName)
+				}
+				fmt.Printf("  RTT:          %dms\n", result.RTT.Milliseconds())
+			} else {
+				fmt.Printf("[FAILED] Connection failed\n")
+				fmt.Printf("  Transport:  %s\n", result.Transport)
+				fmt.Printf("  Address:    %s\n", result.Address)
+				fmt.Printf("  Error:      %s\n", result.ErrorDetail)
+				return fmt.Errorf("probe failed")
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&transport, "transport", "T", "quic", "Transport type: quic, h2, ws")
+	cmd.Flags().StringVar(&path, "path", "/mesh", "HTTP path for h2/ws transports")
+	cmd.Flags().StringVarP(&timeout, "timeout", "t", "10s", "Connection timeout")
+	cmd.Flags().StringVar(&caCert, "ca", "", "CA certificate file for TLS verification")
+	cmd.Flags().StringVar(&clientCert, "cert", "", "Client certificate file for mTLS")
+	cmd.Flags().StringVar(&clientKey, "key", "", "Client key file for mTLS")
+	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 
 	return cmd
 }

@@ -288,3 +288,8 @@ func PrintError(message string) {
 func PrintWarning(message string) {
 	fmt.Printf("[WARNING] %s\n", message)
 }
+
+// PrintInfo prints an informational message.
+func PrintInfo(message string) {
+	fmt.Printf("[INFO] %s\n", message)
+}
