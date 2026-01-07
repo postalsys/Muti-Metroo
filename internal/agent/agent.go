@@ -459,6 +459,9 @@ func (a *Agent) Start() error {
 		}
 		a.logger.Info("SOCKS5 server started",
 			logging.KeyAddress, a.cfg.SOCKS5.Address)
+
+		// Start UDP destination association cleanup loop
+		a.startUDPDestCleanupLoop()
 	}
 
 	// Start exit handler if enabled

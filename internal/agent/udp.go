@@ -7,35 +7,61 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/logging"
 	"github.com/postalsys/muti-metroo/internal/peer"
 	"github.com/postalsys/muti-metroo/internal/protocol"
+	"github.com/postalsys/muti-metroo/internal/routing"
 	"github.com/postalsys/muti-metroo/internal/socks5"
 	"github.com/postalsys/muti-metroo/internal/udp"
 )
 
 // UDP-related errors
 var (
-	ErrUDPNoRoute      = errors.New("no UDP route available")
+	ErrUDPNoRoute        = errors.New("no UDP route available")
 	ErrUDPStreamNotFound = errors.New("UDP stream not found")
 )
 
-// udpIngressAssociation tracks a UDP association initiated from SOCKS5.
+// udpDestAssociation tracks a single exit-path for one destination route.
+// A SOCKS5 UDP association may have multiple of these (one per exit route).
+type udpDestAssociation struct {
+	StreamID         uint64
+	RequestID        uint64
+	ExitPeerID       identity.AgentID
+	NextHop          identity.AgentID // First hop peer for sending frames
+	SessionKey       *crypto.SessionKey
+	EphemeralPrivKey [32]byte
+	EphemeralPubKey  [32]byte
+	PendingOpen      chan struct{}
+	OpenErr          error
+	LastActivity     time.Time
+	OriginKey        string // Route origin agent ID (cache key)
+	closeOnce        sync.Once
+	mu               sync.RWMutex
+}
+
+// udpDestLookup allows reverse lookup from exit stream to parent association.
+type udpDestLookup struct {
+	Ingress *udpIngressAssociation
+	Dest    *udpDestAssociation
+}
+
+// udpIngressAssociation tracks a SOCKS5 UDP association that may route to multiple exits.
 // This is the ingress-side tracking (SOCKS5 client -> mesh).
 type udpIngressAssociation struct {
-	StreamID          uint64
-	RequestID         uint64
-	SOCKS5Assoc       *socks5.UDPAssociation
-	ExitPeerID        identity.AgentID // Peer we're relaying to
-	SessionKey        *crypto.SessionKey
-	EphemeralPrivKey  [32]byte // Our private key for E2E encryption
-	EphemeralPubKey   [32]byte // Our public key for E2E encryption
-	PendingOpen       chan struct{}   // Closed when open is acknowledged
-	OpenErr           error           // Error from open attempt
-	mu                sync.RWMutex
+	BaseStreamID uint64
+	SOCKS5Assoc  *socks5.UDPAssociation
+
+	// Per-destination associations keyed by route.OriginAgent.String()
+	destAssocs   map[string]*udpDestAssociation
+	streamToDest map[uint64]*udpDestAssociation
+	destMu       sync.RWMutex
+
+	idleTimeout time.Duration
+	mu          sync.RWMutex
 }
 
 // udpRelayEntry tracks a UDP association being relayed through this agent (transit).
@@ -51,11 +77,15 @@ type udpRelayEntry struct {
 // udpIngressMu protects the ingress association maps
 var udpIngressMu sync.RWMutex
 
-// udpIngressByStream maps stream ID to ingress association
-var udpIngressByStream = make(map[uint64]*udpIngressAssociation)
+// udpIngressByBase maps base stream ID (from SOCKS5) to ingress association
+var udpIngressByBase = make(map[uint64]*udpIngressAssociation)
 
-// udpIngressByRequest maps request ID to ingress association (for ACK/ERR correlation)
-var udpIngressByRequest = make(map[uint64]*udpIngressAssociation)
+// udpIngressByExitStream maps exit-path stream ID to the parent association + dest
+// This is needed to correlate ACKs/datagrams back to the right destination
+var udpIngressByExitStream = make(map[uint64]*udpDestLookup)
+
+// udpNextBaseID is the next base stream ID for SOCKS5 UDP associations
+var udpNextBaseID atomic.Uint64
 
 // udpNextRequestID is the next request ID for UDP associations
 var udpNextRequestID atomic.Uint64
@@ -67,61 +97,173 @@ var udpRelayByDownstream = make(map[uint64]*udpRelayEntry)
 
 // CreateUDPAssociation implements socks5.UDPAssociationHandler.
 // Called when a SOCKS5 client requests UDP ASSOCIATE.
+// This creates a lazy association container - actual mesh paths are created on first datagram.
 func (a *Agent) CreateUDPAssociation(ctx context.Context, clientAddr *net.UDPAddr) (uint64, error) {
-	// Check if exit is configured (we need a route for UDP)
-	// For now, use the default route (0.0.0.0/0) or first available route
-	route := a.routeMgr.Lookup(net.ParseIP("0.0.0.0"))
+	// Verify at least one route exists (sanity check)
+	if a.routeMgr.Lookup(net.IPv4zero) == nil {
+		return 0, ErrUDPNoRoute
+	}
+
+	baseStreamID := udpNextBaseID.Add(1)
+
+	assoc := &udpIngressAssociation{
+		BaseStreamID: baseStreamID,
+		destAssocs:   make(map[string]*udpDestAssociation),
+		streamToDest: make(map[uint64]*udpDestAssociation),
+		idleTimeout:  5 * time.Minute,
+	}
+
+	udpIngressMu.Lock()
+	udpIngressByBase[baseStreamID] = assoc
+	udpIngressMu.Unlock()
+
+	a.logger.Debug("UDP association created (lazy)",
+		logging.KeyStreamID, baseStreamID)
+
+	return baseStreamID, nil
+}
+
+// getOrCreateDestAssociation finds or creates a destination-specific UDP association.
+// It performs route lookup based on actual destination IP and creates mesh paths on demand.
+func (a *Agent) getOrCreateDestAssociation(
+	ctx context.Context,
+	ingress *udpIngressAssociation,
+	destIP net.IP,
+) (*udpDestAssociation, error) {
+	// 1. Route lookup
+	route := a.routeMgr.Lookup(destIP)
 	if route == nil {
-		return 0, ErrUDPNoRoute
+		return nil, ErrUDPNoRoute
 	}
 
-	// Get the path to the exit
-	path := route.Path
-	if len(path) == 0 {
-		return 0, ErrUDPNoRoute
+	originKey := route.OriginAgent.String()
+
+	// 2. Check cache (read lock)
+	ingress.destMu.RLock()
+	dest := ingress.destAssocs[originKey]
+	ingress.destMu.RUnlock()
+
+	if dest != nil {
+		// Wait for the association to complete (or fail)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-dest.PendingOpen:
+			// Check result
+			if dest.OpenErr != nil {
+				// Previous attempt failed, need to retry - remove failed entry
+				ingress.destMu.Lock()
+				// Double-check it's still the same failed dest
+				if ingress.destAssocs[originKey] == dest {
+					delete(ingress.destAssocs, originKey)
+					delete(ingress.streamToDest, dest.StreamID)
+					udpIngressMu.Lock()
+					delete(udpIngressByExitStream, dest.StreamID)
+					udpIngressMu.Unlock()
+				}
+				ingress.destMu.Unlock()
+				// Fall through to create new
+			} else {
+				dest.mu.Lock()
+				dest.LastActivity = time.Now()
+				dest.mu.Unlock()
+				return dest, nil
+			}
+		}
 	}
 
-	// Get connection to first hop
-	firstHop := path[0]
-	conn := a.peerMgr.GetPeer(firstHop)
+	// 3. Create new (write lock)
+	ingress.destMu.Lock()
+
+	// Double-check after acquiring write lock
+	if existingDest := ingress.destAssocs[originKey]; existingDest != nil {
+		ingress.destMu.Unlock()
+		// Another goroutine created it, wait for it
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-existingDest.PendingOpen:
+			if existingDest.OpenErr != nil {
+				return nil, existingDest.OpenErr
+			}
+			existingDest.mu.Lock()
+			existingDest.LastActivity = time.Now()
+			existingDest.mu.Unlock()
+			return existingDest, nil
+		}
+	}
+
+	// 4. Create destination association (releases lock internally while waiting)
+	return a.createDestAssociation(ctx, ingress, route, originKey)
+}
+
+// createDestAssociation creates a new mesh path to a specific exit for UDP.
+// Must be called with ingress.destMu held for writing. Releases lock before returning.
+func (a *Agent) createDestAssociation(
+	ctx context.Context,
+	ingress *udpIngressAssociation,
+	route *routing.Route,
+	originKey string,
+) (*udpDestAssociation, error) {
+	// Use route.NextHop for first hop (same as TCP implementation)
+	nextHop := route.NextHop
+	conn := a.peerMgr.GetPeer(nextHop)
 	if conn == nil {
-		return 0, fmt.Errorf("no connection to first hop: %s", firstHop.ShortString())
+		ingress.destMu.Unlock()
+		return nil, fmt.Errorf("no connection to next hop: %s", nextHop.ShortString())
 	}
 
-	// Allocate stream ID and request ID
+	// Build remaining path: find NextHop in route.Path and take everything after it
+	// route.Path is [local, hop1, hop2, ..., origin/target]
+	var remainingPath []identity.AgentID
+	rPath := route.Path
+	for i, id := range rPath {
+		if id == nextHop && i+1 < len(rPath) {
+			remainingPath = make([]identity.AgentID, len(rPath)-i-1)
+			copy(remainingPath, rPath[i+1:])
+			break
+		}
+	}
+
 	streamID := conn.NextStreamID()
 	requestID := udpNextRequestID.Add(1)
 
-	// Generate ephemeral keypair for E2E encryption
 	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
 	if err != nil {
-		return 0, err
+		ingress.destMu.Unlock()
+		return nil, err
 	}
 
-	// Create ingress association entry with keys for E2E encryption
-	assoc := &udpIngressAssociation{
+	dest := &udpDestAssociation{
 		StreamID:         streamID,
 		RequestID:        requestID,
-		ExitPeerID:       path[len(path)-1], // Last hop is exit
+		ExitPeerID:       route.OriginAgent,
+		NextHop:          nextHop,
 		EphemeralPrivKey: ephPriv,
 		EphemeralPubKey:  ephPub,
 		PendingOpen:      make(chan struct{}),
+		LastActivity:     time.Now(),
+		OriginKey:        originKey,
 	}
 
-	// Register association
+	// Register in maps
+	ingress.destAssocs[originKey] = dest
+	ingress.streamToDest[streamID] = dest
+
 	udpIngressMu.Lock()
-	udpIngressByStream[streamID] = assoc
-	udpIngressByRequest[requestID] = assoc
+	udpIngressByExitStream[streamID] = &udpDestLookup{
+		Ingress: ingress,
+		Dest:    dest,
+	}
 	udpIngressMu.Unlock()
 
-	// Build UDP_OPEN frame
-	remainingPath := path[1:] // Remove first hop (we're sending to it)
+	// Build and send UDP_OPEN
 	open := &protocol.UDPOpen{
 		RequestID:       requestID,
 		AddressType:     protocol.AddrTypeIPv4,
 		Address:         net.IPv4zero.To4(),
 		Port:            0,
-		TTL:             uint8(len(path)),
+		TTL:             uint8(len(rPath)),
 		RemainingPath:   remainingPath,
 		EphemeralPubKey: ephPub,
 	}
@@ -132,75 +274,127 @@ func (a *Agent) CreateUDPAssociation(ctx context.Context, clientAddr *net.UDPAdd
 		Payload:  open.Encode(),
 	}
 
-	if err := a.peerMgr.SendToPeer(firstHop, frame); err != nil {
-		// Clean up
+	a.logger.Debug("Creating UDP destination association",
+		logging.KeyStreamID, streamID,
+		"exit", route.OriginAgent.ShortString(),
+		"next_hop", nextHop.ShortString(),
+		"remaining_path_len", len(remainingPath))
+
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		// Cleanup
+		delete(ingress.destAssocs, originKey)
+		delete(ingress.streamToDest, streamID)
 		udpIngressMu.Lock()
-		delete(udpIngressByStream, streamID)
-		delete(udpIngressByRequest, requestID)
+		delete(udpIngressByExitStream, streamID)
 		udpIngressMu.Unlock()
-		return 0, err
+		// Close PendingOpen to unblock any waiters
+		dest.closePendingOpen(err)
+		ingress.destMu.Unlock()
+		return nil, err
 	}
 
-	// Wait for ACK or ERR
+	// Release lock while waiting for ACK
+	ingress.destMu.Unlock()
+
 	select {
 	case <-ctx.Done():
-		// Timeout or cancel - clean up
-		udpIngressMu.Lock()
-		delete(udpIngressByStream, streamID)
-		delete(udpIngressByRequest, requestID)
-		udpIngressMu.Unlock()
-		return 0, ctx.Err()
-
-	case <-assoc.PendingOpen:
-		// Got response
-		if assoc.OpenErr != nil {
-			return 0, assoc.OpenErr
+		dest.closePendingOpen(ctx.Err())
+		return nil, ctx.Err()
+	case <-dest.PendingOpen:
+		if dest.OpenErr != nil {
+			return nil, dest.OpenErr
 		}
 
 		// Check if session key was established
-		assoc.mu.RLock()
-		hasSessionKey := assoc.SessionKey != nil
-		assoc.mu.RUnlock()
+		dest.mu.RLock()
+		hasSessionKey := dest.SessionKey != nil
+		dest.mu.RUnlock()
 
 		if !hasSessionKey {
-			// Exit didn't provide an ephemeral key, no encryption
-			a.logger.Debug("UDP association opened without E2E encryption",
+			a.logger.Debug("UDP destination association opened without E2E encryption",
 				logging.KeyStreamID, streamID)
 		}
 
-		return streamID, nil
+		return dest, nil
 	}
+}
+
+// closePendingOpen safely closes the PendingOpen channel, optionally setting an error.
+// Pass nil for successful completion.
+func (d *udpDestAssociation) closePendingOpen(err error) {
+	d.closeOnce.Do(func() {
+		if err != nil {
+			d.mu.Lock()
+			d.OpenErr = err
+			d.mu.Unlock()
+		}
+		close(d.PendingOpen)
+	})
 }
 
 // RelayUDPDatagram implements socks5.UDPAssociationHandler.
 // Called when a SOCKS5 client sends a UDP datagram to relay through the mesh.
+// Routes based on actual destination IP, creating mesh paths on demand.
 func (a *Agent) RelayUDPDatagram(streamID uint64, destAddr net.Addr, destPort uint16, addrType byte, rawAddr []byte, data []byte) error {
+	a.logger.Debug("RelayUDPDatagram called",
+		logging.KeyStreamID, streamID,
+		"dest_port", destPort,
+		"data_len", len(data))
+
 	udpIngressMu.RLock()
-	assoc := udpIngressByStream[streamID]
+	ingress := udpIngressByBase[streamID]
 	udpIngressMu.RUnlock()
 
-	if assoc == nil {
+	if ingress == nil {
+		a.logger.Debug("RelayUDPDatagram: ingress not found", logging.KeyStreamID, streamID)
 		return ErrUDPStreamNotFound
 	}
 
-	assoc.mu.RLock()
-	sessionKey := assoc.SessionKey
-	exitPeer := assoc.ExitPeerID
-	assoc.mu.RUnlock()
+	// Extract destination IP for routing
+	var destIP net.IP
+	switch addrType {
+	case protocol.AddrTypeIPv4:
+		destIP = net.IP(rawAddr)
+	case protocol.AddrTypeIPv6:
+		destIP = net.IP(rawAddr)
+	case protocol.AddrTypeDomain:
+		// For domain, resolve at ingress for routing decision
+		domain := string(rawAddr[1:]) // Skip length byte
+		ips, err := net.LookupIP(domain)
+		if err != nil || len(ips) == 0 {
+			return fmt.Errorf("DNS lookup failed: %s", domain)
+		}
+		destIP = ips[0]
+	default:
+		return fmt.Errorf("unsupported address type: %d", addrType)
+	}
 
-	// Encrypt data
+	// Get or create destination association
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dest, err := a.getOrCreateDestAssociation(ctx, ingress, destIP)
+	if err != nil {
+		return err
+	}
+
+	// Encrypt and send
+	dest.mu.RLock()
+	sessionKey := dest.SessionKey
+	exitStreamID := dest.StreamID
+	nextHop := dest.NextHop
+	dest.mu.RUnlock()
+
 	var ciphertext []byte
-	var err error
 	if sessionKey != nil {
 		ciphertext, err = sessionKey.Encrypt(data)
 		if err != nil {
 			return err
 		}
 	} else {
-		ciphertext = data // No encryption if no session key
+		ciphertext = data
 	}
 
-	// Build datagram frame
 	datagram := &protocol.UDPDatagram{
 		AddressType: addrType,
 		Address:     rawAddr,
@@ -210,53 +404,65 @@ func (a *Agent) RelayUDPDatagram(streamID uint64, destAddr net.Addr, destPort ui
 
 	frame := &protocol.Frame{
 		Type:     protocol.FrameUDPDatagram,
-		StreamID: streamID,
+		StreamID: exitStreamID,
 		Payload:  datagram.Encode(),
 	}
 
-	// Find the route to the exit peer
-	peerConn := a.findRouteToAgent(exitPeer)
-	if peerConn == nil {
-		return ErrUDPNoRoute
-	}
+	a.logger.Debug("sending UDP_DATAGRAM to exit",
+		logging.KeyStreamID, exitStreamID,
+		"next_hop", nextHop.ShortString(),
+		"dest_port", destPort,
+		"payload_len", len(frame.Payload))
 
-	return a.peerMgr.SendToPeer(peerConn.RemoteID, frame)
+	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
+		a.logger.Debug("failed to send UDP_DATAGRAM", "error", err)
+		return err
+	}
+	return nil
 }
 
 // CloseUDPAssociation implements socks5.UDPAssociationHandler.
 // Called when a SOCKS5 UDP association is closed.
 func (a *Agent) CloseUDPAssociation(streamID uint64) {
 	udpIngressMu.Lock()
-	assoc := udpIngressByStream[streamID]
-	if assoc != nil {
-		delete(udpIngressByStream, streamID)
-		delete(udpIngressByRequest, assoc.RequestID)
+	ingress := udpIngressByBase[streamID]
+	if ingress != nil {
+		delete(udpIngressByBase, streamID)
 	}
 	udpIngressMu.Unlock()
 
-	if assoc == nil {
+	if ingress == nil {
 		return
 	}
 
-	// Send close to exit
-	assoc.mu.RLock()
-	exitPeer := assoc.ExitPeerID
-	assoc.mu.RUnlock()
+	// Close all destination associations
+	ingress.destMu.Lock()
+	for _, dest := range ingress.destAssocs {
+		a.closeDestAssociation(dest)
 
-	close := &protocol.UDPClose{
-		Reason: protocol.UDPCloseNormal,
+		udpIngressMu.Lock()
+		delete(udpIngressByExitStream, dest.StreamID)
+		udpIngressMu.Unlock()
 	}
+	ingress.destAssocs = nil
+	ingress.streamToDest = nil
+	ingress.destMu.Unlock()
 
+	a.logger.Debug("UDP association closed",
+		logging.KeyStreamID, streamID)
+}
+
+// closeDestAssociation sends UDP_CLOSE to the exit and cleans up.
+func (a *Agent) closeDestAssociation(dest *udpDestAssociation) {
+	closeFrame := &protocol.UDPClose{Reason: protocol.UDPCloseNormal}
 	frame := &protocol.Frame{
 		Type:     protocol.FrameUDPClose,
-		StreamID: streamID,
-		Payload:  close.Encode(),
+		StreamID: dest.StreamID,
+		Payload:  closeFrame.Encode(),
 	}
 
-	peerConn := a.findRouteToAgent(exitPeer)
-	if peerConn != nil {
-		a.peerMgr.SendToPeer(peerConn.RemoteID, frame)
-	}
+	// Use stored NextHop for sending close frame
+	a.peerMgr.SendToPeer(dest.NextHop, frame)
 }
 
 // IsUDPEnabled implements socks5.UDPAssociationHandler.
@@ -291,8 +497,14 @@ func (a *Agent) findRouteToAgent(agentID identity.AgentID) *peer.Connection {
 func (a *Agent) handleUDPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 	open, err := protocol.DecodeUDPOpen(frame.Payload)
 	if err != nil {
+		a.logger.Debug("failed to decode UDP_OPEN frame", "error", err)
 		return
 	}
+
+	a.logger.Debug("received UDP_OPEN",
+		logging.KeyStreamID, frame.StreamID,
+		"from_peer", peerID.ShortString(),
+		"remaining_path_len", len(open.RemainingPath))
 
 	// Check if we are the exit node (path is empty)
 	if len(open.RemainingPath) == 0 {
@@ -353,7 +565,16 @@ func (a *Agent) handleUDPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 		Payload:  fwdOpen.Encode(),
 	}
 
+	a.logger.Debug("relaying UDP_OPEN to next hop",
+		logging.KeyStreamID, downstreamID,
+		"next_hop", nextHop.ShortString(),
+		"remaining_path_len", len(newPath))
+
 	if err := a.peerMgr.SendToPeer(nextHop, fwdFrame); err != nil {
+		a.logger.Debug("failed to relay UDP_OPEN",
+			"error", err,
+			"next_hop", nextHop.ShortString())
+
 		// Clean up relay entry
 		udpRelayMu.Lock()
 		delete(udpRelayByUpstream, frame.StreamID)
@@ -366,12 +587,20 @@ func (a *Agent) handleUDPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 
 // handleUDPOpenAck processes a UDP_OPEN_ACK frame.
 func (a *Agent) handleUDPOpenAck(peerID identity.AgentID, frame *protocol.Frame) {
+	a.logger.Debug("received UDP_OPEN_ACK",
+		logging.KeyStreamID, frame.StreamID,
+		"from_peer", peerID.ShortString())
+
 	// Check if this is a relay response
 	udpRelayMu.RLock()
 	relay := udpRelayByDownstream[frame.StreamID]
 	udpRelayMu.RUnlock()
 
 	if relay != nil && peerID == relay.DownstreamPeer {
+		a.logger.Debug("relaying UDP_OPEN_ACK upstream",
+			logging.KeyStreamID, relay.UpstreamID,
+			"upstream_peer", relay.UpstreamPeer.ShortString())
+
 		// Forward ACK to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPOpenAck,
@@ -382,17 +611,19 @@ func (a *Agent) handleUDPOpenAck(peerID identity.AgentID, frame *protocol.Frame)
 		return
 	}
 
-	// This is a response to our own request (ingress)
-	ack, err := protocol.DecodeUDPOpenAck(frame.Payload)
-	if err != nil {
+	// Look up via exit stream (new structure)
+	udpIngressMu.RLock()
+	lookup := udpIngressByExitStream[frame.StreamID]
+	udpIngressMu.RUnlock()
+
+	if lookup == nil {
 		return
 	}
 
-	udpIngressMu.RLock()
-	assoc := udpIngressByRequest[ack.RequestID]
-	udpIngressMu.RUnlock()
+	dest := lookup.Dest
 
-	if assoc == nil {
+	ack, err := protocol.DecodeUDPOpenAck(frame.Payload)
+	if err != nil {
 		return
 	}
 
@@ -400,32 +631,27 @@ func (a *Agent) handleUDPOpenAck(peerID identity.AgentID, frame *protocol.Frame)
 	var zeroKey [protocol.EphemeralKeySize]byte
 	if ack.EphemeralPubKey != zeroKey {
 		// Compute shared secret using our private key and remote public key
-		sharedSecret, err := crypto.ComputeECDH(assoc.EphemeralPrivKey, ack.EphemeralPubKey)
+		sharedSecret, err := crypto.ComputeECDH(dest.EphemeralPrivKey, ack.EphemeralPubKey)
 		if err != nil {
-			assoc.mu.Lock()
-			assoc.OpenErr = err
-			close(assoc.PendingOpen)
-			assoc.mu.Unlock()
+			dest.closePendingOpen(err)
 			return
 		}
 
 		// Zero out private key immediately
-		crypto.ZeroKey(&assoc.EphemeralPrivKey)
+		crypto.ZeroKey(&dest.EphemeralPrivKey)
 
 		// Derive session key (we are initiator, so isResponder=false)
-		sessionKey := crypto.DeriveSessionKey(sharedSecret, ack.RequestID, assoc.EphemeralPubKey, ack.EphemeralPubKey, true)
+		sessionKey := crypto.DeriveSessionKey(sharedSecret, ack.RequestID, dest.EphemeralPubKey, ack.EphemeralPubKey, true)
 		crypto.ZeroKey(&sharedSecret)
 
 		// Store session key
-		assoc.mu.Lock()
-		assoc.SessionKey = sessionKey
-		assoc.mu.Unlock()
+		dest.mu.Lock()
+		dest.SessionKey = sessionKey
+		dest.mu.Unlock()
 	}
 
-	assoc.mu.Lock()
-	// Mark as successful
-	close(assoc.PendingOpen)
-	assoc.mu.Unlock()
+	// Mark as successful (nil error)
+	dest.closePendingOpen(nil)
 }
 
 // handleUDPOpenErr processes a UDP_OPEN_ERR frame.
@@ -452,39 +678,57 @@ func (a *Agent) handleUDPOpenErr(peerID identity.AgentID, frame *protocol.Frame)
 		return
 	}
 
-	// Error for our own request
+	// Look up via exit stream (new structure)
+	udpIngressMu.RLock()
+	lookup := udpIngressByExitStream[frame.StreamID]
+	udpIngressMu.RUnlock()
+
+	if lookup == nil {
+		return
+	}
+
+	dest := lookup.Dest
+	ingress := lookup.Ingress
+
 	errMsg, err := protocol.DecodeUDPOpenErr(frame.Payload)
 	if err != nil {
 		return
 	}
 
-	udpIngressMu.RLock()
-	assoc := udpIngressByRequest[errMsg.RequestID]
-	udpIngressMu.RUnlock()
-
-	if assoc == nil {
-		return
-	}
-
-	assoc.mu.Lock()
-	assoc.OpenErr = fmt.Errorf("UDP open failed: %s (code %d)", errMsg.Message, errMsg.ErrorCode)
-	close(assoc.PendingOpen)
-	assoc.mu.Unlock()
+	dest.closePendingOpen(fmt.Errorf("UDP open failed: %s (code %d)", errMsg.Message, errMsg.ErrorCode))
 
 	// Clean up
+	ingress.destMu.Lock()
+	delete(ingress.destAssocs, dest.OriginKey)
+	delete(ingress.streamToDest, dest.StreamID)
+	ingress.destMu.Unlock()
+
 	udpIngressMu.Lock()
-	delete(udpIngressByStream, assoc.StreamID)
-	delete(udpIngressByRequest, errMsg.RequestID)
+	delete(udpIngressByExitStream, dest.StreamID)
 	udpIngressMu.Unlock()
 }
 
 // handleUDPDatagram processes a UDP_DATAGRAM frame.
 func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame) {
+	a.logger.Debug("received UDP_DATAGRAM",
+		logging.KeyStreamID, frame.StreamID,
+		"from_peer", peerID.ShortString(),
+		"payload_len", len(frame.Payload),
+		"has_udp_handler", a.udpHandler != nil)
+
 	// Check if this is for our UDP handler (exit node receiving from mesh)
 	if a.udpHandler != nil {
-		if assoc := a.udpHandler.GetAssociation(frame.StreamID); assoc != nil {
+		assoc := a.udpHandler.GetAssociation(frame.StreamID)
+		a.logger.Debug("UDP_DATAGRAM exit handler lookup",
+			logging.KeyStreamID, frame.StreamID,
+			"assoc_found", assoc != nil,
+			"active_count", a.udpHandler.ActiveCount())
+
+		if assoc != nil {
+			a.logger.Debug("UDP_DATAGRAM for exit handler", logging.KeyStreamID, frame.StreamID)
 			datagram, err := protocol.DecodeUDPDatagram(frame.Payload)
 			if err != nil {
+				a.logger.Debug("failed to decode UDP_DATAGRAM", "error", err)
 				return
 			}
 			a.udpHandler.HandleUDPDatagram(peerID, frame.StreamID, datagram)
@@ -492,22 +736,24 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 		}
 	}
 
-	// Check if this is for a SOCKS5 client (ingress receiving from mesh)
+	// Check if this is for ingress via exit stream lookup (new structure)
 	udpIngressMu.RLock()
-	assoc := udpIngressByStream[frame.StreamID]
+	lookup := udpIngressByExitStream[frame.StreamID]
 	udpIngressMu.RUnlock()
 
-	if assoc != nil {
+	if lookup != nil {
 		datagram, err := protocol.DecodeUDPDatagram(frame.Payload)
 		if err != nil {
 			return
 		}
 
+		dest := lookup.Dest
+		ingress := lookup.Ingress
+
 		// Decrypt if we have a session key
-		assoc.mu.RLock()
-		sessionKey := assoc.SessionKey
-		socks5Assoc := assoc.SOCKS5Assoc
-		assoc.mu.RUnlock()
+		dest.mu.RLock()
+		sessionKey := dest.SessionKey
+		dest.mu.RUnlock()
 
 		var plaintext []byte
 		if sessionKey != nil {
@@ -519,7 +765,16 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 			plaintext = datagram.Data
 		}
 
+		// Update activity
+		dest.mu.Lock()
+		dest.LastActivity = time.Now()
+		dest.mu.Unlock()
+
 		// Forward to SOCKS5 client
+		ingress.mu.RLock()
+		socks5Assoc := ingress.SOCKS5Assoc
+		ingress.mu.RUnlock()
+
 		if socks5Assoc != nil {
 			socks5Assoc.WriteToClient(datagram.AddressType, datagram.Address, datagram.Port, plaintext)
 		}
@@ -533,6 +788,11 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	udpRelayMu.RUnlock()
 
 	if relayUp != nil && peerID == relayUp.UpstreamPeer {
+		a.logger.Debug("relaying UDP_DATAGRAM downstream",
+			"from_stream", frame.StreamID,
+			"to_stream", relayUp.DownstreamID,
+			"next_hop", relayUp.DownstreamPeer.ShortString())
+
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPDatagram,
@@ -544,6 +804,11 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	}
 
 	if relayDown != nil && peerID == relayDown.DownstreamPeer {
+		a.logger.Debug("relaying UDP_DATAGRAM upstream",
+			"from_stream", frame.StreamID,
+			"to_stream", relayDown.UpstreamID,
+			"upstream_peer", relayDown.UpstreamPeer.ShortString())
+
 		// Forward upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPDatagram,
@@ -596,17 +861,24 @@ func (a *Agent) handleUDPClose(peerID identity.AgentID, frame *protocol.Frame) {
 		a.peerMgr.SendToPeer(relayDown.UpstreamPeer, fwdFrame)
 	}
 
-	// Check if this is for our ingress association
-	udpIngressMu.Lock()
-	assoc := udpIngressByStream[frame.StreamID]
-	if assoc != nil {
-		delete(udpIngressByStream, frame.StreamID)
-		delete(udpIngressByRequest, assoc.RequestID)
-	}
-	udpIngressMu.Unlock()
+	// Check if this is for our ingress via exit stream lookup
+	udpIngressMu.RLock()
+	lookup := udpIngressByExitStream[frame.StreamID]
+	udpIngressMu.RUnlock()
 
-	if assoc != nil && assoc.SOCKS5Assoc != nil {
-		assoc.SOCKS5Assoc.Close()
+	if lookup != nil {
+		dest := lookup.Dest
+		ingress := lookup.Ingress
+
+		// Clean up this destination association
+		ingress.destMu.Lock()
+		delete(ingress.destAssocs, dest.OriginKey)
+		delete(ingress.streamToDest, dest.StreamID)
+		ingress.destMu.Unlock()
+
+		udpIngressMu.Lock()
+		delete(udpIngressByExitStream, dest.StreamID)
+		udpIngressMu.Unlock()
 	}
 }
 
@@ -640,14 +912,14 @@ func (a *Agent) WriteUDPDatagram(peerID identity.AgentID, streamID uint64, datag
 
 // WriteUDPClose implements udp.DataWriter.
 func (a *Agent) WriteUDPClose(peerID identity.AgentID, streamID uint64, reason uint8) error {
-	close := &protocol.UDPClose{
+	closeFrame := &protocol.UDPClose{
 		Reason: reason,
 	}
 
 	frame := &protocol.Frame{
 		Type:     protocol.FrameUDPClose,
 		StreamID: streamID,
-		Payload:  close.Encode(),
+		Payload:  closeFrame.Encode(),
 	}
 
 	return a.peerMgr.SendToPeer(peerID, frame)
@@ -680,10 +952,62 @@ func (a *Agent) SetSOCKS5UDPAssociation(streamID uint64, socks5Assoc *socks5.UDP
 	udpIngressMu.Lock()
 	defer udpIngressMu.Unlock()
 
-	if assoc := udpIngressByStream[streamID]; assoc != nil {
+	if assoc := udpIngressByBase[streamID]; assoc != nil {
 		assoc.mu.Lock()
 		assoc.SOCKS5Assoc = socks5Assoc
 		assoc.mu.Unlock()
+	}
+}
+
+// startUDPDestCleanupLoop starts a goroutine that periodically cleans up idle destination associations.
+func (a *Agent) startUDPDestCleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-a.stopCh:
+				return
+			case <-ticker.C:
+				a.cleanupIdleDestAssociations()
+			}
+		}
+	}()
+}
+
+// cleanupIdleDestAssociations removes destination associations that have been idle for too long.
+func (a *Agent) cleanupIdleDestAssociations() {
+	now := time.Now()
+
+	udpIngressMu.RLock()
+	ingressList := make([]*udpIngressAssociation, 0, len(udpIngressByBase))
+	for _, ingress := range udpIngressByBase {
+		ingressList = append(ingressList, ingress)
+	}
+	udpIngressMu.RUnlock()
+
+	for _, ingress := range ingressList {
+		ingress.destMu.Lock()
+		for key, dest := range ingress.destAssocs {
+			dest.mu.RLock()
+			idle := now.Sub(dest.LastActivity) > ingress.idleTimeout
+			streamID := dest.StreamID
+			dest.mu.RUnlock()
+
+			if idle {
+				a.closeDestAssociation(dest)
+				delete(ingress.destAssocs, key)
+				delete(ingress.streamToDest, streamID)
+
+				udpIngressMu.Lock()
+				delete(udpIngressByExitStream, streamID)
+				udpIngressMu.Unlock()
+
+				a.logger.Debug("Cleaned up idle UDP destination association",
+					logging.KeyStreamID, streamID)
+			}
+		}
+		ingress.destMu.Unlock()
 	}
 }
 

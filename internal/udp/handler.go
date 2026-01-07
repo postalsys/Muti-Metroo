@@ -77,6 +77,11 @@ func (h *Handler) HandleUDPOpen(
 	open *protocol.UDPOpen,
 	remoteEphemeralPub [protocol.EphemeralKeySize]byte,
 ) error {
+	h.logger.Debug("exit handler received UDP_OPEN",
+		slog.Uint64("stream_id", streamID),
+		slog.String("from_peer", peerID.ShortString()),
+		slog.Uint64("request_id", open.RequestID))
+
 	// Check if UDP is enabled
 	if !h.config.Enabled {
 		h.writer.WriteUDPOpenErr(peerID, streamID, &protocol.UDPOpenErr{
@@ -241,11 +246,18 @@ func (h *Handler) HandleUDPOpen(
 // HandleUDPDatagram processes a UDP_DATAGRAM frame.
 // Decrypts and forwards the datagram to the destination.
 func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, datagram *protocol.UDPDatagram) error {
+	h.logger.Debug("exit handler received UDP_DATAGRAM",
+		slog.Uint64("stream_id", streamID),
+		slog.String("from_peer", peerID.ShortString()),
+		slog.Uint64("port", uint64(datagram.Port)),
+		slog.Int("data_len", len(datagram.Data)))
+
 	h.mu.RLock()
 	assoc := h.associations[streamID]
 	h.mu.RUnlock()
 
 	if assoc == nil {
+		h.logger.Debug("exit handler: unknown stream ID", slog.Uint64("stream_id", streamID))
 		return fmt.Errorf("unknown stream ID: %d", streamID)
 	}
 
@@ -257,14 +269,20 @@ func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, da
 
 	// Check port whitelist
 	if !h.config.IsPortAllowed(datagram.Port) {
+		h.logger.Debug("port not allowed", slog.Uint64("port", uint64(datagram.Port)))
 		return fmt.Errorf("port %d not allowed", datagram.Port)
 	}
+
+	h.logger.Debug("port check passed, decrypting", slog.Uint64("port", uint64(datagram.Port)))
 
 	// Decrypt payload
 	plaintext, err := assoc.Decrypt(datagram.Data)
 	if err != nil {
+		h.logger.Debug("decrypt failed", slog.String("error", err.Error()))
 		return fmt.Errorf("decrypt: %w", err)
 	}
+
+	h.logger.Debug("decrypted datagram", slog.Int("plaintext_len", len(plaintext)))
 
 	// Check size
 	if len(plaintext) > h.config.MaxDatagramSize {
@@ -313,10 +331,19 @@ func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, da
 		return fmt.Errorf("UDP connection closed")
 	}
 
-	_, err = conn.WriteToUDP(plaintext, destAddr)
+	h.logger.Debug("sending UDP to destination",
+		slog.String("dest", destAddr.String()),
+		slog.Int("len", len(plaintext)))
+
+	n, err := conn.WriteToUDP(plaintext, destAddr)
 	if err != nil {
+		h.logger.Debug("UDP send failed", slog.String("error", err.Error()))
 		return fmt.Errorf("send: %w", err)
 	}
+
+	h.logger.Debug("UDP sent to destination",
+		slog.String("dest", destAddr.String()),
+		slog.Int("bytes_sent", n))
 
 	return nil
 }
@@ -427,8 +454,16 @@ func (h *Handler) readLoop(assoc *Association) {
 			if assoc.IsClosed() {
 				return
 			}
+			h.logger.Debug("readLoop read error",
+				slog.String("error", err.Error()),
+				slog.Uint64("stream_id", assoc.StreamID))
 			continue
 		}
+
+		h.logger.Debug("readLoop received response",
+			slog.String("from", remoteAddr.String()),
+			slog.Int("bytes", n),
+			slog.Uint64("stream_id", assoc.StreamID))
 
 		assoc.UpdateActivity()
 
