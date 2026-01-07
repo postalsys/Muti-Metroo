@@ -216,15 +216,17 @@ An agent can serve multiple roles simultaneously:
 | `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
 | `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys                   |
 | `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff                 |
+| `probe`        | Connectivity testing for Muti Metroo listeners - transport dial, handshake verification     |
 | `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types                   |
 | `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                          |
-| `routing`      | Route table with CIDR longest-prefix match and domain pattern matching, route manager      |
+| `routing`      | Route table with CIDR longest-prefix match and domain pattern matching, route manager       |
 | `service`      | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service       |
 | `shell`        | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
 | `socks5`       | SOCKS5 server with no-auth and username/password methods                                    |
 | `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                      |
 | `sysinfo`      | System information collection for node info advertisements                                  |
 | `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations                      |
+| `udp`          | UDP relay handler for SOCKS5 UDP ASSOCIATE - association lifecycle, datagram forwarding     |
 | `webui`        | Embedded web dashboard with metro map visualization                                         |
 | `wizard`       | Interactive setup wizard with certificate generation                                        |
 

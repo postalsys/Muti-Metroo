@@ -347,6 +347,45 @@ routes:
 
 Route traffic from containers or VMs through the mesh by configuring their default gateway to the TUN interface.
 
+### Network Scanning with Nmap
+
+Use Mutiauk to route nmap scans through the SOCKS5 proxy for transparent network reconnaissance:
+
+```yaml
+# /etc/mutiauk/config.yaml
+tun:
+  name: tun0
+  address: 10.200.200.1/24
+
+socks5:
+  server: 127.0.0.1:1080
+
+routes:
+  - destination: 192.168.50.0/24
+    comment: "Target network"
+    enabled: true
+```
+
+```bash
+# Start Mutiauk
+sudo mutiauk daemon start
+
+# TCP Connect scan (works transparently through SOCKS5)
+nmap -sT -Pn --top-ports 100 192.168.50.1
+
+# UDP scan (uses SOCKS5 UDP ASSOCIATE)
+nmap -sU -Pn --top-ports 20 192.168.50.1
+
+# Service version detection
+nmap -sT -sV -Pn 192.168.50.1
+```
+
+:::tip Nmap Options for Mutiauk
+- Use `-sT` (TCP Connect scan) instead of `-sS` (SYN scan) since raw sockets bypass the TUN interface
+- Use `-Pn` to skip host discovery (ICMP is not forwarded)
+- UDP scans work but show `open|filtered` since ICMP unreachable messages cannot be received through the proxy
+:::
+
 ## Architecture
 
 Mutiauk operates as a userspace network stack:

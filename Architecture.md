@@ -1,6 +1,6 @@
 # Mesh Agent Network Architecture
 
-**Version:** 2.2
+**Version:** 2.3
 **Date:** January 2026
 
 ---
@@ -27,6 +27,8 @@
 18. [Project Structure](#18-project-structure)
 19. [Implementation Notes](#19-implementation-notes)
 20. [Testing Strategy](#20-testing-strategy)
+- [Appendix A: Quick Reference](#appendix-a-quick-reference)
+- [Appendix B: Mutiauk - Optional TUN Interface](#appendix-b-mutiauk---optional-tun-interface)
 
 ---
 
@@ -1532,6 +1534,7 @@ SOCKS5 UDP ASSOCIATE (RFC 1928) enables tunneling UDP traffic through the mesh n
 │  Supported:                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │ • CONNECT command (TCP proxy)                                       │   │
+│  │ • UDP ASSOCIATE command (UDP proxy)                                 │   │
 │  │ • IPv4 addresses                                                    │   │
 │  │ • IPv6 addresses                                                    │   │
 │  │ • Domain names (resolved at exit agent)                             │   │
@@ -1542,7 +1545,6 @@ SOCKS5 UDP ASSOCIATE (RFC 1928) enables tunneling UDP traffic through the mesh n
 │  Not supported:                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
 │  │ • BIND command (incoming connections)                               │   │
-│  │ • UDP ASSOCIATE command (UDP proxy)                                 │   │
 │  │ • GSSAPI authentication (method 0x01)                               │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
@@ -2372,10 +2374,14 @@ muti-metroo/
 │   │   ├── server.go               # Health check HTTP server
 │   │   └── server_test.go          # Health server tests
 │   │
-│   ├── control/
-│   │   ├── server.go               # Control socket server
-│   │   ├── client.go               # Control socket client
-│   │   └── control_test.go         # Control tests
+│   ├── udp/
+│   │   ├── handler.go              # UDP relay handler (SOCKS5 UDP ASSOCIATE)
+│   │   ├── association.go          # UDP association lifecycle management
+│   │   ├── config.go               # UDP configuration
+│   │   └── doc.go                  # Package documentation
+│   │
+│   ├── probe/
+│   │   └── probe.go                # Connectivity testing for listeners
 │   │
 │   ├── wizard/
 │   │   ├── wizard.go               # Setup wizard implementation
@@ -2389,10 +2395,13 @@ muti-metroo/
 │   │   ├── service_other.go        # Stub for unsupported platforms
 │   │   └── service_test.go         # Service tests
 │   │
-│   ├── rpc/
-│   │   ├── rpc.go                  # RPC executor with whitelist and auth
-│   │   ├── chunked.go              # Chunked payload for large transfers
-│   │   └── rpc_test.go             # RPC tests
+│   ├── shell/
+│   │   ├── shell.go                # Remote shell executor
+│   │   ├── handler.go              # Shell request/response handling
+│   │   ├── pty_unix.go             # PTY allocation for Unix platforms
+│   │   ├── pty_windows.go          # ConPTY for Windows
+│   │   ├── streaming.go            # Non-PTY streaming command execution
+│   │   └── shell_test.go           # Shell tests
 │   │
 │   ├── filetransfer/
 │   │   ├── stream.go               # Stream-based file transfer protocol
@@ -2423,6 +2432,11 @@ muti-metroo/
 │   ├── loadtest/
 │   │   ├── loadtest.go             # Load testing utilities
 │   │   └── loadtest_test.go        # Load test tests
+│   │
+│   ├── licenses/
+│   │   ├── licenses.go             # Third-party license aggregation
+│   │   ├── embed.go                # Embedded license CSV and texts
+│   │   └── third_party/            # Collected third-party licenses
 │   │
 │   └── integration/
 │       ├── chain_test.go           # Multi-agent chain tests
@@ -2684,12 +2698,188 @@ docker run --rm muti-metroo-test
 | `status` | Show agent status |
 | `peers` | List connected peers |
 | `routes` | Show routing table |
+| `probe` | Test connectivity to a listener |
+| `shell` | Execute command on remote agent |
+| `upload` | Upload file to remote agent |
+| `download` | Download file from remote agent |
 | `cert ca` | Generate CA certificate |
 | `cert agent` | Generate agent certificate |
 | `cert client` | Generate client certificate |
 | `cert info` | Display certificate details |
-| `rpc` | Execute command on remote agent |
-| `uninstall` | Remove system service |
+| `hash` | Generate bcrypt password hash |
+| `management-key` | Generate mesh topology encryption keys |
+| `service install` | Install as system service |
+| `service uninstall` | Remove system service |
+| `service status` | Check service status |
+| `licenses` | Show third-party license information |
+
+---
+
+## Appendix B: Mutiauk - Optional TUN Interface
+
+Mutiauk is an optional companion tool that provides transparent Layer 3 traffic interception, forwarding traffic through Muti Metroo's SOCKS5 proxy.
+
+### Overview
+
+While Muti Metroo requires applications to be SOCKS5-aware, Mutiauk enables any application to use the mesh network without modification by:
+
+1. Creating a TUN network interface
+2. Intercepting L3 (IP) traffic destined for configured routes
+3. Forwarding TCP and UDP connections through SOCKS5
+4. Returning responses back through the TUN interface
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         MUTIAUK DATA FLOW                                   │
+│                                                                             │
+│  Application → TUN Device → gVisor Stack → TCP/UDP Forwarder → SOCKS5 →   │
+│                                                               Muti Metroo → │
+│                                                               Exit Agent →  │
+│                                                               Destination   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Platform Requirements
+
+| Aspect | Requirement |
+|--------|-------------|
+| **Platform** | Linux only (TUN interface) |
+| **Privileges** | Root required (CAP_NET_ADMIN) |
+| **Dependencies** | None (static binary) |
+
+**Note:** Unlike Muti Metroo agents which run unprivileged, Mutiauk requires root to create and manage the TUN interface.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         MUTIAUK ARCHITECTURE                                │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐ │
+│  │                          DAEMON                                        │ │
+│  │                                                                        │ │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐           │ │
+│  │  │  TUN Device    │  │  gVisor Stack  │  │  NAT Table     │           │ │
+│  │  │                │  │                │  │                │           │ │
+│  │  │ • /dev/net/tun │  │ • TCP forwarder│  │ • Connection   │           │ │
+│  │  │ • TUNSETIFF    │  │ • UDP forwarder│  │   tracking     │           │ │
+│  │  │ • IP packets   │  │ • gonet        │  │ • TTL expiry   │           │ │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘           │ │
+│  │                                                                        │ │
+│  │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐           │ │
+│  │  │  Route Manager │  │  SOCKS5 Client │  │  Config Watch  │           │ │
+│  │  │                │  │                │  │                │           │ │
+│  │  │ • netlink      │  │ • CONNECT      │  │ • fsnotify     │           │ │
+│  │  │ • CIDR routes  │  │ • UDP ASSOCIATE│  │ • hot reload   │           │ │
+│  │  │ • conflict det │  │ • auth         │  │ • SIGHUP       │           │ │
+│  │  └────────────────┘  └────────────────┘  └────────────────┘           │ │
+│  │                                                                        │ │
+│  └───────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Package Structure
+
+```
+mutiauk/
+├── cmd/mutiauk/
+│   └── main.go              # CLI entrypoint
+├── internal/
+│   ├── daemon/              # Orchestrator (server.go)
+│   ├── tun/                 # TUN device creation
+│   ├── stack/               # gVisor TCP/IP stack wrapper
+│   ├── proxy/               # TCP/UDP forwarders
+│   ├── socks5/              # SOCKS5 client
+│   ├── nat/                 # Connection tracking
+│   ├── route/               # Linux route management
+│   ├── config/              # YAML configuration
+│   ├── cli/                 # CLI commands
+│   ├── wizard/              # Interactive setup wizard
+│   └── service/             # Systemd service management
+└── configs/
+    └── mutiauk.example.yaml
+```
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `setup` | Interactive configuration wizard |
+| `daemon start` | Start the daemon |
+| `daemon stop` | Stop the daemon |
+| `daemon status` | Check daemon status |
+| `daemon reload` | Reload configuration |
+| `route list` | List active routes |
+| `route add` | Add a route |
+| `route remove` | Remove a route |
+| `status` | Show comprehensive status |
+| `service install` | Install systemd service |
+| `service uninstall` | Remove systemd service |
+
+### Configuration
+
+```yaml
+# /etc/mutiauk/config.yaml
+daemon:
+  pid_file: /var/run/mutiauk.pid
+  socket_path: /var/run/mutiauk.sock
+
+tun:
+  name: tun0
+  mtu: 1400
+  address: 10.200.200.1/24
+
+socks5:
+  server: 127.0.0.1:1080      # Muti Metroo SOCKS5 address
+  username: ""
+  password: ""
+  timeout: 30s
+
+routes:
+  - destination: 10.0.0.0/8
+    comment: "Internal network"
+    enabled: true
+
+nat:
+  table_size: 65536
+  tcp_timeout: 1h
+  udp_timeout: 5m
+```
+
+### Relationship with Muti Metroo
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     MUTIAUK + MUTI METROO DEPLOYMENT                        │
+│                                                                             │
+│  ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐    │
+│  │   Application    │     │     Mutiauk      │     │   Muti Metroo    │    │
+│  │   (any app)      │     │  (Linux, root)   │     │   (userspace)    │    │
+│  │                  │     │                  │     │                  │    │
+│  │  No SOCKS5       │     │  TUN interface   │     │  SOCKS5 ingress  │    │
+│  │  configuration   │────►│  IP → SOCKS5     │────►│  Mesh routing    │    │
+│  │  required        │     │  TCP + UDP       │     │  E2E encryption  │    │
+│  │                  │     │                  │     │                  │    │
+│  └──────────────────┘     └──────────────────┘     └──────────────────┘    │
+│                                                              │              │
+│                                                              ▼              │
+│                                                    ┌──────────────────┐    │
+│                                                    │   Exit Agent     │    │
+│                                                    │                  │    │
+│                                                    │  Real TCP/UDP    │    │
+│                                                    │  connections     │    │
+│                                                    └──────────────────┘    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Documentation
+
+Mutiauk documentation is available at: https://mutimetroo.com/mutiauk
+
+Source code location: `../Mutiauk/` (sibling directory to Muti Metroo)
 
 ---
 
