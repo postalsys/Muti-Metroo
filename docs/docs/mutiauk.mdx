@@ -66,7 +66,7 @@ flowchart LR
 
 ## Download
 
-**Current Version: v0.1.0** (Preview)
+**Current Version: v0.2.0** (Preview)
 
 <DownloadButtonGroup>
   <DownloadButton href="https://mutimetroo.com/downloads/mutiauk/mutiauk-linux-amd64" primary>
@@ -88,6 +88,25 @@ curl -L -o mutiauk https://mutimetroo.com/downloads/mutiauk/mutiauk-linux-amd64
 chmod +x mutiauk
 sudo mv mutiauk /usr/local/bin/
 
+# Run the interactive setup wizard (recommended)
+sudo mutiauk setup
+```
+
+The setup wizard will guide you through configuring:
+- TUN interface settings (name, MTU, IP address)
+- SOCKS5 proxy connection
+- Routes to forward through the proxy
+- Optional systemd service installation
+
+:::note Root Required
+Mutiauk requires root privileges to create and manage the TUN interface.
+:::
+
+### Manual Configuration
+
+If you prefer manual configuration instead of the wizard:
+
+```bash
 # Create config directory and file
 sudo mkdir -p /etc/mutiauk
 sudo tee /etc/mutiauk/config.yaml > /dev/null << 'EOF'
@@ -109,10 +128,6 @@ EOF
 # Start the daemon
 sudo mutiauk daemon start
 ```
-
-:::note Root Required
-Mutiauk requires root privileges to create and manage the TUN interface.
-:::
 
 ## Configuration
 
@@ -175,6 +190,11 @@ mutiauk route check       # Check for route conflicts
 
 # System status
 mutiauk status            # Show comprehensive status with connectivity tests
+mutiauk status --json     # Output status in JSON format
+mutiauk status --skip-tests  # Skip connectivity tests (faster)
+
+# Setup wizard
+sudo mutiauk setup        # Interactive configuration wizard
 
 # Service management (Linux systemd)
 sudo mutiauk service install -c /etc/mutiauk/config.yaml
@@ -183,6 +203,100 @@ mutiauk service status
 
 # Other
 mutiauk version           # Show version information
+```
+
+## Setup Wizard
+
+The setup wizard (`mutiauk setup`) provides an interactive guided configuration experience. It walks you through each configuration step with sensible defaults and input validation.
+
+### Wizard Steps
+
+1. **Configuration File Location**
+   - Default: `/etc/mutiauk/config.yaml`
+   - Creates parent directories if needed
+   - Warns before overwriting existing files
+
+2. **TUN Interface Configuration**
+   - Interface name (default: `tun0`)
+   - MTU size (default: `1400`)
+   - IPv4 address in CIDR notation (default: `10.200.200.1/24`)
+   - Optional IPv6 address
+
+3. **SOCKS5 Proxy Configuration**
+   - Server address and port (e.g., `127.0.0.1:1080`)
+   - Optional username/password authentication
+
+4. **Route Configuration**
+   - Option to add common private network routes (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+   - Add custom routes with optional comments
+
+5. **Service Installation** (Linux only)
+   - Optionally install as a systemd service
+   - Automatically starts and enables the service
+
+### Example Session
+
+```
+======================================================================
+                       Mutiauk Setup Wizard
+======================================================================
+                   TUN-based SOCKS5 Proxy Agent
+
+This wizard will help you configure Mutiauk.
+Press Enter to accept default values shown in [brackets].
+
+----------------------------------------------------------------------
+Configuration File
+----------------------------------------------------------------------
+Where should the configuration file be saved?
+
+Config file path [/etc/mutiauk/config.yaml]:
+[OK] Created directory /etc/mutiauk
+
+----------------------------------------------------------------------
+TUN Interface
+----------------------------------------------------------------------
+Configure the virtual network interface.
+
+Interface name [tun0]:
+MTU [1400]:
+IPv4 address (CIDR) [10.200.200.1/24]:
+Configure IPv6 address? [y/N]:
+
+----------------------------------------------------------------------
+SOCKS5 Proxy
+----------------------------------------------------------------------
+Configure the upstream SOCKS5 proxy server.
+
+SOCKS5 server address [127.0.0.1:1080]:
+Does the SOCKS5 server require authentication? [y/N]:
+
+----------------------------------------------------------------------
+Routes
+----------------------------------------------------------------------
+Configure which traffic to route through the SOCKS5 proxy.
+
+Use common private network routes? [Y/n]:
+[OK] Added standard private network routes
+
+----------------------------------------------------------------------
+Configuration Summary
+----------------------------------------------------------------------
+  Config file:     /etc/mutiauk/config.yaml
+  TUN interface:   tun0
+  TUN address:     10.200.200.1/24
+  MTU:             1400
+  SOCKS5 server:   127.0.0.1:1080
+  Routes:          3 configured
+                   - 10.0.0.0/8 (Private class A)
+                   - 172.16.0.0/12 (Private class B)
+                   - 192.168.0.0/16 (Private class C)
+
+----------------------------------------------------------------------
+Service Installation
+----------------------------------------------------------------------
+Install Mutiauk as a systemd service? [Y/n]:
+[OK] Service installed and started!
 ```
 
 ### Global CLI Options
