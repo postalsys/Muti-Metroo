@@ -779,11 +779,11 @@ cd testbed/4agent-test
 docker compose up -d
 ```
 
-**Agent C (Ubuntu):** Already running as background process on srv-04.emailengine.dev
+**Agent C (Ubuntu):** Already running as systemd service on srv-04.emailengine.dev
 - Binary: `/opt/muti-metroo/muti-metroo`
 - Config: `/opt/muti-metroo/config.yaml`
 - Certs: `/opt/muti-metroo/certs/`
-- Log: `/tmp/muti-metroo.log`
+- Logs: `journalctl -u muti-metroo -f`
 
 **Agent D (Windows):** Already running as Windows service on 10.37.129.3
 - Binary: `C:\muti-metroo\muti-metroo.exe`
@@ -801,7 +801,7 @@ GOOS=linux GOARCH=amd64 go build -o build/muti-metroo-linux ./cmd/muti-metroo
 
 # Copy and restart
 scp build/muti-metroo-linux andris@srv-04.emailengine.dev:/tmp/
-ssh andris@srv-04.emailengine.dev "sudo pkill muti-metroo; sudo cp /tmp/muti-metroo-linux /opt/muti-metroo/muti-metroo; cd /opt/muti-metroo && sudo nohup ./muti-metroo run -c config.yaml > /tmp/muti-metroo.log 2>&1 &"
+ssh andris@srv-04.emailengine.dev "sudo systemctl stop muti-metroo; sudo cp /tmp/muti-metroo-linux /opt/muti-metroo/muti-metroo; sudo systemctl start muti-metroo"
 ```
 
 **Agent D (Windows):**

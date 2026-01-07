@@ -157,6 +157,13 @@ func (m *Manager) SetNodeInfoEncrypted(agentID identity.AgentID, encInfo *protoc
 		return false
 	}
 
+	// Never store node info about ourselves from external sources.
+	// Our own node info is set via SetNodeInfo from AnnounceLocalNodeInfo.
+	// Storing stale self-info from peers would overwrite our current state.
+	if agentID == m.localID {
+		return false
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

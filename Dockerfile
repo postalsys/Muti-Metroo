@@ -16,8 +16,10 @@ COPY . .
 # Ensure all dependencies are downloaded (including newly added ones)
 RUN go mod download
 
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /muti-metroo ./cmd/muti-metroo
+# Build the binary with version info
+RUN VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev") && \
+    BUILD_TIME=$(date -u +%Y-%m-%d_%H:%M:%S) && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=$VERSION -X main.BuildTime=$BUILD_TIME" -o /muti-metroo ./cmd/muti-metroo
 
 # Runtime stage
 FROM alpine:3.19
