@@ -223,5 +223,5 @@ If the connection fails, you can choose to:
 
 - [Setup Wizard](/cli/setup) - Interactive agent configuration
 - [Transports](/concepts/transports) - Transport protocol details
-- [TLS Configuration](/configuration/tls) - TLS certificate setup
+- [TLS Certificates](/configuration/tls-certificates) - TLS certificate setup
 - [Troubleshooting](/troubleshooting/common-issues) - Common issues and solutions
