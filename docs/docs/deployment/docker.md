@@ -24,7 +24,7 @@ RUN apk --no-cache add ca-certificates wget
 # Download the binary (adjust URL for your platform)
 ARG TARGETARCH
 RUN wget -O /usr/local/bin/muti-metroo \
-    https://mutimetroo.com/downloads/muti-metroo/muti-metroo-linux-${TARGETARCH} && \
+    https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-linux-${TARGETARCH} && \
     chmod +x /usr/local/bin/muti-metroo
 
 WORKDIR /app
