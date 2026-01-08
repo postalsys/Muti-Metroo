@@ -1,6 +1,12 @@
-# Muti Metroo
+<p align="center">
+  <img src="docs/static/img/logo.png" alt="Muti Metroo" width="200">
+</p>
 
-A userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
+<h1 align="center">Muti Metroo</h1>
+
+<p align="center">
+  A userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
+</p>
 
 ## Features
 
@@ -11,6 +17,30 @@ A userspace mesh networking agent written in Go that creates virtual TCP tunnels
 - **Stream Multiplexing**: Multiple virtual streams over a single peer connection with half-close support
 - **Automatic Reconnection**: Exponential backoff with jitter for resilient peer connections
 - **No Root Required**: Runs entirely in userspace
+
+## Transparent TUN Routing with Mutiauk
+
+For transparent traffic routing without per-application SOCKS5 configuration, use **[Mutiauk](https://github.com/postalsys/Mutiauk)** - a companion TUN interface tool that forwards all traffic through Muti Metroo's SOCKS5 proxy.
+
+```bash
+# Install Mutiauk (Linux only)
+curl -L -o mutiauk https://github.com/postalsys/Mutiauk/releases/latest/download/mutiauk-linux-amd64
+chmod +x mutiauk && sudo mv mutiauk /usr/local/bin/
+
+# Run interactive setup
+sudo mutiauk setup
+
+# Or manual configuration
+sudo mutiauk daemon start
+```
+
+With Mutiauk, any application's traffic to configured routes is automatically tunneled through the mesh - no proxy settings required. This makes Muti Metroo + Mutiauk a powerful alternative to tools like Ligolo-ng, with added benefits:
+
+- **Native multi-hop routing** - no manual listener chaining for double pivots
+- **End-to-end encryption** - transit nodes cannot decrypt traffic
+- **Multiple transports** - QUIC, HTTP/2, WebSocket vs TCP-only
+
+See the [Mutiauk documentation](https://mutimetroo.com/mutiauk/) for detailed setup instructions.
 
 ## Documentation
 
