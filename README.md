@@ -2,11 +2,9 @@
   <img src="docs/static/img/logo.png" alt="Muti Metroo" width="200">
 </p>
 
-<h1 align="center">Muti Metroo</h1>
+# Muti Metroo
 
-<p align="center">
-  A userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
-</p>
+A userspace mesh networking agent written in Go that creates virtual TCP tunnels across heterogeneous transport layers. It enables multi-hop routing with SOCKS5 ingress and CIDR-based exit routing, operating entirely in userspace without requiring root privileges.
 
 ## Features
 
