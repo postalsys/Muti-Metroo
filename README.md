@@ -15,6 +15,31 @@ A userspace mesh networking agent written in Go that creates virtual TCP tunnels
 - **Stream Multiplexing**: Multiple virtual streams over a single peer connection with half-close support
 - **Automatic Reconnection**: Exponential backoff with jitter for resilient peer connections
 - **No Root Required**: Runs entirely in userspace
+- **End-to-End Encryption**: X25519 key exchange + ChaCha20-Poly1305 (transit nodes cannot decrypt)
+
+## How It Works
+
+```
+                                    MESH NETWORK
+    +--------+     +-------------+     +-------------+     +-------------+     +--------+
+    |        |     |   Agent A   |     |   Agent B   |     |   Agent C   |     |        |
+    | Client |---->|   INGRESS   |---->|   TRANSIT   |---->|    EXIT     |---->| Target |
+    |        |     |             |     |             |     |             |     | Server |
+    +--------+     +-------------+     +-------------+     +-------------+     +--------+
+        |                |                   |                   |                  |
+        |   SOCKS5       |       QUIC        |      HTTP/2       |       TCP        |
+        |   Connect      |    Encrypted      |    Encrypted      |    Connection    |
+        |                |                   |                   |                  |
+        +------------------------------------------------------------------------- +
+                          End-to-End Encrypted Tunnel (Transit Cannot Decrypt)
+```
+
+**Traffic Flow:**
+1. Client connects to SOCKS5 proxy on the ingress agent
+2. Ingress looks up route, finds path to exit agent through transit nodes
+3. Virtual stream opens across the mesh with end-to-end encryption
+4. Exit agent opens real TCP connection to target server
+5. Data flows bidirectionally through the encrypted tunnel
 
 ## Transparent TUN Routing with Mutiauk
 
