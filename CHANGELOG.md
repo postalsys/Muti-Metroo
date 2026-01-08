@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.34](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.0.33...muti-metroo-v1.0.34) (2026-01-08)
+
+
+### Bug Fixes
+
+* **transport:** handle H2 pump write failures to trigger reconnection ([5da6a83](https://github.com/postalsys/Muti-Metroo/commit/5da6a838ba62d46293f8921241fcedb8fbc5df17))
+
 ## [1.0.33](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.0.32...muti-metroo-v1.0.33) (2026-01-08)
 
 
