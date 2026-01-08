@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.33](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.0.32...muti-metroo-v1.0.33) (2026-01-08)
+
+
+### Bug Fixes
+
+* add --repo flag to checksums upload command ([19d32a8](https://github.com/postalsys/Muti-Metroo/commit/19d32a8f7ae80b9d9f0f16212a671fb7346ee886))
+
 ## [1.0.32](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.0.31...muti-metroo-v1.0.32) (2026-01-08)
 
 
