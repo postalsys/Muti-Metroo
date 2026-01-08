@@ -62,6 +62,7 @@ flowchart LR
 | **TCP Support** | Full TCP connection forwarding |
 | **UDP Support** | UDP datagram forwarding via SOCKS5 UDP ASSOCIATE |
 | **Route-Based** | Only intercept traffic for configured destinations |
+| **Autoroutes** | Automatically fetch routes from Muti Metroo API |
 | **Userspace** | No kernel modules required (uses TUN) |
 
 ## Download
@@ -168,6 +169,38 @@ logging:
   level: info
   format: json
 ```
+
+### Automatic Routes (Autoroutes)
+
+Mutiauk can automatically fetch CIDR routes from Muti Metroo's API and apply them to the local routing table. This enables dynamic route discovery without manual configuration.
+
+```yaml
+autoroutes:
+  enabled: true
+  url: "http://localhost:8080"  # Muti Metroo API URL
+  poll_interval: 30s            # How often to fetch routes
+  timeout: 10s                  # HTTP request timeout
+```
+
+When enabled, Mutiauk:
+1. Polls the Muti Metroo `/api/dashboard` endpoint at the configured interval
+2. Extracts CIDR routes advertised by all connected agents
+3. Filters out unsafe routes (default routes, loopback, link-local, multicast)
+4. Applies valid routes to the TUN interface
+
+**Filtered Routes (not added automatically):**
+
+| Route | Reason |
+|-------|--------|
+| `0.0.0.0/0`, `::/0` | Default routes - would capture all traffic |
+| `127.0.0.0/8`, `::1/128` | Loopback - localhost traffic |
+| `169.254.0.0/16`, `fe80::/10` | Link-local - breaks DHCP/ARP |
+| `224.0.0.0/4`, `ff00::/8` | Multicast - not SOCKS-routable |
+| Domain routes | Domain-based routing handled by Muti Metroo |
+
+:::tip Ephemeral Routes
+Autoroutes are ephemeral - they are not saved to the config file and are re-fetched when Mutiauk restarts. Static routes in the `routes` section always take precedence over autoroutes.
+:::
 
 ### CLI Commands
 
