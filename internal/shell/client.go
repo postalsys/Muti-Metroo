@@ -157,9 +157,19 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 		return 1, fmt.Errorf("failed to send metadata: %w", err)
 	}
 
-	// Wait for ACK (before entering raw mode so errors display properly)
-	_, ackData, err := conn.Read(ctx)
+	// Wait for ACK with timeout (before entering raw mode so errors display properly)
+	ackCtx, ackCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer ackCancel()
+
+	_, ackData, err := conn.Read(ackCtx)
 	if err != nil {
+		// Check which context was cancelled
+		if ctx.Err() == context.Canceled {
+			return 1, fmt.Errorf("connection cancelled")
+		}
+		if ackCtx.Err() == context.DeadlineExceeded {
+			return 1, fmt.Errorf("timeout waiting for shell session to start (remote agent may be unreachable)")
+		}
 		return 1, fmt.Errorf("failed to read ack: %w", err)
 	}
 
