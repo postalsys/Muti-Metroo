@@ -62,14 +62,15 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'SOCKS5 Interface',
+    title: 'SOCKS5 and TUN Interface',
     image: '/img/mole-escalator.png',
     imageAlt: 'Mole on escalator',
     link: '/features/socks5-proxy',
     description: (
       <>
-        Standard SOCKS5 proxy for transparent integration. Route TCP and UDP
-        traffic - browsers, SSH, DNS queries, and more through the mesh.
+        SOCKS5 proxy for application-level integration, or TUN interface via{' '}
+        <Link to="/mutiauk">Mutiauk</Link> for transparent routing. Route any
+        traffic through the mesh without per-app configuration.
       </>
     ),
   },
