@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
         'red-team/persistence',
         'red-team/detection-avoidance',
         'red-team/operational-procedures',
+        'red-team/ligolo-comparison',
       ],
     },
     {
