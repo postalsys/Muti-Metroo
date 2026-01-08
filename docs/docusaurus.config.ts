@@ -129,6 +129,11 @@ const config: Config = {
           position: 'right',
         },
         {
+          href: 'https://github.com/postalsys/Muti-Metroo',
+          label: 'GitHub',
+          position: 'right',
+        },
+        {
           type: 'search',
           position: 'right',
         },
@@ -191,6 +196,10 @@ const config: Config = {
             {
               label: 'Download',
               to: '/download',
+            },
+            {
+              label: 'GitHub',
+              href: 'https://github.com/postalsys/Muti-Metroo',
             },
             {
               label: 'Troubleshooting',
