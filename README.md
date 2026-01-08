@@ -30,8 +30,8 @@ A userspace mesh networking agent written in Go that creates virtual TCP tunnels
 
 ```bash
 # Clone the repository
-git clone ssh://git@git.aiateibad.ee:3346/andris/Muti-Metroo-v4.git
-cd Muti-Metroo-v4
+git clone git@github.com:postalsys/Muti-Metroo.git
+cd Muti-Metroo
 
 # Build the binary
 make build

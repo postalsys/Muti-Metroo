@@ -66,7 +66,7 @@ http:
 
 ### Full Configuration
 
-See [configs/example.yaml](https://git.aiateibad.ee/andris/Muti-Metroo-v4/src/branch/master/configs/example.yaml) for a fully commented configuration file.
+See [configs/example.yaml](https://github.com/postalsys/Muti-Metroo/blob/master/configs/example.yaml) for a fully commented configuration file.
 
 ## Configuration Structure
 

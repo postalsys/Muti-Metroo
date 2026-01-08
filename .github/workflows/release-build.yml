@@ -1,0 +1,117 @@
+name: Build Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+            upx: false
+          - goos: darwin
+            goarch: amd64
+            upx: false
+          - goos: linux
+            goarch: amd64
+            upx: true
+          - goos: linux
+            goarch: arm64
+            upx: true
+          - goos: windows
+            goarch: amd64
+            upx: true
+          - goos: windows
+            goarch: arm64
+            upx: false  # UPX does not support windows/arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses/v2@latest
+
+      - name: Collect licenses
+        run: |
+          mkdir -p internal/licenses/third_party
+          go-licenses save ./cmd/muti-metroo --save_path=internal/licenses/third_party --force 2>/dev/null || true
+          go-licenses report ./cmd/muti-metroo > internal/licenses/licenses.csv 2>/dev/null || true
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          BINARY_NAME="muti-metroo-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+
+          go build -trimpath \
+            -ldflags="-s -w -X main.Version=$VERSION" \
+            -o "$BINARY_NAME" \
+            ./cmd/muti-metroo
+
+      - name: Install UPX
+        if: matrix.upx
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y upx
+
+      - name: Compress with UPX
+        if: matrix.upx
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          BINARY_NAME="muti-metroo-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+
+          # Try UPX compression, fall back to uncompressed if it fails
+          upx --best --lzma "$BINARY_NAME" || echo "UPX compression failed, using uncompressed binary"
+
+      - name: Upload binary to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
+          BINARY_NAME="muti-metroo-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+
+          gh release upload "${{ github.event.release.tag_name }}" "$BINARY_NAME" --clobber
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "muti-metroo-*"
+
+      - name: Create checksums
+        run: |
+          sha256sum muti-metroo-* > checksums.txt
+          cat checksums.txt
+
+      - name: Upload checksums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" checksums.txt --clobber

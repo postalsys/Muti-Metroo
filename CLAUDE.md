@@ -62,49 +62,75 @@ npm start          # Start dev server at http://localhost:3000
 npm run build      # Build for production
 ```
 
-### Deploying Documentation to Production
+### Deploying Documentation
 
-Documentation is hosted at https://mutimetroo.com on `srv-04.emailengine.dev`.
+Documentation is hosted at https://mutimetroo.com via GitHub Pages.
 
-**Manual deployment** (for docs-only changes without a release):
+**Automatic deployment**: Documentation is automatically built and deployed by GitHub Actions whenever:
+- Changes are pushed to `docs/` on the master branch
+- A new release is published
+- Manually triggered via workflow_dispatch
+
+**Local preview**:
 
 ```bash
 cd docs
-npm run build
-rsync -avz --delete --exclude 'downloads/' build/ andris@srv-04.emailengine.dev:/var/www/muti-metroo/
+npm install
+npm start          # Start dev server at http://localhost:3000
+npm run build      # Build for production (to test)
 ```
-
-**Full release deployment**: The `scripts/release.sh` script automatically builds and deploys documentation as part of the release process. It also uploads binaries to `/var/www/muti-metroo/downloads/`.
 
 ### Making Releases
 
-**IMPORTANT: All releases MUST be done using the release script. Never make releases manually.**
+Releases are fully automated using [release-please](https://github.com/googleapis/release-please).
 
-```bash
-./scripts/release.sh           # Auto-increment patch version (1.2.3 -> 1.2.4)
-./scripts/release.sh 2.0.0     # Set explicit version
+**Conventional Commits**: All commits must follow the conventional commit format:
+
+```
+type(scope): description
+
+[optional body]
+
+[optional footer]
 ```
 
-The release script handles everything:
-1. Runs tests
-2. Creates git tag and pushes to origin
-3. Collects third-party licenses
-4. Builds binaries for all platforms (with UPX compression for Linux/Windows)
-5. Signs macOS binaries (ad-hoc)
-6. Generates release notes using Claude CLI
-7. Creates Gitea release and uploads binaries
-8. Updates download page version
-9. Builds and deploys documentation
-10. Uploads binaries to web server
+**Commit types and version bumps:**
 
-If a release fails mid-way, do not attempt to complete it manually. Simply fix the issue and run the release script again with an incremented version number. Wasting a version number is acceptable - we are not short on numbers.
+| Type | Description | Version Bump |
+|------|-------------|--------------|
+| `feat:` | New feature | Minor (0.X.0) |
+| `fix:` | Bug fix | Patch (0.0.X) |
+| `chore:` | Maintenance | None |
+| `docs:` | Documentation | None |
+| `refactor:` | Code refactoring | None |
+| `test:` | Test changes | None |
+| `ci:` | CI/CD changes | None |
 
-**Server details:**
+**Breaking changes** (major version bump):
+- Add `!` after type: `feat!: remove deprecated API`
+- Or add `BREAKING CHANGE:` in the commit footer
 
-- Server: `srv-04.emailengine.dev`
-- SSH user: `andris`
-- Web root: `/var/www/muti-metroo`
-- Downloads: `/var/www/muti-metroo/downloads/muti-metroo/` (latest) and `/var/www/muti-metroo/downloads/muti-metroo-{version}/`
+**Release process:**
+
+1. Push commits with conventional commit messages to master
+2. release-please automatically creates/updates a Release PR
+3. The Release PR accumulates changes and updates CHANGELOG.md
+4. When ready, merge the Release PR
+5. release-please creates a GitHub Release with tag
+6. GitHub Actions builds binaries for all platforms and uploads them to the release
+7. Documentation is automatically rebuilt and deployed
+
+**Build targets:**
+- darwin/arm64 (macOS Apple Silicon)
+- darwin/amd64 (macOS Intel)
+- linux/amd64 (x86_64)
+- linux/arm64 (ARM64)
+- windows/amd64 (x86_64)
+- windows/arm64 (ARM64)
+
+Linux and Windows binaries are compressed with UPX for smaller size.
+
+**Binaries location**: https://github.com/postalsys/Muti-Metroo/releases
 
 ## Build & Development Commands
 
@@ -725,116 +751,3 @@ Muti Metroo intentionally does not include Prometheus metrics functionality. In 
 
 **Do not add metrics functionality to this codebase.**
 
-## 4-Agent Testbed
-
-A 4-agent testbed is used for manual testing across different platforms and transport layers.
-
-### Topology
-
-```
-A (Host/macOS) --QUIC--> B (Docker) --H2--> C (Ubuntu) <--WSS-- D (Windows)
-```
-
-- **Agent A**: SOCKS5 ingress, connects to B via QUIC
-- **Agent B**: Transit only, connects to C via HTTP/2
-- **Agent C**: Default exit (0.0.0.0/0), accepts connections from B and D
-- **Agent D**: Exit for specific routes (51.210.110.6/32, kreata.ee), connects to C via WebSocket
-
-### Configuration Files
-
-All testbed configs are in `testbed/4agent-test/`:
-
-```
-testbed/4agent-test/
-  agentA/config.yaml    # Host agent config
-  agentA/data/          # Host agent data
-  agentB/config.yaml    # Docker agent config
-  agentB/data/          # Docker agent data
-  agentC/config.yaml    # Ubuntu agent config (template)
-  agentD/config.yaml    # Windows agent config (template)
-  docker-compose.yaml   # Docker setup for Agent B
-  certs/                # Shared TLS certificates (symlink to ../certs)
-```
-
-### Agent Details
-
-| Agent | Platform | Role | Health API | Access |
-|-------|----------|------|------------|--------|
-| A | Host (macOS) | Ingress (SOCKS5 on 127.0.0.1:1080) | http://127.0.0.1:8080/ | Local process |
-| B | Docker | Transit | http://127.0.0.1:8081/ | `docker exec agent-b-docker` |
-| C | Ubuntu (srv-04) | Exit (0.0.0.0/0) | localhost:8082 on server | `ssh andris@srv-04.emailengine.dev` |
-| D | Windows VM | Exit (specific routes) + Shell/FileTransfer | localhost:8083 on VM | `ssh andris@10.37.129.3` |
-
-### Starting the Testbed
-
-**Agent A (Host):**
-```bash
-cd testbed/4agent-test/agentA
-../../../build/muti-metroo run -c config.yaml
-```
-
-**Agent B (Docker):**
-```bash
-cd testbed/4agent-test
-docker compose up -d
-```
-
-**Agent C (Ubuntu):** Already running as systemd service on srv-04.emailengine.dev
-- Binary: `/opt/muti-metroo/muti-metroo`
-- Config: `/opt/muti-metroo/config.yaml`
-- Certs: `/opt/muti-metroo/certs/`
-- Logs: `journalctl -u muti-metroo -f`
-
-**Agent D (Windows):** Already running as Windows service on 10.37.129.3
-- Binary: `C:\muti-metroo\muti-metroo.exe`
-- Config: `C:\muti-metroo\config.yaml`
-- Certs: `C:\muti-metroo\certs\`
-
-### Updating Remote Agents
-
-SSH keys are loaded via ssh-agent. Both remote agents run as services.
-
-**Agent C (Ubuntu):**
-```bash
-# Build Linux binary
-GOOS=linux GOARCH=amd64 go build -o build/muti-metroo-linux ./cmd/muti-metroo
-
-# Copy and restart
-scp build/muti-metroo-linux andris@srv-04.emailengine.dev:/tmp/
-ssh andris@srv-04.emailengine.dev "sudo systemctl stop muti-metroo; sudo cp /tmp/muti-metroo-linux /opt/muti-metroo/muti-metroo; sudo systemctl start muti-metroo"
-```
-
-**Agent D (Windows):**
-```bash
-# Build Windows binary
-GOOS=windows GOARCH=amd64 go build -o build/muti-metroo.exe ./cmd/muti-metroo
-
-# Copy and restart (run as administrator)
-scp build/muti-metroo.exe andris@10.37.129.3:/tmp/
-ssh andris@10.37.129.3 "net stop muti-metroo; copy C:\\tmp\\muti-metroo.exe C:\\muti-metroo\\muti-metroo.exe; net start muti-metroo"
-```
-
-### Testing via SOCKS5
-
-```bash
-# Test exit via Agent C (default route)
-curl --proxy socks5h://127.0.0.1:1080 https://ifconfig.me
-
-# Test exit via Agent D (kreata.ee domain route)
-curl --proxy socks5h://127.0.0.1:1080 https://kreata.ee
-
-# SSH via SOCKS5
-ssh -o ProxyCommand='nc -x 127.0.0.1:1080 %h %p' user@target
-```
-
-### Remote Shell to Agent D
-
-Agent D has shell and file transfer enabled with wildcard access:
-
-```bash
-# Execute command on Agent D
-./build/muti-metroo shell 3a26f5258bc800050276d5ccac9e0842 whoami
-
-# Interactive shell
-./build/muti-metroo shell --tty 3a26f5258bc800050276d5ccac9e0842 powershell
-```

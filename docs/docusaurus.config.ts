@@ -69,9 +69,8 @@ const config: Config = {
   baseUrl: '/',
 
   // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'Coinstash', // Usually your GitHub org/user name.
-  projectName: 'muti-metroo', // Usually your repo name.
+  organizationName: 'postalsys', // GitHub organization
+  projectName: 'Muti-Metroo', // GitHub repo name
 
   onBrokenLinks: 'warn',
   trailingSlash: true,
