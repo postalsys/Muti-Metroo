@@ -285,34 +285,36 @@ An agent can serve multiple roles simultaneously:
 
 ### Package Structure
 
-| Package        | Purpose                                                                                 |
-| -------------- | --------------------------------------------------------------------------------------- |
-| `agent`        | Main orchestrator - initializes components, dispatches frames, manages lifecycle        |
-| `identity`     | 128-bit AgentID generation and persistence                                              |
-| `config`       | YAML config parsing with env var substitution (`${VAR:-default}`)                       |
-| `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types               |
-| `transport`    | Transport abstraction with QUIC, H2, and WebSocket implementations                      |
-| `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff             |
-| `routing`      | Route table with longest-prefix match, route manager with subscription system           |
-| `flood`        | Route propagation via flooding with loop prevention and seen-cache                      |
-| `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                  |
-| `socks5`       | SOCKS5 server with no-auth and username/password methods                                |
-| `exit`         | Exit node handler - TCP dial, DNS resolution, route-based access control                |
-| `certutil`     | TLS certificate generation and management - CA, server, client, peer certificates       |
-| `wizard`       | Interactive setup wizard with modern terminal UI                                        |
-| `health`       | Health check HTTP server, Prometheus metrics, remote agent APIs, pprof, dashboard       |
-| `control`      | Unix socket control server for CLI commands                                             |
-| `service`      | Cross-platform service management (systemd on Linux, launchd on macOS, Windows Service) |
-| `rpc`          | Remote Procedure Call - shell command execution, whitelist, authentication              |
-| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation           |
-| `sysinfo`      | System information collection for node info advertisements                              |
-| `webui`        | Embedded web dashboard with metro map visualization                                     |
-| `metrics`      | Prometheus metrics definitions and registration                                         |
-| `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys               |
-| `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                      |
-| `chaos`        | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing           |
-| `loadtest`     | Load testing utilities - stream throughput, route table, connection churn               |
-| `integration`  | Integration tests for multi-agent mesh scenarios                                        |
+| Package        | Purpose                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| `agent`        | Main orchestrator - initializes components, dispatches frames, manages lifecycle            |
+| `certutil`     | TLS certificate generation and management - CA, server, client, peer certs                  |
+| `chaos`        | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing               |
+| `config`       | YAML config parsing with env var substitution (`${VAR:-default}`)                           |
+| `crypto`       | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation      |
+| `exit`         | Exit node handler - TCP dial, route-based access control, E2E decryption                    |
+| `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
+| `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |
+| `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
+| `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
+| `integration`  | Integration tests for multi-agent mesh scenarios                                            |
+| `licenses`     | Embedded third-party license information with CSV parsing and license text retrieval        |
+| `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
+| `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys                   |
+| `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff                 |
+| `probe`        | Connectivity testing for Muti Metroo listeners - transport dial, handshake verification     |
+| `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types                   |
+| `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                          |
+| `routing`      | Route table with CIDR longest-prefix match and domain pattern matching, route manager       |
+| `service`      | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service       |
+| `shell`        | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
+| `socks5`       | SOCKS5 server with no-auth and username/password methods                                    |
+| `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                      |
+| `sysinfo`      | System information collection for node info advertisements                                  |
+| `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations                      |
+| `udp`          | UDP relay handler for SOCKS5 UDP ASSOCIATE - association lifecycle, datagram forwarding     |
+| `webui`        | Embedded web dashboard with metro map visualization                                         |
+| `wizard`       | Interactive setup wizard with certificate generation                                        |
 
 ## Development
 

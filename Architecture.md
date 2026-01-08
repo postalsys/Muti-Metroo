@@ -1852,12 +1852,12 @@ control:
   socket_path: "./data/control.sock"
 
 # ------------------------------------------------------------------------------
-# Remote Procedure Call (RPC)
+# Remote Shell
 # ------------------------------------------------------------------------------
-rpc:
+shell:
   enabled: false # Disabled by default for security
   whitelist: [] # Empty = no commands allowed; ["*"] = all (testing only!)
-  password_hash: "" # bcrypt hash of RPC password
+  password_hash: "" # bcrypt hash of shell password
   timeout: 60s # Default command execution timeout
 
 # ------------------------------------------------------------------------------
@@ -1931,17 +1931,17 @@ muti-metroo cert agent -n "agent-1" --ca ./certs/ca.crt
 muti-metroo cert client -n "client-1"
 muti-metroo cert info ./certs/ca.crt
 
-# Remote Procedure Call (execute command on remote agent)
-muti-metroo rpc <target-agent-id> <command> [args...]
-muti-metroo rpc -a 192.168.1.10:8080 abc123def456 hostname
-muti-metroo rpc -p secret abc123def456 whoami
-echo "hello" | muti-metroo rpc abc123def456 cat
+# Remote shell (execute command on remote agent)
+muti-metroo shell <target-agent-id> <command> [args...]
+muti-metroo shell -a 192.168.1.10:8080 abc123def456 hostname
+muti-metroo shell -p secret abc123def456 whoami
+muti-metroo shell --tty abc123def456 bash
 
 # File transfer
 muti-metroo upload <target-agent-id> <local-path> <remote-path>
 muti-metroo download <target-agent-id> <remote-path> <local-path>
 
-# Password hash generation (for SOCKS5, RPC, file transfer auth)
+# Password hash generation (for SOCKS5, shell, file transfer auth)
 muti-metroo hash                     # Interactive prompt
 muti-metroo hash "password"          # From argument
 muti-metroo hash --cost 12           # Custom bcrypt cost
@@ -2040,7 +2040,7 @@ Sensitive configuration values are automatically redacted in logs:
 // - listeners[].tls.key
 // - listeners[].tls.key_pem
 // - socks5.auth.users[].password
-// - rpc.password_hash
+// - shell.password_hash
 
 config.String()       // Returns YAML with [REDACTED] for sensitive values
 config.StringUnsafe() // Returns full YAML (use only for debugging)
@@ -2077,7 +2077,7 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/agents/{agent-id}` | GET | Get status from specific agent |
 | `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
 | `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
-| `/agents/{agent-id}/rpc` | POST | Execute RPC command on remote agent |
+| `/agents/{agent-id}/shell` | GET | WebSocket shell access on remote agent |
 | `/agents/{agent-id}/file/upload` | POST | Upload file to remote agent |
 | `/agents/{agent-id}/file/download` | POST | Download file from remote agent |
 
@@ -2746,7 +2746,7 @@ While Muti Metroo requires applications to be SOCKS5-aware, Mutiauk enables any 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         MUTIAUK DATA FLOW                                   │
 │                                                                             │
-│  Application → TUN Device → gVisor Stack → TCP/UDP Forwarder → SOCKS5 →   │
+│  Application → TUN Device → gVisor Stack → TCP/UDP Forwarder → SOCKS5 →     │
 │                                                               Muti Metroo → │
 │                                                               Exit Agent →  │
 │                                                               Destination   │
