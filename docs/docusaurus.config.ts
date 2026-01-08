@@ -49,6 +49,14 @@ const config: Config = {
         content: '7EEE0AB850E3143B',
       },
     },
+    {
+      tagName: 'script',
+      attributes: {
+        defer: 'true',
+        'data-domain': 'mutimetroo.com',
+        src: 'https://plausible.emailengine.dev/js/script.js',
+      },
+    },
   ],
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
