@@ -349,6 +349,9 @@ func (l *H2Listener) handleH2Stream(w http.ResponseWriter, r *http.Request) {
 	// Channel to signal data pump has stopped
 	pumpDone := make(chan struct{})
 
+	// Channel to signal pump error (write failure to client)
+	pumpErr := make(chan error, 1)
+
 	// Create peer connection with doneCh initialized to avoid race condition
 	peerConn := &H2PeerConn{
 		reader:     r.Body,
@@ -367,11 +370,19 @@ func (l *H2Listener) handleH2Stream(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, err := pipeReader.Read(buf)
 			if err != nil {
+				// Normal close - pipe writer was closed
 				return
 			}
 			if n > 0 {
 				_, writeErr := w.Write(buf[:n])
 				if writeErr != nil {
+					// Write to client failed - signal error and close the pipe writer
+					// to ensure subsequent writes fail immediately
+					select {
+					case pumpErr <- writeErr:
+					default:
+					}
+					pipeWriter.CloseWithError(writeErr)
 					return
 				}
 				flusher.Flush()
@@ -382,8 +393,23 @@ func (l *H2Listener) handleH2Stream(w http.ResponseWriter, r *http.Request) {
 	// Send to Accept channel
 	select {
 	case l.connCh <- peerConn:
-		// Block until connection is done
-		<-peerConn.doneCh
+		// Wait for either:
+		// 1. Connection closed normally (doneCh)
+		// 2. Pump error (write to client failed)
+		// 3. Listener closed
+		select {
+		case <-peerConn.doneCh:
+			// Normal close - connection was closed by peer manager
+		case err := <-pumpErr:
+			// Pump failed to write to client - close the connection
+			// This will trigger handleDisconnect in the peer manager when
+			// reads fail or the next write fails
+			_ = err // Error already logged by pump
+			peerConn.Close()
+		case <-l.closeCh:
+			// Listener closing
+			peerConn.Close()
+		}
 		// Close the pipe writer to stop the pump goroutine
 		pipeWriter.Close()
 		// Wait for pump to finish before returning (avoids race with http2 handlerDone)
