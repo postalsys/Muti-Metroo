@@ -218,6 +218,7 @@ mutiauk route remove <cidr>  # Remove a route
 mutiauk route plan        # Show pending route changes
 mutiauk route apply       # Apply routes from config file
 mutiauk route check       # Check for route conflicts
+mutiauk route trace <ip|domain>  # Analyze routing for a destination
 
 # System status
 mutiauk status            # Show comprehensive status with connectivity tests
@@ -235,6 +236,54 @@ mutiauk service status
 # Other
 mutiauk version           # Show version information
 ```
+
+### Route Tracing
+
+The `mutiauk route trace` command analyzes routing for a destination IP or domain, showing which interface handles the traffic and the mesh path if routed through Mutiauk.
+
+```bash
+# Trace route for an IP address
+$ mutiauk route trace 10.10.5.100
+Destination:  10.10.5.100
+Match:        10.10.0.0/16
+Interface:    tun0 (Mutiauk)
+Mesh Path:    Agent-A (Host) -> Agent-B (Docker) -> Agent-C (Ubuntu)
+Origin:       Agent-C (Ubuntu) [76e822ad]
+Hop Count:    2
+
+# Trace route for a domain name
+$ mutiauk route trace internal.corp.local
+Destination:  internal.corp.local
+Resolved:     192.168.50.10
+Match:        192.168.0.0/16
+Interface:    tun0 (Mutiauk)
+Mesh Path:    Agent-A -> Agent-D
+Origin:       Agent-D [3a26f525]
+Hop Count:    1
+
+# Non-Mutiauk route
+$ mutiauk route trace 8.8.8.8
+Destination:  8.8.8.8
+Match:        0.0.0.0/0 via 192.168.1.1
+Interface:    eth0
+Note:         Not routed through Mutiauk
+
+# JSON output for scripting
+$ mutiauk route trace 10.10.5.100 --json
+{
+  "destination": "10.10.5.100",
+  "resolved_ip": "10.10.5.100",
+  "matched_route": "10.10.0.0/16",
+  "interface": "tun0",
+  "is_mutiauk": true,
+  "mesh_path": ["Agent-A (Host)", "Agent-B (Docker)", "Agent-C (Ubuntu)"],
+  "origin": "Agent-C (Ubuntu)",
+  "origin_id": "76e822ad",
+  "hop_count": 2
+}
+```
+
+This command is useful for debugging routing issues and understanding how traffic flows through the mesh network.
 
 ## Setup Wizard
 
