@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.2.0...muti-metroo-v1.3.0) (2026-01-09)
+
+
+### Features
+
+* **docs:** add dynamic version/date to PDF and licensing note ([29b671e](https://github.com/postalsys/Muti-Metroo/commit/29b671e0f8226d2796d0083c45f2d8e2c20c3fad))
+* **docs:** add logo to PDF cover and operator manual link to downloads ([ee87666](https://github.com/postalsys/Muti-Metroo/commit/ee876669448a8a8b113be1066a50858f1e346e6f))
+
 ## [1.2.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.1.0...muti-metroo-v1.2.0) (2026-01-09)
 
 
