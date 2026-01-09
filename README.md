@@ -16,6 +16,7 @@ A userspace mesh networking agent that creates virtual TCP tunnels across hetero
 - **Automatic Reconnection**: Exponential backoff with jitter for resilient peer connections
 - **No Root Required**: Runs entirely in userspace
 - **Mesh Encryption**: X25519 + ChaCha20-Poly1305 between ingress and exit (transit cannot decrypt)
+- **Embedded Configuration**: Single-file deployment with config baked into binary
 
 ## How It Works
 
@@ -131,9 +132,28 @@ The wizard guides you through:
 - **SOCKS5 settings**: Configure proxy authentication (for ingress nodes)
 - **Exit routes**: Define allowed destination networks (for exit nodes)
 - **Advanced options**: Logging, health checks, control socket
+- **Config delivery**: Save to file or embed in binary (single-file deployment)
 - **Service installation**: Install as system service (Linux/macOS/Windows, requires root/admin)
 
 The wizard generates a complete `config.yaml` and initializes your agent identity.
+
+### Embedded Configuration
+
+For single-file deployments, the wizard can embed configuration directly into the binary:
+
+```bash
+# Create embedded binary during setup
+./build/muti-metroo setup
+# Choose "Embed in binary" when prompted
+
+# Run without config file
+./my-agent run
+
+# Edit embedded config later
+./build/muti-metroo setup -c /path/to/embedded-binary
+```
+
+This is ideal for red team operations and simplified distribution.
 
 ### Service Installation
 
@@ -337,6 +357,7 @@ An agent can serve multiple roles simultaneously:
 | `chaos`        | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing               |
 | `config`       | YAML config parsing with env var substitution (`${VAR:-default}`)                           |
 | `crypto`       | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation      |
+| `embed`        | Embedded configuration - XOR encoding, binary config extraction and appending               |
 | `exit`         | Exit node handler - TCP dial, route-based access control, E2E decryption                    |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
 | `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |

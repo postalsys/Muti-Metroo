@@ -2,6 +2,44 @@
 
 Install Muti Metroo as a system service for automatic startup and management.
 
+## Installation Methods
+
+There are two ways to install as a service:
+
+| Method | Command | Use Case |
+|--------|---------|----------|
+| **Config file** | `service install -c config.yaml` | Traditional deployment |
+| **Embedded config** | Via setup wizard | Single-file deployment |
+
+## Embedded Configuration Services
+
+When using embedded configuration (via the setup wizard), the service installation:
+
+1. Copies the binary to a standard location:
+   - Linux/macOS: `/usr/local/bin/<service-name>`
+   - Windows: `C:\Program Files\<service-name>\<service-name>.exe`
+
+2. Creates service definition without `-c` flag:
+   ```bash
+   # Embedded config service
+   ExecStart=/usr/local/bin/my-agent run
+   ```
+
+3. Uses the custom service name you specified
+
+To update an embedded config service:
+
+```bash
+# Stop service
+sudo systemctl stop my-agent
+
+# Edit embedded config using regular binary
+muti-metroo setup -c /usr/local/bin/my-agent
+
+# Restart service
+sudo systemctl start my-agent
+```
+
 ## Linux (systemd)
 
 ### Installation

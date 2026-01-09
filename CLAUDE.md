@@ -257,6 +257,7 @@ An agent can serve multiple roles simultaneously:
 | `chaos`        | Chaos testing utilities - fault injection, ChaosMonkey for resilience testing               |
 | `config`       | YAML config parsing with env var substitution (`${VAR:-default}`)                           |
 | `crypto`       | End-to-end encryption - X25519 key exchange, ChaCha20-Poly1305, session key derivation      |
+| `embed`        | Embedded configuration - XOR encoding, binary config extraction and appending               |
 | `exit`         | Exit node handler - TCP dial, route-based access control, E2E decryption                    |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
 | `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |

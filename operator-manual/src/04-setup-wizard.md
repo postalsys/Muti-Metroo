@@ -68,7 +68,20 @@ If exit role is selected:
 - **Remote shell**: Remote command execution (disabled by default)
 - **File transfer**: File upload/download (disabled by default)
 
-### Step 9: Review and Save
+### Step 9: Configuration Delivery
+
+Choose how to deploy the configuration:
+
+| Option | Description |
+|--------|-------------|
+| **Save to file** | Traditional `config.yaml` file (default) |
+| **Embed in binary** | Single-file deployment with config baked in |
+
+When embedding:
+- **Service name**: Custom name for the service (default: `muti-metroo`)
+- **Output path**: Where to save the embedded binary
+
+### Step 10: Review and Save
 
 The wizard displays the complete configuration for review before saving.
 
@@ -191,6 +204,69 @@ Use existing configuration as base? [y]: y
 ```
 
 The wizard will load existing values as defaults.
+
+## Embedded Configuration
+
+For single-file deployments, the wizard can embed configuration directly into the binary.
+
+### Creating an Embedded Binary
+
+During setup, choose "Embed in binary" when prompted:
+
+```
+Configuration Delivery
+----------------------
+> 1. Save to config file (traditional)
+  2. Embed in binary (single-file deployment)
+
+Delivery method [1]: 2
+Service name [muti-metroo]: my-agent
+Output binary path: ./my-agent
+```
+
+### Running Embedded Binary
+
+```bash
+# No config file needed
+./my-agent run
+
+# Output shows embedded config detection
+Using embedded configuration
+Starting Muti Metroo agent...
+Display Name: my-agent
+```
+
+### Editing Embedded Configuration
+
+To modify config in an existing embedded binary:
+
+```bash
+# Use regular binary to edit embedded one
+muti-metroo setup -c /path/to/embedded-binary
+```
+
+The wizard extracts existing config as defaults, guides you through changes, and writes updated config back to the binary.
+
+### Updating Deployed Agents
+
+```bash
+# Stop service
+sudo systemctl stop my-agent
+
+# Edit embedded config
+muti-metroo setup -c /usr/local/bin/my-agent
+
+# Restart service
+sudo systemctl start my-agent
+```
+
+### Binary Format
+
+```
+[executable][XOR'd config][8-byte length][8-byte magic]
+```
+
+The XOR obfuscation prevents casual inspection but is not cryptographic security.
 
 ## Service Installation via Wizard
 

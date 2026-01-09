@@ -80,7 +80,20 @@ If exit role is selected:
 - **Remote shell**: Remote command execution (disabled by default)
 - **File transfer**: File upload/download (disabled by default)
 
-### 9. Service Installation (Optional)
+### 9. Configuration Delivery
+
+Choose how to deploy the configuration:
+
+| Option | Description |
+|--------|-------------|
+| **Save to file** | Traditional `config.yaml` file (default) |
+| **Embed in binary** | Single-file deployment with config baked in |
+
+When embedding, you'll also specify:
+- **Service name**: Custom name for the service (default: `muti-metroo`)
+- **Output path**: Where to save the embedded binary
+
+### 10. Service Installation (Optional)
 
 When running as root (Linux) or Administrator (Windows):
 
@@ -278,6 +291,36 @@ Use existing configuration as base? [y]: y
 ```
 
 The wizard will load existing values as defaults.
+
+## Editing Embedded Configuration
+
+To edit the configuration embedded in an existing binary:
+
+```bash
+# Edit embedded config in a deployed binary
+muti-metroo setup -c /usr/local/bin/my-agent
+```
+
+The wizard will:
+1. Detect the embedded configuration
+2. Load existing values as defaults
+3. Guide you through changes
+4. Write updated configuration back to the binary
+
+This is useful for updating deployed agents without redeploying:
+
+```bash
+# Stop the service
+sudo systemctl stop my-agent
+
+# Edit the embedded config
+muti-metroo setup -c /usr/local/bin/my-agent
+
+# Restart the service
+sudo systemctl start my-agent
+```
+
+See [Embedded Configuration](/deployment/embedded-config) for more details.
 
 ## Next Steps
 
