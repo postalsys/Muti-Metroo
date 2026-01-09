@@ -287,6 +287,7 @@ sudo muti-metroo setup
 ```
 
 The wizard will offer to:
+
 1. Create configuration in the appropriate system location
 2. Register the system service
 3. Enable automatic startup

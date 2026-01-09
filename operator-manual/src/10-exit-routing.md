@@ -39,6 +39,7 @@ exit:
 ```
 
 **Flow:**
+
 1. Client connects via SOCKS5 with domain (e.g., `example.com`)
 2. Ingress agent resolves domain using system DNS
 3. Ingress performs route lookup using the resolved IP
@@ -57,6 +58,7 @@ exit:
 ```
 
 **Flow:**
+
 1. Client connects via SOCKS5 with domain (e.g., `api.internal.corp`)
 2. Ingress checks domain routes first
 3. If matched, stream opens to exit node with the **domain name**
