@@ -140,6 +140,32 @@ Linux and Windows binaries are compressed with UPX for smaller size.
 
 **Binaries location**: https://github.com/postalsys/Muti-Metroo/releases
 
+## Operator Manual (PDF)
+
+A standalone PDF operator manual is maintained in `operator-manual/` for offline distribution to red team operators.
+
+**Location**: `operator-manual/`
+**Output**: `operator-manual/build/muti-metroo-operator-manual.pdf`
+**Build instructions**: `operator-manual/BUILD.md`
+
+**Content scope**: Practical usage for operators - installation, configuration, features, deployment, OPSEC, and Mutiauk TUN interface.
+**NOT included**: Protocol internals, frame formats, code architecture (these belong in Architecture.md).
+
+**Building locally**:
+
+```bash
+cd operator-manual
+npm install        # Install mermaid-cli for diagram processing
+make pdf           # Build PDF (requires Pandoc + XeLaTeX)
+make html          # Build HTML preview
+```
+
+**CI/CD**: The PDF is automatically built and attached to GitHub releases.
+
+**Diagrams**: Use Mermaid syntax in markdown. Diagrams are pre-processed to SVG before PDF generation.
+
+**When to update**: Update the operator manual when adding or modifying user-facing features. The manual should always reflect the current state of the tool's capabilities.
+
 ## Build & Development Commands
 
 ```bash

@@ -1,0 +1,166 @@
+# Installation
+
+This chapter covers all methods for installing Muti Metroo.
+
+## Download Binary
+
+Pre-built binaries are available for all major platforms:
+
+| Platform | Architecture | Binary Name |
+|----------|--------------|-------------|
+| Linux | x86_64 | `muti-metroo-linux-amd64` |
+| Linux | ARM64 | `muti-metroo-linux-arm64` |
+| macOS | Apple Silicon | `muti-metroo-darwin-arm64` |
+| macOS | Intel | `muti-metroo-darwin-amd64` |
+| Windows | x86_64 | `muti-metroo-windows-amd64.exe` |
+| Windows | ARM64 | `muti-metroo-windows-arm64.exe` |
+
+Download from: `https://github.com/postalsys/Muti-Metroo/releases`
+
+### Linux/macOS Installation
+
+```bash
+# Download (example: Linux amd64)
+curl -L -o muti-metroo \
+  https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-linux-amd64
+
+# Make executable and install
+chmod +x muti-metroo
+sudo mv muti-metroo /usr/local/bin/
+
+# Verify
+muti-metroo --version
+```
+
+### Windows Installation
+
+1. Download the appropriate `.exe` file from the releases page
+2. Place in a directory (e.g., `C:\muti-metroo\`)
+3. Optionally add to PATH
+
+```powershell
+# Verify installation
+.\muti-metroo.exe --version
+```
+
+## Docker Deployment
+
+For containerized deployments:
+
+```bash
+# Build from source
+docker build -t muti-metroo .
+
+# Run with config
+docker run -v $(pwd)/config.yaml:/etc/muti-metroo/config.yaml \
+  -p 4433:4433/udp \
+  -p 1080:1080 \
+  -p 8080:8080 \
+  muti-metroo run -c /etc/muti-metroo/config.yaml
+```
+
+## Directory Structure
+
+After installation, you will typically have:
+
+### Production Layout (Linux)
+
+```
+/usr/local/bin/muti-metroo     # Binary
+/etc/muti-metroo/              # Configuration
+  config.yaml                  # Main configuration file
+  certs/                       # TLS certificates
+    ca.crt
+    agent.crt
+    agent.key
+/var/lib/muti-metroo/          # Data directory
+  agent_id                     # Agent identity
+  keypair.json                 # E2E encryption keypair
+```
+
+### Development Layout
+
+```
+./muti-metroo                  # Binary
+./config.yaml                  # Configuration file
+./data/                        # Data directory
+  agent_id                     # Agent identity (128-bit hex)
+  keypair.json                 # E2E encryption keypair
+./certs/                       # TLS certificates
+  ca.crt                       # Certificate Authority
+  ca.key                       # CA private key
+  agent.crt                    # Agent certificate
+  agent.key                    # Agent private key
+```
+
+### Windows Layout
+
+```
+C:\Program Files\muti-metroo\
+  muti-metroo.exe              # Binary
+C:\ProgramData\muti-metroo\
+  config.yaml                  # Configuration
+  data\                        # Data directory
+    agent_id
+  certs\                       # Certificates
+    ca.crt
+    agent.crt
+    agent.key
+```
+
+## Verify Installation
+
+After installation, verify everything works:
+
+```bash
+# Initialize agent identity
+muti-metroo init -d ./data
+
+# Check the generated agent ID
+cat ./data/agent_id
+
+# Generate test certificates
+muti-metroo cert ca --cn "Test CA" -o ./certs
+muti-metroo cert agent --cn "test-agent" \
+  --ca ./certs/ca.crt \
+  --ca-key ./certs/ca.key \
+  -o ./certs
+
+# Verify certificate
+muti-metroo cert info ./certs/test-agent.crt
+```
+
+## System Requirements
+
+- **OS**: Linux, macOS, or Windows
+- **Architecture**: x86_64 or ARM64
+- **Memory**: Minimum 64MB, recommended 256MB+
+- **Network**: UDP port for QUIC, TCP ports for HTTP/2 and WebSocket
+- **Privileges**: No root required (runs in userspace)
+
+## Firewall Configuration
+
+Ensure the following ports are accessible:
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 4433 | UDP | QUIC transport (default) |
+| 8443 | TCP | HTTP/2 transport (optional) |
+| 443 | TCP | WebSocket transport (optional) |
+| 1080 | TCP | SOCKS5 proxy (ingress) |
+| 8080 | TCP | HTTP API and dashboard |
+
+Example firewall rules:
+
+```bash
+# Linux (firewalld)
+sudo firewall-cmd --permanent --add-port=4433/udp
+sudo firewall-cmd --permanent --add-port=1080/tcp
+sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --reload
+
+# Linux (ufw)
+sudo ufw allow 4433/udp
+sudo ufw allow 1080/tcp
+sudo ufw allow 8080/tcp
+```

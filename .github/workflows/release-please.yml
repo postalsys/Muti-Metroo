@@ -108,8 +108,44 @@ jobs:
           BINARY_NAME="muti-metroo-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
           gh release upload "${{ needs.release-please.outputs.tag_name }}" "$BINARY_NAME" --clobber
 
+  operator-manual:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Install XeLaTeX
+        run: |
+          sudo apt-get install -y texlive-xetex texlive-fonts-recommended texlive-fonts-extra
+
+      - name: Install npm dependencies
+        working-directory: operator-manual
+        run: npm install
+
+      - name: Build PDF
+        working-directory: operator-manual
+        run: make pdf
+
+      - name: Upload PDF to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" \
+            operator-manual/build/muti-metroo-operator-manual.pdf \
+            --clobber
+
   checksums:
-    needs: [release-please, build]
+    needs: [release-please, build, operator-manual]
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:

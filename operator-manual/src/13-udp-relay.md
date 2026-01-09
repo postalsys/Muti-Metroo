@@ -1,0 +1,156 @@
+# UDP Relay
+
+UDP relay enables SOCKS5 UDP ASSOCIATE (RFC 1928) support, allowing UDP traffic to be tunneled through the mesh network. This is primarily used for DNS and NTP traffic.
+
+## Configuration
+
+Configure on the **exit** agent:
+
+```yaml
+udp:
+  enabled: false               # Disabled by default
+  allowed_ports: []            # Port whitelist
+  max_associations: 1000       # Max concurrent associations
+  idle_timeout: 5m             # Association timeout
+  max_datagram_size: 1472      # Max UDP payload
+```
+
+## Port Whitelist
+
+| Configuration | Behavior |
+|--------------|----------|
+| `[]` (empty) | No ports allowed (default) |
+| `["*"]` | All ports allowed (testing only!) |
+| `["53", "123"]` | Only specified ports |
+
+### Common Ports
+
+| Port | Service |
+|------|---------|
+| 53 | DNS |
+| 123 | NTP |
+| 137-139 | NetBIOS |
+| 500 | ISAKMP/IKE |
+| 514 | Syslog |
+
+### Example: DNS and NTP Only
+
+```yaml
+udp:
+  enabled: true
+  allowed_ports:
+    - "53"    # DNS
+    - "123"   # NTP
+```
+
+## Usage
+
+UDP relay uses standard SOCKS5 UDP ASSOCIATE. The client establishes a TCP connection to negotiate, then sends UDP datagrams.
+
+### Testing with proxychains
+
+Configure `/etc/proxychains.conf`:
+
+```
+[ProxyList]
+socks5 127.0.0.1 1080
+```
+
+DNS query through proxy:
+
+```bash
+proxychains4 dig @8.8.8.8 example.com
+```
+
+### Testing with socksify
+
+```bash
+socksify dig @8.8.8.8 example.com
+```
+
+## Full Example
+
+### Exit Agent Configuration
+
+```yaml
+agent:
+  display_name: "Exit with UDP"
+
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+
+exit:
+  enabled: true
+  routes:
+    - "0.0.0.0/0"
+  dns:
+    servers:
+      - "8.8.8.8:53"
+
+udp:
+  enabled: true
+  allowed_ports:
+    - "53"
+    - "123"
+  max_associations: 1000
+  idle_timeout: 5m
+```
+
+### Ingress Agent Configuration
+
+```yaml
+agent:
+  display_name: "Ingress"
+
+peers:
+  - id: "exit-agent-id..."
+    transport: quic
+    address: "exit.example.com:4433"
+
+socks5:
+  enabled: true
+  address: "127.0.0.1:1080"
+```
+
+## Limitations
+
+- **Maximum datagram size**: 1472 bytes
+- **No fragmentation**: Datagrams with frag > 0 are rejected
+- **Association lifetime**: Tied to TCP control connection
+- **Port restrictions**: Must be explicitly allowed
+
+## Security Considerations
+
+1. **Whitelist ports**: Only allow necessary UDP ports
+2. **Limit associations**: Set reasonable `max_associations`
+3. **Monitor usage**: UDP can be used for tunneling
+
+## Troubleshooting
+
+### UDP Not Working
+
+1. Verify UDP is enabled on exit agent:
+   ```yaml
+   udp:
+     enabled: true
+   ```
+
+2. Check port is in whitelist:
+   ```yaml
+   udp:
+     allowed_ports:
+       - "53"
+   ```
+
+3. Verify exit route exists for DNS server
+4. Check firewall allows UDP traffic from exit
+
+### Association Timeout
+
+Increase `idle_timeout` for long-running UDP sessions:
+
+```yaml
+udp:
+  idle_timeout: 30m
+```
