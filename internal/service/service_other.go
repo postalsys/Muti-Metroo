@@ -17,6 +17,11 @@ func installImpl(cfg ServiceConfig, execPath string) error {
 	return fmt.Errorf("service installation is not supported on this platform")
 }
 
+// installImplEmbedded is not supported on this platform.
+func installImplEmbedded(cfg ServiceConfig, execPath string) error {
+	return fmt.Errorf("service installation is not supported on this platform")
+}
+
 // uninstallImpl is not supported on this platform.
 func uninstallImpl(serviceName string) error {
 	return fmt.Errorf("service uninstallation is not supported on this platform")

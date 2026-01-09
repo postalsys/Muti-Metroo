@@ -89,6 +89,73 @@ func Install(cfg ServiceConfig) error {
 	return installImpl(cfg, execPath)
 }
 
+// GetInstallPath returns the standard installation path for a service binary.
+// Linux/macOS: /usr/local/bin/<name>
+// Windows: C:\Program Files\<name>\<name>.exe
+func GetInstallPath(serviceName string) string {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(os.Getenv("ProgramFiles"), serviceName, serviceName+".exe")
+	default:
+		return filepath.Join("/usr/local/bin", serviceName)
+	}
+}
+
+// InstallWithEmbedded installs a service using a binary with embedded configuration.
+// It copies the embedded binary to the standard system location and creates
+// a service that runs without the -c config flag.
+func InstallWithEmbedded(cfg ServiceConfig, embeddedBinaryPath string) error {
+	if !IsRoot() {
+		return fmt.Errorf("must run as root/administrator to install service")
+	}
+
+	// Determine destination path
+	destPath := GetInstallPath(cfg.Name)
+
+	// Create parent directory if needed (Windows)
+	if runtime.GOOS == "windows" {
+		parentDir := filepath.Dir(destPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("failed to create program directory: %w", err)
+		}
+	}
+
+	// Copy the embedded binary to the destination
+	if err := copyFile(embeddedBinaryPath, destPath); err != nil {
+		return fmt.Errorf("failed to copy binary to %s: %w", destPath, err)
+	}
+
+	fmt.Printf("Installed binary: %s\n", destPath)
+
+	// Clear ConfigPath to indicate embedded config mode
+	cfg.ConfigPath = ""
+
+	return installImplEmbedded(cfg, destPath)
+}
+
+// copyFile copies a file from src to dst, preserving permissions.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	srcStat, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcStat.Mode())
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = dstFile.ReadFrom(srcFile)
+	return err
+}
+
 // Uninstall removes the system service.
 // On Linux, this stops, disables, and removes the systemd unit.
 // On macOS, this unloads and removes the launchd plist.

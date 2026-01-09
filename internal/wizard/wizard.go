@@ -15,6 +15,7 @@ import (
 
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/embed"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/probe"
 	"github.com/postalsys/muti-metroo/internal/service"
@@ -30,11 +31,15 @@ type Result struct {
 	DataDir          string
 	CertsDir         string
 	ServiceInstalled bool
+	EmbedConfig      bool   // Config embedded in binary instead of saved to file
+	ServiceName      string // Custom service name (default: muti-metroo)
+	EmbeddedBinary   string // Path to binary with embedded config (if EmbedConfig is true)
 }
 
 // Wizard manages the interactive setup process.
 type Wizard struct {
-	existingCfg *config.Config // Loaded from existing config file, if any
+	existingCfg      *config.Config // Loaded from existing config file or embedded binary
+	targetBinaryPath string         // Path to binary to embed config into (if set)
 }
 
 // New creates a new setup wizard.
@@ -42,9 +47,48 @@ func New() *Wizard {
 	return &Wizard{}
 }
 
+// SetTargetBinary sets a binary path to embed config into.
+// If the binary already has embedded config, it will be loaded as defaults.
+func (w *Wizard) SetTargetBinary(binaryPath string) error {
+	w.targetBinaryPath = binaryPath
+
+	// Check if the binary has embedded config
+	has, err := embed.HasEmbeddedConfig(binaryPath)
+	if err != nil {
+		return fmt.Errorf("failed to check binary for embedded config: %w", err)
+	}
+
+	if has {
+		// Load embedded config as defaults
+		data, err := embed.ReadEmbeddedConfig(binaryPath)
+		if err != nil {
+			return fmt.Errorf("failed to read embedded config from binary: %w", err)
+		}
+		cfg, err := config.Parse(data)
+		if err != nil {
+			return fmt.Errorf("failed to parse embedded config: %w", err)
+		}
+		w.existingCfg = cfg
+	}
+
+	return nil
+}
+
 // Run executes the interactive setup wizard.
 func (w *Wizard) Run() (*Result, error) {
 	w.printBanner()
+
+	// If a target binary was set, inform the user
+	if w.targetBinaryPath != "" {
+		if w.existingCfg != nil {
+			prompt.PrintInfo(fmt.Sprintf("Editing embedded config from: %s", w.targetBinaryPath))
+			fmt.Println("The existing embedded configuration will be used as defaults.")
+		} else {
+			prompt.PrintInfo(fmt.Sprintf("Target binary: %s", w.targetBinaryPath))
+			fmt.Println("Configuration will be embedded into this binary.")
+		}
+		fmt.Println()
+	}
 
 	// Step 1: Basic setup
 	dataDir, configPath, displayName, err := w.askBasicSetup()
@@ -118,6 +162,24 @@ func (w *Wizard) Run() (*Result, error) {
 		return nil, err
 	}
 
+	// Step 12: Configuration delivery method
+	// Skip this step if a target binary was specified - always embed to it
+	var embedConfig bool
+	var serviceName string
+	if w.targetBinaryPath != "" {
+		embedConfig = true
+		// Extract service name from binary filename
+		serviceName = filepath.Base(w.targetBinaryPath)
+		if ext := filepath.Ext(serviceName); ext != "" {
+			serviceName = serviceName[:len(serviceName)-len(ext)]
+		}
+	} else {
+		embedConfig, serviceName, err = w.askConfigDelivery()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Build configuration
 	cfg := w.buildConfig(
 		dataDir, displayName, transport, listenAddr, listenPath,
@@ -140,18 +202,47 @@ func (w *Wizard) Run() (*Result, error) {
 		fmt.Println("\n[OK] Generated new E2E encryption keypair")
 	}
 
-	// Write configuration file
-	if err := w.writeConfig(cfg, configPath); err != nil {
-		return nil, err
+	// Handle config delivery based on user choice
+	var embeddedBinary string
+	if embedConfig {
+		if w.targetBinaryPath != "" {
+			// Embed config to the specified target binary
+			embeddedBinary, err = w.embedConfigToTargetBinary(cfg)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			// Create new binary with embedded config
+			embeddedBinary, err = w.embedConfigToBinary(cfg, serviceName)
+			if err != nil {
+				return nil, err
+			}
+		}
+		// Also write config file for reference/backup
+		if err := w.writeConfig(cfg, configPath); err != nil {
+			prompt.PrintWarning(fmt.Sprintf("Could not save backup config file: %v", err))
+		} else {
+			fmt.Printf("Backup config saved to: %s\n", configPath)
+		}
+	} else {
+		// Write configuration file (traditional mode)
+		if err := w.writeConfig(cfg, configPath); err != nil {
+			return nil, err
+		}
 	}
 
 	// Print summary
 	w.printSummary(agentID, keypair, configPath, cfg)
 
-	// Step 12: Service installation (on supported platforms)
+	// Step 13: Service installation (on supported platforms)
+	// Skip if editing a target binary - it's likely already installed as a service
 	var serviceInstalled bool
-	if service.IsSupported() {
-		serviceInstalled, err = w.askServiceInstallation(configPath)
+	if service.IsSupported() && w.targetBinaryPath == "" {
+		if embedConfig {
+			serviceInstalled, err = w.askServiceInstallationEmbedded(embeddedBinary, serviceName, dataDir)
+		} else {
+			serviceInstalled, err = w.askServiceInstallationWithName(configPath, serviceName)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -163,6 +254,9 @@ func (w *Wizard) Run() (*Result, error) {
 		DataDir:          dataDir,
 		CertsDir:         certsDir,
 		ServiceInstalled: serviceInstalled,
+		EmbedConfig:      embedConfig,
+		ServiceName:      serviceName,
+		EmbeddedBinary:   embeddedBinary,
 	}, nil
 }
 
@@ -1652,6 +1746,462 @@ func (w *Wizard) askLinuxServiceInstallation(cfg service.ServiceConfig, absConfi
 		fmt.Println()
 		return true, nil
 	}
+}
+
+// askServiceInstallationWithName is like askServiceInstallation but uses a custom service name.
+func (w *Wizard) askServiceInstallationWithName(configPath, serviceName string) (bool, error) {
+	// Get absolute path for config
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to get absolute config path: %w", err)
+	}
+
+	cfg := service.DefaultConfig(absConfigPath)
+	cfg.Name = serviceName
+	cfg.DisplayName = serviceName + " Mesh Agent"
+
+	// Handle Linux specially - offer user service option
+	if runtime.GOOS == "linux" {
+		return w.askLinuxServiceInstallationWithConfig(cfg, absConfigPath, false)
+	}
+
+	// macOS and Windows - system service only
+	return w.askSystemServiceInstallation(cfg, serviceName, false, "")
+}
+
+// askServiceInstallationEmbedded handles service installation for embedded config binaries.
+func (w *Wizard) askServiceInstallationEmbedded(embeddedBinaryPath, serviceName, dataDir string) (bool, error) {
+	cfg := service.ServiceConfig{
+		Name:        serviceName,
+		DisplayName: serviceName + " Mesh Agent",
+		Description: "Userspace mesh networking agent for virtual TCP tunnels",
+		WorkingDir:  dataDir,
+	}
+
+	// Handle Linux specially
+	if runtime.GOOS == "linux" {
+		return w.askLinuxServiceInstallationEmbedded(cfg, embeddedBinaryPath)
+	}
+
+	// macOS and Windows - system service only
+	return w.askSystemServiceInstallation(cfg, serviceName, true, embeddedBinaryPath)
+}
+
+// askSystemServiceInstallation handles macOS/Windows service installation.
+func (w *Wizard) askSystemServiceInstallation(cfg service.ServiceConfig, serviceName string, embedded bool, embeddedBinaryPath string) (bool, error) {
+	var platformName string
+	var privilegeCmd string
+
+	switch runtime.GOOS {
+	case "darwin":
+		platformName = "launchd service"
+		privilegeCmd = "sudo"
+	case "windows":
+		platformName = "Windows service"
+		privilegeCmd = "Run as Administrator"
+	default:
+		return false, nil
+	}
+
+	// If not running as root/admin, show instructions instead
+	if !service.IsRoot() {
+		prompt.PrintHeader("Service Installation",
+			fmt.Sprintf("To install as a %s, elevated privileges are required.\nYou can run the service install command later with %s.", platformName, privilegeCmd))
+
+		showInstructions, err := prompt.Confirm("Show installation command?", true)
+		if err != nil {
+			return false, err
+		}
+
+		if showInstructions {
+			fmt.Println()
+			fmt.Println("To install as a service, run:")
+			if embedded {
+				installPath := service.GetInstallPath(serviceName)
+				fmt.Printf("  1. Copy %s to %s\n", embeddedBinaryPath, installPath)
+				switch runtime.GOOS {
+				case "darwin":
+					fmt.Printf("  2. sudo muti-metroo service install -n %s --embedded\n", serviceName)
+				case "windows":
+					fmt.Printf("  2. muti-metroo service install -n %s --embedded\n", serviceName)
+					fmt.Println("     (Run this command as Administrator)")
+				}
+			} else {
+				switch runtime.GOOS {
+				case "darwin":
+					fmt.Printf("  sudo muti-metroo service install -n %s -c %s\n", serviceName, cfg.ConfigPath)
+				case "windows":
+					fmt.Printf("  muti-metroo service install -n %s -c %s\n", serviceName, cfg.ConfigPath)
+					fmt.Println("  (Run this command as Administrator)")
+				}
+			}
+			fmt.Println()
+		}
+
+		return false, nil
+	}
+
+	prompt.PrintHeader("Service Installation",
+		fmt.Sprintf("You are running as %s.\nWould you like to install %s as a %s?\n\nThe service will start automatically on boot.", w.privilegeLevel(), serviceName, platformName))
+
+	if embedded {
+		installPath := service.GetInstallPath(serviceName)
+		fmt.Printf("Binary will be installed to: %s\n\n", installPath)
+	}
+
+	installService, err := prompt.Confirm(fmt.Sprintf("Install as %s?", platformName), false)
+	if err != nil {
+		return false, err
+	}
+
+	if !installService {
+		return false, nil
+	}
+
+	fmt.Println()
+	fmt.Printf("Installing %s...\n", platformName)
+
+	var installErr error
+	if embedded {
+		installErr = service.InstallWithEmbedded(cfg, embeddedBinaryPath)
+	} else {
+		installErr = service.Install(cfg)
+	}
+
+	if installErr != nil {
+		fmt.Printf("\n[WARNING] Failed to install service: %v\n", installErr)
+		fmt.Println("You can install the service manually later.")
+		return false, nil
+	}
+
+	fmt.Println()
+	prompt.PrintSuccess(fmt.Sprintf("Installed as %s", platformName))
+
+	switch runtime.GOOS {
+	case "darwin":
+		fmt.Println("\nUseful commands:")
+		fmt.Printf("  sudo launchctl list | grep %s   # Check if running\n", serviceName)
+		fmt.Printf("  tail -f /var/log/%s.log        # View logs\n", serviceName)
+		fmt.Printf("  sudo launchctl stop com.%s     # Stop service\n", serviceName)
+		fmt.Printf("  sudo launchctl start com.%s    # Start service\n", serviceName)
+		fmt.Printf("  muti-metroo service uninstall -n %s  # Remove service\n", serviceName)
+	case "windows":
+		fmt.Println("\nUseful commands:")
+		fmt.Printf("  sc query %s            # Check status\n", serviceName)
+		fmt.Printf("  net start %s           # Start service\n", serviceName)
+		fmt.Printf("  net stop %s            # Stop service\n", serviceName)
+		fmt.Printf("  muti-metroo service uninstall -n %s  # Remove service\n", serviceName)
+	}
+	fmt.Println()
+
+	return true, nil
+}
+
+// askLinuxServiceInstallationWithConfig handles Linux service installation with custom config.
+func (w *Wizard) askLinuxServiceInstallationWithConfig(cfg service.ServiceConfig, absConfigPath string, _ bool) (bool, error) {
+	isRoot := service.IsRoot()
+
+	if isRoot {
+		// Root user: offer choice between systemd and cron+nohup
+		prompt.PrintHeader("Service Installation",
+			fmt.Sprintf("You are running as root.\nChoose how to install %s as a service.\n\nThe service will start automatically on boot.", cfg.Name))
+
+		options := []string{
+			"systemd (recommended)",
+			"Don't install as service",
+		}
+		choice, err := prompt.Select("Installation method:", options, 0)
+		if err != nil {
+			return false, err
+		}
+
+		if choice == 1 { // Don't install
+			return false, nil
+		}
+
+		// systemd installation
+		fmt.Println()
+		fmt.Println("Installing systemd service...")
+
+		installErr := service.Install(cfg)
+		if installErr != nil {
+			fmt.Printf("\n[WARNING] Failed to install service: %v\n", installErr)
+			fmt.Println("You can install the service manually later.")
+			return false, nil
+		}
+
+		fmt.Println()
+		prompt.PrintSuccess("Installed as systemd service")
+		fmt.Println("\nUseful commands:")
+		fmt.Printf("  systemctl status %s    # Check status\n", cfg.Name)
+		fmt.Printf("  journalctl -u %s -f    # View logs\n", cfg.Name)
+		fmt.Printf("  systemctl restart %s   # Restart service\n", cfg.Name)
+		fmt.Printf("  muti-metroo service uninstall -n %s  # Remove service\n", cfg.Name)
+		fmt.Println()
+		return true, nil
+	}
+
+	// Non-root user: show instructions
+	prompt.PrintHeader("Service Installation",
+		"To install as a systemd service, elevated privileges are required.\nRun the wizard with sudo for systemd installation.")
+
+	showInstructions, err := prompt.Confirm("Show installation command?", true)
+	if err != nil {
+		return false, err
+	}
+
+	if showInstructions {
+		fmt.Println()
+		fmt.Println("To install later:")
+		fmt.Printf("  sudo muti-metroo service install -n %s -c %s\n", cfg.Name, absConfigPath)
+		fmt.Println()
+	}
+
+	return false, nil
+}
+
+// askLinuxServiceInstallationEmbedded handles Linux service installation for embedded config.
+func (w *Wizard) askLinuxServiceInstallationEmbedded(cfg service.ServiceConfig, embeddedBinaryPath string) (bool, error) {
+	isRoot := service.IsRoot()
+
+	if isRoot {
+		// Root user: systemd only for embedded
+		prompt.PrintHeader("Service Installation",
+			fmt.Sprintf("You are running as root.\nWould you like to install %s as a systemd service?\n\nThe service will start automatically on boot.", cfg.Name))
+
+		installPath := service.GetInstallPath(cfg.Name)
+		fmt.Printf("Binary will be installed to: %s\n\n", installPath)
+
+		installService, err := prompt.Confirm("Install as systemd service?", false)
+		if err != nil {
+			return false, err
+		}
+
+		if !installService {
+			return false, nil
+		}
+
+		// systemd installation with embedded binary
+		fmt.Println()
+		fmt.Println("Installing systemd service...")
+
+		installErr := service.InstallWithEmbedded(cfg, embeddedBinaryPath)
+		if installErr != nil {
+			fmt.Printf("\n[WARNING] Failed to install service: %v\n", installErr)
+			fmt.Println("You can install the service manually later.")
+			return false, nil
+		}
+
+		fmt.Println()
+		prompt.PrintSuccess("Installed as systemd service")
+		fmt.Println("\nUseful commands:")
+		fmt.Printf("  systemctl status %s    # Check status\n", cfg.Name)
+		fmt.Printf("  journalctl -u %s -f    # View logs\n", cfg.Name)
+		fmt.Printf("  systemctl restart %s   # Restart service\n", cfg.Name)
+		fmt.Printf("  muti-metroo service uninstall -n %s  # Remove service\n", cfg.Name)
+		fmt.Println()
+		return true, nil
+	}
+
+	// Non-root user: show instructions
+	prompt.PrintHeader("Service Installation",
+		"To install as a systemd service, elevated privileges are required.\nRun the wizard with sudo for systemd installation.")
+
+	showInstructions, err := prompt.Confirm("Show installation command?", true)
+	if err != nil {
+		return false, err
+	}
+
+	if showInstructions {
+		installPath := service.GetInstallPath(cfg.Name)
+		fmt.Println()
+		fmt.Println("To install later:")
+		fmt.Printf("  1. sudo cp %s %s\n", embeddedBinaryPath, installPath)
+		fmt.Printf("  2. sudo muti-metroo service install -n %s --embedded\n", cfg.Name)
+		fmt.Println()
+	}
+
+	return false, nil
+}
+
+// askConfigDelivery asks how to deploy the configuration.
+// Returns whether to embed config and the custom service name.
+func (w *Wizard) askConfigDelivery() (embedConfig bool, serviceName string, err error) {
+	prompt.PrintHeader("Configuration Delivery",
+		"Choose how to deploy the configuration.\n"+
+			"Embedding creates a single-file binary with config baked in.")
+
+	options := []string{
+		"Save to config file (traditional)",
+		"Embed in binary (single-file deployment)",
+	}
+
+	idx, err := prompt.Select("Delivery method", options, 0)
+	if err != nil {
+		return false, "", err
+	}
+
+	embedConfig = (idx == 1)
+
+	// Ask for custom service name
+	fmt.Println()
+	prompt.PrintInfo("Service name is used when installing as a system service.")
+	serviceName, err = prompt.ReadLine("Service name", "muti-metroo")
+	if err != nil {
+		return false, "", err
+	}
+
+	// Validate service name (alphanumeric and hyphens only)
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		serviceName = "muti-metroo"
+	}
+
+	// Simple validation: alphanumeric, hyphens, underscores
+	for _, r := range serviceName {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return false, "", fmt.Errorf("invalid service name: only alphanumeric characters, hyphens, and underscores are allowed")
+		}
+	}
+
+	return embedConfig, serviceName, nil
+}
+
+// embedConfigToBinary creates a binary with embedded configuration.
+// Returns the path to the created binary.
+func (w *Wizard) embedConfigToBinary(cfg *config.Config, serviceName string) (string, error) {
+	prompt.PrintHeader("Embedding Configuration",
+		"The configuration will be XOR-obfuscated and appended to a copy of the binary.")
+
+	// Marshal config to YAML
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Get current executable
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get executable path: %w", err)
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve executable path: %w", err)
+	}
+
+	// Determine default output path based on platform
+	var outputPath string
+	switch runtime.GOOS {
+	case "windows":
+		outputPath = filepath.Join(os.TempDir(), serviceName+".exe")
+	default:
+		outputPath = filepath.Join(os.TempDir(), serviceName)
+	}
+
+	// Ask for output path
+	outputPath, err = prompt.ReadLine("Output binary path", outputPath)
+	if err != nil {
+		return "", err
+	}
+
+	// Check if output file already exists
+	if _, err := os.Stat(outputPath); err == nil {
+		overwrite, err := prompt.Confirm("File exists. Overwrite?", false)
+		if err != nil {
+			return "", err
+		}
+		if !overwrite {
+			return "", fmt.Errorf("aborted: output file exists")
+		}
+	}
+
+	// Create the embedded binary
+	if err := embed.AppendConfig(execPath, outputPath, yamlData); err != nil {
+		return "", fmt.Errorf("failed to embed config: %w", err)
+	}
+
+	fmt.Println()
+	prompt.PrintSuccess(fmt.Sprintf("Created binary with embedded config: %s", outputPath))
+	fmt.Println("This binary can be run without a config file.")
+
+	return outputPath, nil
+}
+
+// embedConfigToTargetBinary embeds config into the specified target binary.
+// This is used when the user provides another binary as the "config file" to update.
+func (w *Wizard) embedConfigToTargetBinary(cfg *config.Config) (string, error) {
+	prompt.PrintHeader("Embedding Configuration to Target Binary",
+		fmt.Sprintf("The configuration will be embedded into: %s", w.targetBinaryPath))
+
+	// Marshal config to YAML
+	yamlData, err := yaml.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	binaryPath := w.targetBinaryPath
+
+	// Create a temporary file for the new binary
+	tmpFile, err := os.CreateTemp(filepath.Dir(binaryPath), ".muti-metroo-update-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+
+	// Check if the target binary has embedded config already
+	hasConfig, _ := embed.HasEmbeddedConfig(binaryPath)
+	if hasConfig {
+		// Copy the original binary without embedded config to temp file
+		if err := embed.CopyBinaryWithoutConfig(binaryPath, tmpPath); err != nil {
+			os.Remove(tmpPath)
+			return "", fmt.Errorf("failed to extract original binary: %w", err)
+		}
+	} else {
+		// Copy the binary as-is
+		if err := copyFile(binaryPath, tmpPath); err != nil {
+			os.Remove(tmpPath)
+			return "", fmt.Errorf("failed to copy binary: %w", err)
+		}
+	}
+
+	// Create the final binary with embedded config
+	finalPath := binaryPath
+	if err := embed.AppendConfig(tmpPath, finalPath, yamlData); err != nil {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("failed to embed config: %w", err)
+	}
+
+	os.Remove(tmpPath)
+
+	fmt.Println()
+	prompt.PrintSuccess(fmt.Sprintf("Embedded config into: %s", binaryPath))
+	fmt.Println("Restart the service to apply changes.")
+
+	return binaryPath, nil
+}
+
+// copyFile copies a file, preserving permissions.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	srcStat, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcStat.Mode())
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = dstFile.ReadFrom(srcFile)
+	return err
 }
 
 func (w *Wizard) privilegeLevel() string {

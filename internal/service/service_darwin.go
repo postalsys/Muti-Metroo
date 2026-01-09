@@ -199,6 +199,94 @@ func generateLaunchdPlist(cfg ServiceConfig, execPath string) string {
 `, label, execPath, cfg.ConfigPath, cfg.WorkingDir, logPath, errPath)
 }
 
+// installImplEmbedded installs launchd service for embedded config binary.
+func installImplEmbedded(cfg ServiceConfig, execPath string) error {
+	plistName := "com." + cfg.Name + ".plist"
+	plistPath := filepath.Join(launchdPlistPath, plistName)
+
+	// Check if already installed
+	if _, err := os.Stat(plistPath); err == nil {
+		return fmt.Errorf("service %s is already installed at %s", cfg.Name, plistPath)
+	}
+
+	// Generate launchd plist file (without -c flag)
+	plist := generateLaunchdPlistEmbedded(cfg, execPath)
+
+	// Write plist file
+	if err := os.WriteFile(plistPath, []byte(plist), 0644); err != nil {
+		return fmt.Errorf("failed to write launchd plist file: %w", err)
+	}
+
+	fmt.Printf("Created launchd plist: %s\n", plistPath)
+
+	// Load the service
+	label := "com." + cfg.Name
+	if output, err := runCommand("launchctl", "load", "-w", plistPath); err != nil {
+		os.Remove(plistPath)
+		return fmt.Errorf("failed to load service: %s: %w", output, err)
+	}
+
+	fmt.Printf("Loaded service: %s\n", label)
+
+	// Check if the service started
+	status, _ := statusImpl(cfg.Name)
+	if status == "running" {
+		fmt.Printf("Service is running\n")
+	} else {
+		fmt.Printf("Service status: %s\n", status)
+	}
+
+	return nil
+}
+
+// generateLaunchdPlistEmbedded generates a launchd plist file for embedded config binary.
+// Note: No -c flag since config is embedded in the binary.
+func generateLaunchdPlistEmbedded(cfg ServiceConfig, execPath string) string {
+	label := "com." + cfg.Name
+	logPath := "/var/log/" + cfg.Name + ".log"
+	errPath := "/var/log/" + cfg.Name + ".err.log"
+
+	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>%s</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>%s</string>
+        <string>run</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>%s</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>StandardOutPath</key>
+    <string>%s</string>
+
+    <key>StandardErrorPath</key>
+    <string>%s</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
+`, label, execPath, cfg.WorkingDir, logPath, errPath)
+}
+
 // =============================================================================
 // User service stubs (not supported on macOS - use launchd instead)
 // =============================================================================

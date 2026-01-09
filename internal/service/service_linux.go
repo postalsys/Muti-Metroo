@@ -188,6 +188,91 @@ WantedBy=multi-user.target
 `, cfg.Description, execPath, cfg.ConfigPath, cfg.WorkingDir, user, group, cfg.WorkingDir, cfg.Name)
 }
 
+// installImplEmbedded installs systemd service for embedded config binary.
+func installImplEmbedded(cfg ServiceConfig, execPath string) error {
+	unitName := cfg.Name + ".service"
+	unitPath := filepath.Join(systemdUnitPath, unitName)
+
+	// Check if already installed
+	if _, err := os.Stat(unitPath); err == nil {
+		return fmt.Errorf("service %s is already installed at %s", cfg.Name, unitPath)
+	}
+
+	// Generate systemd unit file (without -c flag)
+	unit := generateSystemdUnitEmbedded(cfg, execPath)
+
+	// Write unit file
+	if err := os.WriteFile(unitPath, []byte(unit), 0644); err != nil {
+		return fmt.Errorf("failed to write systemd unit file: %w", err)
+	}
+
+	fmt.Printf("Created systemd unit: %s\n", unitPath)
+
+	// Reload systemd
+	if output, err := runCommand("systemctl", "daemon-reload"); err != nil {
+		os.Remove(unitPath)
+		return fmt.Errorf("failed to reload systemd: %s: %w", output, err)
+	}
+
+	// Enable the service
+	if output, err := runCommand("systemctl", "enable", cfg.Name); err != nil {
+		return fmt.Errorf("failed to enable service: %s: %w", output, err)
+	}
+
+	fmt.Printf("Enabled service: %s\n", cfg.Name)
+
+	// Start the service
+	if output, err := runCommand("systemctl", "start", cfg.Name); err != nil {
+		return fmt.Errorf("failed to start service: %s: %w", output, err)
+	}
+
+	fmt.Printf("Started service: %s\n", cfg.Name)
+
+	return nil
+}
+
+// generateSystemdUnitEmbedded generates a systemd unit file for embedded config binary.
+// Note: No -c flag since config is embedded in the binary.
+func generateSystemdUnitEmbedded(cfg ServiceConfig, execPath string) string {
+	var user, group string
+	if cfg.User != "" {
+		user = fmt.Sprintf("User=%s\n", cfg.User)
+	}
+	if cfg.Group != "" {
+		group = fmt.Sprintf("Group=%s\n", cfg.Group)
+	}
+
+	return fmt.Sprintf(`[Unit]
+Description=%s
+Documentation=https://github.com/postalsys/muti-metroo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s run
+WorkingDirectory=%s
+%s%sRestart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=%s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=%s
+
+[Install]
+WantedBy=multi-user.target
+`, cfg.Description, execPath, cfg.WorkingDir, user, group, cfg.WorkingDir, cfg.Name)
+}
+
 // =============================================================================
 // Cron+Nohup User Service (non-root installation)
 // =============================================================================

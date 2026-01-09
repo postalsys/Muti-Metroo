@@ -139,6 +139,8 @@ root privileges.`,
 }
 
 func setupCmd() *cobra.Command {
+	var configPath string
+
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Interactive setup wizard",
@@ -152,9 +154,37 @@ The wizard will guide you through:
   - Peer connections
   - SOCKS5 proxy settings (for ingress nodes)
   - Exit node configuration (for exit nodes)
-  - Advanced options (logging, health checks)`,
+  - Advanced options (logging, health checks)
+
+You can also use this command to edit the configuration of an existing binary
+that has embedded configuration. Use -c to specify the binary path:
+
+  muti-metroo setup -c /usr/local/bin/my-agent
+
+If the binary has embedded config, it will be loaded as defaults.
+After the wizard completes, the new config will be embedded into that binary.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			w := wizard.New()
+
+			// Check if the config path is a binary with embedded config
+			if configPath != "" {
+				// Check if it looks like a binary (not .yaml/.yml)
+				if !strings.HasSuffix(configPath, ".yaml") && !strings.HasSuffix(configPath, ".yml") {
+					// Check if it's an executable
+					info, err := os.Stat(configPath)
+					if err != nil {
+						return fmt.Errorf("failed to stat %s: %w", configPath, err)
+					}
+					// Check if it's a regular file (not a directory)
+					if info.Mode().IsRegular() {
+						// Try to set it as target binary
+						if err := w.SetTargetBinary(configPath); err != nil {
+							return fmt.Errorf("failed to set target binary: %w", err)
+						}
+					}
+				}
+			}
+
 			result, err := w.Run()
 			if err != nil {
 				return fmt.Errorf("setup wizard failed: %w", err)
@@ -164,6 +194,8 @@ The wizard will guide you through:
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to config file or binary with embedded config")
 
 	return cmd
 }
@@ -218,10 +250,14 @@ func runCmd() *cobra.Command {
 		Short: "Run the mesh agent",
 		Long:  "Start the mesh agent with the specified configuration.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Load configuration
-			cfg, err := config.Load(configPath)
+			// Load configuration (embedded config takes precedence over -c flag)
+			cfg, isEmbedded, err := config.LoadOrEmbedded(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			if isEmbedded {
+				fmt.Println("Using embedded configuration")
 			}
 
 			// Create agent
@@ -279,7 +315,7 @@ func runCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&configPath, "config", "c", "./config.yaml", "Path to configuration file")
+	cmd.Flags().StringVarP(&configPath, "config", "c", "./config.yaml", "Path to configuration file (ignored if embedded config present)")
 
 	return cmd
 }

@@ -152,6 +152,71 @@ func installImpl(cfg ServiceConfig, execPath string) error {
 	return nil
 }
 
+// installImplEmbedded installs Windows service for embedded config binary.
+// Note: No -c flag since config is embedded in the binary.
+func installImplEmbedded(cfg ServiceConfig, execPath string) error {
+	// Open Service Control Manager
+	scManager, err := openSCManager()
+	if err != nil {
+		return fmt.Errorf("failed to open service control manager: %w", err)
+	}
+	defer closeSCHandle(scManager)
+
+	// Check if already installed
+	existingService, _ := openService(scManager, cfg.Name)
+	if existingService != 0 {
+		closeSCHandle(existingService)
+		return fmt.Errorf("service %s is already installed", cfg.Name)
+	}
+
+	// Build command line (no -c flag for embedded config)
+	cmdLine := fmt.Sprintf(`"%s" run`, execPath)
+
+	// Create the service
+	namePtr, _ := syscall.UTF16PtrFromString(cfg.Name)
+	displayNamePtr, _ := syscall.UTF16PtrFromString(cfg.DisplayName)
+	cmdLinePtr, _ := syscall.UTF16PtrFromString(cmdLine)
+
+	r1, _, err := procCreateService.Call(
+		scManager,
+		uintptr(unsafe.Pointer(namePtr)),
+		uintptr(unsafe.Pointer(displayNamePtr)),
+		SERVICE_ALL_ACCESS,
+		SERVICE_WIN32_OWN_PROCESS,
+		SERVICE_AUTO_START,
+		SERVICE_ERROR_NORMAL,
+		uintptr(unsafe.Pointer(cmdLinePtr)),
+		0, // No load order group
+		0, // No tag
+		0, // No dependencies
+		0, // LocalSystem account
+		0, // No password
+	)
+	if r1 == 0 {
+		return fmt.Errorf("failed to create service: %w", err)
+	}
+	serviceHandle := r1
+	defer closeSCHandle(serviceHandle)
+
+	fmt.Printf("Created Windows service: %s\n", cfg.Name)
+
+	// Set service description
+	if cfg.Description != "" {
+		setServiceDescription(serviceHandle, cfg.Description)
+	}
+
+	// Start the service
+	r1, _, err = procStartService.Call(serviceHandle, 0, 0)
+	if r1 == 0 {
+		fmt.Printf("Note: service created but failed to start: %v\n", err)
+		fmt.Println("You may need to start it manually with: net start", cfg.Name)
+	} else {
+		fmt.Printf("Started Windows service: %s\n", cfg.Name)
+	}
+
+	return nil
+}
+
 // uninstallImpl removes the Windows service.
 func uninstallImpl(serviceName string) error {
 	// Open Service Control Manager

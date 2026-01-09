@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/embed"
 	"gopkg.in/yaml.v3"
 )
 
@@ -602,6 +603,32 @@ func Load(path string) (*Config, error) {
 	}
 
 	return Parse(data)
+}
+
+// LoadOrEmbedded loads configuration from embedded binary data if present,
+// otherwise falls back to loading from the specified file path.
+// Returns the config, a boolean indicating if it was embedded, and any error.
+// When embedded config is present, the path argument is ignored.
+func LoadOrEmbedded(path string) (*Config, bool, error) {
+	// Check for embedded config first
+	if embed.HasEmbeddedConfigSelf() {
+		data, err := embed.ReadFromSelf()
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to read embedded config: %w", err)
+		}
+		cfg, err := Parse(data)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to parse embedded config: %w", err)
+		}
+		return cfg, true, nil
+	}
+
+	// Fall back to file
+	cfg, err := Load(path)
+	if err != nil {
+		return nil, false, err
+	}
+	return cfg, false, nil
 }
 
 // Parse parses configuration from YAML bytes.
