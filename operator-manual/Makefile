@@ -8,6 +8,10 @@ ASSETS_DIR := assets
 OUTPUT_PDF := $(BUILD_DIR)/muti-metroo-operator-manual.pdf
 OUTPUT_HTML := $(BUILD_DIR)/manual.html
 
+# Version and build date (can be overridden via environment or command line)
+VERSION ?= dev
+BUILD_DATE ?= $(shell date +%Y-%m-%d)
+
 # Find all source markdown files (sorted by filename)
 SRC_FILES := $(sort $(wildcard $(SRC_DIR)/*.md))
 PROCESSED_FILES := $(patsubst $(SRC_DIR)/%.md,$(PROCESSED_DIR)/%.md,$(SRC_FILES))
@@ -84,11 +88,16 @@ PDF_ENGINE := $(shell which xelatex > /dev/null 2>&1 && echo xelatex || echo tec
 # Build PDF (run from build dir so SVG paths resolve correctly)
 pdf: $(BUILD_DIR)/combined.md
 	@echo "Building PDF with $(PDF_ENGINE)..."
+	@echo "Version: $(VERSION), Build Date: $(BUILD_DATE)"
+	@# Generate version definitions file
+	@echo '\\renewcommand{\\docversion}{$(VERSION)}' > $(BUILD_DIR)/version.tex
+	@echo '\\renewcommand{\\builddate}{$(BUILD_DATE)}' >> $(BUILD_DIR)/version.tex
 	cd $(BUILD_DIR) && pandoc combined.md \
 		--metadata-file=../metadata.yaml \
 		--pdf-engine=$(PDF_ENGINE) \
 		--toc --toc-depth=3 \
 		--include-in-header=../$(ASSETS_DIR)/header.tex \
+		--include-in-header=version.tex \
 		--highlight-style=tango \
 		-V geometry:margin=1in \
 		-V fontsize=11pt \

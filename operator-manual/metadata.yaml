@@ -35,6 +35,10 @@ toccolor: "black"
 # Code highlighting
 highlight-style: tango
 
+# Version info (overridden by make via -V options)
+docversion: "dev"
+builddate: "\\today"
+
 # Header and footer
 header-includes:
   - \usepackage{fancyhdr}
