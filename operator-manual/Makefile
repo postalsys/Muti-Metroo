@@ -92,6 +92,8 @@ pdf: $(BUILD_DIR)/combined.md
 	@# Generate version definitions file
 	@echo '\\renewcommand{\\docversion}{$(VERSION)}' > $(BUILD_DIR)/version.tex
 	@echo '\\renewcommand{\\builddate}{$(BUILD_DATE)}' >> $(BUILD_DIR)/version.tex
+	@# Copy logo to build dir
+	@cp $(ASSETS_DIR)/logo.png $(BUILD_DIR)/
 	cd $(BUILD_DIR) && pandoc combined.md \
 		--metadata-file=../metadata.yaml \
 		--pdf-engine=$(PDF_ENGINE) \
