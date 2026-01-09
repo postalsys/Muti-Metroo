@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.0.34...muti-metroo-v1.1.0) (2026-01-09)
+
+
+### Features
+
+* add splash page to HTTP API root ([9d71346](https://github.com/postalsys/Muti-Metroo/commit/9d71346979ee262344cdfbc6440df21fefc35be2))
+
 ## [1.0.34](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.0.33...muti-metroo-v1.0.34) (2026-01-08)
 
 
