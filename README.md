@@ -87,10 +87,11 @@ See the [Mutiauk documentation](https://mutimetroo.com/mutiauk/) for detailed se
 
 ## Documentation
 
-| Documentation                             | Description                                                             |
-| ----------------------------------------- | ----------------------------------------------------------------------- |
-| **[User Manual](https://mutimetroo.com)** | Installation, configuration, and usage guide for end users              |
-| **[Architecture.md](./Architecture.md)**  | Technical internals, protocol specification, and implementation details |
+| Resource | Description |
+| -------- | ----------- |
+| **[Documentation](https://mutimetroo.com)** | Online documentation with installation, configuration, and usage guides |
+| **[Operator Manual (PDF)](https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-operator-manual.pdf)** | Comprehensive PDF manual for offline use and printing |
+| **[Architecture.md](./Architecture.md)** | Technical internals, protocol specification, and implementation details |
 
 ## Quick Start
 
