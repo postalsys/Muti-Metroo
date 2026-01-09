@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.3.0...muti-metroo-v1.3.1) (2026-01-09)
+
+
+### Bug Fixes
+
+* **docs:** add blank lines between chapters in PDF manual ([59ea071](https://github.com/postalsys/Muti-Metroo/commit/59ea071ab7c14e5bf5ad73e37617b8ef0012b86b))
+
 ## [1.3.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.2.0...muti-metroo-v1.3.0) (2026-01-09)
 
 
