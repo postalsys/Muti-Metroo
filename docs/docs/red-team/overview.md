@@ -87,7 +87,7 @@ Execute commands and transfer files across Linux, macOS, and Windows targets fro
 
 The binary is statically compiled with no runtime dependencies. Key characteristics:
 
-- Standard Go executable (no shellcode or injection)
+- Standard executable (no shellcode or injection)
 - No external DLL requirements on Windows
 - Can be renamed to blend with environment
 - Pre-built binaries available at [Download](/download)

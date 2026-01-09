@@ -26,11 +26,7 @@ No. Muti Metroo runs entirely in userspace. However, you may need root for:
 
 - Linux (amd64, arm64)
 - macOS (amd64, arm64)
-- Windows (amd64)
-
-### What Go version is required?
-
-Go 1.23 or later for building from source.
+- Windows (amd64, arm64)
 
 ## Networking
 

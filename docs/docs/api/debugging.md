@@ -9,7 +9,7 @@ sidebar_position: 9
 
 # Debugging Endpoints
 
-Muti Metroo exposes Go pprof endpoints for profiling and debugging.
+Muti Metroo exposes pprof endpoints for profiling and debugging.
 
 ## Endpoints
 
