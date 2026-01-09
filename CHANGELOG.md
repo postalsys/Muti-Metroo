@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.4.0...muti-metroo-v2.0.0) (2026-01-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* The `allowed_ports` configuration option has been removed from UDP relay. UDP now allows all ports, matching TCP behavior which never had port restrictions.
+
+### Features
+
+* remove UDP port restrictions to match TCP behavior ([fffb0bf](https://github.com/postalsys/Muti-Metroo/commit/fffb0bf95d75331824eea36e971bd1ccce108c97))
+
 ## [1.4.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.3.1...muti-metroo-v1.4.0) (2026-01-09)
 
 
