@@ -84,6 +84,14 @@ npm run build      # Build for production (to test)
 
 Releases are fully automated using [release-please](https://github.com/googleapis/release-please).
 
+**IMPORTANT: Never manually manage releases, tags, or CHANGELOG.md.** All of these are automatically handled by the release-please GitHub Action. Do not:
+- Create git tags manually
+- Edit CHANGELOG.md directly
+- Create GitHub releases manually
+- Modify version numbers in code
+
+Just write commits with conventional commit messages and let release-please handle everything.
+
 **Conventional Commits**: All commits must follow the conventional commit format:
 
 ```
