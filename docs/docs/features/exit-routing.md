@@ -14,6 +14,10 @@ Exit nodes advertise routes and open TCP connections to external destinations. T
 - **CIDR routes**: Match destinations by IP address (e.g., `10.0.0.0/8`)
 - **Domain routes**: Match destinations by domain name (e.g., `*.example.com`)
 
+:::note SOCKS5 vs TUN Interface
+Domain routes only work with **SOCKS5 clients** that send the destination hostname. The [Mutiauk TUN interface](/mutiauk) operates at Layer 3 (IP) and only sees IP addresses after DNS resolution, so it can only use **CIDR routes**. Mutiauk's autoroutes feature fetches only CIDR routes from Muti Metroo.
+:::
+
 ## Configuration
 
 ```yaml

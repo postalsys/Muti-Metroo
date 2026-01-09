@@ -101,7 +101,9 @@ logging:
 
 ### Autoroutes
 
-Automatically fetch CIDR routes from Muti Metroo's API:
+Automatically fetch CIDR routes from Muti Metroo's API.
+
+**Note:** Autoroutes only fetches **CIDR routes** (IP-based), not domain routes. Domain-based routing requires the destination hostname, which is only available to SOCKS5 clients. Mutiauk operates at Layer 3 (IP) and only sees IP addresses after DNS resolution.
 
 ```yaml
 autoroutes:
