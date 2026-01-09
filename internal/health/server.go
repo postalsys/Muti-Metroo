@@ -25,6 +25,79 @@ import (
 	"github.com/postalsys/muti-metroo/internal/webui"
 )
 
+// splashPageTemplate is the HTML template for the root splash page.
+const splashPageTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Muti Metroo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%%, #16213e 100%%);
+            color: #e4e4e7;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            text-align: center;
+            padding: 40px 20px;
+            max-width: 480px;
+        }
+        .logo {
+            width: 160px;
+            height: 160px;
+            margin-bottom: 24px;
+        }
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #ffffff;
+        }
+        .tagline {
+            font-size: 1.1rem;
+            color: #a1a1aa;
+            margin-bottom: 16px;
+        }
+        .description {
+            font-size: 0.95rem;
+            color: #71717a;
+            line-height: 1.6;
+            margin-bottom: 32px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 28px;
+            background: #3b82f6;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 1rem;
+            transition: background 0.2s ease;
+        }
+        .button:hover {
+            background: #2563eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="/ui/img/logo.png" alt="Muti Metroo" class="logo">
+        <h1>Muti Metroo</h1>
+        <p class="tagline">Userspace Mesh Networking Agent</p>
+        <p class="description">End-to-end encrypted tunnels across heterogeneous transports with multi-hop routing.</p>
+        %s
+    </div>
+</body>
+</html>
+`
+
 // StatsProvider provides agent statistics.
 type StatsProvider interface {
 	// IsRunning returns true if the agent is running.
@@ -379,6 +452,10 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/debug/", disabledHandler("pprof"))
 	}
 
+	// Root splash page - shows logo, name, and optional dashboard link
+	// The handler checks for exact "/" path and returns 404 for other unmatched paths
+	mux.HandleFunc("/", s.handleSplash)
+
 	s.server = &http.Server{
 		Addr:         cfg.Address,
 		Handler:      mux,
@@ -527,6 +604,31 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("READY\n"))
+}
+
+// handleSplash handles the root "/" splash page.
+// Shows Muti Metroo logo, name, description, and optional dashboard link.
+func (s *Server) handleSplash(w http.ResponseWriter, r *http.Request) {
+	// Only handle exact "/" path, return 404 for other unmatched paths
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Conditionally include dashboard button if enabled
+	dashboardLink := ""
+	if s.cfg.EnableDashboard {
+		dashboardLink = `<a href="/ui/" class="button">Open Dashboard</a>`
+	}
+
+	fmt.Fprintf(w, splashPageTemplate, dashboardLink)
 }
 
 // Handler returns the HTTP handler for embedding in other servers.
