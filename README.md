@@ -43,6 +43,28 @@ A userspace mesh networking agent written in Go that creates virtual TCP tunnels
 
 For transparent traffic routing without per-application SOCKS5 configuration, use **[Mutiauk](https://github.com/postalsys/Mutiauk)** - a companion TUN interface tool that forwards all traffic through Muti Metroo's SOCKS5 proxy.
 
+```
+    OPERATOR LINUX                                 MESH NETWORK
+    .-------------------.          .---------------------------------------------.
+    |    +-----------+  |    +-------------+     +-------------+     +-------------+     +--------+
+    |    |    App    |  |    |   Agent A   |     |   Agent B   |     |   Agent C   |     |        |
+    |    +-----------+  |    |   INGRESS   |=====|   TRANSIT   |=====|    EXIT     |---->| Target |
+    |          |        |    |             |     |             |     |             |     | Server |
+    |    +-----------+  |    +-------------+     +-------------+     +-------------+     +--------+
+    |    |  Mutiauk  |------>|  SOCKS5     |           |                   |
+    |    |   (TUN)   |  |    |  :1080      |           |                   |
+    |    +-----------+  |    +-------------+           |                   |
+    '-------------------'          '---------Encrypted Tunnel--------------'
+      No proxy config                      (Transit Cannot Decrypt)
+        required
+```
+
+**With Mutiauk** (transparent routing):
+1. Application sends traffic normally (no proxy configuration needed)
+2. Mutiauk TUN interface captures traffic destined for configured routes
+3. Traffic is forwarded to Muti Metroo's SOCKS5 proxy on localhost
+4. Mesh routing and encryption work the same as direct SOCKS5 usage
+
 ```bash
 # Install Mutiauk (Linux only)
 curl -L -o mutiauk https://github.com/postalsys/Mutiauk/releases/latest/download/mutiauk-linux-amd64
