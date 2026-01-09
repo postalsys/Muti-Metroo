@@ -63,6 +63,8 @@ flowchart LR
 | **UDP Support** | UDP datagram forwarding via SOCKS5 UDP ASSOCIATE |
 | **Route-Based** | Only intercept traffic for configured destinations |
 | **Autoroutes** | Automatically fetch routes from Muti Metroo API |
+| **Route Persistence** | Save routes to config with `--persist` flag |
+| **CLI-Daemon IPC** | Unix socket API for real-time daemon communication |
 | **Userspace** | No kernel modules required (uses TUN) |
 
 ## Download
@@ -202,6 +204,25 @@ When enabled, Mutiauk:
 Autoroutes are ephemeral - they are not saved to the config file and are re-fetched when Mutiauk restarts. Static routes in the `routes` section always take precedence over autoroutes.
 :::
 
+### Route Persistence
+
+By default, routes added via CLI are runtime-only and will be lost when the daemon restarts. Use the `--persist` flag to save routes to the configuration file:
+
+```bash
+# Add route and save to config file
+mutiauk route add 10.50.0.0/16 --persist
+# Output:
+# Added route: 10.50.0.0/16
+# Saved to config: /etc/mutiauk/config.yaml
+
+# Remove route and update config file
+mutiauk route remove 10.50.0.0/16 --persist
+```
+
+:::note CLI-Daemon Communication
+When the daemon is running, CLI commands communicate via a Unix socket (configured in `daemon.socket_path`). This enables the CLI to query daemon state, verify configuration, and make changes that take effect immediately. If the daemon is not running, CLI commands fall back to direct kernel manipulation for route changes.
+:::
+
 ### CLI Commands
 
 ```bash
@@ -213,15 +234,17 @@ mutiauk daemon status     # Check if daemon is running
 
 # Route management
 mutiauk route list        # List active routes
-mutiauk route add <cidr>  # Add a route
+mutiauk route add <cidr>  # Add a route (runtime only)
+mutiauk route add <cidr> --persist  # Add route and save to config
 mutiauk route remove <cidr>  # Remove a route
+mutiauk route remove <cidr> --persist  # Remove route and update config
 mutiauk route plan        # Show pending route changes
 mutiauk route apply       # Apply routes from config file
 mutiauk route check       # Check for route conflicts
 mutiauk route trace <ip|domain>  # Analyze routing for a destination
 
-# System status
-mutiauk status            # Show comprehensive status with connectivity tests
+# System status (queries running daemon via Unix socket)
+mutiauk status            # Show daemon info, config path, uptime, connectivity
 mutiauk status --json     # Output status in JSON format
 mutiauk status --skip-tests  # Skip connectivity tests (faster)
 
