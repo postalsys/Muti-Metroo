@@ -168,8 +168,6 @@ func (w *Wizard) Run() (*Result, error) {
 
 func (w *Wizard) printBanner() {
 	prompt.PrintBanner("Muti Metroo Setup Wizard", "Userspace Mesh Networking Agent")
-	fmt.Println("By using this software, you agree to the Terms of Service:")
-	fmt.Println("https://mutimetroo.com/terms-of-service")
 	fmt.Println()
 }
 

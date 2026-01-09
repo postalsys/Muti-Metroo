@@ -321,7 +321,6 @@ An agent can serve multiple roles simultaneously:
 | `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
 | `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
 | `integration`  | Integration tests for multi-agent mesh scenarios                                            |
-| `licenses`     | Embedded third-party license information with CSV parsing and license text retrieval        |
 | `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
 | `logging`      | Structured logging with slog - text/JSON formats, standard attribute keys                   |
 | `peer`         | Peer connection lifecycle - handshake, keepalive, reconnection with backoff                 |
@@ -415,4 +414,4 @@ docker run -v $(pwd)/config.yaml:/app/config.yaml \
 
 ## License
 
-Proprietary - All rights reserved.
+MIT License - see [LICENSE](./LICENSE) file.

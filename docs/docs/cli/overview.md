@@ -65,7 +65,6 @@ Available for all commands:
 | `download` | Download file from remote agent |
 | `service` | Service management (install, uninstall, status) |
 | `management-key` | Generate and manage mesh topology encryption keys |
-| `licenses` | Show third-party license information |
 
 ## Quick Examples
 

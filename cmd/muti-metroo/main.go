@@ -26,7 +26,6 @@ import (
 	"github.com/postalsys/muti-metroo/internal/config"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
-	"github.com/postalsys/muti-metroo/internal/licenses"
 	"github.com/postalsys/muti-metroo/internal/probe"
 	"github.com/postalsys/muti-metroo/internal/service"
 	"github.com/postalsys/muti-metroo/internal/shell"
@@ -132,10 +131,6 @@ root privileges.`,
 	mgmtKey := managementKeyCmd()
 	mgmtKey.GroupID = "admin"
 	rootCmd.AddCommand(mgmtKey)
-
-	lic := licensesCmd()
-	lic.GroupID = "admin"
-	rootCmd.AddCommand(lic)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -2460,127 +2455,4 @@ func (p *progressTrackingWriter) Write(buf []byte) (int, error) {
 		}
 	}
 	return n, err
-}
-
-func licensesCmd() *cobra.Command {
-	var format string
-	var showFull bool
-
-	cmd := &cobra.Command{
-		Use:   "licenses",
-		Short: "Show third-party license information",
-		Long: `Display license information for all third-party dependencies included in this binary.
-
-This command shows the licenses of all open-source libraries that Muti Metroo depends on.
-All dependencies use permissive licenses (MIT, BSD-3-Clause, Apache-2.0, ISC).
-
-Output formats:
-  - table (default): Pretty table with Package and License columns
-  - json: JSON array of {package, url, type}
-  - csv: Raw CSV output (same format as embedded data)
-
-Use --full to append the complete license texts after the summary.
-
-Examples:
-  # Show license summary in table format
-  muti-metroo licenses
-
-  # Output as JSON
-  muti-metroo licenses --format json
-
-  # Show all license texts
-  muti-metroo licenses --full
-
-  # Export to file
-  muti-metroo licenses --format csv > licenses.csv`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			licList, err := licenses.List()
-			if err != nil {
-				return fmt.Errorf("failed to load licenses: %w", err)
-			}
-
-			switch format {
-			case "table":
-				fmt.Printf("Third-Party Licenses\n")
-				fmt.Printf("====================\n\n")
-
-				// Calculate column widths
-				maxPkg := 40
-				for _, lic := range licList {
-					if len(lic.Package) > maxPkg {
-						maxPkg = len(lic.Package)
-					}
-				}
-				if maxPkg > 60 {
-					maxPkg = 60 // Cap width
-				}
-
-				fmt.Printf("%-*s  %s\n", maxPkg, "Package", "License")
-				fmt.Printf("%-*s  %s\n", maxPkg, strings.Repeat("-", maxPkg), "-------")
-
-				for _, lic := range licList {
-					pkg := lic.Package
-					if len(pkg) > maxPkg {
-						pkg = pkg[:maxPkg-3] + "..."
-					}
-					fmt.Printf("%-*s  %s\n", maxPkg, pkg, lic.Type)
-				}
-
-				fmt.Printf("\nTotal: %d dependencies\n", len(licList))
-
-				// Show license type summary
-				types := licenses.LicenseTypes()
-				var summary []string
-				for t, count := range types {
-					summary = append(summary, fmt.Sprintf("%s: %d", t, count))
-				}
-				fmt.Printf("License types: %s\n", strings.Join(summary, ", "))
-
-				if !showFull {
-					fmt.Printf("\nUse --full to see complete license texts.\n")
-				}
-
-			case "json":
-				type licenseJSON struct {
-					Package string `json:"package"`
-					URL     string `json:"url"`
-					Type    string `json:"type"`
-				}
-				list := make([]licenseJSON, len(licList))
-				for i, lic := range licList {
-					list[i] = licenseJSON{
-						Package: lic.Package,
-						URL:     lic.URL,
-						Type:    lic.Type,
-					}
-				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(list)
-
-			case "csv":
-				fmt.Print(string(licenses.LicensesCSV))
-				return nil
-
-			default:
-				return fmt.Errorf("unknown format: %s (use table, json, or csv)", format)
-			}
-
-			if showFull {
-				fmt.Printf("\n")
-				text, err := licenses.GetAllLicenseTexts()
-				if err != nil {
-					return fmt.Errorf("failed to get license texts: %w", err)
-				}
-				fmt.Print(text)
-			}
-
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVarP(&format, "format", "f", "table", "Output format: table, json, csv")
-	cmd.Flags().BoolVar(&showFull, "full", false, "Show full license texts")
-
-	return cmd
 }

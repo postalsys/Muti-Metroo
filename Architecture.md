@@ -2447,11 +2447,6 @@ muti-metroo/
 │   │   ├── loadtest.go             # Load testing utilities
 │   │   └── loadtest_test.go        # Load test tests
 │   │
-│   ├── licenses/
-│   │   ├── licenses.go             # Third-party license aggregation
-│   │   ├── embed.go                # Embedded license CSV and texts
-│   │   └── third_party/            # Collected third-party licenses
-│   │
 │   └── integration/
 │       ├── chain_test.go           # Multi-agent chain tests
 │       ├── e2e_stream_test.go      # End-to-end stream tests
@@ -2725,7 +2720,6 @@ docker run --rm muti-metroo-test
 | `service install`   | Install as system service              |
 | `service uninstall` | Remove system service                  |
 | `service status`    | Check service status                   |
-| `licenses`          | Show third-party license information   |
 
 ---
 

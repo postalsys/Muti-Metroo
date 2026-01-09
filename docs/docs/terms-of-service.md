@@ -7,15 +7,27 @@ sidebar_position: 100
 
 **Last Updated: January 2026**
 
-These Terms of Service ("Terms") govern your use of Muti Metroo software ("Software") provided by Postal Systems OÜ ("Company", "we", "us", or "our"). By downloading, installing, or using the Software, you agree to be bound by these Terms.
+These Terms of Service ("Terms") govern your download and use of pre-built Muti Metroo binaries ("Binaries") provided by Postal Systems OU ("Company", "we", "us", or "our").
 
-## 1. Acceptance of Terms
+:::info Source Code License
+The Muti Metroo source code is available under the [MIT License](https://github.com/postalsys/Muti-Metroo/blob/master/LICENSE). These Terms do not apply to the source code - you may use, modify, and distribute the source code according to the MIT License terms.
+:::
 
-By accessing or using Muti Metroo, you acknowledge that you have read, understood, and agree to be bound by these Terms. If you do not agree to these Terms, you must not use the Software.
+## 1. Scope and Acceptance
+
+These Terms apply specifically to pre-built binary downloads from our official distribution channels. By downloading these Binaries, you acknowledge that you have read, understood, and agree to be bound by these Terms.
+
+**What these Terms cover:**
+- Pre-built binaries downloaded from mutimetroo.com
+- Pre-built binaries downloaded from GitHub Releases
+
+**What these Terms do NOT cover:**
+- Source code (governed by MIT License)
+- Binaries you compile yourself from source code
 
 ## 2. Permitted Use
 
-You may use Muti Metroo only for **lawful and legitimate purposes**, including but not limited to:
+You may use the Binaries only for **lawful and legitimate purposes**, including but not limited to:
 
 - Secure network communications within your own infrastructure
 - Authorized penetration testing with explicit written permission
@@ -25,7 +37,7 @@ You may use Muti Metroo only for **lawful and legitimate purposes**, including b
 
 ## 3. Prohibited Use
 
-You agree **NOT** to use Muti Metroo for any unlawful or prohibited activities, including but not limited to:
+You agree **NOT** to use the Binaries for any unlawful or prohibited activities, including but not limited to:
 
 - Unauthorized access to computer systems or networks
 - Circumventing security measures without authorization
@@ -40,31 +52,31 @@ You agree **NOT** to use Muti Metroo for any unlawful or prohibited activities, 
 
 You are solely responsible for:
 
-- Ensuring your use of the Software complies with all applicable laws and regulations
-- Obtaining all necessary permissions and authorizations before using the Software
+- Ensuring your use of the Binaries complies with all applicable laws and regulations
+- Obtaining all necessary permissions and authorizations before using the Binaries
 - The security of your own systems and configurations
-- Any consequences arising from your use of the Software
+- Any consequences arising from your use of the Binaries
 
 ## 5. Disclaimer of Warranties
 
-THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO:
+THE BINARIES ARE PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO:
 
 - IMPLIED WARRANTIES OF MERCHANTABILITY
 - FITNESS FOR A PARTICULAR PURPOSE
 - NON-INFRINGEMENT
 - ACCURACY OR RELIABILITY OF RESULTS
 
-We do not warrant that the Software will meet your requirements, operate without interruption, or be error-free.
+We do not warrant that the Binaries will meet your requirements, operate without interruption, or be error-free.
 
 ## 6. Limitation of Liability
 
-**TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, Postal Systems OÜ AND ITS OFFICERS, DIRECTORS, EMPLOYEES, AGENTS, AND AFFILIATES SHALL NOT BE LIABLE FOR:**
+**TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, Postal Systems OU AND ITS OFFICERS, DIRECTORS, EMPLOYEES, AGENTS, AND AFFILIATES SHALL NOT BE LIABLE FOR:**
 
 - Any indirect, incidental, special, consequential, or punitive damages
 - Any loss of profits, data, use, goodwill, or other intangible losses
 - Any damages resulting from unauthorized access to or alteration of your data
-- Any damages resulting from your use or inability to use the Software
-- Any damages resulting from any third party's actions related to your use of the Software
+- Any damages resulting from your use or inability to use the Binaries
+- Any damages resulting from any third party's actions related to your use of the Binaries
 
 **THIS LIMITATION APPLIES REGARDLESS OF THE LEGAL THEORY UPON WHICH DAMAGES MAY BE CLAIMED AND EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.**
 
@@ -72,41 +84,37 @@ In jurisdictions that do not allow the exclusion or limitation of liability for 
 
 ## 7. Indemnification
 
-You agree to indemnify, defend, and hold harmless Postal Systems OÜ and its officers, directors, employees, agents, and affiliates from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys' fees) arising out of or related to:
+You agree to indemnify, defend, and hold harmless Postal Systems OU and its officers, directors, employees, agents, and affiliates from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys' fees) arising out of or related to:
 
-- Your use or misuse of the Software
+- Your use or misuse of the Binaries
 - Your violation of these Terms
 - Your violation of any applicable laws or regulations
 - Your violation of any third-party rights
 
 ## 8. Export Compliance
 
-The Software may be subject to export control laws and regulations. You agree to comply with all applicable export and re-export restrictions and regulations.
+The Binaries may be subject to export control laws and regulations. You agree to comply with all applicable export and re-export restrictions and regulations.
 
 ## 9. Modifications to Terms
 
-We reserve the right to modify these Terms at any time. Updated Terms will be posted on our website with a new "Last Updated" date. Your continued use of the Software after any changes constitutes acceptance of the modified Terms.
+We reserve the right to modify these Terms at any time. Updated Terms will be posted on our website with a new "Last Updated" date. Your continued use of the Binaries after any changes constitutes acceptance of the modified Terms.
 
-## 10. Termination
-
-We reserve the right to terminate or suspend your access to the Software at any time, without prior notice, for conduct that we believe violates these Terms or is harmful to other users, us, or third parties.
-
-## 11. Governing Law
+## 10. Governing Law
 
 These Terms shall be governed by and construed in accordance with the laws of the Republic of Estonia, without regard to its conflict of law provisions.
 
-## 12. Severability
+## 11. Severability
 
 If any provision of these Terms is found to be unenforceable or invalid, that provision shall be limited or eliminated to the minimum extent necessary so that these Terms shall otherwise remain in full force and effect.
 
-## 13. Contact Information
+## 12. Contact Information
 
 For questions about these Terms of Service, please contact:
 
-**Postal Systems OÜ** \
+**Postal Systems OU** \
 Estonia \
 Email: info@postalsys.com
 
 ---
 
-By using Muti Metroo, you acknowledge that you have read and understood these Terms of Service and agree to be bound by them.
+By downloading Muti Metroo binaries, you acknowledge that you have read and understood these Terms of Service and agree to be bound by them.
