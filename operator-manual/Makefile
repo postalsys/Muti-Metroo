@@ -48,10 +48,15 @@ $(PROCESSED_DIR)/%.md: $(SRC_DIR)/%.md
 
 mermaid: $(PROCESSED_FILES)
 
-# Concatenate all processed markdown files
+# Concatenate all processed markdown files with blank lines between them
 $(BUILD_DIR)/combined.md: mermaid
 	@echo "Combining markdown files..."
-	@cat $(sort $(wildcard $(PROCESSED_DIR)/*.md)) > $@
+	@rm -f $@
+	@for f in $(sort $(wildcard $(PROCESSED_DIR)/*.md)); do \
+		cat "$$f" >> $@; \
+		echo "" >> $@; \
+		echo "" >> $@; \
+	done
 	@# Replace generic diagram captions with descriptive ones
 	@sed -i.bak \
 		-e 's/!\[diagram\](\.\/01-introduction-1/![Multi-hop mesh network flow](\.\/01-introduction-1/g' \
