@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.3.1...muti-metroo-v1.4.0) (2026-01-09)
+
+
+### Features
+
+* **embed:** add embedded configuration support for single-file deployments ([d48275f](https://github.com/postalsys/Muti-Metroo/commit/d48275ff1f2abcd24a7ffdd9d7727cd29ffe9915))
+
+
+### Bug Fixes
+
+* **docs:** add blank lines between chapters in PDF manual ([4315a8a](https://github.com/postalsys/Muti-Metroo/commit/4315a8a40b4b0340bec9569e13bf5236a7da0331))
+
 ## [1.3.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.3.0...muti-metroo-v1.3.1) (2026-01-09)
 
 
