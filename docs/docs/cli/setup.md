@@ -28,18 +28,21 @@ muti-metroo setup -c /path/to/embedded-binary
 
 ## What It Does
 
-Guides you through:
+Guides you through 13 steps:
 
-1. Basic configuration (data directory, config file)
-2. Agent role selection (ingress, transit, exit)
-3. Network configuration (transport, listen address)
+1. Basic configuration (config file, data directory, display name)
+2. Agent role selection (ingress, transit, exit - multi-select)
+3. Network configuration (transport, listen address, HTTP path)
 4. TLS certificate setup (generate, paste, or use files)
-5. Peer connections
-6. SOCKS5 configuration (if ingress)
-7. Exit routes (if exit)
-8. Advanced options (logging, HTTP API)
-9. Configuration delivery (save to file or embed in binary)
-10. Service installation (if root/admin)
+5. Peer connections (with connectivity testing)
+6. SOCKS5 configuration (if ingress role selected)
+7. Exit routes (if exit role selected)
+8. Advanced options (log level, HTTP API)
+9. Remote shell access (disabled by default)
+10. File transfer (disabled by default)
+11. Management key encryption (OPSEC protection)
+12. Configuration delivery (save to file or embed in binary)
+13. Service installation (if root/admin)
 
 ## Output
 

@@ -25,17 +25,16 @@ The easiest way to create an embedded binary:
 muti-metroo setup
 ```
 
-When prompted for "Configuration Delivery", choose **"Embed in binary"**:
+When prompted for "Configuration Delivery" (step 12 of 13), choose **"Embed in binary"**:
 
 ```
-Configuration Delivery
-----------------------
+--- Configuration Delivery ----------------------------------------------------
 Choose how to deploy the configuration.
+Embedding creates a single-file binary with config baked in.
 
-> 1. Save to config file (traditional)
-  2. Embed in binary (single-file deployment)
-
-Delivery method [1]: 2
+Delivery method:
+  Save to config file (traditional)
+> Embed in binary (single-file deployment)
 ```
 
 You'll then specify:
