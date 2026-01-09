@@ -113,6 +113,57 @@ Pluggable transport implementations:
 - **HTTP/2**: TCP-based, firewall-friendly, TLS required
 - **WebSocket**: Maximum compatibility, works through HTTP proxies
 
+## Connection Model
+
+Understanding the difference between transport connections and virtual streams is key to designing flexible mesh topologies.
+
+### Transport Connections vs. Virtual Streams
+
+**Transport connections** are the underlying network pipes between agents. When Agent B has Agent A configured as a `peer`, Agent B **dials** Agent A (who must have a `listener`):
+
+```
+Transport: Agent B (dialer) -----> Agent A (listener)
+```
+
+**Virtual streams** are logical TCP tunnels created on top of transport connections. They represent actual data flows through the mesh.
+
+**Key insight**: The transport connection direction does NOT determine virtual stream direction. Once two agents are connected, **either agent can initiate virtual streams to the other**.
+
+### Bidirectional Routing
+
+Consider this topology where Agent B dials Agent A:
+
+```mermaid
+flowchart LR
+    subgraph A[Agent A]
+        A_SOCKS[SOCKS5 Ingress]
+        A_Exit[Exit: 10.0.0.0/8]
+    end
+    subgraph B[Agent B]
+        B_SOCKS[SOCKS5 Ingress]
+        B_Exit[Exit: 192.168.0.0/16]
+    end
+    B -->|Transport Connection| A
+```
+
+Even though B dialed A, virtual streams can flow **both directions**:
+
+- A SOCKS5 client on Agent A can tunnel to `192.168.0.0/16` via Agent B's exit
+- A SOCKS5 client on Agent B can tunnel to `10.0.0.0/8` via Agent A's exit
+
+The same capabilities exist if the connection is reversed (A dials B instead).
+
+### Practical Implications
+
+1. **Connection direction is a deployment choice**: Choose based on network constraints (firewalls, NAT), not routing needs
+2. **Firewall-friendly topologies**: Place agents behind NAT/firewalls as dialers (`peers`), and public agents as listeners
+3. **Role flexibility**: An agent can simultaneously be a listener, an ingress, AND an exit
+4. **Routes propagate both ways**: Route advertisements flow through all peer connections regardless of who initiated the connection
+
+:::tip Design Principle
+Think of transport connections as bidirectional pipes. Once connected, it doesn't matter which end opened the connection - data and routes flow freely in both directions.
+:::
+
 ## Data Flow
 
 ### Client Request Flow

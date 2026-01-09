@@ -307,6 +307,49 @@ flowchart LR
 
 Agents with multiple roles display multiple concentric rings. Hover over any agent in the dashboard to see detailed role information, SOCKS5 address (for ingress), and exit routes.
 
+## Roles vs. Connection Direction
+
+A common misconception is that connection direction determines agent roles. This is **not true**.
+
+### Key Principle
+
+**Transport connection direction (who dials whom) is independent of agent roles (ingress/transit/exit).**
+
+Consider this topology where Agent B dials Agent A:
+
+```mermaid
+flowchart LR
+    subgraph A[Agent A]
+        A_SOCKS[SOCKS5 Ingress]
+        A_Exit[Exit: 10.0.0.0/8]
+    end
+    subgraph B[Agent B]
+        B_SOCKS[SOCKS5 Ingress]
+        B_Exit[Exit: 192.168.0.0/16]
+    end
+    B -->|Transport Connection| A
+```
+
+Even though B dialed A, virtual streams can flow **both directions**:
+
+- A SOCKS5 client on Agent A can tunnel to `192.168.0.0/16` via Agent B's exit
+- A SOCKS5 client on Agent B can tunnel to `10.0.0.0/8` via Agent A's exit
+
+### Practical Implications
+
+| Concern | Depends On |
+|---------|-----------|
+| Which agent can be ingress | SOCKS5 configuration, not connection direction |
+| Which agent can be exit | Exit routes configuration, not connection direction |
+| Which agent initiates streams | Route table, not connection direction |
+| Connection direction choice | Network constraints (firewalls, NAT) |
+
+:::tip Design Principle
+Think of transport connections as **bidirectional pipes**. Once connected, it doesn't matter which end opened the connection - data and routes flow freely in both directions. Choose connection direction based on network accessibility, not functionality.
+:::
+
+See [Architecture - Connection Model](/concepts/architecture#connection-model) for technical details.
+
 ## Best Practices
 
 1. **Minimize exit points**: Fewer exits are easier to monitor and secure

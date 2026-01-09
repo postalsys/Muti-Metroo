@@ -263,6 +263,38 @@ exit:
 | Multi-site connectivity | Transit (cloud) + Exit (each site) |
 | Internet gateway for office | Ingress (office) + Exit (DMZ) |
 
+## Roles vs. Connection Direction
+
+A common misconception is that connection direction determines agent roles. This is **not true**.
+
+**Key principle**: Transport connection direction (who dials whom) is independent of agent roles (ingress/transit/exit).
+
+Consider this topology where Agent B dials Agent A:
+
+```
+                Agent A                           Agent B
+        +-------------------+             +-------------------+
+        | SOCKS5 Ingress    |             | SOCKS5 Ingress    |
+        | Exit: 10.0.0.0/8  |<---dial-----| Exit: 192.168.0.0/16|
+        +-------------------+             +-------------------+
+```
+
+Even though B dialed A, virtual streams can flow **both directions**:
+
+- A SOCKS5 client on Agent A can tunnel to `192.168.0.0/16` via Agent B's exit
+- A SOCKS5 client on Agent B can tunnel to `10.0.0.0/8` via Agent A's exit
+
+**Practical implications:**
+
+| Concern | Depends On |
+|---------|-----------|
+| Which agent can be ingress | SOCKS5 configuration, not connection direction |
+| Which agent can be exit | Exit routes configuration, not connection direction |
+| Which agent initiates streams | Route table, not connection direction |
+| Connection direction choice | Network constraints (firewalls, NAT) |
+
+Think of transport connections as **bidirectional pipes**. Once connected, it doesn't matter which end opened the connection - data and routes flow freely in both directions. Choose connection direction based on network accessibility, not functionality.
+
 ## Best Practices
 
 1. **Minimize exit points**: Fewer exits are easier to monitor and secure

@@ -338,6 +338,19 @@ listeners:
     address: "0.0.0.0:4433"
 ```
 
+:::note Connection Direction is Arbitrary
+In the example above, Agent A connects to Agent B. However, you could reverse this: Agent B could connect to Agent A instead, and the mesh would function identically.
+
+**Key insight**: Transport connection direction does NOT affect virtual stream direction. Once connected, either agent can:
+- Initiate virtual streams to the other
+- Act as ingress, transit, or exit
+- Access routes advertised by the other
+
+Choose connection direction based on **network constraints** (firewalls, NAT), not functionality. Place agents behind NAT/firewalls as dialers (`peers`), and public agents as listeners.
+
+See [Architecture - Connection Model](/concepts/architecture#connection-model) for details.
+:::
+
 ### Hub and Spoke
 
 Central hub with multiple spokes:

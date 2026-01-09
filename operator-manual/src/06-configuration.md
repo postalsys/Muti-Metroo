@@ -184,6 +184,8 @@ peers:
       password: "${PROXY_PASS}"
 ```
 
+**Connection direction is arbitrary**: An agent with `peers` configured acts as a dialer (client), while the target agent must have `listeners`. However, once connected, **both agents can initiate virtual streams in either direction**. The connection direction does not affect which agent can be ingress, transit, or exit - choose based on network constraints (firewalls, NAT), not functionality. See the Agent Roles chapter for details.
+
 ## SOCKS5 Section
 
 Configure the SOCKS5 proxy ingress:
