@@ -42,9 +42,6 @@ Enable UDP relay on exit nodes:
 ```yaml
 udp:
   enabled: true
-  allowed_ports:
-    - "53"     # DNS
-    - "123"    # NTP
   max_associations: 1000
   idle_timeout: 5m
   max_datagram_size: 1472
@@ -120,38 +117,6 @@ response, _ = udp.recvfrom(4096)
 dns_response = response[10:]  # Skip SOCKS5 header
 ```
 
-## Port Whitelist
-
-For security, exit nodes use a port whitelist:
-
-```yaml
-udp:
-  allowed_ports:
-    - "53"     # DNS only
-    - "123"    # NTP
-```
-
-Special values:
-
-| Value | Description |
-|-------|-------------|
-| `"53"` | Specific port |
-| `"*"` | All ports (dangerous - see warning below) |
-| `[]` | No ports allowed (UDP disabled) |
-
-:::danger Security Risk: Wildcard Port Access
-
-Never use `["*"]` (all ports) in production environments. This allows:
-
-- **Arbitrary UDP tunneling**: Attackers can tunnel any UDP-based protocol through your exit node
-- **Amplification attacks**: Your node can be used for UDP-based DDoS amplification (DNS, NTP, memcached)
-- **Abuse exposure**: Your exit IP becomes liable for malicious traffic
-- **Data exfiltration**: Unrestricted UDP enables covert data channels
-
-Always use an explicit port whitelist limited to protocols you actually need (e.g., DNS on 53, NTP on 123).
-
-:::
-
 ## Limitations
 
 | Limitation | Value | Description |
@@ -187,15 +152,6 @@ Error: UDP relay is disabled
 - Check that a route exists to the exit node
 - Ensure exit node is connected to the mesh
 
-### Port Not Allowed
-
-```
-Error: port 5000 not allowed
-```
-
-- Add port to `udp.allowed_ports` on exit node
-- Or use `["*"]` to allow all ports (testing only)
-
 ### Datagram Too Large
 
 ```
@@ -211,10 +167,9 @@ UDP associations expire after `idle_timeout` (default 5 minutes) of inactivity. 
 
 ## Security Considerations
 
-1. **Port whitelist**: Only allow necessary ports (53, 123)
-2. **Avoid wildcard**: Don't use `["*"]` in production
-3. **Authentication**: Use SOCKS5 authentication to control access
-4. **Monitor associations**: Check `max_associations` limit
+1. **Authentication**: Use SOCKS5 authentication to control access
+2. **Monitor associations**: Check `max_associations` limit
+3. **Timeouts**: Use appropriate `idle_timeout` values
 
 ## Related
 

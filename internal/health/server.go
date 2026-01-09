@@ -118,8 +118,7 @@ type SOCKS5Info struct {
 
 // UDPInfo contains UDP relay configuration for display.
 type UDPInfo struct {
-	Enabled      bool
-	AllowedPorts []string
+	Enabled bool
 }
 
 // RemoteStatusProvider provides the ability to fetch status from remote agents.
@@ -259,11 +258,10 @@ type TopologyAgentInfo struct {
 	UptimeHours     float64  `json:"uptime_hours,omitempty"`
 	IPAddresses     []string `json:"ip_addresses,omitempty"`
 	Roles           []string `json:"roles,omitempty"`           // Agent roles: "ingress", "exit", "transit"
-	SOCKS5Addr      string   `json:"socks5_addr,omitempty"`     // SOCKS5 listen address (for ingress)
-	ExitRoutes      []string `json:"exit_routes,omitempty"`     // CIDR routes (for exit)
-	DomainRoutes    []string `json:"domain_routes,omitempty"`   // Domain patterns (for exit)
-	UDPEnabled      bool     `json:"udp_enabled,omitempty"`     // UDP relay enabled (for exit)
-	UDPAllowedPorts []string `json:"udp_allowed_ports,omitempty"` // UDP allowed ports (for exit)
+	SOCKS5Addr   string   `json:"socks5_addr,omitempty"`   // SOCKS5 listen address (for ingress)
+	ExitRoutes   []string `json:"exit_routes,omitempty"`   // CIDR routes (for exit)
+	DomainRoutes []string `json:"domain_routes,omitempty"` // Domain patterns (for exit)
+	UDPEnabled   bool     `json:"udp_enabled,omitempty"`   // UDP relay enabled (for exit)
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -301,25 +299,23 @@ type DashboardRouteInfo struct {
 	Origin          string   `json:"origin"`                  // Display name of origin
 	OriginID        string   `json:"origin_id"`               // Short ID of origin
 	HopCount        int      `json:"hop_count"`
-	PathDisplay     []string `json:"path_display"`            // Display names: [local, peer1, ..., origin]
-	PathIDs         []string `json:"path_ids"`                // Short IDs for path highlighting
-	TCP             bool     `json:"tcp"`                     // TCP support (always true)
-	UDP             bool     `json:"udp"`                     // UDP support (exit has UDP enabled)
-	UDPAllowedPorts []string `json:"udp_allowed_ports,omitempty"` // UDP allowed ports (if UDP enabled)
+	PathDisplay []string `json:"path_display"` // Display names: [local, peer1, ..., origin]
+	PathIDs     []string `json:"path_ids"`     // Short IDs for path highlighting
+	TCP         bool     `json:"tcp"`          // TCP support (always true)
+	UDP         bool     `json:"udp"`          // UDP support (exit has UDP enabled)
 }
 
 // DashboardDomainRouteInfo contains information about a domain route.
 type DashboardDomainRouteInfo struct {
-	Pattern         string   `json:"pattern"`                    // Domain pattern (e.g., "*.example.com")
-	IsWildcard      bool     `json:"is_wildcard"`
-	Origin          string   `json:"origin"`                     // Display name of origin
-	OriginID        string   `json:"origin_id"`                  // Short ID of origin
-	HopCount        int      `json:"hop_count"`
-	PathDisplay     []string `json:"path_display"`               // Display names: [local, peer1, ..., origin]
-	PathIDs         []string `json:"path_ids"`                   // Short IDs for path highlighting
-	TCP             bool     `json:"tcp"`                        // TCP support (always true)
-	UDP             bool     `json:"udp"`                        // UDP support (exit has UDP enabled)
-	UDPAllowedPorts []string `json:"udp_allowed_ports,omitempty"` // UDP allowed ports (from exit node)
+	Pattern     string   `json:"pattern"` // Domain pattern (e.g., "*.example.com")
+	IsWildcard  bool     `json:"is_wildcard"`
+	Origin      string   `json:"origin"`       // Display name of origin
+	OriginID    string   `json:"origin_id"`    // Short ID of origin
+	HopCount    int      `json:"hop_count"`
+	PathDisplay []string `json:"path_display"` // Display names: [local, peer1, ..., origin]
+	PathIDs     []string `json:"path_ids"`     // Short IDs for path highlighting
+	TCP         bool     `json:"tcp"`          // TCP support (always true)
+	UDP         bool     `json:"udp"`          // UDP support (exit has UDP enabled)
 }
 
 // DashboardResponse is the response for the /api/dashboard endpoint.
@@ -1141,7 +1137,6 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		// Add UDP info
 		if udpInfo.Enabled {
 			localAgent.UDPEnabled = true
-			localAgent.UDPAllowedPorts = udpInfo.AllowedPorts
 		}
 		response := TopologyResponse{
 			LocalAgent:  localAgent,
@@ -1213,7 +1208,6 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	// Add local agent UDP info
 	if udpInfo.Enabled {
 		localAgent.UDPEnabled = true
-		localAgent.UDPAllowedPorts = udpInfo.AllowedPorts
 	}
 
 	// Track all agents and connections
@@ -1327,7 +1321,6 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			// Add UDP info from node info
 			if nodeInfo.UDPEnabled {
 				existing.UDPEnabled = true
-				existing.UDPAllowedPorts = nodeInfo.UDPAllowedPorts
 			}
 			agentMap[agentID.String()] = existing
 		}
@@ -1465,11 +1458,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Helper to get UDP info for an agent
-	getUDPInfo := func(id identity.AgentID) (bool, []string) {
+	getUDPInfo := func(id identity.AgentID) bool {
 		if info, ok := allNodeInfo[id]; ok && info.UDPEnabled {
-			return true, info.UDPAllowedPorts
+			return true
 		}
-		return false, nil
+		return false
 	}
 
 	// Build route info (CIDR routes)
@@ -1484,18 +1477,16 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			pathIDs = append(pathIDs, agentID.ShortString())
 		}
 
-		udpEnabled, udpPorts := getUDPInfo(route.Origin)
 		routes = append(routes, DashboardRouteInfo{
-			Network:         route.Network,
-			RouteType:       "cidr",
-			Origin:          getDisplayName(route.Origin),
-			OriginID:        route.Origin.ShortString(),
-			HopCount:        route.HopCount,
-			PathDisplay:     pathDisplay,
-			PathIDs:         pathIDs,
-			TCP:             true,
-			UDP:             udpEnabled,
-			UDPAllowedPorts: udpPorts,
+			Network:     route.Network,
+			RouteType:   "cidr",
+			Origin:      getDisplayName(route.Origin),
+			OriginID:    route.Origin.ShortString(),
+			HopCount:    route.HopCount,
+			PathDisplay: pathDisplay,
+			PathIDs:     pathIDs,
+			TCP:         true,
+			UDP:         getUDPInfo(route.Origin),
 		})
 	}
 
@@ -1510,18 +1501,16 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			pathIDs = append(pathIDs, agentID.ShortString())
 		}
 
-		udpEnabled, udpPorts := getUDPInfo(route.Origin)
 		routes = append(routes, DashboardRouteInfo{
-			Network:         route.Pattern,
-			RouteType:       "domain",
-			Origin:          getDisplayName(route.Origin),
-			OriginID:        route.Origin.ShortString(),
-			HopCount:        route.HopCount,
-			PathDisplay:     pathDisplay,
-			PathIDs:         pathIDs,
-			TCP:             true,
-			UDP:             udpEnabled,
-			UDPAllowedPorts: udpPorts,
+			Network:     route.Pattern,
+			RouteType:   "domain",
+			Origin:      getDisplayName(route.Origin),
+			OriginID:    route.Origin.ShortString(),
+			HopCount:    route.HopCount,
+			PathDisplay: pathDisplay,
+			PathIDs:     pathIDs,
+			TCP:         true,
+			UDP:         getUDPInfo(route.Origin),
 		})
 	}
 
@@ -1547,18 +1536,16 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			pathIDs = append(pathIDs, agentID.ShortString())
 		}
 
-		udpEnabled, udpPorts := getUDPInfo(route.Origin)
 		domainRoutes = append(domainRoutes, DashboardDomainRouteInfo{
-			Pattern:         route.Pattern,
-			IsWildcard:      route.IsWildcard,
-			Origin:          getDisplayName(route.Origin),
-			OriginID:        route.Origin.ShortString(),
-			HopCount:        route.HopCount,
-			PathDisplay:     pathDisplay,
-			PathIDs:         pathIDs,
-			TCP:             true,
-			UDP:             udpEnabled,
-			UDPAllowedPorts: udpPorts,
+			Pattern:     route.Pattern,
+			IsWildcard:  route.IsWildcard,
+			Origin:      getDisplayName(route.Origin),
+			OriginID:    route.Origin.ShortString(),
+			HopCount:    route.HopCount,
+			PathDisplay: pathDisplay,
+			PathIDs:     pathIDs,
+			TCP:         true,
+			UDP:         getUDPInfo(route.Origin),
 		})
 	}
 

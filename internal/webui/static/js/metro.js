@@ -636,20 +636,9 @@ class MetroMap {
         // Build UDP relay info section (for exit agents)
         const udpEl = this.stationTooltip.querySelector('.tooltip-udp');
         if (agent.udp_enabled) {
-            const ports = agent.udp_allowed_ports || [];
-            let portsDisplay;
-            if (ports.length === 0) {
-                portsDisplay = 'none';
-            } else if (ports.includes('*')) {
-                portsDisplay = 'all ports';
-            } else if (ports.length <= 3) {
-                portsDisplay = ports.join(', ');
-            } else {
-                portsDisplay = ports.slice(0, 3).join(', ') + ` (+${ports.length - 3})`;
-            }
             udpEl.innerHTML = `
                 <div class="tooltip-udp-header">UDP Relay</div>
-                <div class="tooltip-udp-ports">Ports: ${portsDisplay}</div>
+                <div class="tooltip-udp-status">Enabled</div>
             `;
             udpEl.style.display = 'block';
         } else {

@@ -275,11 +275,6 @@ file_transfer:
 # ------------------------------------------------------------------------------
 udp:
   enabled: false               # Disabled by default
-  allowed_ports: []            # Port whitelist: [] = none, ["*"] = all
-  # allowed_ports:             # Common UDP ports to allow:
-  #   - "53"                   # DNS
-  #   - "123"                  # NTP
-  #   - "*"                    # All ports (testing only!)
   max_associations: 1000       # Max concurrent UDP associations
   idle_timeout: 5m             # Association timeout after inactivity
   max_datagram_size: 1472      # Max UDP payload (MTU - IP/UDP headers)

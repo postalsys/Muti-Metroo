@@ -73,8 +73,7 @@ func enhanceDevVersion() string {
 // Collect gathers local system information and returns a NodeInfo struct.
 // UDPConfig contains UDP relay configuration for node info advertisements.
 type UDPConfig struct {
-	Enabled      bool
-	AllowedPorts []string
+	Enabled bool
 }
 
 // The peers parameter contains current peer connection details to include in the advertisement.
@@ -98,7 +97,6 @@ func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey 
 	// Add UDP config if provided
 	if udpConfig != nil {
 		info.UDPEnabled = udpConfig.Enabled
-		info.UDPAllowedPorts = udpConfig.AllowedPorts
 	}
 
 	return info

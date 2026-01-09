@@ -146,9 +146,6 @@ On the exit node, configure UDP relay:
 ```yaml
 udp:
   enabled: true
-  allowed_ports:
-    - "53"    # DNS
-    - "123"   # NTP
   max_associations: 1000
   idle_timeout: 5m
 ```

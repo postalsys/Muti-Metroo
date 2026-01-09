@@ -368,7 +368,6 @@ func (a *Agent) initComponents() error {
 	if a.cfg.UDP.Enabled {
 		udpCfg := udp.Config{
 			Enabled:         a.cfg.UDP.Enabled,
-			AllowedPorts:    a.cfg.UDP.AllowedPorts,
 			MaxAssociations: a.cfg.UDP.MaxAssociations,
 			IdleTimeout:     a.cfg.UDP.IdleTimeout,
 			MaxDatagramSize: a.cfg.UDP.MaxDatagramSize,
@@ -3049,8 +3048,7 @@ func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
 // getUDPConfig returns the UDP configuration for node info advertisements.
 func (a *Agent) getUDPConfig() *sysinfo.UDPConfig {
 	return &sysinfo.UDPConfig{
-		Enabled:      a.cfg.UDP.Enabled,
-		AllowedPorts: a.cfg.UDP.AllowedPorts,
+		Enabled: a.cfg.UDP.Enabled,
 	}
 }
 
@@ -3065,8 +3063,7 @@ func (a *Agent) GetSOCKS5Info() health.SOCKS5Info {
 // GetUDPInfo returns UDP relay configuration info for the dashboard.
 func (a *Agent) GetUDPInfo() health.UDPInfo {
 	return health.UDPInfo{
-		Enabled:      a.cfg.UDP.Enabled,
-		AllowedPorts: a.cfg.UDP.AllowedPorts,
+		Enabled: a.cfg.UDP.Enabled,
 	}
 }
 

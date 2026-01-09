@@ -9,38 +9,9 @@ Configure on the **exit** agent:
 ```yaml
 udp:
   enabled: false               # Disabled by default
-  allowed_ports: []            # Port whitelist
   max_associations: 1000       # Max concurrent associations
   idle_timeout: 5m             # Association timeout
   max_datagram_size: 1472      # Max UDP payload
-```
-
-## Port Whitelist
-
-| Configuration | Behavior |
-|--------------|----------|
-| `[]` (empty) | No ports allowed (default) |
-| `["*"]` | All ports allowed (testing only!) |
-| `["53", "123"]` | Only specified ports |
-
-### Common Ports
-
-| Port | Service |
-|------|---------|
-| 53 | DNS |
-| 123 | NTP |
-| 137-139 | NetBIOS |
-| 500 | ISAKMP/IKE |
-| 514 | Syslog |
-
-### Example: DNS and NTP Only
-
-```yaml
-udp:
-  enabled: true
-  allowed_ports:
-    - "53"    # DNS
-    - "123"   # NTP
 ```
 
 ## Usage
@@ -90,9 +61,6 @@ exit:
 
 udp:
   enabled: true
-  allowed_ports:
-    - "53"
-    - "123"
   max_associations: 1000
   idle_timeout: 5m
 ```
@@ -118,13 +86,12 @@ socks5:
 - **Maximum datagram size**: 1472 bytes
 - **No fragmentation**: Datagrams with frag > 0 are rejected
 - **Association lifetime**: Tied to TCP control connection
-- **Port restrictions**: Must be explicitly allowed
 
 ## Security Considerations
 
-1. **Whitelist ports**: Only allow necessary UDP ports
-2. **Limit associations**: Set reasonable `max_associations`
-3. **Monitor usage**: UDP can be used for tunneling
+1. **Limit associations**: Set reasonable `max_associations`
+2. **Monitor usage**: UDP can be used for tunneling
+3. **Timeouts**: Use appropriate `idle_timeout` values
 
 ## Troubleshooting
 
@@ -136,15 +103,8 @@ socks5:
      enabled: true
    ```
 
-2. Check port is in whitelist:
-   ```yaml
-   udp:
-     allowed_ports:
-       - "53"
-   ```
-
-3. Verify exit route exists for DNS server
-4. Check firewall allows UDP traffic from exit
+2. Verify exit route exists for DNS server
+3. Check firewall allows UDP traffic from exit
 
 ### Association Timeout
 

@@ -93,9 +93,6 @@ SOCKS5 UDP ASSOCIATE is supported for tunneling UDP traffic (DNS, NTP) through t
 # Exit node configuration
 udp:
   enabled: true
-  allowed_ports:
-    - "53"    # DNS
-    - "123"   # NTP
 ```
 
 See [Features - UDP Relay](/features/udp-relay) for details.

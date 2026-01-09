@@ -499,12 +499,6 @@ type UDPConfig struct {
 	// Enabled controls whether UDP relay is available on this exit node.
 	Enabled bool `yaml:"enabled"`
 
-	// AllowedPorts contains the UDP ports that are allowed.
-	// Empty list = no ports allowed (default).
-	// Use ["*"] to allow all ports.
-	// Use specific ports like ["53", "123"] to allow only DNS and NTP.
-	AllowedPorts []string `yaml:"allowed_ports"`
-
 	// MaxAssociations limits concurrent UDP associations (0 = unlimited).
 	MaxAssociations int `yaml:"max_associations"`
 
@@ -586,11 +580,10 @@ func Default() *Config {
 			MaxSessions: 0,          // 0 = unlimited (trusted network)
 		},
 		UDP: UDPConfig{
-			Enabled:         false,            // Disabled by default
-			AllowedPorts:    []string{},       // Empty = no ports allowed
-			MaxAssociations: 1000,             // Default limit
-			IdleTimeout:     5 * time.Minute,  // Same as connection idle threshold
-			MaxDatagramSize: 1472,             // MTU - IP/UDP headers
+			Enabled:         false,           // Disabled by default
+			MaxAssociations: 1000,            // Default limit
+			IdleTimeout:     5 * time.Minute, // Same as connection idle threshold
+			MaxDatagramSize: 1472,            // MTU - IP/UDP headers
 		},
 	}
 }

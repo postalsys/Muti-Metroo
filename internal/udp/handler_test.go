@@ -153,7 +153,6 @@ func TestHandler_HandleUDPOpen_Disabled(t *testing.T) {
 func TestHandler_HandleUDPOpen_Success(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
-	cfg.AllowedPorts = []string{"*"}
 	cfg.IdleTimeout = 0 // Disable cleanup loop for test
 
 	writer := newMockDataWriter()
@@ -209,7 +208,6 @@ func TestHandler_HandleUDPOpen_Success(t *testing.T) {
 func TestHandler_HandleUDPOpen_MaxAssociations(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
-	cfg.AllowedPorts = []string{"*"}
 	cfg.MaxAssociations = 1
 	cfg.IdleTimeout = 0
 
@@ -244,44 +242,9 @@ func TestHandler_HandleUDPOpen_MaxAssociations(t *testing.T) {
 	}
 }
 
-func TestHandler_HandleUDPDatagram_PortNotAllowed(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.Enabled = true
-	cfg.AllowedPorts = []string{"53"} // Only DNS
-	cfg.IdleTimeout = 0
-
-	writer := newMockDataWriter()
-	h := NewHandler(cfg, writer, testLogger())
-	defer h.Close()
-
-	peerID, _ := identity.NewAgentID()
-	var ephKey [protocol.EphemeralKeySize]byte
-
-	// Create association
-	open := &protocol.UDPOpen{RequestID: 1, AddressType: protocol.AddrTypeIPv4, Address: []byte{0, 0, 0, 0}}
-	err := h.HandleUDPOpen(context.Background(), peerID, 1, open, ephKey)
-	if err != nil {
-		t.Fatalf("HandleUDPOpen error = %v", err)
-	}
-
-	// Try to send datagram to port 80 (not allowed)
-	datagram := &protocol.UDPDatagram{
-		AddressType: protocol.AddrTypeIPv4,
-		Address:     []byte{8, 8, 8, 8},
-		Port:        80, // Not in whitelist
-		Data:        []byte("test"),
-	}
-
-	err = h.HandleUDPDatagram(peerID, 1, datagram)
-	if err == nil {
-		t.Error("HandleUDPDatagram should fail for disallowed port")
-	}
-}
-
 func TestHandler_HandleUDPClose(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
-	cfg.AllowedPorts = []string{"*"}
 	cfg.IdleTimeout = 0
 
 	writer := newMockDataWriter()
@@ -322,7 +285,6 @@ func TestHandler_HandleUDPClose(t *testing.T) {
 func TestHandler_Close(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
-	cfg.AllowedPorts = []string{"*"}
 	cfg.IdleTimeout = 0
 
 	writer := newMockDataWriter()
@@ -355,7 +317,6 @@ func TestHandler_Close(t *testing.T) {
 func TestHandler_CleanupExpired(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
-	cfg.AllowedPorts = []string{"*"}
 	cfg.IdleTimeout = 50 * time.Millisecond
 
 	writer := newMockDataWriter()

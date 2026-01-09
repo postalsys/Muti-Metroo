@@ -260,11 +260,6 @@ func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, da
 
 	assoc.UpdateActivity()
 
-	// Check port whitelist
-	if !h.config.IsPortAllowed(datagram.Port) {
-		return fmt.Errorf("port %d not allowed", datagram.Port)
-	}
-
 	// Decrypt payload
 	plaintext, err := assoc.Decrypt(datagram.Data)
 	if err != nil {

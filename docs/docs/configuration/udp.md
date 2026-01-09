@@ -16,9 +16,6 @@ The UDP section configures UDP relay for exit nodes, enabling SOCKS5 UDP ASSOCIA
 ```yaml
 udp:
   enabled: true
-  allowed_ports:
-    - "53"
-    - "123"
   max_associations: 1000
   idle_timeout: 5m
   max_datagram_size: 1472
@@ -29,39 +26,9 @@ udp:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | bool | false | Enable UDP relay |
-| `allowed_ports` | array | [] | Port whitelist |
 | `max_associations` | int | 1000 | Maximum concurrent UDP associations |
 | `idle_timeout` | duration | 5m | Association timeout after inactivity |
 | `max_datagram_size` | int | 1472 | Maximum UDP payload size in bytes |
-
-## Port Whitelist
-
-The `allowed_ports` array controls which destination ports are permitted:
-
-```yaml
-udp:
-  allowed_ports:
-    - "53"     # DNS
-    - "123"    # NTP
-    - "5353"   # mDNS
-```
-
-### Special Values
-
-| Value | Description |
-|-------|-------------|
-| `[]` | No ports allowed (effectively disables UDP) |
-| `["*"]` | All ports allowed (use with caution) |
-| `["53"]` | Only port 53 allowed |
-
-### Common Ports
-
-| Port | Protocol | Use Case |
-|------|----------|----------|
-| 53 | DNS | Domain name resolution |
-| 123 | NTP | Time synchronization |
-| 5353 | mDNS | Multicast DNS |
-| 67-68 | DHCP | Dynamic IP assignment |
 
 ## Association Limits
 
@@ -100,55 +67,24 @@ Datagrams exceeding this size are rejected.
 
 ## Examples
 
-### DNS Only
+### Basic UDP Relay
 
-Minimal configuration for DNS relay:
+Enable UDP relay with default settings:
 
 ```yaml
 udp:
   enabled: true
-  allowed_ports:
-    - "53"
 ```
 
-### DNS and NTP
+### Custom Timeouts
 
-Allow common time-sensitive protocols:
+Adjust timeouts for your environment:
 
 ```yaml
 udp:
   enabled: true
-  allowed_ports:
-    - "53"     # DNS
-    - "123"    # NTP
   idle_timeout: 2m
 ```
-
-### Testing (All Ports)
-
-For testing environments only:
-
-```yaml
-udp:
-  enabled: true
-  allowed_ports:
-    - "*"      # DANGER: All ports allowed
-  max_associations: 100
-  idle_timeout: 1m
-```
-
-:::danger Security Risk: Wildcard Port Access
-
-Never use `["*"]` (all ports) in production environments. This allows:
-
-- **Arbitrary UDP tunneling**: Attackers can tunnel any UDP-based protocol through your exit node
-- **Amplification attacks**: Your node can be used for UDP-based DDoS amplification (DNS, NTP, memcached)
-- **Abuse exposure**: Your exit IP becomes liable for malicious traffic
-- **Data exfiltration**: Unrestricted UDP enables covert data channels
-
-Always use an explicit port whitelist limited to protocols you actually need (e.g., DNS on 53, NTP on 123).
-
-:::
 
 ### High-Capacity Exit
 
@@ -157,9 +93,6 @@ For exit nodes handling many clients:
 ```yaml
 udp:
   enabled: true
-  allowed_ports:
-    - "53"
-    - "123"
   max_associations: 10000
   idle_timeout: 10m
   max_datagram_size: 1472
@@ -192,9 +125,6 @@ exit:
 
 udp:
   enabled: true
-  allowed_ports:
-    - "53"
-    - "123"
   max_associations: 1000
   idle_timeout: 5m
 ```
@@ -208,23 +138,6 @@ Check that:
 1. `udp.enabled` is `true`
 2. Exit node is connected to mesh
 3. Route exists from ingress to exit
-
-### Port Blocked
-
-If a specific port is blocked:
-
-```
-Error: port 5000 not allowed
-```
-
-Add the port to `allowed_ports`:
-
-```yaml
-udp:
-  allowed_ports:
-    - "53"
-    - "5000"   # Add required port
-```
 
 ### Too Many Associations
 
@@ -250,10 +163,9 @@ The payload exceeds `max_datagram_size`. Either:
 
 ## Security
 
-1. **Explicit whitelist**: Always list specific ports
-2. **Avoid wildcards**: Never use `["*"]` in production
-3. **Limit associations**: Set reasonable `max_associations`
-4. **Short timeouts**: Use shorter `idle_timeout` for high-traffic nodes
+1. **Limit associations**: Set reasonable `max_associations`
+2. **Short timeouts**: Use shorter `idle_timeout` for high-traffic nodes
+3. **Monitor usage**: Track UDP relay metrics for abuse
 
 ## Related
 

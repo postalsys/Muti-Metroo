@@ -960,9 +960,8 @@ type NodeInfo struct {
 	StartTime       int64                  // Agent start time (Unix timestamp)
 	IPAddresses     []string               // Local IP addresses (non-loopback)
 	Peers           []PeerConnectionInfo   // Connected peers (max 50)
-	PublicKey       [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
-	UDPEnabled      bool                   // UDP relay enabled (for exit agents)
-	UDPAllowedPorts []string               // UDP allowed ports (["*"] = all, empty = none)
+	PublicKey  [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
+	UDPEnabled bool                   // UDP relay enabled (for exit agents)
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -996,10 +995,6 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	size += EphemeralKeySize // PublicKey
 	// UDP info
 	size += 1 // UDPEnabled (bool)
-	size += 1 // UDPAllowedPorts count
-	for _, port := range info.UDPAllowedPorts {
-		size += 1 + len(port) // PortLen + Port
-	}
 
 	buf := make([]byte, size)
 	offset := 0
@@ -1079,14 +1074,6 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 		buf[offset] = 0
 	}
 	offset++
-	buf[offset] = uint8(len(info.UDPAllowedPorts))
-	offset++
-	for _, port := range info.UDPAllowedPorts {
-		buf[offset] = uint8(len(port))
-		offset++
-		copy(buf[offset:], port)
-		offset += len(port)
-	}
 
 	return buf
 }
@@ -1243,18 +1230,17 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 	if offset < len(buf) {
 		info.UDPEnabled = buf[offset] != 0
 		offset++
+		// Skip over legacy UDPAllowedPorts data if present (backward compatibility)
 		if offset < len(buf) {
 			portCount := int(buf[offset])
 			offset++
-			info.UDPAllowedPorts = make([]string, 0, portCount)
 			for i := 0; i < portCount && offset < len(buf); i++ {
 				portLen := int(buf[offset])
 				offset++
 				if offset+portLen > len(buf) {
 					break
 				}
-				info.UDPAllowedPorts = append(info.UDPAllowedPorts, string(buf[offset:offset+portLen]))
-				offset += portLen
+				offset += portLen // Skip port data
 			}
 		}
 	}
