@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.1.0...muti-metroo-v1.2.0) (2026-01-09)
+
+
+### Features
+
+* add PDF operator manual with auto-generation on release ([2841533](https://github.com/postalsys/Muti-Metroo/commit/2841533a463a2b35ea1d1c7ce0a7af6da8d02f44))
+
 ## [1.1.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.0.34...muti-metroo-v1.1.0) (2026-01-09)
 
 
