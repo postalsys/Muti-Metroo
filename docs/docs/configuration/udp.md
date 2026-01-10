@@ -9,7 +9,15 @@ sidebar_position: 8
 
 # UDP Configuration
 
-The UDP section configures UDP relay for exit nodes, enabling SOCKS5 UDP ASSOCIATE support.
+Tunnel UDP traffic through the mesh. Enable this on exit nodes to support applications like DNS queries, VoIP, and games that need UDP.
+
+**Quick setup:**
+```yaml
+udp:
+  enabled: true
+  max_associations: 1000
+  idle_timeout: 5m
+```
 
 ## Configuration
 

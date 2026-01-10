@@ -9,7 +9,19 @@ sidebar_position: 8
 
 # Environment Variable Substitution
 
-Muti Metroo configuration files support environment variable substitution, allowing you to externalize secrets and deployment-specific values.
+Keep secrets out of your config files. Reference environment variables instead of hardcoding passwords, API keys, and deployment-specific values.
+
+**Quick example:**
+```yaml
+socks5:
+  auth:
+    users:
+      - username: "admin"
+        password_hash: "${SOCKS5_PASSWORD_HASH}"  # From environment
+
+agent:
+  log_level: "${LOG_LEVEL:-info}"                 # Default if not set
+```
 
 ## Syntax
 

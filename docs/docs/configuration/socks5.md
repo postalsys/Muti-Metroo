@@ -9,7 +9,17 @@ sidebar_position: 5
 
 # SOCKS5 Configuration
 
-The SOCKS5 section configures the ingress proxy server.
+Route your applications through the mesh. Point any SOCKS5-compatible app at this proxy and traffic flows through your agents to the exit.
+
+**Quick setup:**
+```yaml
+socks5:
+  enabled: true
+  address: "127.0.0.1:1080"    # localhost only, no auth needed
+
+# Then use it:
+# curl -x socks5://localhost:1080 https://example.com
+```
 
 ## Configuration
 

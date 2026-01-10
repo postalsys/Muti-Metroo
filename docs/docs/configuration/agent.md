@@ -9,7 +9,15 @@ sidebar_position: 2
 
 # Agent Configuration
 
-The `agent` section configures agent identity and logging.
+Give your agent a name and control how much it logs. The identity is auto-generated on first run - you usually don't need to set it manually.
+
+**Most common settings:**
+```yaml
+agent:
+  display_name: "Office Gateway"   # Shows up in dashboard
+  data_dir: "./data"               # Where identity is stored
+  log_level: "info"                # debug, info, warn, error
+```
 
 ## Configuration
 

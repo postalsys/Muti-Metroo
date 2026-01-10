@@ -9,7 +9,19 @@ sidebar_position: 6
 
 # Exit Configuration
 
-The exit section configures the agent as an exit node that opens connections to external destinations.
+Control which networks this agent can reach. Exit nodes open real connections to destinations - define CIDR routes for IP-based access or domain routes for name-based routing.
+
+**Quick setup:**
+```yaml
+exit:
+  enabled: true
+  routes:
+    - "10.0.0.0/8"        # Internal network access
+    - "0.0.0.0/0"         # Or allow all destinations
+  dns:
+    servers:
+      - "8.8.8.8:53"
+```
 
 ## Configuration
 

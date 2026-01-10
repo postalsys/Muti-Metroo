@@ -9,7 +9,16 @@ sidebar_position: 7
 
 # TLS Certificate Configuration
 
-All peer connections in Muti Metroo use TLS for encryption and authentication. This guide covers certificate generation and configuration.
+Make agents trust each other. Create a CA once, generate certificates for each agent, and they'll automatically authenticate when connecting.
+
+**Quick setup:**
+```yaml
+tls:
+  ca: "./certs/ca.crt"         # Shared across all agents
+  cert: "./certs/agent.crt"    # This agent's identity
+  key: "./certs/agent.key"
+  mtls: true                   # Require mutual authentication
+```
 
 ## Overview
 

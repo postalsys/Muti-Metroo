@@ -9,7 +9,18 @@ sidebar_position: 3
 
 # Listener Configuration
 
-Listeners accept incoming peer connections. Each listener binds to an address and transport protocol.
+Let other agents connect to you. Choose QUIC for best performance, HTTP/2 or WebSocket to bypass firewalls that block UDP.
+
+**Quick setup:**
+```yaml
+listeners:
+  - transport: quic           # Best performance (UDP)
+    address: "0.0.0.0:4433"
+
+  - transport: h2             # Firewall-friendly (TCP/HTTPS)
+    address: "0.0.0.0:443"
+    path: "/mesh"
+```
 
 ## Configuration
 

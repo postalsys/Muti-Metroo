@@ -9,7 +9,19 @@ sidebar_position: 1
 
 # Configuration Reference
 
-This section provides a complete reference for all Muti Metroo configuration options.
+Control every aspect of your agent through a single YAML file. Start with the minimal config and add sections as you need them.
+
+**Quick reference:**
+
+| I want to... | Section |
+|--------------|---------|
+| Set agent name and logging | [agent](/configuration/agent) |
+| Accept incoming connections | [listeners](/configuration/listeners) |
+| Connect to other agents | [peers](/configuration/peers) |
+| Create a SOCKS5 proxy | [socks5](/configuration/socks5) |
+| Route traffic to destinations | [exit](/configuration/exit) |
+| Set up TLS certificates | [tls-certificates](/configuration/tls-certificates) |
+| Use secrets from environment | [environment-variables](/configuration/environment-variables) |
 
 ## Configuration File
 

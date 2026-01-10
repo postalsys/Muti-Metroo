@@ -9,7 +9,15 @@ sidebar_position: 4
 
 # Peer Configuration
 
-Peers define outbound connections to other agents in the mesh.
+Connect to other agents in your mesh. One side listens, the other connects - once linked, traffic flows both ways.
+
+**Quick setup:**
+```yaml
+peers:
+  - id: "abc123def456..."       # Target agent's ID
+    transport: quic             # quic, h2, or ws
+    address: "192.168.1.10:4433"
+```
 
 ## Configuration
 
