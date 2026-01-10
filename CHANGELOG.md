@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.0.0...muti-metroo-v2.0.1) (2026-01-10)
+
+
+### Bug Fixes
+
+* align default reconnect jitter with documented value ([9cbd3e7](https://github.com/postalsys/Muti-Metroo/commit/9cbd3e7b6620ee1bc3fae4b708b3f9a31e7f0534))
+* apply gofmt -s and fix IPv6 address format in test ([e90dbc6](https://github.com/postalsys/Muti-Metroo/commit/e90dbc668c9f81a4df1d380a2c5035e0804bb3a1))
+
 ## [2.0.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v1.4.0...muti-metroo-v2.0.0) (2026-01-09)
 
 
