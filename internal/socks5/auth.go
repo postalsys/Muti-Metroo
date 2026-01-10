@@ -45,12 +45,6 @@ func (a *NoAuthAuthenticator) GetMethod() byte {
 	return AuthMethodNoAuth
 }
 
-// UserPassCredentials stores username/password credentials.
-type UserPassCredentials struct {
-	Username string
-	Password string
-}
-
 // CredentialStore validates credentials.
 type CredentialStore interface {
 	Valid(username, password string) bool

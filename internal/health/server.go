@@ -246,18 +246,18 @@ type Stats struct {
 
 // TopologyAgentInfo contains information about an agent for the topology API.
 type TopologyAgentInfo struct {
-	ID              string   `json:"id"`
-	ShortID         string   `json:"short_id"`
-	DisplayName     string   `json:"display_name"`
-	IsLocal         bool     `json:"is_local"`
-	IsConnected     bool     `json:"is_connected"`
-	Hostname        string   `json:"hostname,omitempty"`
-	OS              string   `json:"os,omitempty"`
-	Arch            string   `json:"arch,omitempty"`
-	Version         string   `json:"version,omitempty"`
-	UptimeHours     float64  `json:"uptime_hours,omitempty"`
-	IPAddresses     []string `json:"ip_addresses,omitempty"`
-	Roles           []string `json:"roles,omitempty"`           // Agent roles: "ingress", "exit", "transit"
+	ID           string   `json:"id"`
+	ShortID      string   `json:"short_id"`
+	DisplayName  string   `json:"display_name"`
+	IsLocal      bool     `json:"is_local"`
+	IsConnected  bool     `json:"is_connected"`
+	Hostname     string   `json:"hostname,omitempty"`
+	OS           string   `json:"os,omitempty"`
+	Arch         string   `json:"arch,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	UptimeHours  float64  `json:"uptime_hours,omitempty"`
+	IPAddresses  []string `json:"ip_addresses,omitempty"`
+	Roles        []string `json:"roles,omitempty"`         // Agent roles: "ingress", "exit", "transit"
 	SOCKS5Addr   string   `json:"socks5_addr,omitempty"`   // SOCKS5 listen address (for ingress)
 	ExitRoutes   []string `json:"exit_routes,omitempty"`   // CIDR routes (for exit)
 	DomainRoutes []string `json:"domain_routes,omitempty"` // Domain patterns (for exit)
@@ -294,11 +294,11 @@ type DashboardPeerInfo struct {
 
 // DashboardRouteInfo contains information about a route.
 type DashboardRouteInfo struct {
-	Network         string   `json:"network"`
-	RouteType       string   `json:"route_type"`              // "cidr" or "domain"
-	Origin          string   `json:"origin"`                  // Display name of origin
-	OriginID        string   `json:"origin_id"`               // Short ID of origin
-	HopCount        int      `json:"hop_count"`
+	Network     string   `json:"network"`
+	RouteType   string   `json:"route_type"` // "cidr" or "domain"
+	Origin      string   `json:"origin"`     // Display name of origin
+	OriginID    string   `json:"origin_id"`  // Short ID of origin
+	HopCount    int      `json:"hop_count"`
 	PathDisplay []string `json:"path_display"` // Display names: [local, peer1, ..., origin]
 	PathIDs     []string `json:"path_ids"`     // Short IDs for path highlighting
 	TCP         bool     `json:"tcp"`          // TCP support (always true)
@@ -309,8 +309,8 @@ type DashboardRouteInfo struct {
 type DashboardDomainRouteInfo struct {
 	Pattern     string   `json:"pattern"` // Domain pattern (e.g., "*.example.com")
 	IsWildcard  bool     `json:"is_wildcard"`
-	Origin      string   `json:"origin"`       // Display name of origin
-	OriginID    string   `json:"origin_id"`    // Short ID of origin
+	Origin      string   `json:"origin"`    // Display name of origin
+	OriginID    string   `json:"origin_id"` // Short ID of origin
 	HopCount    int      `json:"hop_count"`
 	PathDisplay []string `json:"path_display"` // Display names: [local, peer1, ..., origin]
 	PathIDs     []string `json:"path_ids"`     // Short IDs for path highlighting
@@ -369,20 +369,90 @@ type Server struct {
 	provider       StatsProvider
 	remoteProvider RemoteStatusProvider
 	routeTrigger   RouteAdvertiseTrigger
-	shellProvider  ShellProvider         // For shell WebSocket sessions
-	sealedBox      *crypto.SealedBox     // For checking decrypt capability
+	shellProvider  ShellProvider     // For shell WebSocket sessions
+	sealedBox      *crypto.SealedBox // For checking decrypt capability
 	server         *http.Server
 	listener       net.Listener
 	running        atomic.Bool
 }
 
-// disabledHandler returns a handler that logs access attempts and returns 404.
-func disabledHandler(endpoint string) http.HandlerFunc {
+// disabledHandler returns a handler that returns 404 for disabled endpoints.
+func disabledHandler(_ string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Log at debug level to avoid noise in production
-		// The caller can enable debug logging if they want to see access attempts
 		http.NotFound(w, r)
 	}
+}
+
+// writeJSON writes a JSON response with the given status code.
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+// requireGET returns true if the request method is GET, otherwise sends a 405 error.
+func requireGET(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
+}
+
+// requirePOST returns true if the request method is POST, otherwise sends a 405 error.
+func requirePOST(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return false
+	}
+	return true
+}
+
+// calculateUptimeHours calculates uptime in hours from a Unix start time.
+func calculateUptimeHours(startTime int64) float64 {
+	if startTime <= 0 {
+		return 0
+	}
+	return float64(time.Now().Unix()-startTime) / 3600.0
+}
+
+// populateNodeInfo fills in TopologyAgentInfo fields from NodeInfo.
+func populateNodeInfo(agent *TopologyAgentInfo, nodeInfo *protocol.NodeInfo) {
+	if nodeInfo == nil {
+		return
+	}
+	agent.Hostname = nodeInfo.Hostname
+	agent.OS = nodeInfo.OS
+	agent.Arch = nodeInfo.Arch
+	agent.Version = nodeInfo.Version
+	agent.IPAddresses = nodeInfo.IPAddresses
+	agent.UptimeHours = calculateUptimeHours(nodeInfo.StartTime)
+	if agent.DisplayName == agent.ShortID && nodeInfo.DisplayName != "" {
+		agent.DisplayName = nodeInfo.DisplayName
+	}
+	if nodeInfo.UDPEnabled {
+		agent.UDPEnabled = true
+	}
+}
+
+// buildLocalAgentInfo constructs TopologyAgentInfo for the local agent.
+func (s *Server) buildLocalAgentInfo(localID identity.AgentID, displayName string, stats Stats, socks5Info SOCKS5Info, udpInfo UDPInfo) TopologyAgentInfo {
+	agent := TopologyAgentInfo{
+		ID:          localID.String(),
+		ShortID:     localID.ShortString(),
+		DisplayName: displayName,
+		IsLocal:     true,
+		IsConnected: true,
+	}
+	populateNodeInfo(&agent, s.remoteProvider.GetLocalNodeInfo())
+	agent.Roles = s.buildAgentRoles(true, stats.SOCKS5Running, stats.ExitHandlerRun)
+	if socks5Info.Enabled {
+		agent.SOCKS5Addr = socks5Info.Address
+	}
+	if udpInfo.Enabled {
+		agent.UDPEnabled = true
+	}
+	return agent
 }
 
 // NewServer creates a new health check server.
@@ -538,11 +608,9 @@ func (s *Server) IsRunning() bool {
 // handleHealth handles the basic health check endpoint.
 // Returns 200 if the server is responding.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
-
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK\n"))
@@ -551,15 +619,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // handleHealthz handles the detailed health check endpoint.
 // Returns 200 with JSON stats if healthy, 503 if not running.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
 
 	if s.provider == nil || !s.provider.IsRunning() {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
 			"status":  "unavailable",
 			"running": false,
 		})
@@ -567,7 +632,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats := s.provider.Stats()
-	response := map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":               "healthy",
 		"running":              true,
 		"peer_count":           stats.PeerCount,
@@ -575,29 +640,22 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"route_count":          stats.RouteCount,
 		"socks5_running":       stats.SOCKS5Running,
 		"exit_handler_running": stats.ExitHandlerRun,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // handleReady handles the readiness probe endpoint.
 // Returns 200 if the agent is ready to serve traffic.
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if s.provider == nil || !s.provider.IsRunning() {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("NOT READY\n"))
+	if !requireGET(w, r) {
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/plain")
+	if s.provider == nil || !s.provider.IsRunning() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte("NOT READY\n"))
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("READY\n"))
 }
@@ -610,20 +668,16 @@ func (s *Server) handleSplash(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// Conditionally include dashboard button if enabled
 	dashboardLink := ""
 	if s.cfg.EnableDashboard {
 		dashboardLink = `<a href="/ui/" class="button">Open Dashboard</a>`
 	}
-
 	fmt.Fprintf(w, splashPageTemplate, dashboardLink)
 }
 
@@ -634,20 +688,17 @@ func (s *Server) Handler() http.Handler {
 
 // handleListAgents lists all known agents in the mesh.
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
-
 	if s.remoteProvider == nil {
 		http.Error(w, "remote provider not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	agents := s.remoteProvider.GetKnownAgentIDs()
 	localID := s.remoteProvider.ID()
+	agents := s.remoteProvider.GetKnownAgentIDs()
 
-	// Build response with local agent first
 	result := []map[string]interface{}{
 		{
 			"id":           localID.String(),
@@ -667,9 +718,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(result)
+	writeJSON(w, http.StatusOK, result)
 }
 
 // handleAgentInfo handles fetching status from a specific agent.
@@ -680,7 +729,7 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse path: /agents/{agent-id}[/routes|/peers]
+	// Parse path: /agents/{agent-id}[/routes|/peers|/shell|/file/*]
 	path := strings.TrimPrefix(r.URL.Path, "/agents/")
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) == 0 || parts[0] == "" {
@@ -694,32 +743,27 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if this is a file transfer request
-	if len(parts) > 1 && strings.HasPrefix(parts[1], "file/") {
-		filePath := strings.TrimPrefix(parts[1], "file/")
-		switch filePath {
-		case "upload":
+	// Dispatch to sub-handlers based on path suffix
+	if len(parts) > 1 {
+		switch {
+		case strings.HasPrefix(parts[1], "file/upload"):
 			s.handleFileUpload(w, r, targetID)
 			return
-		case "download":
+		case strings.HasPrefix(parts[1], "file/download"):
 			s.handleFileDownload(w, r, targetID)
+			return
+		case parts[1] == "shell":
+			s.handleShellWebSocket(w, r, targetID)
 			return
 		}
 	}
 
-	// Check if this is a shell WebSocket request
-	if len(parts) > 1 && parts[1] == "shell" {
-		s.handleShellWebSocket(w, r, targetID)
-		return
-	}
-
 	// For status/routes/peers requests, only allow GET
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
 
-	// Determine control type
+	// Determine control type from path suffix
 	controlType := protocol.ControlTypeStatus
 	if len(parts) > 1 {
 		switch parts[1] {
@@ -739,7 +783,6 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to fetch: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-
 	if !resp.Success {
 		http.Error(w, "remote agent error: "+string(resp.Data), http.StatusBadGateway)
 		return
@@ -761,8 +804,7 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 //
 // Response: JSON with success, error, bytes_written
 func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed - use POST", http.StatusMethodNotAllowed)
+	if !requirePOST(w, r) {
 		return
 	}
 
@@ -866,18 +908,14 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, target
 
 	err = s.remoteProvider.UploadFile(ctx, targetID, localPath, remotePath, opts, nil)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":       true,
 		"bytes_written": bytesReceived,
 		"filename":      header.Filename,
@@ -890,8 +928,7 @@ func (s *Server) handleFileUpload(w http.ResponseWriter, r *http.Request, target
 // Request body: JSON with path and optional password
 // Response: Binary file data with Content-Disposition header, or tar.gz for directories
 func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed - use POST", http.StatusMethodNotAllowed)
+	if !requirePOST(w, r) {
 		return
 	}
 
@@ -944,9 +981,7 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request, targ
 
 	result, err := s.remoteProvider.DownloadFileStream(ctx, targetID, req.Path, opts)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
 			"success": false,
 			"error":   err.Error(),
 		})
@@ -1061,21 +1096,16 @@ func extractTarWithFallback(r io.Reader, destDir string) error {
 
 // handleTriggerAdvertise handles POST /routes/advertise to trigger immediate route advertisement.
 func (s *Server) handleTriggerAdvertise(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requirePOST(w, r) {
 		return
 	}
-
 	if s.routeTrigger == nil {
 		http.Error(w, "route trigger not configured", http.StatusServiceUnavailable)
 		return
 	}
 
 	s.routeTrigger.TriggerRouteAdvertise()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "triggered",
 		"message": "route advertisement triggered",
 	})
@@ -1083,11 +1113,9 @@ func (s *Server) handleTriggerAdvertise(w http.ResponseWriter, r *http.Request) 
 
 // handleTopology handles GET /api/topology for the metro map visualization.
 func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
-
 	if s.remoteProvider == nil {
 		http.Error(w, "provider not configured", http.StatusServiceUnavailable)
 		return
@@ -1102,59 +1130,26 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		localStats = s.provider.Stats()
 	}
 
-	// Get SOCKS5 info for local agent
 	socks5Info := s.remoteProvider.GetSOCKS5Info()
-
-	// Get UDP info for local agent
 	udpInfo := s.remoteProvider.GetUDPInfo()
+
+	// Build base local agent info
+	localAgent := s.buildLocalAgentInfo(localID, localName, localStats, socks5Info, udpInfo)
 
 	// If management key encryption is enabled but we can't decrypt,
 	// only return local agent info (no peers, routes, or other agents)
 	if s.shouldRestrictTopology() {
-		localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
-		localAgent := TopologyAgentInfo{
-			ID:          localID.String(),
-			ShortID:     localID.ShortString(),
-			DisplayName: localName,
-			IsLocal:     true,
-			IsConnected: true,
-		}
-		if localNodeInfo != nil {
-			localAgent.Hostname = localNodeInfo.Hostname
-			localAgent.OS = localNodeInfo.OS
-			localAgent.Arch = localNodeInfo.Arch
-			localAgent.Version = localNodeInfo.Version
-			localAgent.IPAddresses = localNodeInfo.IPAddresses
-			if localNodeInfo.StartTime > 0 {
-				localAgent.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
-			}
-		}
-		// Add local agent roles
-		localAgent.Roles = s.buildAgentRoles(true, localStats.SOCKS5Running, localStats.ExitHandlerRun)
-		if socks5Info.Enabled {
-			localAgent.SOCKS5Addr = socks5Info.Address
-		}
-		// Add UDP info
-		if udpInfo.Enabled {
-			localAgent.UDPEnabled = true
-		}
-		response := TopologyResponse{
+		writeJSON(w, http.StatusOK, TopologyResponse{
 			LocalAgent:  localAgent,
 			Agents:      []TopologyAgentInfo{localAgent},
 			Connections: []TopologyConnection{},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response)
+		})
 		return
 	}
 
 	// Get all known display names from route advertisements
 	displayNames := s.remoteProvider.GetAllDisplayNames()
-
-	// Get all known node info
 	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
-	localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
 
 	// Get route details for determining exit roles
 	routeDetails := s.remoteProvider.GetRouteDetails()
@@ -1163,51 +1158,21 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	// Build maps of exit routes and domain routes per agent (by origin)
 	exitRoutesPerAgent := make(map[string][]string)
 	domainRoutesPerAgent := make(map[string][]string)
-
 	for _, route := range routeDetails {
 		originID := route.Origin.String()
 		exitRoutesPerAgent[originID] = append(exitRoutesPerAgent[originID], route.Network)
 	}
-
 	for _, route := range domainRouteDetails {
 		originID := route.Origin.String()
 		domainRoutesPerAgent[originID] = append(domainRoutesPerAgent[originID], route.Pattern)
 	}
 
-	// Build local agent info
-	localAgent := TopologyAgentInfo{
-		ID:          localID.String(),
-		ShortID:     localID.ShortString(),
-		DisplayName: localName,
-		IsLocal:     true,
-		IsConnected: true,
-	}
-	// Populate local node info if available
-	if localNodeInfo != nil {
-		localAgent.Hostname = localNodeInfo.Hostname
-		localAgent.OS = localNodeInfo.OS
-		localAgent.Arch = localNodeInfo.Arch
-		localAgent.Version = localNodeInfo.Version
-		localAgent.IPAddresses = localNodeInfo.IPAddresses
-		if localNodeInfo.StartTime > 0 {
-			localAgent.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
-		}
-	}
-	// Add local agent roles and SOCKS5 info
-	localAgent.Roles = s.buildAgentRoles(true, localStats.SOCKS5Running, localStats.ExitHandlerRun)
-	if socks5Info.Enabled {
-		localAgent.SOCKS5Addr = socks5Info.Address
-	}
-	// Add local agent exit routes
+	// Add exit routes to local agent
 	if routes, ok := exitRoutesPerAgent[localID.String()]; ok {
 		localAgent.ExitRoutes = routes
 	}
 	if domains, ok := domainRoutesPerAgent[localID.String()]; ok {
 		localAgent.DomainRoutes = domains
-	}
-	// Add local agent UDP info
-	if udpInfo.Enabled {
-		localAgent.UDPEnabled = true
 	}
 
 	// Track all agents and connections
@@ -1303,25 +1268,10 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Populate node info and roles for all agents in the map
+	// Populate node info for all agents in the map
 	for agentID, nodeInfo := range allNodeInfo {
 		if existing, ok := agentMap[agentID.String()]; ok {
-			existing.Hostname = nodeInfo.Hostname
-			existing.OS = nodeInfo.OS
-			existing.Arch = nodeInfo.Arch
-			existing.Version = nodeInfo.Version
-			existing.IPAddresses = nodeInfo.IPAddresses
-			if nodeInfo.StartTime > 0 {
-				existing.UptimeHours = float64(time.Now().Unix()-nodeInfo.StartTime) / 3600.0
-			}
-			// Update display name from node info if not already set
-			if existing.DisplayName == existing.ShortID && nodeInfo.DisplayName != "" {
-				existing.DisplayName = nodeInfo.DisplayName
-			}
-			// Add UDP info from node info
-			if nodeInfo.UDPEnabled {
-				existing.UDPEnabled = true
-			}
+			populateNodeInfo(&existing, nodeInfo)
 			agentMap[agentID.String()] = existing
 		}
 	}
@@ -1362,15 +1312,11 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		connections = append(connections, conn)
 	}
 
-	response := TopologyResponse{
+	writeJSON(w, http.StatusOK, TopologyResponse{
 		LocalAgent:  localAgent,
 		Agents:      agents,
 		Connections: connections,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // buildAgentRoles constructs the roles array based on agent capabilities.
@@ -1392,11 +1338,9 @@ func (s *Server) buildAgentRoles(isLocal bool, hasSOCKS5 bool, hasExitRoutes boo
 
 // handleDashboard handles GET /api/dashboard for the dashboard overview.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
-
 	if s.remoteProvider == nil || s.provider == nil {
 		http.Error(w, "provider not configured", http.StatusServiceUnavailable)
 		return
@@ -1406,31 +1350,29 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	localName := s.remoteProvider.DisplayName()
 	stats := s.provider.Stats()
 
+	localAgentInfo := TopologyAgentInfo{
+		ID:          localID.String(),
+		ShortID:     localID.ShortString(),
+		DisplayName: localName,
+		IsLocal:     true,
+		IsConnected: true,
+	}
+
 	// If management key encryption is enabled but we can't decrypt,
 	// only return local agent info and stats (no peers or routes)
 	if s.shouldRestrictTopology() {
-		response := DashboardResponse{
-			Agent: TopologyAgentInfo{
-				ID:          localID.String(),
-				ShortID:     localID.ShortString(),
-				DisplayName: localName,
-				IsLocal:     true,
-				IsConnected: true,
-			},
+		writeJSON(w, http.StatusOK, DashboardResponse{
+			Agent:  localAgentInfo,
 			Stats:  stats,
 			Peers:  []DashboardPeerInfo{},
 			Routes: []DashboardRouteInfo{},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response)
+		})
 		return
 	}
 
 	// Build peer info
-	peers := []DashboardPeerInfo{}
-	peerDetails := s.remoteProvider.GetPeerDetails()
-	for _, peer := range peerDetails {
+	peers := make([]DashboardPeerInfo, 0, len(s.remoteProvider.GetPeerDetails()))
+	for _, peer := range s.remoteProvider.GetPeerDetails() {
 		peers = append(peers, DashboardPeerInfo{
 			ID:           peer.ID.String(),
 			ShortID:      peer.ID.ShortString(),
@@ -1458,25 +1400,29 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Helper to get UDP info for an agent
-	getUDPInfo := func(id identity.AgentID) bool {
-		if info, ok := allNodeInfo[id]; ok && info.UDPEnabled {
-			return true
-		}
-		return false
+	getUDPEnabled := func(id identity.AgentID) bool {
+		info, ok := allNodeInfo[id]
+		return ok && info.UDPEnabled
 	}
 
-	// Build route info (CIDR routes)
-	routes := []DashboardRouteInfo{}
-	routeDetails := s.remoteProvider.GetRouteDetails()
-	for _, route := range routeDetails {
-		// Build path display and IDs: [local, peer1, peer2, ..., origin]
-		pathDisplay := []string{localName} // Start with local
-		pathIDs := []string{localID.ShortString()}
-		for _, agentID := range route.Path {
+	// Helper to build path display and IDs from agent path
+	buildPath := func(path []identity.AgentID) (pathDisplay, pathIDs []string) {
+		pathDisplay = []string{localName}
+		pathIDs = []string{localID.ShortString()}
+		for _, agentID := range path {
 			pathDisplay = append(pathDisplay, getDisplayName(agentID))
 			pathIDs = append(pathIDs, agentID.ShortString())
 		}
+		return pathDisplay, pathIDs
+	}
 
+	// Build route info (CIDR and domain routes)
+	routeDetails := s.remoteProvider.GetRouteDetails()
+	domainRouteDetails := s.remoteProvider.GetDomainRouteDetails()
+	routes := make([]DashboardRouteInfo, 0, len(routeDetails)+len(domainRouteDetails))
+
+	for _, route := range routeDetails {
+		pathDisplay, pathIDs := buildPath(route.Path)
 		routes = append(routes, DashboardRouteInfo{
 			Network:     route.Network,
 			RouteType:   "cidr",
@@ -1486,21 +1432,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			PathDisplay: pathDisplay,
 			PathIDs:     pathIDs,
 			TCP:         true,
-			UDP:         getUDPInfo(route.Origin),
+			UDP:         getUDPEnabled(route.Origin),
 		})
 	}
 
-	// Add domain routes as DashboardRouteInfo entries
-	domainRouteDetails := s.remoteProvider.GetDomainRouteDetails()
 	for _, route := range domainRouteDetails {
-		// Build path display and IDs: [local, peer1, peer2, ..., origin]
-		pathDisplay := []string{localName} // Start with local
-		pathIDs := []string{localID.ShortString()}
-		for _, agentID := range route.Path {
-			pathDisplay = append(pathDisplay, getDisplayName(agentID))
-			pathIDs = append(pathIDs, agentID.ShortString())
-		}
-
+		pathDisplay, pathIDs := buildPath(route.Path)
 		routes = append(routes, DashboardRouteInfo{
 			Network:     route.Pattern,
 			RouteType:   "domain",
@@ -1510,13 +1447,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			PathDisplay: pathDisplay,
 			PathIDs:     pathIDs,
 			TCP:         true,
-			UDP:         getUDPInfo(route.Origin),
+			UDP:         getUDPEnabled(route.Origin),
 		})
 	}
 
 	// Sort routes: CIDR first (by network), then domains (by pattern)
 	sort.Slice(routes, func(i, j int) bool {
-		// CIDR routes come before domain routes
 		if routes[i].RouteType != routes[j].RouteType {
 			return routes[i].RouteType == "cidr"
 		}
@@ -1527,15 +1463,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Build legacy domain routes for backward compatibility
-	domainRoutes := []DashboardDomainRouteInfo{}
+	domainRoutes := make([]DashboardDomainRouteInfo, 0, len(domainRouteDetails))
 	for _, route := range domainRouteDetails {
-		pathDisplay := []string{localName}
-		pathIDs := []string{localID.ShortString()}
-		for _, agentID := range route.Path {
-			pathDisplay = append(pathDisplay, getDisplayName(agentID))
-			pathIDs = append(pathIDs, agentID.ShortString())
-		}
-
+		pathDisplay, pathIDs := buildPath(route.Path)
 		domainRoutes = append(domainRoutes, DashboardDomainRouteInfo{
 			Pattern:     route.Pattern,
 			IsWildcard:  route.IsWildcard,
@@ -1545,7 +1475,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			PathDisplay: pathDisplay,
 			PathIDs:     pathIDs,
 			TCP:         true,
-			UDP:         getUDPInfo(route.Origin),
+			UDP:         getUDPEnabled(route.Origin),
 		})
 	}
 
@@ -1557,23 +1487,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return domainRoutes[i].OriginID < domainRoutes[j].OriginID
 	})
 
-	response := DashboardResponse{
-		Agent: TopologyAgentInfo{
-			ID:          localID.String(),
-			ShortID:     localID.ShortString(),
-			DisplayName: localName,
-			IsLocal:     true,
-			IsConnected: true,
-		},
+	writeJSON(w, http.StatusOK, DashboardResponse{
+		Agent:        localAgentInfo,
 		Stats:        stats,
 		Peers:        peers,
 		Routes:       routes,
 		DomainRoutes: domainRoutes,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	})
 }
 
 // NodesResponse is the response for the /api/nodes endpoint.
@@ -1583,11 +1503,9 @@ type NodesResponse struct {
 
 // handleNodes handles GET /api/nodes for detailed node info listing.
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireGET(w, r) {
 		return
 	}
-
 	if s.remoteProvider == nil {
 		http.Error(w, "provider not configured", http.StatusServiceUnavailable)
 		return
@@ -1595,7 +1513,6 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 
 	localID := s.remoteProvider.ID()
 	localName := s.remoteProvider.DisplayName()
-	localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
 
 	// Build local node info
 	localNode := TopologyAgentInfo{
@@ -1605,34 +1522,17 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		IsLocal:     true,
 		IsConnected: true,
 	}
-	if localNodeInfo != nil {
-		localNode.Hostname = localNodeInfo.Hostname
-		localNode.OS = localNodeInfo.OS
-		localNode.Arch = localNodeInfo.Arch
-		localNode.Version = localNodeInfo.Version
-		localNode.IPAddresses = localNodeInfo.IPAddresses
-		if localNodeInfo.StartTime > 0 {
-			localNode.UptimeHours = float64(time.Now().Unix()-localNodeInfo.StartTime) / 3600.0
-		}
-	}
+	populateNodeInfo(&localNode, s.remoteProvider.GetLocalNodeInfo())
 
 	// If management key encryption is enabled but we can't decrypt,
 	// only return local node info
 	if s.shouldRestrictTopology() {
-		response := NodesResponse{
-			Nodes: []TopologyAgentInfo{localNode},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response)
+		writeJSON(w, http.StatusOK, NodesResponse{Nodes: []TopologyAgentInfo{localNode}})
 		return
 	}
 
 	// Get all known node info
 	allNodeInfo := s.remoteProvider.GetAllNodeInfo()
-
-	// Build list of all nodes, starting with local
-	nodes := []TopologyAgentInfo{localNode}
 
 	// Build set of direct peers
 	peerIDs := s.remoteProvider.GetPeerIDs()
@@ -1641,10 +1541,13 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		peerSet[id] = true
 	}
 
+	// Build list of all nodes, starting with local
+	nodes := []TopologyAgentInfo{localNode}
+
 	// Add all known remote nodes
 	for agentID, nodeInfo := range allNodeInfo {
 		if agentID == localID {
-			continue // Skip local, already added
+			continue
 		}
 
 		displayName := nodeInfo.DisplayName
@@ -1658,23 +1561,10 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			DisplayName: displayName,
 			IsLocal:     false,
 			IsConnected: peerSet[agentID],
-			Hostname:    nodeInfo.Hostname,
-			OS:          nodeInfo.OS,
-			Arch:        nodeInfo.Arch,
-			Version:     nodeInfo.Version,
-			IPAddresses: nodeInfo.IPAddresses,
 		}
-		if nodeInfo.StartTime > 0 {
-			node.UptimeHours = float64(time.Now().Unix()-nodeInfo.StartTime) / 3600.0
-		}
+		populateNodeInfo(&node, nodeInfo)
 		nodes = append(nodes, node)
 	}
 
-	response := NodesResponse{
-		Nodes: nodes,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, NodesResponse{Nodes: nodes})
 }

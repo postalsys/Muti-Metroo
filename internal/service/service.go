@@ -257,16 +257,10 @@ func IsInstalled(serviceName string) bool {
 
 // Platform returns the current platform type.
 func Platform() string {
-	switch runtime.GOOS {
-	case "linux":
-		return "linux"
-	case "windows":
-		return "windows"
-	case "darwin":
-		return "darwin"
-	default:
-		return "unsupported"
+	if IsSupported() {
+		return runtime.GOOS
 	}
+	return "unsupported"
 }
 
 // IsSupported returns true if service installation is supported on this platform.

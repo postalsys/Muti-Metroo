@@ -472,34 +472,29 @@ func (h *Handler) sendReply(conn net.Conn, reply byte, bindIP net.IP, bindPort u
 	// | 1  |  1  | X'00' |  1   | Variable |    2     |
 	// +----+-----+-------+------+----------+----------+
 
-	var buf []byte
+	// Determine address type and normalized IP
+	var addrType byte
+	var addrBytes []byte
 
-	if bindIP == nil {
-		// Use all zeros for the bind address
-		buf = make([]byte, 10)
-		buf[0] = SOCKS5Version
-		buf[1] = reply
-		buf[2] = 0x00 // RSV
-		buf[3] = AddrTypeIPv4
-		// Bytes 4-7 are zeros (0.0.0.0)
-		binary.BigEndian.PutUint16(buf[8:], bindPort)
-	} else if ipv4 := bindIP.To4(); ipv4 != nil {
-		buf = make([]byte, 10)
-		buf[0] = SOCKS5Version
-		buf[1] = reply
-		buf[2] = 0x00 // RSV
-		buf[3] = AddrTypeIPv4
-		copy(buf[4:8], ipv4)
-		binary.BigEndian.PutUint16(buf[8:], bindPort)
+	if ipv4 := bindIP.To4(); ipv4 != nil {
+		addrType = AddrTypeIPv4
+		addrBytes = ipv4
+	} else if bindIP != nil {
+		addrType = AddrTypeIPv6
+		addrBytes = bindIP
 	} else {
-		buf = make([]byte, 22)
-		buf[0] = SOCKS5Version
-		buf[1] = reply
-		buf[2] = 0x00 // RSV
-		buf[3] = AddrTypeIPv6
-		copy(buf[4:20], bindIP)
-		binary.BigEndian.PutUint16(buf[20:], bindPort)
+		addrType = AddrTypeIPv4
+		addrBytes = make([]byte, 4) // 0.0.0.0
 	}
+
+	// Build response: VER(1) + REP(1) + RSV(1) + ATYP(1) + ADDR(4 or 16) + PORT(2)
+	buf := make([]byte, 4+len(addrBytes)+2)
+	buf[0] = SOCKS5Version
+	buf[1] = reply
+	buf[2] = 0x00 // RSV
+	buf[3] = addrType
+	copy(buf[4:], addrBytes)
+	binary.BigEndian.PutUint16(buf[4+len(addrBytes):], bindPort)
 
 	_, err := conn.Write(buf)
 	return err
@@ -507,26 +502,29 @@ func (h *Handler) sendReply(conn net.Conn, reply byte, bindIP net.IP, bindPort u
 
 // sendReplyForError maps network errors to SOCKS5 reply codes.
 func (h *Handler) sendReplyForError(conn net.Conn, err error) {
-	var reply byte = ReplyServerFailure
+	reply := mapErrorToReply(err)
+	h.sendReply(conn, reply, nil, 0)
+}
 
+// mapErrorToReply converts a network error to the appropriate SOCKS5 reply code.
+func mapErrorToReply(err error) byte {
+	// Check for DNS errors first (more specific)
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ReplyHostUnreachable
+	}
+
+	// Check for operation errors
 	if netErr, ok := err.(*net.OpError); ok {
-		switch {
-		case netErr.Timeout():
-			reply = ReplyTTLExpired
-		default:
-			if netErr.Op == "dial" {
-				reply = ReplyHostUnreachable
-			}
+		if netErr.Timeout() {
+			return ReplyTTLExpired
+		}
+		if netErr.Op == "dial" {
+			return ReplyHostUnreachable
 		}
 	}
 
-	// Check for specific error types
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		reply = ReplyHostUnreachable
-	}
-
-	h.sendReply(conn, reply, nil, 0)
+	return ReplyServerFailure
 }
 
 // relay copies data bidirectionally between two connections.

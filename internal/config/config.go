@@ -14,6 +14,48 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// getPEM returns inline PEM content if set, otherwise reads from file path.
+// Returns nil if neither is configured.
+func getPEM(inline, filePath string) ([]byte, error) {
+	if inline != "" {
+		return []byte(inline), nil
+	}
+	if filePath != "" {
+		return os.ReadFile(filePath)
+	}
+	return nil, nil
+}
+
+// isOneOf returns true if value matches any of the allowed values.
+func isOneOf(value string, allowed ...string) bool {
+	for _, a := range allowed {
+		if value == a {
+			return true
+		}
+	}
+	return false
+}
+
+// parseHexKey decodes a hex-encoded key and validates its length.
+func parseHexKey(hexStr, keyName string, expectedSize int) ([KeySize]byte, error) {
+	var key [KeySize]byte
+	if hexStr == "" {
+		return key, fmt.Errorf("%s not configured", keyName)
+	}
+
+	decoded, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return key, fmt.Errorf("invalid %s hex: %w", keyName, err)
+	}
+
+	if len(decoded) != expectedSize {
+		return key, fmt.Errorf("%s must be %d bytes, got %d", keyName, expectedSize, len(decoded))
+	}
+
+	copy(key[:], decoded)
+	return key, nil
+}
+
 // Config represents the complete agent configuration.
 type Config struct {
 	Agent        AgentConfig        `yaml:"agent"`
@@ -70,35 +112,17 @@ type GlobalTLSConfig struct {
 
 // GetCAPEM returns the CA certificate PEM content, reading from file if necessary.
 func (g *GlobalTLSConfig) GetCAPEM() ([]byte, error) {
-	if g.CAPEM != "" {
-		return []byte(g.CAPEM), nil
-	}
-	if g.CA != "" {
-		return os.ReadFile(g.CA)
-	}
-	return nil, nil
+	return getPEM(g.CAPEM, g.CA)
 }
 
 // GetCertPEM returns the certificate PEM content, reading from file if necessary.
 func (g *GlobalTLSConfig) GetCertPEM() ([]byte, error) {
-	if g.CertPEM != "" {
-		return []byte(g.CertPEM), nil
-	}
-	if g.Cert != "" {
-		return os.ReadFile(g.Cert)
-	}
-	return nil, nil
+	return getPEM(g.CertPEM, g.Cert)
 }
 
 // GetKeyPEM returns the private key PEM content, reading from file if necessary.
 func (g *GlobalTLSConfig) GetKeyPEM() ([]byte, error) {
-	if g.KeyPEM != "" {
-		return []byte(g.KeyPEM), nil
-	}
-	if g.Key != "" {
-		return os.ReadFile(g.Key)
-	}
-	return nil, nil
+	return getPEM(g.KeyPEM, g.Key)
 }
 
 // HasCA returns true if CA certificate is configured (either file or PEM).
@@ -143,43 +167,13 @@ func (c *Config) HasManagementKey() bool {
 // GetManagementPublicKey returns the parsed management public key.
 // Returns an error if the key is not configured or invalid.
 func (c *Config) GetManagementPublicKey() ([KeySize]byte, error) {
-	var key [KeySize]byte
-	if c.Management.PublicKey == "" {
-		return key, fmt.Errorf("management public key not configured")
-	}
-
-	decoded, err := hex.DecodeString(c.Management.PublicKey)
-	if err != nil {
-		return key, fmt.Errorf("invalid management public key hex: %w", err)
-	}
-
-	if len(decoded) != KeySize {
-		return key, fmt.Errorf("management public key must be %d bytes, got %d", KeySize, len(decoded))
-	}
-
-	copy(key[:], decoded)
-	return key, nil
+	return parseHexKey(c.Management.PublicKey, "management public key", KeySize)
 }
 
 // GetManagementPrivateKey returns the parsed management private key.
 // Returns an error if the key is not configured or invalid.
 func (c *Config) GetManagementPrivateKey() ([KeySize]byte, error) {
-	var key [KeySize]byte
-	if c.Management.PrivateKey == "" {
-		return key, fmt.Errorf("management private key not configured")
-	}
-
-	decoded, err := hex.DecodeString(c.Management.PrivateKey)
-	if err != nil {
-		return key, fmt.Errorf("invalid management private key hex: %w", err)
-	}
-
-	if len(decoded) != KeySize {
-		return key, fmt.Errorf("management private key must be %d bytes, got %d", KeySize, len(decoded))
-	}
-
-	copy(key[:], decoded)
-	return key, nil
+	return parseHexKey(c.Management.PrivateKey, "management private key", KeySize)
 }
 
 // CanDecryptManagement returns true if management private key is configured.
@@ -241,35 +235,17 @@ type TLSConfig struct {
 
 // GetCertPEM returns the certificate PEM content, reading from file if necessary.
 func (t *TLSConfig) GetCertPEM() ([]byte, error) {
-	if t.CertPEM != "" {
-		return []byte(t.CertPEM), nil
-	}
-	if t.Cert != "" {
-		return os.ReadFile(t.Cert)
-	}
-	return nil, nil
+	return getPEM(t.CertPEM, t.Cert)
 }
 
 // GetKeyPEM returns the private key PEM content, reading from file if necessary.
 func (t *TLSConfig) GetKeyPEM() ([]byte, error) {
-	if t.KeyPEM != "" {
-		return []byte(t.KeyPEM), nil
-	}
-	if t.Key != "" {
-		return os.ReadFile(t.Key)
-	}
-	return nil, nil
+	return getPEM(t.KeyPEM, t.Key)
 }
 
 // GetCAPEM returns the CA certificate PEM content, reading from file if necessary.
 func (t *TLSConfig) GetCAPEM() ([]byte, error) {
-	if t.CAPEM != "" {
-		return []byte(t.CAPEM), nil
-	}
-	if t.CA != "" {
-		return os.ReadFile(t.CA)
-	}
-	return nil, nil
+	return getPEM(t.CAPEM, t.CA)
 }
 
 // HasCert returns true if certificate is configured (either file or PEM).
@@ -800,30 +776,15 @@ func (c *Config) validateManagementKeys() error {
 }
 
 func isValidLogLevel(level string) bool {
-	switch level {
-	case "debug", "info", "warn", "error":
-		return true
-	default:
-		return false
-	}
+	return isOneOf(level, "debug", "info", "warn", "error")
 }
 
 func isValidLogFormat(format string) bool {
-	switch format {
-	case "text", "json":
-		return true
-	default:
-		return false
-	}
+	return isOneOf(format, "text", "json")
 }
 
 func isValidTransport(transport string) bool {
-	switch transport {
-	case "quic", "h2", "ws":
-		return true
-	default:
-		return false
-	}
+	return isOneOf(transport, "quic", "h2", "ws")
 }
 
 // validateListener validates a listener configuration, considering global TLS settings.
@@ -962,6 +923,13 @@ func (c *Config) StringUnsafe() string {
 // redactedValue is the placeholder for sensitive values.
 const redactedValue = "[REDACTED]"
 
+// redact replaces non-empty strings with redactedValue.
+func redact(s *string) {
+	if *s != "" {
+		*s = redactedValue
+	}
+}
+
 // Redacted returns a copy of the config with sensitive values redacted.
 // This is safe to log or display to users.
 func (c *Config) Redacted() *Config {
@@ -977,61 +945,32 @@ func (c *Config) Redacted() *Config {
 	}
 
 	// Redact global TLS key
-	if redacted.TLS.Key != "" {
-		redacted.TLS.Key = redactedValue
-	}
-	if redacted.TLS.KeyPEM != "" {
-		redacted.TLS.KeyPEM = redactedValue
-	}
+	redact(&redacted.TLS.Key)
+	redact(&redacted.TLS.KeyPEM)
 
 	// Redact sensitive fields in peers
 	for i := range redacted.Peers {
-		if redacted.Peers[i].ProxyAuth.Password != "" {
-			redacted.Peers[i].ProxyAuth.Password = redactedValue
-		}
-		// Redact TLS key paths and PEM content
-		if redacted.Peers[i].TLS.Key != "" {
-			redacted.Peers[i].TLS.Key = redactedValue
-		}
-		if redacted.Peers[i].TLS.KeyPEM != "" {
-			redacted.Peers[i].TLS.KeyPEM = redactedValue
-		}
+		redact(&redacted.Peers[i].ProxyAuth.Password)
+		redact(&redacted.Peers[i].TLS.Key)
+		redact(&redacted.Peers[i].TLS.KeyPEM)
 	}
 
 	// Redact sensitive fields in listeners
 	for i := range redacted.Listeners {
-		if redacted.Listeners[i].TLS.Key != "" {
-			redacted.Listeners[i].TLS.Key = redactedValue
-		}
-		if redacted.Listeners[i].TLS.KeyPEM != "" {
-			redacted.Listeners[i].TLS.KeyPEM = redactedValue
-		}
+		redact(&redacted.Listeners[i].TLS.Key)
+		redact(&redacted.Listeners[i].TLS.KeyPEM)
 	}
 
 	// Redact SOCKS5 user passwords and password hashes
 	for i := range redacted.SOCKS5.Auth.Users {
-		if redacted.SOCKS5.Auth.Users[i].Password != "" {
-			redacted.SOCKS5.Auth.Users[i].Password = redactedValue
-		}
-		if redacted.SOCKS5.Auth.Users[i].PasswordHash != "" {
-			redacted.SOCKS5.Auth.Users[i].PasswordHash = redactedValue
-		}
+		redact(&redacted.SOCKS5.Auth.Users[i].Password)
+		redact(&redacted.SOCKS5.Auth.Users[i].PasswordHash)
 	}
 
-	// Redact FileTransfer password hash
-	if redacted.FileTransfer.PasswordHash != "" {
-		redacted.FileTransfer.PasswordHash = redactedValue
-	}
-
-	// Redact Shell password hash
-	if redacted.Shell.PasswordHash != "" {
-		redacted.Shell.PasswordHash = redactedValue
-	}
-
-	// Redact management private key
-	if redacted.Management.PrivateKey != "" {
-		redacted.Management.PrivateKey = redactedValue
-	}
+	// Redact other sensitive fields
+	redact(&redacted.FileTransfer.PasswordHash)
+	redact(&redacted.Shell.PasswordHash)
+	redact(&redacted.Management.PrivateKey)
 
 	return redacted
 }

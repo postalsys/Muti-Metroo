@@ -428,6 +428,14 @@ func (c *Client) fetchAgentInfo() {
 	}
 }
 
+// displayName returns the agent name if available, otherwise the short target ID.
+func (c *Client) displayName() string {
+	if c.agentName != "" {
+		return c.agentName
+	}
+	return c.targetID[:8]
+}
+
 // printGreeting prints the connection greeting for interactive sessions.
 func (c *Client) printGreeting() {
 	if c.agentName != "" {
@@ -439,9 +447,5 @@ func (c *Client) printGreeting() {
 
 // printClosing prints the connection closing message for interactive sessions.
 func (c *Client) printClosing() {
-	if c.agentName != "" {
-		fmt.Fprintf(os.Stderr, "Connection to %s closed.\n", c.agentName)
-	} else {
-		fmt.Fprintf(os.Stderr, "Connection to %s closed.\n", c.targetID[:8])
-	}
+	fmt.Fprintf(os.Stderr, "Connection to %s closed.\n", c.displayName())
 }

@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"sync"
@@ -50,21 +49,9 @@ func (t *QUICTransport) Dial(ctx context.Context, addr string, opts DialOptions)
 		alpn = DefaultALPNProtocol
 	}
 
-	tlsConfig := opts.TLSConfig
-	if tlsConfig == nil {
-		if !opts.InsecureSkipVerify {
-			return nil, fmt.Errorf("TLS config required; set InsecureSkipVerify=true for development only")
-		}
-		// Create insecure TLS config only when explicitly requested
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true,
-			NextProtos:         []string{alpn},
-			MinVersion:         tls.VersionTLS13,
-		}
-	} else {
-		// Clone and set ALPN on provided config
-		tlsConfig = tlsConfig.Clone()
-		tlsConfig.NextProtos = []string{alpn}
+	tlsConfig, err := prepareTLSConfigForDial(opts.TLSConfig, opts.InsecureSkipVerify, []string{alpn})
+	if err != nil {
+		return nil, err
 	}
 
 	quicConfig := &quic.Config{

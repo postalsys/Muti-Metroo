@@ -95,39 +95,39 @@ type Agent struct {
 	listeners  []transport.Listener
 
 	// Core components
-	peerMgr             *peer.Manager
-	routeMgr            *routing.Manager
-	streamMgr           *stream.Manager
-	flooder             *flood.Flooder
-	socks5Srv           *socks5.Server
+	peerMgr      *peer.Manager
+	routeMgr     *routing.Manager
+	streamMgr    *stream.Manager
+	flooder      *flood.Flooder
+	socks5Srv    *socks5.Server
 	exitHandler  *exit.Handler
 	healthServer *health.Server
 	sealedBox    *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	// File transfer (stream-based)
-	fileStreamHandler  *filetransfer.StreamHandler
-	fileStreamsMu      sync.RWMutex
-	fileStreams        map[uint64]*fileTransferStream // StreamID -> active transfer
+	fileStreamHandler *filetransfer.StreamHandler
+	fileStreamsMu     sync.RWMutex
+	fileStreams       map[uint64]*fileTransferStream // StreamID -> active transfer
 
 	// Shell (stream-based)
-	shellHandler        *shell.Handler
-	shellClientMu       sync.RWMutex
-	shellClientStreams  map[uint64]*health.ShellStreamAdapter // StreamID -> active client session
+	shellHandler       *shell.Handler
+	shellClientMu      sync.RWMutex
+	shellClientStreams map[uint64]*health.ShellStreamAdapter // StreamID -> active client session
 
 	// UDP relay (for exit nodes)
 	udpHandler *udp.Handler
 
 	// Relay stream tracking
-	relayMu          sync.RWMutex
-	relayByUpstream  map[uint64]*relayStream // Upstream stream ID -> relay
+	relayMu           sync.RWMutex
+	relayByUpstream   map[uint64]*relayStream // Upstream stream ID -> relay
 	relayByDownstream map[uint64]*relayStream // Downstream stream ID -> relay
-	nextRelayID      uint64
+	nextRelayID       uint64
 
 	// Control request tracking
-	controlMu         sync.RWMutex
-	pendingControl    map[uint64]*pendingControlRequest   // Request ID -> pending request (for requests we initiated)
-	forwardedControl  map[uint64]*forwardedControlRequest // Request ID -> source peer (for requests we forwarded)
-	nextControlID     uint64
+	controlMu        sync.RWMutex
+	pendingControl   map[uint64]*pendingControlRequest   // Request ID -> pending request (for requests we initiated)
+	forwardedControl map[uint64]*forwardedControlRequest // Request ID -> source peer (for requests we forwarded)
+	nextControlID    uint64
 
 	// Route advertisement trigger channel
 	routeAdvertiseCh chan struct{}
@@ -173,17 +173,17 @@ func New(cfg *config.Config) (*Agent, error) {
 	logger := logging.NewLogger(cfg.Agent.LogLevel, cfg.Agent.LogFormat)
 
 	a := &Agent{
-		cfg:               cfg,
-		id:                agentID,
-		keypair:           keypair,
-		dataDir:           cfg.Agent.DataDir,
-		logger:            logger,
-		stopCh:            make(chan struct{}),
-		routeAdvertiseCh:  make(chan struct{}, 1), // Buffered to avoid blocking
-		relayByUpstream:   make(map[uint64]*relayStream),
-		relayByDownstream: make(map[uint64]*relayStream),
-		pendingControl:    make(map[uint64]*pendingControlRequest),
-		forwardedControl:  make(map[uint64]*forwardedControlRequest),
+		cfg:                cfg,
+		id:                 agentID,
+		keypair:            keypair,
+		dataDir:            cfg.Agent.DataDir,
+		logger:             logger,
+		stopCh:             make(chan struct{}),
+		routeAdvertiseCh:   make(chan struct{}, 1), // Buffered to avoid blocking
+		relayByUpstream:    make(map[uint64]*relayStream),
+		relayByDownstream:  make(map[uint64]*relayStream),
+		pendingControl:     make(map[uint64]*pendingControlRequest),
+		forwardedControl:   make(map[uint64]*forwardedControlRequest),
 		fileStreams:        make(map[uint64]*fileTransferStream),
 		shellClientStreams: make(map[uint64]*health.ShellStreamAdapter),
 	}
@@ -1813,131 +1813,57 @@ func (a *Agent) sendControlResponse(peerID identity.AgentID, requestID uint64, c
 	a.peerMgr.SendToPeer(peerID, frame)
 }
 
+// findControlPath finds the next hop and remaining path to reach a target agent for control requests.
+// Returns the next hop ID and the path to include in the control request.
+func (a *Agent) findControlPath(targetID identity.AgentID) (identity.AgentID, []identity.AgentID, error) {
+	// Check if target is a direct peer
+	if conn := a.peerMgr.GetPeer(targetID); conn != nil {
+		return targetID, nil, nil
+	}
+
+	// Find route via routing table
+	routes := a.routeMgr.Table().GetRoutesFromAgent(targetID)
+	if len(routes) == 0 {
+		return identity.AgentID{}, nil, fmt.Errorf("no route to agent %s", targetID.ShortString())
+	}
+
+	route := routes[0]
+	nextHop := route.NextHop
+
+	// route.Path is [local, hop1, hop2, ..., origin/target]
+	// We need the path from nextHop to target for intermediate nodes to forward.
+	var path []identity.AgentID
+	for i, id := range route.Path {
+		if id == nextHop && i+1 < len(route.Path) {
+			path = make([]identity.AgentID, len(route.Path)-i-1)
+			copy(path, route.Path[i+1:])
+			break
+		}
+	}
+
+	return nextHop, path, nil
+}
+
 // SendControlRequest sends a control request to a target agent and waits for response.
 func (a *Agent) SendControlRequest(ctx context.Context, targetID identity.AgentID, controlType uint8) (*protocol.ControlResponse, error) {
-	// Find route to target
-	// First check if target is a direct peer
-	conn := a.peerMgr.GetPeer(targetID)
-	var nextHop identity.AgentID
-	var path []identity.AgentID
+	return a.SendControlRequestWithData(ctx, targetID, controlType, nil)
+}
 
-	if conn != nil {
-		// Direct peer - no intermediate path needed
-		nextHop = targetID
-		path = nil
-	} else {
-		// Need to find route via routing table - use any route advertised by that agent
-		routes := a.routeMgr.Table().GetRoutesFromAgent(targetID)
-		if len(routes) == 0 {
-			return nil, fmt.Errorf("no route to agent %s", targetID.ShortString())
-		}
-
-		route := routes[0]
-		nextHop = route.NextHop
-
-		// route.Path is [local, hop1, hop2, ..., origin/target]
-		// We need the path from nextHop to target, which the intermediate
-		// nodes will use to forward the request.
-		// Find nextHop in route.Path and get everything after it
-		rPath := route.Path
-		for i, id := range rPath {
-			if id == nextHop && i+1 < len(rPath) {
-				path = make([]identity.AgentID, len(rPath)-i-1)
-				copy(path, rPath[i+1:])
-				break
-			}
-		}
+// SendControlRequestWithData sends a control request with data payload to a target agent.
+func (a *Agent) SendControlRequestWithData(ctx context.Context, targetID identity.AgentID, controlType uint8, data []byte) (*protocol.ControlResponse, error) {
+	nextHop, path, err := a.findControlPath(targetID)
+	if err != nil {
+		return nil, err
 	}
 
 	a.logger.Debug("sending control request",
 		"target", targetID.ShortString(),
 		"next_hop", nextHop.ShortString(),
 		"path_len", len(path),
-		"control_type", controlType)
-
-	// Generate request ID
-	a.controlMu.Lock()
-	a.nextControlID++
-	requestID := a.nextControlID
-	pending := &pendingControlRequest{
-		RequestID:   requestID,
-		ControlType: controlType,
-		ResponseCh:  make(chan *protocol.ControlResponse, 1),
-		Timeout:     time.Now().Add(30 * time.Second),
-	}
-	a.pendingControl[requestID] = pending
-	a.controlMu.Unlock()
-
-	// Build and send request
-	req := &protocol.ControlRequest{
-		RequestID:   requestID,
-		ControlType: controlType,
-		TargetAgent: targetID,
-		Path:        path,
-	}
-
-	frame := &protocol.Frame{
-		Type:     protocol.FrameControlRequest,
-		StreamID: protocol.ControlStreamID,
-		Payload:  req.Encode(),
-	}
-
-	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
-		a.controlMu.Lock()
-		delete(a.pendingControl, requestID)
-		a.controlMu.Unlock()
-		return nil, fmt.Errorf("send control request: %w", err)
-	}
-
-	// Wait for response
-	select {
-	case resp := <-pending.ResponseCh:
-		return resp, nil
-	case <-ctx.Done():
-		a.controlMu.Lock()
-		delete(a.pendingControl, requestID)
-		a.controlMu.Unlock()
-		return nil, ctx.Err()
-	}
-}
-
-// SendControlRequestWithData sends a control request with data payload to a target agent.
-func (a *Agent) SendControlRequestWithData(ctx context.Context, targetID identity.AgentID, controlType uint8, data []byte) (*protocol.ControlResponse, error) {
-	// Find route to target
-	conn := a.peerMgr.GetPeer(targetID)
-	var nextHop identity.AgentID
-	var path []identity.AgentID
-
-	if conn != nil {
-		nextHop = targetID
-		path = nil
-	} else {
-		routes := a.routeMgr.Table().GetRoutesFromAgent(targetID)
-		if len(routes) == 0 {
-			return nil, fmt.Errorf("no route to agent %s", targetID.ShortString())
-		}
-
-		route := routes[0]
-		nextHop = route.NextHop
-
-		rPath := route.Path
-		for i, id := range rPath {
-			if id == nextHop && i+1 < len(rPath) {
-				path = make([]identity.AgentID, len(rPath)-i-1)
-				copy(path, rPath[i+1:])
-				break
-			}
-		}
-	}
-
-	a.logger.Debug("sending control request with data",
-		"target", targetID.ShortString(),
-		"next_hop", nextHop.ShortString(),
-		"path_len", len(path),
 		"control_type", controlType,
 		"data_len", len(data))
 
-	// Generate request ID
+	// Generate request ID and create pending request
 	a.controlMu.Lock()
 	a.nextControlID++
 	requestID := a.nextControlID
@@ -1988,13 +1914,13 @@ func (a *Agent) SendControlRequestWithData(ctx context.Context, targetID identit
 func (a *Agent) getLocalStatus() ([]byte, bool) {
 	stats := a.Stats()
 	data, err := json.Marshal(map[string]interface{}{
-		"agent_id":        a.id.String(),
-		"running":         a.running.Load(),
-		"peer_count":      stats.PeerCount,
-		"stream_count":    stats.StreamCount,
-		"route_count":     stats.RouteCount,
-		"socks5_running":  stats.SOCKS5Running,
-		"exit_running":    stats.ExitHandlerRun,
+		"agent_id":       a.id.String(),
+		"running":        a.running.Load(),
+		"peer_count":     stats.PeerCount,
+		"stream_count":   stats.StreamCount,
+		"route_count":    stats.RouteCount,
+		"socks5_running": stats.SOCKS5Running,
+		"exit_running":   stats.ExitHandlerRun,
 	})
 	if err != nil {
 		return []byte(err.Error()), false
@@ -2081,207 +2007,7 @@ func (a *Agent) cleanupRelaysForPeer(peerID identity.AgentID) {
 // Dial implements socks5.Dialer for SOCKS5 connections.
 // This routes connections through the mesh network.
 func (a *Agent) Dial(network, address string) (net.Conn, error) {
-	// Parse the address
-	host, portStr, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, fmt.Errorf("invalid address: %w", err)
-	}
-
-	port, err := net.LookupPort(network, portStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid port: %w", err)
-	}
-
-	// Check if host is already an IP address
-	destIP := net.ParseIP(host)
-
-	// If host is a domain, check domain routes BEFORE DNS resolution
-	if destIP == nil {
-		domainRoute := a.routeMgr.LookupDomain(host)
-		if domainRoute != nil {
-			a.logger.Debug("mesh dial found domain route",
-				"address", address,
-				"domain", host,
-				"pattern", domainRoute.Pattern,
-				"origin", domainRoute.OriginAgent.ShortString())
-
-			// If domain route points to us (local exit), resolve DNS and dial directly
-			if domainRoute.OriginAgent == a.id {
-				a.logger.Debug("mesh dial domain route is local, resolving DNS",
-					"address", address)
-				ips, err := net.LookupIP(host)
-				if err != nil {
-					return nil, fmt.Errorf("resolve %s: %w", host, err)
-				}
-				if len(ips) == 0 {
-					return nil, fmt.Errorf("no IP addresses for %s", host)
-				}
-				return net.Dial(network, net.JoinHostPort(ips[0].String(), portStr))
-			}
-
-			// Route via domain route - exit node will resolve DNS
-			return a.dialViaDomainRoute(network, host, port, domainRoute)
-		}
-
-		// No domain route - resolve DNS at ingress (existing behavior)
-		ips, err := net.LookupIP(host)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %s: %w", host, err)
-		}
-		if len(ips) == 0 {
-			return nil, fmt.Errorf("no IP addresses for %s", host)
-		}
-		destIP = ips[0]
-	}
-
-	// Look up CIDR route in routing table
-	route := a.routeMgr.Lookup(destIP)
-
-	a.logger.Debug("mesh dial route lookup",
-		"address", address,
-		"dest_ip", destIP.String(),
-		"route_found", route != nil)
-
-	// If no route, or route is to ourselves (local exit), do direct dial
-	if route == nil || route.OriginAgent == a.id {
-		a.logger.Debug("mesh dial using direct connection",
-			"address", address,
-			"reason_no_route", route == nil,
-			"reason_local_exit", route != nil && route.OriginAgent == a.id)
-		dialer := &net.Dialer{Timeout: directDialTimeout}
-		return dialer.Dial(network, address)
-	}
-
-	a.logger.Debug("mesh dial routing through mesh",
-		"address", address,
-		"origin", route.OriginAgent.ShortString(),
-		"next_hop", route.NextHop.ShortString(),
-		"path_len", len(route.Path))
-
-	// Route through mesh - get next hop connection
-	conn := a.peerMgr.GetPeer(route.NextHop)
-	if conn == nil {
-		// Next hop not connected, fall back to direct
-		a.logger.Debug("mesh dial next hop not connected, falling back to direct",
-			"address", address,
-			"next_hop", route.NextHop.ShortString())
-		dialer := &net.Dialer{Timeout: directDialTimeout}
-		return dialer.Dial(network, address)
-	}
-
-	// Build the path for STREAM_OPEN
-	// The path contains [NextHop, ..., OriginAgent]
-	// We need to skip the first entry (NextHop) since we're sending to them directly
-	var remainingPath []identity.AgentID
-	if len(route.Path) > 1 {
-		// Skip first entry (NextHop) - the rest leads to OriginAgent
-		remainingPath = make([]identity.AgentID, len(route.Path)-1)
-		copy(remainingPath, route.Path[1:])
-	}
-	// If path is empty or single hop, remainingPath stays empty (next hop is the exit)
-
-	// Generate stream ID
-	streamID := conn.NextStreamID()
-
-	// Build address bytes
-	var addrType uint8
-	var addrBytes []byte
-	if ip4 := destIP.To4(); ip4 != nil {
-		addrType = protocol.AddrTypeIPv4
-		addrBytes = ip4
-	} else {
-		addrType = protocol.AddrTypeIPv6
-		addrBytes = destIP
-	}
-
-	// Generate ephemeral keypair for E2E encryption key exchange
-	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
-	if err != nil {
-		return nil, fmt.Errorf("generate ephemeral key: %w", err)
-	}
-
-	// Create the stream in stream manager
-	pending := a.streamMgr.OpenStream(streamID, route.NextHop, host, uint16(port), 30*time.Second)
-
-	// Store ephemeral keys in pending request for later key derivation
-	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
-
-	// Build and send STREAM_OPEN with ephemeral public key
-	openPayload := &protocol.StreamOpen{
-		RequestID:       pending.RequestID,
-		AddressType:     addrType,
-		Address:         addrBytes,
-		Port:            uint16(port),
-		RemainingPath:   remainingPath,
-		EphemeralPubKey: ephPub,
-	}
-
-	frame := &protocol.Frame{
-		Type:     protocol.FrameStreamOpen,
-		StreamID: streamID,
-		Payload:  openPayload.Encode(),
-	}
-
-	a.logger.Debug("mesh dial sending STREAM_OPEN",
-		"stream_id", streamID,
-		"request_id", pending.RequestID,
-		"remaining_path_len", len(remainingPath))
-
-	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
-		a.logger.Debug("mesh dial failed to send STREAM_OPEN", "error", err)
-		return nil, fmt.Errorf("send stream open: %w", err)
-	}
-
-	a.logger.Debug("mesh dial waiting for STREAM_OPEN_ACK", "stream_id", streamID)
-
-	// Wait for response
-	result := <-pending.ResultCh
-	if result.Error != nil {
-		a.logger.Debug("mesh dial received error", "error", result.Error)
-		// Zero out ephemeral private key on error
-		crypto.ZeroKey(&ephPriv)
-		return nil, result.Error
-	}
-
-	a.logger.Debug("mesh dial received ACK, connection established",
-		"stream_id", streamID,
-		"request_id", pending.RequestID,
-		"bound_ip", result.BoundIP,
-		"bound_port", result.BoundPort)
-
-	// Derive session key from ECDH with exit node's ephemeral public key
-	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
-	if err != nil {
-		crypto.ZeroKey(&ephPriv)
-		return nil, fmt.Errorf("compute ECDH: %w", err)
-	}
-
-	// Zero out ephemeral private key after computing shared secret
-	crypto.ZeroKey(&ephPriv)
-
-	// Derive session key - we are the initiator
-	// Use requestID (not streamID) because streamID changes at each relay hop
-	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
-	crypto.ZeroKey(&sharedSecret)
-
-	// Store session key in stream
-	result.Stream.SetSessionKey(sessionKey)
-
-	// Return a MeshConn wrapper
-	return &meshConn{
-		agent:    a,
-		stream:   result.Stream,
-		peerID:   route.NextHop,
-		streamID: streamID,
-		localAddr: &net.TCPAddr{
-			IP:   result.BoundIP,
-			Port: int(result.BoundPort),
-		},
-		remoteAddr: &net.TCPAddr{
-			IP:   destIP,
-			Port: port,
-		},
-	}, nil
+	return a.DialContext(context.Background(), network, address)
 }
 
 // DialContext implements socks5.Dialer for SOCKS5 connections with context support.
@@ -2457,116 +2183,7 @@ func (a *Agent) DialContext(ctx context.Context, network, address string) (net.C
 // dialViaDomainRoute routes a connection through a domain route.
 // The domain name is passed to the exit node for DNS resolution.
 func (a *Agent) dialViaDomainRoute(network, host string, port int, route *routing.DomainRoute) (net.Conn, error) {
-	// Get next hop connection
-	conn := a.peerMgr.GetPeer(route.NextHop)
-	if conn == nil {
-		// Next hop not connected, can't route
-		return nil, fmt.Errorf("next hop %s not connected", route.NextHop.ShortString())
-	}
-
-	// Build the path for STREAM_OPEN
-	var remainingPath []identity.AgentID
-	if len(route.Path) > 1 {
-		remainingPath = make([]identity.AgentID, len(route.Path)-1)
-		copy(remainingPath, route.Path[1:])
-	}
-
-	// Generate stream ID
-	streamID := conn.NextStreamID()
-
-	// Build domain address bytes (length-prefixed string)
-	addrBytes := make([]byte, 1+len(host))
-	addrBytes[0] = byte(len(host))
-	copy(addrBytes[1:], host)
-
-	// Generate ephemeral keypair for E2E encryption key exchange
-	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
-	if err != nil {
-		return nil, fmt.Errorf("generate ephemeral key: %w", err)
-	}
-
-	// Create the stream in stream manager
-	pending := a.streamMgr.OpenStream(streamID, route.NextHop, host, uint16(port), 30*time.Second)
-
-	// Store ephemeral keys in pending request for later key derivation
-	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
-
-	// Build and send STREAM_OPEN with domain address
-	openPayload := &protocol.StreamOpen{
-		RequestID:       pending.RequestID,
-		AddressType:     protocol.AddrTypeDomain, // Domain address type
-		Address:         addrBytes,               // Length-prefixed domain name
-		Port:            uint16(port),
-		RemainingPath:   remainingPath,
-		EphemeralPubKey: ephPub,
-	}
-
-	frame := &protocol.Frame{
-		Type:     protocol.FrameStreamOpen,
-		StreamID: streamID,
-		Payload:  openPayload.Encode(),
-	}
-
-	a.logger.Debug("mesh dial via domain route sending STREAM_OPEN",
-		"stream_id", streamID,
-		"request_id", pending.RequestID,
-		"domain", host,
-		"pattern", route.Pattern,
-		"remaining_path_len", len(remainingPath))
-
-	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
-		a.logger.Debug("mesh dial via domain route failed to send STREAM_OPEN", "error", err)
-		return nil, fmt.Errorf("send stream open: %w", err)
-	}
-
-	a.logger.Debug("mesh dial via domain route waiting for STREAM_OPEN_ACK", "stream_id", streamID)
-
-	// Wait for response
-	result := <-pending.ResultCh
-	if result.Error != nil {
-		a.logger.Debug("mesh dial via domain route received error", "error", result.Error)
-		crypto.ZeroKey(&ephPriv)
-		return nil, result.Error
-	}
-
-	a.logger.Debug("mesh dial via domain route received ACK, connection established",
-		"stream_id", streamID,
-		"request_id", pending.RequestID,
-		"bound_ip", result.BoundIP,
-		"bound_port", result.BoundPort)
-
-	// Derive session key from ECDH with exit node's ephemeral public key
-	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
-	if err != nil {
-		crypto.ZeroKey(&ephPriv)
-		return nil, fmt.Errorf("compute ECDH: %w", err)
-	}
-
-	crypto.ZeroKey(&ephPriv)
-
-	// Derive session key - we are the initiator
-	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
-	crypto.ZeroKey(&sharedSecret)
-
-	// Store session key in stream
-	result.Stream.SetSessionKey(sessionKey)
-
-	// Return a MeshConn wrapper
-	// Note: destIP is nil for domain routes since DNS is resolved at exit
-	return &meshConn{
-		agent:    a,
-		stream:   result.Stream,
-		peerID:   route.NextHop,
-		streamID: streamID,
-		localAddr: &net.TCPAddr{
-			IP:   result.BoundIP,
-			Port: int(result.BoundPort),
-		},
-		remoteAddr: &domainAddr{
-			domain: host,
-			port:   port,
-		},
-	}, nil
+	return a.dialViaDomainRouteWithContext(context.Background(), network, host, port, route)
 }
 
 // dialViaDomainRouteWithContext routes a connection through a domain route with context support.
@@ -2922,11 +2539,11 @@ func (p *agentStatsProvider) Stats() health.Stats {
 
 // AgentStats contains agent statistics.
 type AgentStats struct {
-	PeerCount       int
-	StreamCount     int
-	RouteCount      int
-	SOCKS5Running   bool
-	ExitHandlerRun  bool
+	PeerCount      int
+	StreamCount    int
+	RouteCount     int
+	SOCKS5Running  bool
+	ExitHandlerRun bool
 }
 
 // GetRoutes returns all routes for debugging.
@@ -3199,9 +2816,46 @@ func (a *Agent) WriteStreamClose(peerID identity.AgentID, streamID uint64) error
 	return a.peerMgr.SendToPeer(peerID, frame)
 }
 
-// handleFileUploadStreamOpen handles a file upload stream open request.
-func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, remoteEphemeralPub [crypto.KeySize]byte) {
-	a.logger.Debug("file upload stream open",
+// deriveResponderSessionKey performs E2E key exchange for a responder (receiving a stream open).
+// Returns the session key and our ephemeral public key, or an error.
+func deriveResponderSessionKey(requestID uint64, remoteEphemeralPub [crypto.KeySize]byte) (*crypto.SessionKey, [crypto.KeySize]byte, error) {
+	// Check for zero key (encryption required)
+	var zeroKey [crypto.KeySize]byte
+	if remoteEphemeralPub == zeroKey {
+		return nil, zeroKey, fmt.Errorf("encryption required")
+	}
+
+	// Generate ephemeral keypair for E2E encryption
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, zeroKey, fmt.Errorf("key generation failed: %w", err)
+	}
+
+	// Compute shared secret from ECDH
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, zeroKey, fmt.Errorf("key exchange failed: %w", err)
+	}
+
+	// Zero out ephemeral private key
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the responder
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, remoteEphemeralPub, ephPub, false)
+	crypto.ZeroKey(&sharedSecret)
+
+	return sessionKey, ephPub, nil
+}
+
+// handleFileTransferStreamOpen is the common handler for file upload/download stream opens.
+func (a *Agent) handleFileTransferStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, remoteEphemeralPub [crypto.KeySize]byte, isUpload bool) {
+	opName := "download"
+	if isUpload {
+		opName = "upload"
+	}
+
+	a.logger.Debug("file "+opName+" stream open",
 		logging.KeyPeerID, peerID.ShortString(),
 		logging.KeyStreamID, streamID,
 		logging.KeyRequestID, requestID)
@@ -3212,48 +2866,23 @@ func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uin
 		return
 	}
 
-	// Check for zero key (strict encryption mode - reject unencrypted connections)
-	var zeroKey [crypto.KeySize]byte
-	if remoteEphemeralPub == zeroKey {
-		a.logger.Warn("rejecting file upload with zero ephemeral key (encryption required)",
+	// Perform E2E key exchange
+	sessionKey, ephPub, err := deriveResponderSessionKey(requestID, remoteEphemeralPub)
+	if err != nil {
+		a.logger.Warn("rejecting file "+opName+" stream",
 			logging.KeyPeerID, peerID.ShortString(),
-			logging.KeyStreamID, streamID)
-		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "encryption required")
-		return
-	}
-
-	// Generate ephemeral keypair for E2E encryption
-	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
-	if err != nil {
-		a.logger.Error("failed to generate ephemeral keypair for file upload",
+			logging.KeyStreamID, streamID,
 			logging.KeyError, err)
-		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key generation failed")
+		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, err.Error())
 		return
 	}
-
-	// Compute shared secret from ECDH
-	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
-	if err != nil {
-		crypto.ZeroKey(&ephPriv)
-		a.logger.Error("failed to compute ECDH for file upload",
-			logging.KeyError, err)
-		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key exchange failed")
-		return
-	}
-
-	// Zero out ephemeral private key
-	crypto.ZeroKey(&ephPriv)
-
-	// Derive session key - we are the responder (file target)
-	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, remoteEphemeralPub, ephPub, false)
-	crypto.ZeroKey(&sharedSecret)
 
 	// Create file transfer stream entry with session key
 	fts := &fileTransferStream{
 		StreamID:     streamID,
 		PeerID:       peerID,
 		RequestID:    requestID,
-		IsUpload:     true,
+		IsUpload:     isUpload,
 		MetaReceived: false,
 		sessionKey:   sessionKey,
 	}
@@ -3266,71 +2895,14 @@ func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uin
 	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, ephPub)
 }
 
+// handleFileUploadStreamOpen handles a file upload stream open request.
+func (a *Agent) handleFileUploadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, remoteEphemeralPub [crypto.KeySize]byte) {
+	a.handleFileTransferStreamOpen(peerID, streamID, requestID, remoteEphemeralPub, true)
+}
+
 // handleFileDownloadStreamOpen handles a file download stream open request.
 func (a *Agent) handleFileDownloadStreamOpen(peerID identity.AgentID, streamID uint64, requestID uint64, remoteEphemeralPub [crypto.KeySize]byte) {
-	a.logger.Debug("file download stream open",
-		logging.KeyPeerID, peerID.ShortString(),
-		logging.KeyStreamID, streamID,
-		logging.KeyRequestID, requestID)
-
-	// Check if file transfer is enabled
-	if a.fileStreamHandler == nil {
-		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrFileTransferDenied, "file transfer disabled")
-		return
-	}
-
-	// Check for zero key (strict encryption mode - reject unencrypted connections)
-	var zeroKey [crypto.KeySize]byte
-	if remoteEphemeralPub == zeroKey {
-		a.logger.Warn("rejecting file download with zero ephemeral key (encryption required)",
-			logging.KeyPeerID, peerID.ShortString(),
-			logging.KeyStreamID, streamID)
-		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "encryption required")
-		return
-	}
-
-	// Generate ephemeral keypair for E2E encryption
-	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
-	if err != nil {
-		a.logger.Error("failed to generate ephemeral keypair for file download",
-			logging.KeyError, err)
-		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key generation failed")
-		return
-	}
-
-	// Compute shared secret from ECDH
-	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
-	if err != nil {
-		crypto.ZeroKey(&ephPriv)
-		a.logger.Error("failed to compute ECDH for file download",
-			logging.KeyError, err)
-		a.WriteStreamOpenErr(peerID, streamID, requestID, protocol.ErrGeneralFailure, "key exchange failed")
-		return
-	}
-
-	// Zero out ephemeral private key
-	crypto.ZeroKey(&ephPriv)
-
-	// Derive session key - we are the responder (file source)
-	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, remoteEphemeralPub, ephPub, false)
-	crypto.ZeroKey(&sharedSecret)
-
-	// Create file transfer stream entry with session key
-	fts := &fileTransferStream{
-		StreamID:     streamID,
-		PeerID:       peerID,
-		RequestID:    requestID,
-		IsUpload:     false,
-		MetaReceived: false,
-		sessionKey:   sessionKey,
-	}
-
-	a.fileStreamsMu.Lock()
-	a.fileStreams[streamID] = fts
-	a.fileStreamsMu.Unlock()
-
-	// Send ACK with our ephemeral public key for E2E encryption
-	a.WriteStreamOpenAck(peerID, streamID, requestID, nil, 0, ephPub)
+	a.handleFileTransferStreamOpen(peerID, streamID, requestID, remoteEphemeralPub, false)
 }
 
 // handleShellStreamOpen handles a shell stream open request.
@@ -4504,6 +4076,63 @@ func (a *Agent) streamFileContent(ctx context.Context, peerID identity.AgentID, 
 	return totalWritten, nil
 }
 
+// receiveEncryptedStreamData receives and decrypts data from a stream into a buffer.
+// Returns the total bytes received (decrypted).
+func (a *Agent) receiveEncryptedStreamData(ctx context.Context, s *stream.Stream, sessionKey *crypto.SessionKey, totalSize int64, progress health.FileTransferProgress) (*bytes.Buffer, int64, error) {
+	var dataBuf bytes.Buffer
+	var totalReceived int64
+
+	for {
+		select {
+		case <-ctx.Done():
+			return &dataBuf, totalReceived, ctx.Err()
+		default:
+		}
+
+		data, err := s.ReadWithTimeout(30 * time.Second)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			// Try to drain remaining data if stream is closed
+			if s.IsClosed() {
+				for {
+					select {
+					case remaining := <-s.ReadBuffer():
+						plaintext, decErr := sessionKey.Decrypt(remaining)
+						if decErr != nil {
+							return &dataBuf, totalReceived, fmt.Errorf("decrypt remaining data: %w", decErr)
+						}
+						dataBuf.Write(plaintext)
+						totalReceived += int64(len(plaintext))
+					default:
+						return &dataBuf, totalReceived, nil
+					}
+				}
+			}
+			return &dataBuf, totalReceived, fmt.Errorf("read stream: %w", err)
+		}
+
+		if len(data) == 0 {
+			continue
+		}
+
+		plaintext, decErr := sessionKey.Decrypt(data)
+		if decErr != nil {
+			return &dataBuf, totalReceived, fmt.Errorf("decrypt data: %w", decErr)
+		}
+
+		dataBuf.Write(plaintext)
+		totalReceived += int64(len(plaintext))
+
+		if progress != nil {
+			progress(totalReceived, totalSize)
+		}
+	}
+
+	return &dataBuf, totalReceived, nil
+}
+
 // receiveAndWriteFile receives file data from a stream, decrypts with E2E session key, and writes to disk.
 func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, localPath string, mode uint32, totalSize int64, compressed bool, progress health.FileTransferProgress, sessionKey *crypto.SessionKey) (int64, error) {
 	// Create parent directories
@@ -4519,68 +4148,16 @@ func (a *Agent) receiveAndWriteFile(ctx context.Context, s *stream.Stream, local
 	}
 	defer f.Close()
 
-	// Receive data from stream
-	var totalReceived int64
-	var dataBuf bytes.Buffer
-
-	for {
-		select {
-		case <-ctx.Done():
-			return totalReceived, ctx.Err()
-		default:
-		}
-
-		data, err := s.ReadWithTimeout(30 * time.Second)
-		if err != nil {
-			if err == io.EOF {
-				// Normal end of stream - all data received
-				break
-			}
-			// Context timeout but stream closed - try to drain remaining data
-			if s.IsClosed() {
-				// Try one more non-blocking read to drain any remaining buffered data
-				for {
-					select {
-					case remaining := <-s.ReadBuffer():
-						// Decrypt remaining data
-						plaintext, decErr := sessionKey.Decrypt(remaining)
-						if decErr != nil {
-							return totalReceived, fmt.Errorf("decrypt remaining data: %w", decErr)
-						}
-						dataBuf.Write(plaintext)
-						totalReceived += int64(len(plaintext))
-					default:
-						// No more data
-						goto done
-					}
-				}
-			}
-			return totalReceived, fmt.Errorf("read stream: %w", err)
-		}
-
-		if len(data) == 0 {
-			continue
-		}
-
-		// Decrypt received data
-		plaintext, decErr := sessionKey.Decrypt(data)
-		if decErr != nil {
-			return totalReceived, fmt.Errorf("decrypt data: %w", decErr)
-		}
-
-		dataBuf.Write(plaintext)
-		totalReceived += int64(len(plaintext))
-
-		if progress != nil {
-			progress(totalReceived, totalSize)
-		}
+	// Receive encrypted data
+	dataBuf, _, err := a.receiveEncryptedStreamData(ctx, s, sessionKey, totalSize, progress)
+	if err != nil {
+		return 0, err
 	}
-done:
 
 	// Decompress if needed and write to file
-	var reader io.Reader = &dataBuf
+	var reader io.Reader = dataBuf
 	if compressed {
-		gzr, err := gzip.NewReader(&dataBuf)
+		gzr, err := gzip.NewReader(dataBuf)
 		if err != nil {
 			return 0, fmt.Errorf("create gzip reader: %w", err)
 		}
@@ -4590,7 +4167,7 @@ done:
 
 	written, err := io.Copy(f, reader)
 	if err != nil {
-		return totalReceived, fmt.Errorf("write file: %w", err)
+		return 0, fmt.Errorf("write file: %w", err)
 	}
 
 	return written, nil
@@ -4598,67 +4175,15 @@ done:
 
 // receiveAndExtractDirectory receives tar stream data, decrypts with E2E session key, and extracts to a directory.
 func (a *Agent) receiveAndExtractDirectory(ctx context.Context, s *stream.Stream, localPath string, totalSize int64, progress health.FileTransferProgress, sessionKey *crypto.SessionKey) (int64, error) {
-	// Receive all data first
-	var dataBuf bytes.Buffer
-	var totalReceived int64
-
-	for {
-		select {
-		case <-ctx.Done():
-			return totalReceived, ctx.Err()
-		default:
-		}
-
-		data, err := s.ReadWithTimeout(30 * time.Second)
-		if err != nil {
-			if err == io.EOF {
-				// Normal end of stream - all data received
-				break
-			}
-			// Context timeout but stream closed - try to drain remaining data
-			if s.IsClosed() {
-				// Try one more non-blocking read to drain any remaining buffered data
-				for {
-					select {
-					case remaining := <-s.ReadBuffer():
-						// Decrypt remaining data
-						plaintext, decErr := sessionKey.Decrypt(remaining)
-						if decErr != nil {
-							return totalReceived, fmt.Errorf("decrypt remaining data: %w", decErr)
-						}
-						dataBuf.Write(plaintext)
-						totalReceived += int64(len(plaintext))
-					default:
-						// No more data
-						goto doneDir
-					}
-				}
-			}
-			return totalReceived, fmt.Errorf("read stream: %w", err)
-		}
-
-		if len(data) == 0 {
-			continue
-		}
-
-		// Decrypt received data
-		plaintext, decErr := sessionKey.Decrypt(data)
-		if decErr != nil {
-			return totalReceived, fmt.Errorf("decrypt data: %w", decErr)
-		}
-
-		dataBuf.Write(plaintext)
-		totalReceived += int64(len(plaintext))
-
-		if progress != nil {
-			progress(totalReceived, totalSize)
-		}
+	// Receive encrypted data
+	dataBuf, _, err := a.receiveEncryptedStreamData(ctx, s, sessionKey, totalSize, progress)
+	if err != nil {
+		return 0, err
 	}
-doneDir:
 
 	// Extract tar.gz to directory
-	if err := filetransfer.UntarDirectory(&dataBuf, localPath); err != nil {
-		return totalReceived, fmt.Errorf("extract directory: %w", err)
+	if err := filetransfer.UntarDirectory(dataBuf, localPath); err != nil {
+		return 0, fmt.Errorf("extract directory: %w", err)
 	}
 
 	// Calculate extracted size

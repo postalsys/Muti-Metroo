@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,7 +51,7 @@ func (t *H2Transport) Dial(ctx context.Context, addr string, opts DialOptions) (
 	t.mu.Unlock()
 
 	// Parse address
-	h2URL, path := parseH2Address(addr, opts)
+	h2URL, path := parseH2Address(addr)
 
 	// Create a connection context that outlives the dial call
 	// The request uses a cancellable background context - we cancel it on Close()
@@ -68,32 +69,13 @@ func (t *H2Transport) Dial(ctx context.Context, addr string, opts DialOptions) (
 	// dialCancel is called after RoundTrip completes (success or failure)
 
 	// Create HTTP/2 client with TLS
-	tlsConfig := opts.TLSConfig
-	if tlsConfig == nil {
-		if !opts.InsecureSkipVerify {
-			connCancel()
-			dialCancel()
-			return nil, fmt.Errorf("TLS config required; set InsecureSkipVerify=true for development only")
-		}
-		// Create insecure TLS config only when explicitly requested
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true,
-			NextProtos:         []string{"h2"},
-		}
-	} else {
-		tlsConfig = tlsConfig.Clone()
-		// Ensure HTTP/2 is in NextProtos
-		hasH2 := false
-		for _, proto := range tlsConfig.NextProtos {
-			if proto == "h2" {
-				hasH2 = true
-				break
-			}
-		}
-		if !hasH2 {
-			tlsConfig.NextProtos = append([]string{"h2"}, tlsConfig.NextProtos...)
-		}
+	tlsConfig, err := prepareTLSConfigForDial(opts.TLSConfig, opts.InsecureSkipVerify, []string{"h2"})
+	if err != nil {
+		connCancel()
+		dialCancel()
+		return nil, err
 	}
+	tlsConfig = ensureH2InNextProtos(tlsConfig)
 
 	h2Transport := &http2.Transport{
 		TLSClientConfig: tlsConfig,
@@ -193,17 +175,7 @@ func (t *H2Transport) Listen(addr string, opts ListenOptions) (Listener, error) 
 	}
 
 	// Ensure HTTP/2 is in NextProtos
-	tlsConfig = tlsConfig.Clone()
-	hasH2 := false
-	for _, proto := range tlsConfig.NextProtos {
-		if proto == "h2" {
-			hasH2 = true
-			break
-		}
-	}
-	if !hasH2 {
-		tlsConfig.NextProtos = append([]string{"h2"}, tlsConfig.NextProtos...)
-	}
+	tlsConfig = ensureH2InNextProtos(tlsConfig)
 
 	path := opts.Path
 	if path == "" {
@@ -617,28 +589,24 @@ func (s *H2Stream) SetWriteDeadline(t time.Time) error {
 }
 
 // parseH2Address parses the address into HTTP/2 URL components.
-func parseH2Address(addr string, opts DialOptions) (baseURL, path string) {
-	// If already a URL, extract components
-	if len(addr) > 8 && addr[:8] == "https://" {
-		// Find path separator
-		for i := 8; i < len(addr); i++ {
-			if addr[i] == '/' {
-				return addr[:i], addr[i:]
-			}
-		}
-		return addr, h2DefaultPath
+func parseH2Address(addr string) (baseURL, path string) {
+	// Check for URL schemes
+	var hostStart int
+	switch {
+	case strings.HasPrefix(addr, "https://"):
+		hostStart = 8
+	case strings.HasPrefix(addr, "http://"):
+		hostStart = 7
+	default:
+		// Bare host:port - use https
+		return "https://" + addr, h2DefaultPath
 	}
 
-	if len(addr) > 7 && addr[:7] == "http://" {
-		// Find path separator (insecure, for testing)
-		for i := 7; i < len(addr); i++ {
-			if addr[i] == '/' {
-				return addr[:i], addr[i:]
-			}
-		}
+	// Find path separator after the scheme
+	pathIdx := strings.Index(addr[hostStart:], "/")
+	if pathIdx == -1 {
 		return addr, h2DefaultPath
 	}
-
-	// Build URL from host:port
-	return "https://" + addr, h2DefaultPath
+	pathIdx += hostStart
+	return addr[:pathIdx], addr[pathIdx:]
 }

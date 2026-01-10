@@ -353,27 +353,18 @@ func TestWebSocketTransport_ListenRequiresTLS(t *testing.T) {
 func TestParseWebSocketURL(t *testing.T) {
 	tests := []struct {
 		addr     string
-		secure   bool
 		expected string
 	}{
-		{"wss://localhost:443/mesh", true, "wss://localhost:443/mesh"},
-		{"ws://localhost:8080/mesh", false, "ws://localhost:8080/mesh"},
-		{"localhost:443", true, "wss://localhost:443/mesh"},
+		{"wss://localhost:443/mesh", "wss://localhost:443/mesh"},
+		{"ws://localhost:8080/mesh", "ws://localhost:8080/mesh"},
+		{"localhost:443", "wss://localhost:443/mesh"},
 		// Note: bare host:port always uses wss:// for security (TLS required)
-		{"localhost:8080", true, "wss://localhost:8080/mesh"},
+		{"localhost:8080", "wss://localhost:8080/mesh"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.addr, func(t *testing.T) {
-			opts := DialOptions{}
-			if tt.secure {
-				opts.TLSConfig = &tls.Config{}
-			}
-
-			result, err := parseWebSocketURL(tt.addr, opts)
-			if err != nil {
-				t.Fatalf("parseWebSocketURL() error = %v", err)
-			}
+			result := parseWebSocketURL(tt.addr)
 
 			if result != tt.expected {
 				t.Errorf("parseWebSocketURL() = %s, want %s", result, tt.expected)

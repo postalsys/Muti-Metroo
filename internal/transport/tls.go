@@ -190,3 +190,38 @@ func CloneTLSConfig(cfg *tls.Config) *tls.Config {
 	}
 	return cfg.Clone()
 }
+
+// prepareTLSConfigForDial prepares a TLS config for dialing.
+// If tlsConfig is nil and insecureSkipVerify is true, creates an insecure config.
+// If tlsConfig is nil and insecureSkipVerify is false, returns an error.
+// The nextProtos parameter specifies the ALPN protocols to use.
+func prepareTLSConfigForDial(tlsConfig *tls.Config, insecureSkipVerify bool, nextProtos []string) (*tls.Config, error) {
+	if tlsConfig == nil {
+		if !insecureSkipVerify {
+			return nil, fmt.Errorf("TLS config required; set InsecureSkipVerify=true for development only")
+		}
+		return &tls.Config{
+			InsecureSkipVerify: true,
+			NextProtos:         nextProtos,
+			MinVersion:         tls.VersionTLS13,
+		}, nil
+	}
+
+	// Clone and set NextProtos on provided config
+	cfg := tlsConfig.Clone()
+	cfg.NextProtos = nextProtos
+	return cfg, nil
+}
+
+// ensureH2InNextProtos ensures "h2" is present in TLS NextProtos.
+// Returns a cloned config with "h2" prepended if not already present.
+func ensureH2InNextProtos(tlsConfig *tls.Config) *tls.Config {
+	cfg := tlsConfig.Clone()
+	for _, proto := range cfg.NextProtos {
+		if proto == "h2" {
+			return cfg
+		}
+	}
+	cfg.NextProtos = append([]string{"h2"}, cfg.NextProtos...)
+	return cfg
+}

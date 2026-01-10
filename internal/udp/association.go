@@ -156,10 +156,8 @@ func (a *Association) Close() error {
 		a.UDPConn = nil
 	}
 
-	// Zero out session key
-	if a.SessionKey != nil {
-		a.SessionKey = nil
-	}
+	// Clear session key reference
+	a.SessionKey = nil
 
 	return nil
 }

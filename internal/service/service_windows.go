@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -90,89 +89,35 @@ func isTokenMemberOfSid(token windows.Token, sid *windows.SID) (bool, error) {
 
 // installImpl installs the service on Windows.
 func installImpl(cfg ServiceConfig, execPath string) error {
-	// Open Service Control Manager
-	scManager, err := openSCManager()
-	if err != nil {
-		return fmt.Errorf("failed to open service control manager: %w", err)
-	}
-	defer closeSCHandle(scManager)
-
-	// Check if already installed
-	existingService, _ := openService(scManager, cfg.Name)
-	if existingService != 0 {
-		closeSCHandle(existingService)
-		return fmt.Errorf("service %s is already installed", cfg.Name)
-	}
-
-	// Build command line
-	cmdLine := fmt.Sprintf(`"%s" run -c "%s"`, execPath, cfg.ConfigPath)
-
-	// Create the service
-	namePtr, _ := syscall.UTF16PtrFromString(cfg.Name)
-	displayNamePtr, _ := syscall.UTF16PtrFromString(cfg.DisplayName)
-	cmdLinePtr, _ := syscall.UTF16PtrFromString(cmdLine)
-
-	r1, _, err := procCreateService.Call(
-		scManager,
-		uintptr(unsafe.Pointer(namePtr)),
-		uintptr(unsafe.Pointer(displayNamePtr)),
-		SERVICE_ALL_ACCESS,
-		SERVICE_WIN32_OWN_PROCESS,
-		SERVICE_AUTO_START,
-		SERVICE_ERROR_NORMAL,
-		uintptr(unsafe.Pointer(cmdLinePtr)),
-		0, // No load order group
-		0, // No tag
-		0, // No dependencies
-		0, // LocalSystem account
-		0, // No password
-	)
-	if r1 == 0 {
-		return fmt.Errorf("failed to create service: %w", err)
-	}
-	serviceHandle := r1
-	defer closeSCHandle(serviceHandle)
-
-	fmt.Printf("Created Windows service: %s\n", cfg.Name)
-
-	// Set service description
-	if cfg.Description != "" {
-		setServiceDescription(serviceHandle, cfg.Description)
-	}
-
-	// Start the service
-	r1, _, err = procStartService.Call(serviceHandle, 0, 0)
-	if r1 == 0 {
-		fmt.Printf("Note: service created but failed to start: %v\n", err)
-		fmt.Println("You may need to start it manually with: net start", cfg.Name)
-	} else {
-		fmt.Printf("Started Windows service: %s\n", cfg.Name)
-	}
-
-	return nil
+	return installWindowsService(cfg, execPath, false)
 }
 
 // installImplEmbedded installs Windows service for embedded config binary.
-// Note: No -c flag since config is embedded in the binary.
 func installImplEmbedded(cfg ServiceConfig, execPath string) error {
-	// Open Service Control Manager
+	return installWindowsService(cfg, execPath, true)
+}
+
+// installWindowsService installs a Windows service with optional embedded config mode.
+func installWindowsService(cfg ServiceConfig, execPath string, embedded bool) error {
 	scManager, err := openSCManager()
 	if err != nil {
 		return fmt.Errorf("failed to open service control manager: %w", err)
 	}
 	defer closeSCHandle(scManager)
 
-	// Check if already installed
 	existingService, _ := openService(scManager, cfg.Name)
 	if existingService != 0 {
 		closeSCHandle(existingService)
 		return fmt.Errorf("service %s is already installed", cfg.Name)
 	}
 
-	// Build command line (no -c flag for embedded config)
-	cmdLine := fmt.Sprintf(`"%s" run`, execPath)
+	var cmdLine string
+	if embedded {
+		cmdLine = fmt.Sprintf(`"%s" run`, execPath)
+	} else {
+		cmdLine = fmt.Sprintf(`"%s" run -c "%s"`, execPath, cfg.ConfigPath)
+	}
 
-	// Create the service
 	namePtr, _ := syscall.UTF16PtrFromString(cfg.Name)
 	displayNamePtr, _ := syscall.UTF16PtrFromString(cfg.DisplayName)
 	cmdLinePtr, _ := syscall.UTF16PtrFromString(cmdLine)
@@ -200,12 +145,10 @@ func installImplEmbedded(cfg ServiceConfig, execPath string) error {
 
 	fmt.Printf("Created Windows service: %s\n", cfg.Name)
 
-	// Set service description
 	if cfg.Description != "" {
 		setServiceDescription(serviceHandle, cfg.Description)
 	}
 
-	// Start the service
 	r1, _, err = procStartService.Call(serviceHandle, 0, 0)
 	if r1 == 0 {
 		fmt.Printf("Note: service created but failed to start: %v\n", err)
@@ -344,16 +287,6 @@ func setServiceDescription(serviceHandle uintptr, description string) {
 	modAdvapi32 := windows.NewLazySystemDLL("advapi32.dll")
 	procChangeServiceConfig2 := modAdvapi32.NewProc("ChangeServiceConfig2W")
 	procChangeServiceConfig2.Call(serviceHandle, 1, uintptr(unsafe.Pointer(&sd)))
-}
-
-// Helper to check if output contains certain strings (for compatibility with other code)
-func containsAny(s string, substrs ...string) bool {
-	for _, substr := range substrs {
-		if strings.Contains(s, substr) {
-			return true
-		}
-	}
-	return false
 }
 
 // isInteractiveImpl returns true if the process is running interactively (not as a Windows service).

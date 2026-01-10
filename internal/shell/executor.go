@@ -83,19 +83,24 @@ func (e *Executor) ValidateAuth(password string) error {
 // dangerousArgPattern matches shell metacharacters and injection attempts.
 var dangerousArgPattern = regexp.MustCompile(`[;&|$` + "`" + `(){}[\]<>\\!*?~]`)
 
-// IsCommandAllowed checks if the command is in the whitelist.
-func (e *Executor) IsCommandAllowed(command string) bool {
-	whitelist := e.config.Whitelist
-
-	if len(whitelist) == 0 {
-		return false
-	}
-
-	// Check for wildcard first
-	for _, w := range whitelist {
+// hasWildcard returns true if the whitelist contains the wildcard entry "*".
+func (e *Executor) hasWildcard() bool {
+	for _, w := range e.config.Whitelist {
 		if w == "*" {
 			return true
 		}
+	}
+	return false
+}
+
+// IsCommandAllowed checks if the command is in the whitelist.
+func (e *Executor) IsCommandAllowed(command string) bool {
+	if len(e.config.Whitelist) == 0 {
+		return false
+	}
+
+	if e.hasWildcard() {
+		return true
 	}
 
 	// Only allow base command names - no paths allowed
@@ -104,7 +109,7 @@ func (e *Executor) IsCommandAllowed(command string) bool {
 	}
 
 	// Command must match exactly (case-sensitive)
-	for _, allowed := range whitelist {
+	for _, allowed := range e.config.Whitelist {
 		if allowed == command {
 			return true
 		}
@@ -115,13 +120,9 @@ func (e *Executor) IsCommandAllowed(command string) bool {
 
 // ValidateArgs checks command arguments for dangerous patterns.
 func (e *Executor) ValidateArgs(args []string) error {
-	whitelist := e.config.Whitelist
-
 	// In wildcard mode, skip argument validation
-	for _, w := range whitelist {
-		if w == "*" {
-			return nil
-		}
+	if e.hasWildcard() {
+		return nil
 	}
 
 	for i, arg := range args {
@@ -182,29 +183,32 @@ type Session struct {
 	startTime time.Time
 }
 
+// validateAndAcquire performs common validation for all session types:
+// checks if shell is enabled, validates authentication, command whitelist,
+// arguments, and acquires a session slot.
+func (e *Executor) validateAndAcquire(meta *ShellMeta) error {
+	if !e.config.Enabled {
+		return fmt.Errorf("shell is disabled")
+	}
+
+	if err := e.ValidateAuth(meta.Password); err != nil {
+		return err
+	}
+
+	if !e.IsCommandAllowed(meta.Command) {
+		return fmt.Errorf("command '%s' is not allowed", meta.Command)
+	}
+
+	if err := e.ValidateArgs(meta.Args); err != nil {
+		return err
+	}
+
+	return e.AcquireSession()
+}
+
 // NewSession creates a new streaming shell session (non-PTY).
 func (e *Executor) NewSession(ctx context.Context, meta *ShellMeta) (*Session, error) {
-	if !e.config.Enabled {
-		return nil, fmt.Errorf("shell is disabled")
-	}
-
-	// Validate authentication
-	if err := e.ValidateAuth(meta.Password); err != nil {
-		return nil, err
-	}
-
-	// Validate command
-	if !e.IsCommandAllowed(meta.Command) {
-		return nil, fmt.Errorf("command '%s' is not allowed", meta.Command)
-	}
-
-	// Validate arguments
-	if err := e.ValidateArgs(meta.Args); err != nil {
-		return nil, err
-	}
-
-	// Acquire session slot
-	if err := e.AcquireSession(); err != nil {
+	if err := e.validateAndAcquire(meta); err != nil {
 		return nil, err
 	}
 

@@ -19,25 +19,26 @@ func isRootImpl() bool {
 
 // installImpl installs the service on macOS using launchd.
 func installImpl(cfg ServiceConfig, execPath string) error {
+	return installLaunchdService(cfg, execPath, false)
+}
+
+// installLaunchdService installs a launchd service with optional embedded config mode.
+func installLaunchdService(cfg ServiceConfig, execPath string, embedded bool) error {
 	plistName := "com." + cfg.Name + ".plist"
 	plistPath := filepath.Join(launchdPlistPath, plistName)
 
-	// Check if already installed
 	if _, err := os.Stat(plistPath); err == nil {
 		return fmt.Errorf("service %s is already installed at %s", cfg.Name, plistPath)
 	}
 
-	// Generate launchd plist file
-	plist := generateLaunchdPlist(cfg, execPath)
+	plist := generateLaunchdPlist(cfg, execPath, embedded)
 
-	// Write plist file
 	if err := os.WriteFile(plistPath, []byte(plist), 0644); err != nil {
 		return fmt.Errorf("failed to write launchd plist file: %w", err)
 	}
 
 	fmt.Printf("Created launchd plist: %s\n", plistPath)
 
-	// Load the service
 	label := "com." + cfg.Name
 	if output, err := runCommand("launchctl", "load", "-w", plistPath); err != nil {
 		os.Remove(plistPath)
@@ -46,7 +47,6 @@ func installImpl(cfg ServiceConfig, execPath string) error {
 
 	fmt.Printf("Loaded service: %s\n", label)
 
-	// Check if the service started
 	status, _ := statusImpl(cfg.Name)
 	if status == "running" {
 		fmt.Printf("Service is running\n")
@@ -151,100 +151,35 @@ func runAsServiceImpl(name string, runner ServiceRunner) error {
 }
 
 // generateLaunchdPlist generates a launchd plist file.
-func generateLaunchdPlist(cfg ServiceConfig, execPath string) string {
+// When embedded is true, no -c flag is included and logs go to /var/log.
+func generateLaunchdPlist(cfg ServiceConfig, execPath string, embedded bool) string {
 	label := "com." + cfg.Name
-	logPath := filepath.Join(cfg.WorkingDir, cfg.Name+".log")
-	errPath := filepath.Join(cfg.WorkingDir, cfg.Name+".err.log")
 
-	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>%s</string>
+	var logPath, errPath string
+	if embedded {
+		logPath = "/var/log/" + cfg.Name + ".log"
+		errPath = "/var/log/" + cfg.Name + ".err.log"
+	} else {
+		logPath = filepath.Join(cfg.WorkingDir, cfg.Name+".log")
+		errPath = filepath.Join(cfg.WorkingDir, cfg.Name+".err.log")
+	}
 
-    <key>ProgramArguments</key>
+	var programArgs string
+	if embedded {
+		programArgs = fmt.Sprintf(`    <key>ProgramArguments</key>
+    <array>
+        <string>%s</string>
+        <string>run</string>
+    </array>`, execPath)
+	} else {
+		programArgs = fmt.Sprintf(`    <key>ProgramArguments</key>
     <array>
         <string>%s</string>
         <string>run</string>
         <string>-c</string>
         <string>%s</string>
-    </array>
-
-    <key>WorkingDirectory</key>
-    <string>%s</string>
-
-    <key>RunAtLoad</key>
-    <true/>
-
-    <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
-
-    <key>ThrottleInterval</key>
-    <integer>5</integer>
-
-    <key>StandardOutPath</key>
-    <string>%s</string>
-
-    <key>StandardErrorPath</key>
-    <string>%s</string>
-
-    <key>ProcessType</key>
-    <string>Background</string>
-</dict>
-</plist>
-`, label, execPath, cfg.ConfigPath, cfg.WorkingDir, logPath, errPath)
-}
-
-// installImplEmbedded installs launchd service for embedded config binary.
-func installImplEmbedded(cfg ServiceConfig, execPath string) error {
-	plistName := "com." + cfg.Name + ".plist"
-	plistPath := filepath.Join(launchdPlistPath, plistName)
-
-	// Check if already installed
-	if _, err := os.Stat(plistPath); err == nil {
-		return fmt.Errorf("service %s is already installed at %s", cfg.Name, plistPath)
+    </array>`, execPath, cfg.ConfigPath)
 	}
-
-	// Generate launchd plist file (without -c flag)
-	plist := generateLaunchdPlistEmbedded(cfg, execPath)
-
-	// Write plist file
-	if err := os.WriteFile(plistPath, []byte(plist), 0644); err != nil {
-		return fmt.Errorf("failed to write launchd plist file: %w", err)
-	}
-
-	fmt.Printf("Created launchd plist: %s\n", plistPath)
-
-	// Load the service
-	label := "com." + cfg.Name
-	if output, err := runCommand("launchctl", "load", "-w", plistPath); err != nil {
-		os.Remove(plistPath)
-		return fmt.Errorf("failed to load service: %s: %w", output, err)
-	}
-
-	fmt.Printf("Loaded service: %s\n", label)
-
-	// Check if the service started
-	status, _ := statusImpl(cfg.Name)
-	if status == "running" {
-		fmt.Printf("Service is running\n")
-	} else {
-		fmt.Printf("Service status: %s\n", status)
-	}
-
-	return nil
-}
-
-// generateLaunchdPlistEmbedded generates a launchd plist file for embedded config binary.
-// Note: No -c flag since config is embedded in the binary.
-func generateLaunchdPlistEmbedded(cfg ServiceConfig, execPath string) string {
-	label := "com." + cfg.Name
-	logPath := "/var/log/" + cfg.Name + ".log"
-	errPath := "/var/log/" + cfg.Name + ".err.log"
 
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -253,11 +188,7 @@ func generateLaunchdPlistEmbedded(cfg ServiceConfig, execPath string) string {
     <key>Label</key>
     <string>%s</string>
 
-    <key>ProgramArguments</key>
-    <array>
-        <string>%s</string>
-        <string>run</string>
-    </array>
+%s
 
     <key>WorkingDirectory</key>
     <string>%s</string>
@@ -284,7 +215,12 @@ func generateLaunchdPlistEmbedded(cfg ServiceConfig, execPath string) string {
     <string>Background</string>
 </dict>
 </plist>
-`, label, execPath, cfg.WorkingDir, logPath, errPath)
+`, label, programArgs, cfg.WorkingDir, logPath, errPath)
+}
+
+// installImplEmbedded installs launchd service for embedded config binary.
+func installImplEmbedded(cfg ServiceConfig, execPath string) error {
+	return installLaunchdService(cfg, execPath, true)
 }
 
 // =============================================================================

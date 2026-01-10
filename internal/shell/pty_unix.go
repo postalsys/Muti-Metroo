@@ -44,27 +44,7 @@ type PTYSession struct {
 
 // NewPTYSession creates a new PTY session and adds it to the executor.
 func (e *Executor) NewPTYSession(ctx context.Context, meta *ShellMeta) (PTYSessionInterface, error) {
-	if !e.config.Enabled {
-		return nil, fmt.Errorf("shell is disabled")
-	}
-
-	// Validate authentication
-	if err := e.ValidateAuth(meta.Password); err != nil {
-		return nil, err
-	}
-
-	// Validate command
-	if !e.IsCommandAllowed(meta.Command) {
-		return nil, fmt.Errorf("command '%s' is not allowed", meta.Command)
-	}
-
-	// Validate arguments
-	if err := e.ValidateArgs(meta.Args); err != nil {
-		return nil, err
-	}
-
-	// Acquire session slot
-	if err := e.AcquireSession(); err != nil {
+	if err := e.validateAndAcquire(meta); err != nil {
 		return nil, err
 	}
 

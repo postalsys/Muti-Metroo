@@ -14,15 +14,15 @@ import (
 
 // mockDataWriter is a mock implementation of DataWriter for testing.
 type mockDataWriter struct {
-	mu           sync.Mutex
-	datagrams    []*protocol.UDPDatagram
-	closes       []uint8
-	openAcks     []*protocol.UDPOpenAck
-	openErrs     []*protocol.UDPOpenErr
-	datagramErr  error
-	closeErr     error
-	openAckErr   error
-	openErrErr   error
+	mu          sync.Mutex
+	datagrams   []*protocol.UDPDatagram
+	closes      []uint8
+	openAcks    []*protocol.UDPOpenAck
+	openErrs    []*protocol.UDPOpenErr
+	datagramErr error
+	closeErr    error
+	openAckErr  error
+	openErrErr  error
 }
 
 func newMockDataWriter() *mockDataWriter {

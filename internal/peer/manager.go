@@ -115,53 +115,38 @@ func (m *Manager) RemovePeer(addr string) {
 
 // Connect initiates a connection to a peer at the given address.
 func (m *Manager) Connect(ctx context.Context, addr string) (*Connection, error) {
-	m.mu.RLock()
-	info := m.peerInfos[addr]
-	m.mu.RUnlock()
-
-	var expectedID identity.AgentID
-	if info != nil {
-		expectedID = info.ExpectedID
-	}
-
-	connCfg := ConnectionConfig{
-		LocalID:          m.cfg.LocalID,
-		ExpectedPeerID:   expectedID,
-		Capabilities:     m.cfg.Capabilities,
-		HandshakeTimeout: m.cfg.HandshakeTimeout,
-		OnFrame:          m.cfg.OnFrame,
-		OnDisconnect:     m.handleDisconnect,
-	}
-
-	// Use per-peer DialOptions if available, otherwise use manager defaults
-	dialOpts := m.cfg.DialOptions
-	if info != nil && info.DialOptions != nil {
-		dialOpts = *info.DialOptions
-	}
-
-	conn, err := m.handshaker.DialAndHandshake(ctx, m.cfg.Transport, addr, connCfg, dialOpts)
-	if err != nil {
-		// Schedule reconnect if this is a persistent peer
-		if info != nil && info.Persistent {
-			m.reconnector.Schedule(addr)
-		}
-		return nil, err
-	}
-
-	// Store the config address for reconnection purposes
-	conn.SetConfigAddr(addr)
-
-	m.registerConnection(conn)
-	return conn, nil
+	return m.connectWithTransport(ctx, m.cfg.Transport, addr)
 }
 
 // ConnectWithTransport connects to a peer using the specified transport.
 // This allows using different transports for different peers (e.g., WebSocket for proxy traversal).
 func (m *Manager) ConnectWithTransport(ctx context.Context, tr transport.Transport, addr string) (*Connection, error) {
+	return m.connectWithTransport(ctx, tr, addr)
+}
+
+// connectWithTransport is the internal implementation for connecting to peers.
+func (m *Manager) connectWithTransport(ctx context.Context, tr transport.Transport, addr string) (*Connection, error) {
 	m.mu.RLock()
 	info := m.peerInfos[addr]
 	m.mu.RUnlock()
 
+	connCfg, dialOpts := m.buildConnectionConfig(info)
+
+	conn, err := m.handshaker.DialAndHandshake(ctx, tr, addr, connCfg, dialOpts)
+	if err != nil {
+		if info != nil && info.Persistent {
+			m.reconnector.Schedule(addr)
+		}
+		return nil, err
+	}
+
+	conn.SetConfigAddr(addr)
+	m.registerConnection(conn)
+	return conn, nil
+}
+
+// buildConnectionConfig creates a ConnectionConfig and DialOptions from peer info.
+func (m *Manager) buildConnectionConfig(info *PeerInfo) (ConnectionConfig, transport.DialOptions) {
 	var expectedID identity.AgentID
 	if info != nil {
 		expectedID = info.ExpectedID
@@ -176,37 +161,17 @@ func (m *Manager) ConnectWithTransport(ctx context.Context, tr transport.Transpo
 		OnDisconnect:     m.handleDisconnect,
 	}
 
-	// Use per-peer DialOptions if available, otherwise use manager defaults
 	dialOpts := m.cfg.DialOptions
 	if info != nil && info.DialOptions != nil {
 		dialOpts = *info.DialOptions
 	}
 
-	conn, err := m.handshaker.DialAndHandshake(ctx, tr, addr, connCfg, dialOpts)
-	if err != nil {
-		// Schedule reconnect if this is a persistent peer
-		if info != nil && info.Persistent {
-			m.reconnector.Schedule(addr)
-		}
-		return nil, err
-	}
-
-	// Store the config address for reconnection purposes
-	conn.SetConfigAddr(addr)
-
-	m.registerConnection(conn)
-	return conn, nil
+	return connCfg, dialOpts
 }
 
 // Accept accepts an incoming connection and performs handshake.
 func (m *Manager) Accept(ctx context.Context, peerConn transport.PeerConn) (*Connection, error) {
-	connCfg := ConnectionConfig{
-		LocalID:          m.cfg.LocalID,
-		Capabilities:     m.cfg.Capabilities,
-		HandshakeTimeout: m.cfg.HandshakeTimeout,
-		OnFrame:          m.cfg.OnFrame,
-		OnDisconnect:     m.handleDisconnect,
-	}
+	connCfg, _ := m.buildConnectionConfig(nil)
 
 	conn, err := m.handshaker.AcceptHandshake(ctx, peerConn, connCfg)
 	if err != nil {

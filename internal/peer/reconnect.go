@@ -158,6 +158,17 @@ func (r *Reconnector) addJitter(d time.Duration) time.Duration {
 
 // Cancel cancels any pending reconnection for the given address.
 func (r *Reconnector) Cancel(addr string) {
+	r.clearState(addr)
+}
+
+// Reset resets the reconnection state for an address.
+// This is an alias for Cancel.
+func (r *Reconnector) Reset(addr string) {
+	r.clearState(addr)
+}
+
+// clearState removes the reconnection state for an address, stopping any pending timer.
+func (r *Reconnector) clearState(addr string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -167,19 +178,6 @@ func (r *Reconnector) Cancel(addr string) {
 		}
 		delete(r.states, addr)
 	}
-}
-
-// Reset resets the reconnection state for an address.
-func (r *Reconnector) Reset(addr string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if state, exists := r.states[addr]; exists {
-		if state.timer != nil {
-			state.timer.Stop()
-		}
-	}
-	delete(r.states, addr)
 }
 
 // GetAttempts returns the number of reconnection attempts for an address.

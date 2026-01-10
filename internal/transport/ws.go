@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,10 +53,7 @@ func (t *WebSocketTransport) Dial(ctx context.Context, addr string, opts DialOpt
 	t.mu.Unlock()
 
 	// Parse address as URL
-	wsURL, err := parseWebSocketURL(addr, opts)
-	if err != nil {
-		return nil, err
-	}
+	wsURL := parseWebSocketURL(addr)
 
 	// Apply timeout
 	if opts.Timeout > 0 {
@@ -446,15 +444,15 @@ func (s *WebSocketStream) SetWriteDeadline(t time.Time) error {
 }
 
 // parseWebSocketURL parses the address into a WebSocket URL.
-func parseWebSocketURL(addr string, opts DialOptions) (string, error) {
+func parseWebSocketURL(addr string) string {
 	// If already a URL, use as-is
-	if len(addr) > 5 && (addr[:5] == "ws://" || addr[:6] == "wss://") {
-		return addr, nil
+	if strings.HasPrefix(addr, "ws://") || strings.HasPrefix(addr, "wss://") {
+		return addr
 	}
 
 	// Always use wss:// for security. If no TLS config is provided,
 	// buildHTTPClient will create a default insecure config.
-	return fmt.Sprintf("wss://%s%s", addr, wsDefaultPath), nil
+	return "wss://" + addr + wsDefaultPath
 }
 
 // buildHTTPClient creates an HTTP client with optional TLS and proxy settings.

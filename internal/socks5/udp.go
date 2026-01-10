@@ -213,16 +213,8 @@ func (a *UDPAssociation) ReadLoop() {
 		a.mu.RUnlock()
 
 		if handler != nil && streamID != 0 {
-			var destAddr net.Addr
-			switch header.AddrType {
-			case AddrTypeIPv4:
-				destAddr = &net.UDPAddr{IP: header.Address, Port: int(header.Port)}
-			case AddrTypeIPv6:
-				destAddr = &net.UDPAddr{IP: header.Address, Port: int(header.Port)}
-			case AddrTypeDomain:
-				destAddr = &net.UDPAddr{Port: int(header.Port)} // Domain will be resolved at exit
-			}
-
+			// Build destination address (domain names have nil IP, resolved at exit)
+			destAddr := &net.UDPAddr{IP: header.Address, Port: int(header.Port)}
 			handler.RelayUDPDatagram(streamID, destAddr, header.Port, header.AddrType, header.RawAddr, payload)
 		}
 	}

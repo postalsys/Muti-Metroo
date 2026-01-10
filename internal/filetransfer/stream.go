@@ -55,28 +55,26 @@ func NewStreamHandler(cfg StreamConfig) *StreamHandler {
 	return &StreamHandler{cfg: cfg}
 }
 
-// ValidateUploadMetadata validates upload metadata and returns an error if invalid.
-func (h *StreamHandler) ValidateUploadMetadata(meta *TransferMetadata) error {
-	// Check if enabled
+// validateCommon performs validation common to both upload and download operations.
+func (h *StreamHandler) validateCommon(meta *TransferMetadata) error {
 	if !h.cfg.Enabled {
 		return fmt.Errorf("file transfer is disabled")
 	}
-
-	// Authenticate
 	if err := h.authenticate(meta.Password); err != nil {
 		return err
 	}
+	return h.validatePath(meta.Path)
+}
 
-	// Validate path
-	if err := h.validatePath(meta.Path); err != nil {
+// ValidateUploadMetadata validates upload metadata and returns an error if invalid.
+func (h *StreamHandler) ValidateUploadMetadata(meta *TransferMetadata) error {
+	if err := h.validateCommon(meta); err != nil {
 		return err
 	}
 
 	// Check size limit (if not directory and size is known)
-	if !meta.IsDirectory && meta.Size > 0 && h.cfg.MaxFileSize > 0 {
-		if meta.Size > h.cfg.MaxFileSize {
-			return fmt.Errorf("file too large: %d bytes (max %d)", meta.Size, h.cfg.MaxFileSize)
-		}
+	if !meta.IsDirectory && meta.Size > 0 && h.cfg.MaxFileSize > 0 && meta.Size > h.cfg.MaxFileSize {
+		return fmt.Errorf("file too large: %d bytes (max %d)", meta.Size, h.cfg.MaxFileSize)
 	}
 
 	return nil
@@ -84,18 +82,7 @@ func (h *StreamHandler) ValidateUploadMetadata(meta *TransferMetadata) error {
 
 // ValidateDownloadMetadata validates download metadata and returns an error if invalid.
 func (h *StreamHandler) ValidateDownloadMetadata(meta *TransferMetadata) error {
-	// Check if enabled
-	if !h.cfg.Enabled {
-		return fmt.Errorf("file transfer is disabled")
-	}
-
-	// Authenticate
-	if err := h.authenticate(meta.Password); err != nil {
-		return err
-	}
-
-	// Validate path
-	if err := h.validatePath(meta.Path); err != nil {
+	if err := h.validateCommon(meta); err != nil {
 		return err
 	}
 
@@ -111,10 +98,8 @@ func (h *StreamHandler) ValidateDownloadMetadata(meta *TransferMetadata) error {
 	}
 
 	// Check size limit for files
-	if !info.IsDir() && h.cfg.MaxFileSize > 0 {
-		if info.Size() > h.cfg.MaxFileSize {
-			return fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), h.cfg.MaxFileSize)
-		}
+	if !info.IsDir() && h.cfg.MaxFileSize > 0 && info.Size() > h.cfg.MaxFileSize {
+		return fmt.Errorf("file too large: %d bytes (max %d)", info.Size(), h.cfg.MaxFileSize)
 	}
 
 	return nil
@@ -241,15 +226,12 @@ func (h *StreamHandler) validatePath(path string) error {
 		return fmt.Errorf("no paths are allowed (allowed_paths is empty)")
 	}
 
-	// Check for wildcard - allows all absolute paths
+	// Check allowed paths with prefix matching and glob support
 	for _, pattern := range h.cfg.AllowedPaths {
+		// Wildcard allows all absolute paths
 		if pattern == "*" {
 			return nil
 		}
-	}
-
-	// Check allowed paths with prefix matching and glob support
-	for _, pattern := range h.cfg.AllowedPaths {
 		if isPathAllowed(normalizedPath, pattern) {
 			return nil
 		}
@@ -350,6 +332,24 @@ func (h *StreamHandler) WriteUploadedFile(path string, r io.Reader, mode uint32,
 	return written, nil
 }
 
+// gzipPipeReader creates a pipe that gzip-compresses data from the source file.
+// The file is closed when compression completes or on error.
+func gzipPipeReader(f *os.File) io.Reader {
+	pr, pw := io.Pipe()
+	go func() {
+		gzw := gzip.NewWriter(pw)
+		_, copyErr := io.Copy(gzw, f)
+		f.Close()
+		gzw.Close()
+		if copyErr != nil {
+			pw.CloseWithError(copyErr)
+		} else {
+			pw.Close()
+		}
+	}()
+	return pr
+}
+
 // ReadFileForDownload creates a reader for the given path.
 // If the path is a directory, it returns a tar.gz stream.
 // The returned reader should be read fully and closed is handled by the caller.
@@ -385,26 +385,9 @@ func (h *StreamHandler) ReadFileForDownload(path string, compress bool) (io.Read
 	}
 
 	if compress {
-		// Create a pipe for compressed data
-		pr, pw := io.Pipe()
-
-		go func() {
-			gzw := gzip.NewWriter(pw)
-			_, copyErr := io.Copy(gzw, f)
-			f.Close()
-			gzw.Close()
-			if copyErr != nil {
-				pw.CloseWithError(copyErr)
-			} else {
-				pw.Close()
-			}
-		}()
-
-		// Size is unknown when compressed
-		return pr, -1, uint32(info.Mode().Perm()), false, nil
+		return gzipPipeReader(f), -1, uint32(info.Mode().Perm()), false, nil
 	}
 
-	// Return uncompressed file
 	return f, info.Size(), uint32(info.Mode().Perm()), false, nil
 }
 
@@ -450,27 +433,9 @@ func (h *StreamHandler) ReadFileForDownloadAtOffset(path string, offset int64, c
 	remainingSize := info.Size() - offset
 
 	if compress {
-		// Create a pipe for compressed data
-		// Start a fresh gzip stream from the current file position
-		pr, pw := io.Pipe()
-
-		go func() {
-			gzw := gzip.NewWriter(pw)
-			_, copyErr := io.Copy(gzw, f)
-			f.Close()
-			gzw.Close()
-			if copyErr != nil {
-				pw.CloseWithError(copyErr)
-			} else {
-				pw.Close()
-			}
-		}()
-
-		// Size is unknown when compressed
-		return pr, -1, uint32(info.Mode().Perm()), false, nil
+		return gzipPipeReader(f), -1, uint32(info.Mode().Perm()), false, nil
 	}
 
-	// Return uncompressed file (already seeked to offset)
 	return f, remainingSize, uint32(info.Mode().Perm()), false, nil
 }
 

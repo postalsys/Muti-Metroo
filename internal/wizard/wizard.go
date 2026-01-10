@@ -385,22 +385,13 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 		"HTTP/2 (TCP, firewall-friendly)",
 		"WebSocket (TCP, proxy-friendly)",
 	}
-	transportMap := []string{"quic", "h2", "ws"}
-
-	defaultIdx := 0
-	for i, t := range transportMap {
-		if t == transport {
-			defaultIdx = i
-			break
-		}
-	}
 
 	fmt.Println("Transport Protocol (QUIC is recommended for best performance):")
-	idx, err := prompt.Select("Select", transportOptions, defaultIdx)
+	idx, err := prompt.Select("Select", transportOptions, transportIndex(transport))
 	if err != nil {
 		return
 	}
-	transport = transportMap[idx]
+	transport = transportValues[idx]
 
 	// Listen address
 	listenAddr, err = prompt.ReadLineValidated("Listen Address", listenAddr, func(s string) error {
@@ -783,22 +774,11 @@ func (w *Wizard) askSinglePeer(defaultTransport string, peerNum int) (config.Pee
 	}
 
 	// Transport selection
-	transportOptions := []string{"QUIC", "HTTP/2", "WebSocket"}
-	transportMap := []string{"quic", "h2", "ws"}
-
-	defaultIdx := 0
-	for i, t := range transportMap {
-		if t == defaultTransport {
-			defaultIdx = i
-			break
-		}
-	}
-
-	idx, err := prompt.Select("Transport", transportOptions, defaultIdx)
+	idx, err := prompt.Select("Transport", transportLabels, transportIndex(defaultTransport))
 	if err != nil {
 		return peer, err
 	}
-	peer.Transport = transportMap[idx]
+	peer.Transport = transportValues[idx]
 
 	useInsecure, err := prompt.Confirm("Skip TLS verification? (only for testing with self-signed certs)", false)
 	if err != nil {
@@ -1065,29 +1045,11 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 	fmt.Println("\nSet a password to protect shell access.")
 	fmt.Println("This password will be hashed and stored securely.")
 
-	var password string
-	for {
-		password, err = prompt.ReadPassword("Shell Password (min 8 chars)")
-		if err != nil {
-			return cfg, err
-		}
-		if len(password) < 8 {
-			fmt.Println("  Error: password must be at least 8 characters")
-			continue
-		}
-
-		confirmPassword, err := prompt.ReadPassword("Confirm Password")
-		if err != nil {
-			return cfg, err
-		}
-		if password != confirmPassword {
-			fmt.Println("  Error: passwords do not match")
-			continue
-		}
-		break
+	password, err := readConfirmedPassword("Shell Password", 8)
+	if err != nil {
+		return cfg, err
 	}
 
-	// Hash the password
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return cfg, fmt.Errorf("failed to hash password: %w", err)
@@ -1171,29 +1133,11 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 	fmt.Println("\nSet a password to protect file transfer access.")
 	fmt.Println("This password will be hashed and stored securely.")
 
-	var password string
-	for {
-		password, err = prompt.ReadPassword("File Transfer Password (min 8 chars)")
-		if err != nil {
-			return cfg, err
-		}
-		if len(password) < 8 {
-			fmt.Println("  Error: password must be at least 8 characters")
-			continue
-		}
-
-		confirmPassword, err := prompt.ReadPassword("Confirm Password")
-		if err != nil {
-			return cfg, err
-		}
-		if password != confirmPassword {
-			fmt.Println("  Error: passwords do not match")
-			continue
-		}
-		break
+	password, err := readConfirmedPassword("File Transfer Password", 8)
+	if err != nil {
+		return cfg, err
 	}
 
-	// Hash the password using bcrypt
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return cfg, fmt.Errorf("failed to hash password: %w", err)
@@ -1334,9 +1278,7 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 
 	case 2: // existing
 		pubKey, err := prompt.ReadLineValidated("Management Public Key (64-char hex)", "", func(s string) error {
-			s = strings.TrimSpace(s)
-			s = strings.TrimPrefix(s, "0x")
-			s = strings.TrimPrefix(s, "0X")
+			s = normalizeHexKey(s)
 			if len(s) != 64 {
 				return fmt.Errorf("public key must be 64 hex characters (got %d)", len(s))
 			}
@@ -1348,12 +1290,7 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 		if err != nil {
 			return cfg, err
 		}
-
-		// Normalize the key
-		pubKey = strings.TrimSpace(pubKey)
-		pubKey = strings.TrimPrefix(pubKey, "0x")
-		pubKey = strings.TrimPrefix(pubKey, "0X")
-		cfg.PublicKey = pubKey
+		cfg.PublicKey = normalizeHexKey(pubKey)
 
 		// Ask if this is an operator node with the private key
 		hasPrivateKey, err := prompt.Confirm("Do you have the private key?", false)
@@ -1366,10 +1303,7 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 			if err != nil {
 				return cfg, err
 			}
-
-			privKey = strings.TrimSpace(privKey)
-			privKey = strings.TrimPrefix(privKey, "0x")
-			privKey = strings.TrimPrefix(privKey, "0X")
+			privKey = normalizeHexKey(privKey)
 
 			if len(privKey) != 64 {
 				return cfg, fmt.Errorf("private key must be 64 hex characters (got %d)", len(privKey))
@@ -1547,208 +1481,7 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 	fmt.Println()
 }
 
-func (w *Wizard) askServiceInstallation(configPath string) (bool, error) {
-	// Get absolute path for config
-	absConfigPath, err := filepath.Abs(configPath)
-	if err != nil {
-		return false, fmt.Errorf("failed to get absolute config path: %w", err)
-	}
-
-	cfg := service.DefaultConfig(absConfigPath)
-
-	// Handle Linux specially - offer user service option
-	if runtime.GOOS == "linux" {
-		return w.askLinuxServiceInstallation(cfg, absConfigPath)
-	}
-
-	// macOS and Windows - system service only
-	var platformName string
-	var privilegeCmd string
-
-	switch runtime.GOOS {
-	case "darwin":
-		platformName = "launchd service"
-		privilegeCmd = "sudo"
-	case "windows":
-		platformName = "Windows service"
-		privilegeCmd = "Run as Administrator"
-	default:
-		return false, nil
-	}
-
-	// If not running as root/admin, show instructions instead
-	if !service.IsRoot() {
-		prompt.PrintHeader("Service Installation",
-			fmt.Sprintf("To install as a %s, elevated privileges are required.\nYou can run the service install command later with %s.", platformName, privilegeCmd))
-
-		showInstructions, err := prompt.Confirm("Show installation command?", true)
-		if err != nil {
-			return false, err
-		}
-
-		if showInstructions {
-			fmt.Println()
-			fmt.Println("To install as a service, run:")
-			switch runtime.GOOS {
-			case "darwin":
-				fmt.Printf("  sudo muti-metroo service install -c %s\n", absConfigPath)
-			case "windows":
-				fmt.Printf("  muti-metroo service install -c %s\n", absConfigPath)
-				fmt.Println("  (Run this command as Administrator)")
-			}
-			fmt.Println()
-		}
-
-		return false, nil
-	}
-
-	prompt.PrintHeader("Service Installation",
-		fmt.Sprintf("You are running as %s.\nWould you like to install Muti Metroo as a %s?\n\nThe service will start automatically on boot.", w.privilegeLevel(), platformName))
-
-	installService, err := prompt.Confirm(fmt.Sprintf("Install as %s?", platformName), false)
-	if err != nil {
-		return false, err
-	}
-
-	if !installService {
-		return false, nil
-	}
-
-	fmt.Println()
-	fmt.Printf("Installing %s...\n", platformName)
-
-	if err := service.Install(cfg); err != nil {
-		// Don't fail the wizard, just warn
-		fmt.Printf("\n[WARNING] Failed to install service: %v\n", err)
-		fmt.Println("You can install the service manually later.")
-		return false, nil
-	}
-
-	fmt.Println()
-	fmt.Printf("[OK] Installed as %s\n", platformName)
-
-	switch runtime.GOOS {
-	case "darwin":
-		fmt.Println("\nUseful commands:")
-		fmt.Println("  sudo launchctl list | grep muti   # Check if running")
-		fmt.Println("  tail -f /var/log/muti-metroo.log  # View logs")
-		fmt.Println("  sudo launchctl stop com.muti-metroo   # Stop service")
-		fmt.Println("  sudo launchctl start com.muti-metroo  # Start service")
-		fmt.Println("  muti-metroo service uninstall   # Remove service")
-	case "windows":
-		fmt.Println("\nUseful commands:")
-		fmt.Println("  sc query muti-metroo            # Check status")
-		fmt.Println("  net start muti-metroo           # Start service")
-		fmt.Println("  net stop muti-metroo            # Stop service")
-		fmt.Println("  muti-metroo service uninstall   # Remove service")
-	}
-	fmt.Println()
-
-	return true, nil
-}
-
-func (w *Wizard) askLinuxServiceInstallation(cfg service.ServiceConfig, absConfigPath string) (bool, error) {
-	isRoot := service.IsRoot()
-
-	if isRoot {
-		// Root user: offer choice between systemd and cron+nohup
-		prompt.PrintHeader("Service Installation",
-			"You are running as root.\nChoose how to install Muti Metroo as a service.\n\nThe service will start automatically on boot.")
-
-		options := []string{
-			"systemd (recommended)",
-			"cron+nohup (user-level)",
-			"Don't install as service",
-		}
-		choice, err := prompt.Select("Installation method:", options, 0)
-		if err != nil {
-			return false, err
-		}
-
-		switch choice {
-		case 0: // systemd
-			fmt.Println()
-			fmt.Println("Installing systemd service...")
-
-			if err := service.Install(cfg); err != nil {
-				fmt.Printf("\n[WARNING] Failed to install service: %v\n", err)
-				fmt.Println("You can install the service manually later.")
-				return false, nil
-			}
-
-			fmt.Println()
-			fmt.Println("[OK] Installed as systemd service")
-			fmt.Println("\nUseful commands:")
-			fmt.Println("  systemctl status muti-metroo    # Check status")
-			fmt.Println("  journalctl -u muti-metroo -f    # View logs")
-			fmt.Println("  systemctl restart muti-metroo   # Restart service")
-			fmt.Println("  muti-metroo service uninstall   # Remove service")
-			fmt.Println()
-			return true, nil
-
-		case 1: // cron+nohup
-			fmt.Println()
-			fmt.Println("Installing cron+nohup user service...")
-
-			if err := service.InstallUser(cfg); err != nil {
-				fmt.Printf("\n[WARNING] Failed to install user service: %v\n", err)
-				fmt.Println("You can install the service manually later.")
-				return false, nil
-			}
-
-			fmt.Println()
-			fmt.Println("[OK] Installed as user service (cron+nohup)")
-			fmt.Println("\nUseful commands:")
-			fmt.Println("  muti-metroo service status      # Check status")
-			fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log  # View logs")
-			fmt.Println("  muti-metroo service uninstall   # Remove service")
-			fmt.Println()
-			return true, nil
-
-		default: // Don't install
-			return false, nil
-		}
-	} else {
-		// Non-root user: offer cron+nohup only
-		prompt.PrintHeader("Service Installation",
-			"Would you like to install Muti Metroo as a user service?\n\nThis uses cron @reboot + nohup to start on boot.\n(systemd requires root - run with sudo for systemd)")
-
-		installService, err := prompt.Confirm("Install as user service?", true)
-		if err != nil {
-			return false, err
-		}
-
-		if !installService {
-			fmt.Println()
-			fmt.Println("To install later:")
-			fmt.Printf("  muti-metroo service install --user -c %s   # User service\n", absConfigPath)
-			fmt.Printf("  sudo muti-metroo service install -c %s     # Systemd (root)\n", absConfigPath)
-			fmt.Println()
-			return false, nil
-		}
-
-		fmt.Println()
-		fmt.Println("Installing cron+nohup user service...")
-
-		if err := service.InstallUser(cfg); err != nil {
-			fmt.Printf("\n[WARNING] Failed to install user service: %v\n", err)
-			fmt.Println("You can install the service manually later with:")
-			fmt.Printf("  muti-metroo service install --user -c %s\n", absConfigPath)
-			return false, nil
-		}
-
-		fmt.Println()
-		fmt.Println("[OK] Installed as user service (cron+nohup)")
-		fmt.Println("\nUseful commands:")
-		fmt.Println("  muti-metroo service status      # Check status")
-		fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log  # View logs")
-		fmt.Println("  muti-metroo service uninstall   # Remove service")
-		fmt.Println()
-		return true, nil
-	}
-}
-
-// askServiceInstallationWithName is like askServiceInstallation but uses a custom service name.
+// askServiceInstallationWithName handles service installation with a custom service name.
 func (w *Wizard) askServiceInstallationWithName(configPath, serviceName string) (bool, error) {
 	// Get absolute path for config
 	absConfigPath, err := filepath.Abs(configPath)
@@ -2222,4 +1955,54 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// Transport options and their display labels for selection prompts.
+var (
+	transportLabels = []string{"QUIC", "HTTP/2", "WebSocket"}
+	transportValues = []string{"quic", "h2", "ws"}
+)
+
+// transportIndex returns the index of the given transport in transportValues.
+// Returns 0 (QUIC) if not found.
+func transportIndex(transport string) int {
+	for i, t := range transportValues {
+		if t == transport {
+			return i
+		}
+	}
+	return 0
+}
+
+// normalizeHexKey removes common prefixes and whitespace from hex strings.
+func normalizeHexKey(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "0x")
+	s = strings.TrimPrefix(s, "0X")
+	return s
+}
+
+// readConfirmedPassword prompts for a password with confirmation.
+// Returns the password or an error. Retries until passwords match and meet minimum length.
+func readConfirmedPassword(promptLabel string, minLength int) (string, error) {
+	for {
+		password, err := prompt.ReadPassword(fmt.Sprintf("%s (min %d chars)", promptLabel, minLength))
+		if err != nil {
+			return "", err
+		}
+		if len(password) < minLength {
+			fmt.Printf("  Error: password must be at least %d characters\n", minLength)
+			continue
+		}
+
+		confirmPassword, err := prompt.ReadPassword("Confirm Password")
+		if err != nil {
+			return "", err
+		}
+		if password != confirmPassword {
+			fmt.Println("  Error: passwords do not match")
+			continue
+		}
+		return password, nil
+	}
 }

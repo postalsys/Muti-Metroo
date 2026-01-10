@@ -7,6 +7,9 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// burstSize is 16KB (one frame) for efficient transfer.
+const burstSize = 16 * 1024
+
 // RateLimitedReader wraps an io.Reader with rate limiting using a token bucket algorithm.
 // It limits the read throughput to bytesPerSecond bytes per second.
 type RateLimitedReader struct {
@@ -22,9 +25,6 @@ func NewRateLimitedReader(ctx context.Context, r io.Reader, bytesPerSecond int64
 	if bytesPerSecond <= 0 {
 		return r
 	}
-
-	// Burst size is 16KB (one frame) for efficient transfer
-	const burstSize = 16 * 1024
 
 	// Create a rate limiter with the specified bytes per second
 	// The rate is in events (bytes) per second, burst allows accumulating up to burstSize bytes
@@ -102,7 +102,6 @@ func (w *RateLimitedWriter) Write(p []byte) (int, error) {
 	default:
 	}
 
-	const burstSize = 16 * 1024
 	totalWritten := 0
 
 	for len(p) > 0 {

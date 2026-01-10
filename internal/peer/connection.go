@@ -4,6 +4,7 @@ package peer
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -297,24 +298,26 @@ func (c *Connection) Context() context.Context {
 
 // LocalAddr returns the local address.
 func (c *Connection) LocalAddr() string {
-	if c.conn != nil {
-		addr := c.conn.LocalAddr()
-		if addr != nil {
-			return addr.String()
-		}
+	if c.conn == nil {
+		return ""
 	}
-	return ""
+	return addrToString(c.conn.LocalAddr())
 }
 
 // RemoteAddr returns the remote address.
 func (c *Connection) RemoteAddr() string {
-	if c.conn != nil {
-		addr := c.conn.RemoteAddr()
-		if addr != nil {
-			return addr.String()
-		}
+	if c.conn == nil {
+		return ""
 	}
-	return ""
+	return addrToString(c.conn.RemoteAddr())
+}
+
+// addrToString converts a net.Addr to string, returning empty string if nil.
+func addrToString(addr net.Addr) string {
+	if addr == nil {
+		return ""
+	}
+	return addr.String()
 }
 
 // ConfigAddr returns the original config address used for dialing.

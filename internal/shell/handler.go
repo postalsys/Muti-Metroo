@@ -193,75 +193,65 @@ func (h *Handler) handleMetadata(ss *ShellStream, data []byte) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
-	// Decode message type and payload
+	// Helper to send error and close stream
+	fail := func(msg string) {
+		h.sendError(ss, msg)
+		h.closeStream(ss)
+	}
+
 	msgType, payload, err := DecodeMessage(data)
 	if err != nil {
-		h.sendError(ss, "invalid message format")
-		h.closeStream(ss)
+		fail("invalid message format")
 		return
 	}
 
 	if msgType != MsgMeta {
-		h.sendError(ss, "expected META message")
-		h.closeStream(ss)
+		fail("expected META message")
 		return
 	}
 
 	meta, err := DecodeMeta(payload)
 	if err != nil {
-		h.sendError(ss, "invalid metadata: "+err.Error())
-		h.closeStream(ss)
+		fail("invalid metadata: " + err.Error())
 		return
 	}
 
 	ss.Meta = meta
 	ss.MetaReceived = true
 
-	// Start the session
 	ctx := context.Background()
 
 	if ss.IsInteractive && meta.TTY != nil {
-		// Start PTY session
 		ptySession, err := h.executor.NewPTYSession(ctx, meta)
 		if err != nil {
-			h.sendError(ss, "failed to start PTY session: "+err.Error())
-			h.closeStream(ss)
+			fail("failed to start PTY session: " + err.Error())
 			return
 		}
 
 		ss.PTYSession = ptySession
-
-		// Send ACK
 		h.sendAck(ss, true, "")
-
-		// Start I/O goroutines for PTY
 		go h.pumpPTYOutput(ss)
-	} else {
-		// Start streaming session
-		session, err := h.executor.NewSession(ctx, meta)
-		if err != nil {
-			h.sendError(ss, "failed to start session: "+err.Error())
-			h.closeStream(ss)
-			return
-		}
-
-		if err := session.Start(); err != nil {
-			h.executor.ReleaseSession()
-			h.sendError(ss, "failed to start command: "+err.Error())
-			h.closeStream(ss)
-			return
-		}
-
-		ss.Session = session
-
-		// Send ACK
-		h.sendAck(ss, true, "")
-
-		// Start I/O goroutines for streaming mode
-		go h.pumpStdout(ss)
-		go h.pumpStderr(ss)
-		go h.waitForExit(ss)
+		return
 	}
+
+	// Streaming session
+	session, err := h.executor.NewSession(ctx, meta)
+	if err != nil {
+		fail("failed to start session: " + err.Error())
+		return
+	}
+
+	if err := session.Start(); err != nil {
+		h.executor.ReleaseSession()
+		fail("failed to start command: " + err.Error())
+		return
+	}
+
+	ss.Session = session
+	h.sendAck(ss, true, "")
+	go h.pumpStdout(ss)
+	go h.pumpStderr(ss)
+	go h.waitForExit(ss)
 }
 
 // handleMessage processes subsequent messages after metadata.
@@ -353,9 +343,9 @@ func (h *Handler) writeEncrypted(ss *ShellStream, data []byte, flags uint8) erro
 	return h.writer.WriteStreamData(ss.PeerID, ss.StreamID, ciphertext, flags)
 }
 
-// pumpStdout reads stdout and sends it to the client.
-func (h *Handler) pumpStdout(ss *ShellStream) {
-	h.logger.Debug("pumpStdout started", logging.KeyStreamID, ss.StreamID)
+// pumpOutput reads from a reader and sends encoded messages to the client.
+// The encoder function determines the message type (stdout or stderr).
+func (h *Handler) pumpOutput(ss *ShellStream, getReader func() io.Reader, encode func([]byte) []byte) {
 	buf := make([]byte, 16*1024) // 16KB buffer
 	for {
 		ss.mu.Lock()
@@ -363,44 +353,42 @@ func (h *Handler) pumpStdout(ss *ShellStream) {
 		ss.mu.Unlock()
 
 		if session == nil {
-			h.logger.Debug("pumpStdout: session is nil", logging.KeyStreamID, ss.StreamID)
 			return
 		}
 
-		n, err := session.Stdout().Read(buf)
+		reader := getReader()
+		if reader == nil {
+			return
+		}
+
+		n, err := reader.Read(buf)
 		if n > 0 {
-			h.logger.Debug("pumpStdout: read data", logging.KeyStreamID, ss.StreamID, "bytes", n)
-			msg := EncodeStdout(buf[:n])
-			h.writeEncrypted(ss, msg, 0)
+			h.writeEncrypted(ss, encode(buf[:n]), 0)
 		}
 		if err != nil {
-			h.logger.Debug("pumpStdout: read error, exiting", logging.KeyStreamID, ss.StreamID, logging.KeyError, err)
 			return
 		}
 	}
 }
 
+// pumpStdout reads stdout and sends it to the client.
+func (h *Handler) pumpStdout(ss *ShellStream) {
+	h.pumpOutput(ss, func() io.Reader {
+		if ss.Session != nil {
+			return ss.Session.Stdout()
+		}
+		return nil
+	}, EncodeStdout)
+}
+
 // pumpStderr reads stderr and sends it to the client.
 func (h *Handler) pumpStderr(ss *ShellStream) {
-	buf := make([]byte, 16*1024) // 16KB buffer
-	for {
-		ss.mu.Lock()
-		session := ss.Session
-		ss.mu.Unlock()
-
-		if session == nil {
-			return
+	h.pumpOutput(ss, func() io.Reader {
+		if ss.Session != nil {
+			return ss.Session.Stderr()
 		}
-
-		n, err := session.Stderr().Read(buf)
-		if n > 0 {
-			msg := EncodeStderr(buf[:n])
-			h.writeEncrypted(ss, msg, 0)
-		}
-		if err != nil {
-			return
-		}
-	}
+		return nil
+	}, EncodeStderr)
 }
 
 // pumpPTYOutput reads PTY output and sends it to the client.

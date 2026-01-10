@@ -261,7 +261,7 @@ func TestParseH2Address(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.addr, func(t *testing.T) {
-			baseURL, path := parseH2Address(tt.addr, DialOptions{})
+			baseURL, path := parseH2Address(tt.addr)
 
 			if baseURL != tt.expectedBase {
 				t.Errorf("baseURL = %s, want %s", baseURL, tt.expectedBase)

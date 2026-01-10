@@ -21,6 +21,238 @@ var (
 	ErrUnknownFrameType = errors.New("unknown frame type")
 )
 
+// ============================================================================
+// Binary encoding/decoding helpers
+// ============================================================================
+
+// bufferWriter provides efficient buffer writing with automatic offset tracking.
+type bufferWriter struct {
+	buf    []byte
+	offset int
+}
+
+func newBufferWriter(size int) *bufferWriter {
+	return &bufferWriter{buf: make([]byte, size)}
+}
+
+func (w *bufferWriter) writeUint8(v uint8) {
+	w.buf[w.offset] = v
+	w.offset++
+}
+
+func (w *bufferWriter) writeUint16(v uint16) {
+	binary.BigEndian.PutUint16(w.buf[w.offset:], v)
+	w.offset += 2
+}
+
+func (w *bufferWriter) writeUint32(v uint32) {
+	binary.BigEndian.PutUint32(w.buf[w.offset:], v)
+	w.offset += 4
+}
+
+func (w *bufferWriter) writeUint64(v uint64) {
+	binary.BigEndian.PutUint64(w.buf[w.offset:], v)
+	w.offset += 8
+}
+
+func (w *bufferWriter) writeBytes(data []byte) {
+	copy(w.buf[w.offset:], data)
+	w.offset += len(data)
+}
+
+func (w *bufferWriter) writeBool(v bool) {
+	if v {
+		w.buf[w.offset] = 1
+	} else {
+		w.buf[w.offset] = 0
+	}
+	w.offset++
+}
+
+// writeString writes a length-prefixed string (1-byte length + string data).
+func (w *bufferWriter) writeString(s string) {
+	w.buf[w.offset] = uint8(len(s))
+	w.offset++
+	copy(w.buf[w.offset:], s)
+	w.offset += len(s)
+}
+
+// writeAgentIDs writes a list of AgentIDs with a 1-byte count prefix.
+func (w *bufferWriter) writeAgentIDs(ids []identity.AgentID) {
+	w.buf[w.offset] = uint8(len(ids))
+	w.offset++
+	for _, id := range ids {
+		copy(w.buf[w.offset:], id[:])
+		w.offset += 16
+	}
+}
+
+func (w *bufferWriter) bytes() []byte {
+	return w.buf[:w.offset]
+}
+
+// bufferReader provides efficient buffer reading with bounds checking.
+type bufferReader struct {
+	buf    []byte
+	offset int
+	err    error
+	ctx    string // context for error messages
+}
+
+func newBufferReader(buf []byte, ctx string) *bufferReader {
+	return &bufferReader{buf: buf, ctx: ctx}
+}
+
+func (r *bufferReader) remaining() int {
+	return len(r.buf) - r.offset
+}
+
+func (r *bufferReader) setError(msg string) {
+	if r.err == nil {
+		r.err = fmt.Errorf("%w: %s %s", ErrInvalidFrame, r.ctx, msg)
+	}
+}
+
+func (r *bufferReader) readUint8() uint8 {
+	if r.err != nil || r.offset >= len(r.buf) {
+		r.setError("truncated")
+		return 0
+	}
+	v := r.buf[r.offset]
+	r.offset++
+	return v
+}
+
+func (r *bufferReader) readUint16() uint16 {
+	if r.err != nil || r.offset+2 > len(r.buf) {
+		r.setError("truncated")
+		return 0
+	}
+	v := binary.BigEndian.Uint16(r.buf[r.offset:])
+	r.offset += 2
+	return v
+}
+
+func (r *bufferReader) readUint32() uint32 {
+	if r.err != nil || r.offset+4 > len(r.buf) {
+		r.setError("truncated")
+		return 0
+	}
+	v := binary.BigEndian.Uint32(r.buf[r.offset:])
+	r.offset += 4
+	return v
+}
+
+func (r *bufferReader) readUint64() uint64 {
+	if r.err != nil || r.offset+8 > len(r.buf) {
+		r.setError("truncated")
+		return 0
+	}
+	v := binary.BigEndian.Uint64(r.buf[r.offset:])
+	r.offset += 8
+	return v
+}
+
+func (r *bufferReader) readBytes(n int) []byte {
+	if r.err != nil || r.offset+n > len(r.buf) {
+		r.setError("truncated")
+		return nil
+	}
+	data := make([]byte, n)
+	copy(data, r.buf[r.offset:r.offset+n])
+	r.offset += n
+	return data
+}
+
+func (r *bufferReader) readBool() bool {
+	return r.readUint8() != 0
+}
+
+// readString reads a length-prefixed string (1-byte length + string data).
+func (r *bufferReader) readString() string {
+	length := int(r.readUint8())
+	if r.err != nil {
+		return ""
+	}
+	if r.offset+length > len(r.buf) {
+		r.setError("string truncated")
+		return ""
+	}
+	s := string(r.buf[r.offset : r.offset+length])
+	r.offset += length
+	return s
+}
+
+// readAgentID reads a single 16-byte AgentID.
+func (r *bufferReader) readAgentID() identity.AgentID {
+	var id identity.AgentID
+	if r.err != nil || r.offset+16 > len(r.buf) {
+		r.setError("agentID truncated")
+		return id
+	}
+	copy(id[:], r.buf[r.offset:r.offset+16])
+	r.offset += 16
+	return id
+}
+
+// readAgentIDs reads a list of AgentIDs with a 1-byte count prefix.
+func (r *bufferReader) readAgentIDs() []identity.AgentID {
+	count := int(r.readUint8())
+	if r.err != nil {
+		return nil
+	}
+	ids := make([]identity.AgentID, count)
+	for i := 0; i < count; i++ {
+		ids[i] = r.readAgentID()
+		if r.err != nil {
+			return nil
+		}
+	}
+	return ids
+}
+
+// readEphemeralKey reads a 32-byte ephemeral public key.
+func (r *bufferReader) readEphemeralKey() [EphemeralKeySize]byte {
+	var key [EphemeralKeySize]byte
+	if r.err != nil || r.offset+EphemeralKeySize > len(r.buf) {
+		r.setError("ephemeral key missing")
+		return key
+	}
+	copy(key[:], r.buf[r.offset:r.offset+EphemeralKeySize])
+	r.offset += EphemeralKeySize
+	return key
+}
+
+// addressLength returns the byte length for a given address type.
+// For domain addresses, domainLenByte should be the first byte of the address data.
+func addressLength(addrType uint8, domainLenByte byte) (int, error) {
+	switch addrType {
+	case AddrTypeIPv4:
+		return 4, nil
+	case AddrTypeIPv6:
+		return 16, nil
+	case AddrTypeDomain:
+		return 1 + int(domainLenByte), nil
+	default:
+		return 0, fmt.Errorf("%w: unknown address type %d", ErrInvalidFrame, addrType)
+	}
+}
+
+// prefixLength returns the byte length for a route prefix based on address family.
+// For domain routes, domainLenByte should be the first byte of the prefix data.
+func prefixLength(family uint8, domainLenByte byte) int {
+	switch family {
+	case AddrFamilyIPv4:
+		return 4
+	case AddrFamilyIPv6:
+		return 16
+	case AddrFamilyDomain:
+		return 1 + int(domainLenByte)
+	default:
+		return 16 // fallback
+	}
+}
+
 // Frame represents a wire protocol frame.
 // Header format (14 bytes):
 //
@@ -116,42 +348,23 @@ type PeerHello struct {
 
 // Encode serializes PeerHello to bytes.
 func (p *PeerHello) Encode() []byte {
-	// Calculate size
-	// version(2) + agentID(16) + timestamp(8) + displayNameLen(1) + displayName + capLen(1) + caps
+	// Calculate size: version(2) + agentID(16) + timestamp(8) + displayName(1+len) + caps(1 + sum(1+len))
 	size := 2 + 16 + 8 + 1 + len(p.DisplayName) + 1
 	for _, cap := range p.Capabilities {
 		size += 1 + len(cap)
 	}
 
-	buf := make([]byte, size)
-	offset := 0
-
-	binary.BigEndian.PutUint16(buf[offset:], p.Version)
-	offset += 2
-
-	copy(buf[offset:], p.AgentID[:])
-	offset += 16
-
-	binary.BigEndian.PutUint64(buf[offset:], p.Timestamp)
-	offset += 8
-
-	// DisplayName (length-prefixed string)
-	buf[offset] = uint8(len(p.DisplayName))
-	offset++
-	copy(buf[offset:], p.DisplayName)
-	offset += len(p.DisplayName)
-
-	buf[offset] = uint8(len(p.Capabilities))
-	offset++
-
+	w := newBufferWriter(size)
+	w.writeUint16(p.Version)
+	w.writeBytes(p.AgentID[:])
+	w.writeUint64(p.Timestamp)
+	w.writeString(p.DisplayName)
+	w.writeUint8(uint8(len(p.Capabilities)))
 	for _, cap := range p.Capabilities {
-		buf[offset] = uint8(len(cap))
-		offset++
-		copy(buf[offset:], cap)
-		offset += len(cap)
+		w.writeString(cap)
 	}
 
-	return buf
+	return w.bytes()
 }
 
 // DecodePeerHello deserializes PeerHello from bytes.
@@ -160,48 +373,23 @@ func DecodePeerHello(buf []byte) (*PeerHello, error) {
 		return nil, fmt.Errorf("%w: PeerHello too short", ErrInvalidFrame)
 	}
 
-	p := &PeerHello{}
-	offset := 0
-
-	p.Version = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	copy(p.AgentID[:], buf[offset:offset+16])
-	offset += 16
-
-	p.Timestamp = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	// DisplayName
-	displayNameLen := int(buf[offset])
-	offset++
-	if offset+displayNameLen > len(buf) {
-		return nil, fmt.Errorf("%w: PeerHello displayName truncated", ErrInvalidFrame)
-	}
-	p.DisplayName = string(buf[offset : offset+displayNameLen])
-	offset += displayNameLen
-
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: PeerHello capabilities truncated", ErrInvalidFrame)
+	r := newBufferReader(buf, "PeerHello")
+	p := &PeerHello{
+		Version:     r.readUint16(),
+		AgentID:     r.readAgentID(),
+		Timestamp:   r.readUint64(),
+		DisplayName: r.readString(),
 	}
 
-	capLen := int(buf[offset])
-	offset++
-
+	capLen := int(r.readUint8())
 	p.Capabilities = make([]string, 0, capLen)
-	for i := 0; i < capLen; i++ {
-		if offset >= len(buf) {
-			return nil, fmt.Errorf("%w: PeerHello capabilities truncated", ErrInvalidFrame)
-		}
-		strLen := int(buf[offset])
-		offset++
-		if offset+strLen > len(buf) {
-			return nil, fmt.Errorf("%w: PeerHello capability string truncated", ErrInvalidFrame)
-		}
-		p.Capabilities = append(p.Capabilities, string(buf[offset:offset+strLen]))
-		offset += strLen
+	for i := 0; i < capLen && r.err == nil; i++ {
+		p.Capabilities = append(p.Capabilities, r.readString())
 	}
 
+	if r.err != nil {
+		return nil, r.err
+	}
 	return p, nil
 }
 
@@ -222,36 +410,17 @@ type StreamOpen struct {
 // Encode serializes StreamOpen to bytes.
 func (s *StreamOpen) Encode() []byte {
 	size := 8 + 1 + len(s.Address) + 2 + 1 + 1 + len(s.RemainingPath)*16 + EphemeralKeySize
-	buf := make([]byte, size)
-	offset := 0
 
-	binary.BigEndian.PutUint64(buf[offset:], s.RequestID)
-	offset += 8
+	w := newBufferWriter(size)
+	w.writeUint64(s.RequestID)
+	w.writeUint8(s.AddressType)
+	w.writeBytes(s.Address)
+	w.writeUint16(s.Port)
+	w.writeUint8(s.TTL)
+	w.writeAgentIDs(s.RemainingPath)
+	w.writeBytes(s.EphemeralPubKey[:])
 
-	buf[offset] = s.AddressType
-	offset++
-
-	copy(buf[offset:], s.Address)
-	offset += len(s.Address)
-
-	binary.BigEndian.PutUint16(buf[offset:], s.Port)
-	offset += 2
-
-	buf[offset] = s.TTL
-	offset++
-
-	buf[offset] = uint8(len(s.RemainingPath))
-	offset++
-
-	for _, agentID := range s.RemainingPath {
-		copy(buf[offset:], agentID[:])
-		offset += 16
-	}
-
-	// Append ephemeral public key
-	copy(buf[offset:], s.EphemeralPubKey[:])
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeStreamOpen deserializes StreamOpen from bytes.
@@ -260,65 +429,36 @@ func DecodeStreamOpen(buf []byte) (*StreamOpen, error) {
 		return nil, fmt.Errorf("%w: StreamOpen too short", ErrInvalidFrame)
 	}
 
-	s := &StreamOpen{}
-	offset := 0
+	r := newBufferReader(buf, "StreamOpen")
+	s := &StreamOpen{
+		RequestID:   r.readUint64(),
+		AddressType: r.readUint8(),
+	}
 
-	s.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	s.AddressType = buf[offset]
-	offset++
-
+	// Determine address length based on type
 	var addrLen int
-	switch s.AddressType {
-	case AddrTypeIPv4:
-		addrLen = 4
-	case AddrTypeIPv6:
-		addrLen = 16
-	case AddrTypeDomain:
-		if offset >= len(buf) {
+	if s.AddressType == AddrTypeDomain {
+		if r.offset >= len(buf) {
 			return nil, fmt.Errorf("%w: StreamOpen domain length missing", ErrInvalidFrame)
 		}
-		addrLen = 1 + int(buf[offset])
-	default:
-		return nil, fmt.Errorf("%w: unknown address type %d", ErrInvalidFrame, s.AddressType)
-	}
-
-	if offset+addrLen > len(buf) {
-		return nil, fmt.Errorf("%w: StreamOpen address truncated", ErrInvalidFrame)
-	}
-	s.Address = make([]byte, addrLen)
-	copy(s.Address, buf[offset:offset+addrLen])
-	offset += addrLen
-
-	if offset+4 > len(buf) {
-		return nil, fmt.Errorf("%w: StreamOpen port/TTL missing", ErrInvalidFrame)
-	}
-
-	s.Port = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	s.TTL = buf[offset]
-	offset++
-
-	pathLen := int(buf[offset])
-	offset++
-
-	s.RemainingPath = make([]identity.AgentID, pathLen)
-	for i := 0; i < pathLen; i++ {
-		if offset+16 > len(buf) {
-			return nil, fmt.Errorf("%w: StreamOpen path truncated", ErrInvalidFrame)
+		addrLen = 1 + int(buf[r.offset])
+	} else {
+		var err error
+		addrLen, err = addressLength(s.AddressType, 0)
+		if err != nil {
+			return nil, err
 		}
-		copy(s.RemainingPath[i][:], buf[offset:offset+16])
-		offset += 16
 	}
 
-	// Read ephemeral public key
-	if offset+EphemeralKeySize > len(buf) {
-		return nil, fmt.Errorf("%w: StreamOpen ephemeral key missing", ErrInvalidFrame)
-	}
-	copy(s.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
+	s.Address = r.readBytes(addrLen)
+	s.Port = r.readUint16()
+	s.TTL = r.readUint8()
+	s.RemainingPath = r.readAgentIDs()
+	s.EphemeralPubKey = r.readEphemeralKey()
 
+	if r.err != nil {
+		return nil, r.err
+	}
 	return s, nil
 }
 
@@ -353,25 +493,14 @@ type StreamOpenAck struct {
 
 // Encode serializes StreamOpenAck to bytes.
 func (s *StreamOpenAck) Encode() []byte {
-	buf := make([]byte, 8+1+len(s.BoundAddr)+2+EphemeralKeySize)
-	offset := 0
+	w := newBufferWriter(8 + 1 + len(s.BoundAddr) + 2 + EphemeralKeySize)
+	w.writeUint64(s.RequestID)
+	w.writeUint8(s.BoundAddrType)
+	w.writeBytes(s.BoundAddr)
+	w.writeUint16(s.BoundPort)
+	w.writeBytes(s.EphemeralPubKey[:])
 
-	binary.BigEndian.PutUint64(buf[offset:], s.RequestID)
-	offset += 8
-
-	buf[offset] = s.BoundAddrType
-	offset++
-
-	copy(buf[offset:], s.BoundAddr)
-	offset += len(s.BoundAddr)
-
-	binary.BigEndian.PutUint16(buf[offset:], s.BoundPort)
-	offset += 2
-
-	// Append ephemeral public key
-	copy(buf[offset:], s.EphemeralPubKey[:])
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeStreamOpenAck deserializes StreamOpenAck from bytes.
@@ -380,15 +509,13 @@ func DecodeStreamOpenAck(buf []byte) (*StreamOpenAck, error) {
 		return nil, fmt.Errorf("%w: StreamOpenAck too short", ErrInvalidFrame)
 	}
 
-	s := &StreamOpenAck{}
-	offset := 0
+	r := newBufferReader(buf, "StreamOpenAck")
+	s := &StreamOpenAck{
+		RequestID:     r.readUint64(),
+		BoundAddrType: r.readUint8(),
+	}
 
-	s.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	s.BoundAddrType = buf[offset]
-	offset++
-
+	// Determine address length (only IPv4/IPv6 for bound addresses)
 	var addrLen int
 	switch s.BoundAddrType {
 	case AddrTypeIPv4:
@@ -399,20 +526,13 @@ func DecodeStreamOpenAck(buf []byte) (*StreamOpenAck, error) {
 		addrLen = 0
 	}
 
-	if offset+addrLen+2+EphemeralKeySize > len(buf) {
-		return nil, fmt.Errorf("%w: StreamOpenAck address truncated", ErrInvalidFrame)
+	s.BoundAddr = r.readBytes(addrLen)
+	s.BoundPort = r.readUint16()
+	s.EphemeralPubKey = r.readEphemeralKey()
+
+	if r.err != nil {
+		return nil, r.err
 	}
-
-	s.BoundAddr = make([]byte, addrLen)
-	copy(s.BoundAddr, buf[offset:offset+addrLen])
-	offset += addrLen
-
-	s.BoundPort = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	// Read ephemeral public key
-	copy(s.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
-
 	return s, nil
 }
 
@@ -425,26 +545,17 @@ type StreamOpenErr struct {
 
 // Encode serializes StreamOpenErr to bytes.
 func (s *StreamOpenErr) Encode() []byte {
-	msgBytes := []byte(s.Message)
-	if len(msgBytes) > 255 {
-		msgBytes = msgBytes[:255]
+	msg := s.Message
+	if len(msg) > 255 {
+		msg = msg[:255]
 	}
 
-	buf := make([]byte, 8+2+1+len(msgBytes))
-	offset := 0
+	w := newBufferWriter(8 + 2 + 1 + len(msg))
+	w.writeUint64(s.RequestID)
+	w.writeUint16(s.ErrorCode)
+	w.writeString(msg)
 
-	binary.BigEndian.PutUint64(buf[offset:], s.RequestID)
-	offset += 8
-
-	binary.BigEndian.PutUint16(buf[offset:], s.ErrorCode)
-	offset += 2
-
-	buf[offset] = uint8(len(msgBytes))
-	offset++
-
-	copy(buf[offset:], msgBytes)
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeStreamOpenErr deserializes StreamOpenErr from bytes.
@@ -453,24 +564,16 @@ func DecodeStreamOpenErr(buf []byte) (*StreamOpenErr, error) {
 		return nil, fmt.Errorf("%w: StreamOpenErr too short", ErrInvalidFrame)
 	}
 
-	s := &StreamOpenErr{}
-	offset := 0
-
-	s.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	s.ErrorCode = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	msgLen := int(buf[offset])
-	offset++
-
-	if offset+msgLen > len(buf) {
-		return nil, fmt.Errorf("%w: StreamOpenErr message truncated", ErrInvalidFrame)
+	r := newBufferReader(buf, "StreamOpenErr")
+	s := &StreamOpenErr{
+		RequestID: r.readUint64(),
+		ErrorCode: r.readUint16(),
+		Message:   r.readString(),
 	}
 
-	s.Message = string(buf[offset : offset+msgLen])
-
+	if r.err != nil {
+		return nil, r.err
+	}
 	return s, nil
 }
 
@@ -481,9 +584,9 @@ type StreamReset struct {
 
 // Encode serializes StreamReset to bytes.
 func (s *StreamReset) Encode() []byte {
-	buf := make([]byte, 2)
-	binary.BigEndian.PutUint16(buf, s.ErrorCode)
-	return buf
+	w := newBufferWriter(2)
+	w.writeUint16(s.ErrorCode)
+	return w.bytes()
 }
 
 // DecodeStreamReset deserializes StreamReset from bytes.
@@ -491,9 +594,8 @@ func DecodeStreamReset(buf []byte) (*StreamReset, error) {
 	if len(buf) < 2 {
 		return nil, fmt.Errorf("%w: StreamReset too short", ErrInvalidFrame)
 	}
-	return &StreamReset{
-		ErrorCode: binary.BigEndian.Uint16(buf),
-	}, nil
+	r := newBufferReader(buf, "StreamReset")
+	return &StreamReset{ErrorCode: r.readUint16()}, nil
 }
 
 // Keepalive is the payload for KEEPALIVE and KEEPALIVE_ACK frames.
@@ -503,9 +605,9 @@ type Keepalive struct {
 
 // Encode serializes Keepalive to bytes.
 func (k *Keepalive) Encode() []byte {
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, k.Timestamp)
-	return buf
+	w := newBufferWriter(8)
+	w.writeUint64(k.Timestamp)
+	return w.bytes()
 }
 
 // DecodeKeepalive deserializes Keepalive from bytes.
@@ -513,9 +615,8 @@ func DecodeKeepalive(buf []byte) (*Keepalive, error) {
 	if len(buf) < 8 {
 		return nil, fmt.Errorf("%w: Keepalive too short", ErrInvalidFrame)
 	}
-	return &Keepalive{
-		Timestamp: binary.BigEndian.Uint64(buf),
-	}, nil
+	r := newBufferReader(buf, "Keepalive")
+	return &Keepalive{Timestamp: r.readUint64()}, nil
 }
 
 // Route represents a single route in ROUTE_ADVERTISE/WITHDRAW.
@@ -528,12 +629,12 @@ type Route struct {
 
 // Encode serializes Route to bytes.
 func (r *Route) Encode() []byte {
-	buf := make([]byte, 2+len(r.Prefix)+2)
-	buf[0] = r.AddressFamily
-	buf[1] = r.PrefixLength
-	copy(buf[2:], r.Prefix)
-	binary.BigEndian.PutUint16(buf[2+len(r.Prefix):], r.Metric)
-	return buf
+	w := newBufferWriter(2 + len(r.Prefix) + 2)
+	w.writeUint8(r.AddressFamily)
+	w.writeUint8(r.PrefixLength)
+	w.writeBytes(r.Prefix)
+	w.writeUint16(r.Metric)
+	return w.bytes()
 }
 
 // EncodeDomainPrefix encodes a domain pattern for route advertisement.
@@ -571,174 +672,100 @@ type RouteAdvertise struct {
 
 // Encode serializes RouteAdvertise to bytes.
 // Format with encryption support:
-//   origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes +
-//   EncryptedData(flag+len+path) + seenByLen(1) + seenBy
+//
+//	origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes +
+//	EncryptedData(flag+len+path) + seenByLen(1) + seenBy
 func (r *RouteAdvertise) Encode() []byte {
 	// Prepare path data (encrypted or plaintext)
-	var encPath *EncryptedData
-	if r.EncPath != nil {
-		encPath = r.EncPath
-	} else {
-		encPath = &EncryptedData{
-			Encrypted: false,
-			Data:      EncodePath(r.Path),
-		}
+	encPath := r.EncPath
+	if encPath == nil {
+		encPath = &EncryptedData{Encrypted: false, Data: EncodePath(r.Path)}
 	}
 	encPathBytes := EncodeEncryptedData(encPath)
 
 	// Calculate size
 	size := 16 + 1 + len(r.OriginDisplayName) + 8 + 1
 	for _, route := range r.Routes {
-		switch route.AddressFamily {
-		case AddrFamilyIPv4:
-			size += 2 + 4 + 2 // family + prefixLen + prefix(4) + metric
-		case AddrFamilyIPv6:
-			size += 2 + 16 + 2 // family + prefixLen + prefix(16) + metric
-		case AddrFamilyDomain:
-			size += 2 + len(route.Prefix) + 2 // family + prefixLen + prefix(length-prefixed string) + metric
-		default:
-			size += 2 + 16 + 2 // fallback to IPv6 size
+		size += 2 + prefixLength(route.AddressFamily, 0) + 2
+		if route.AddressFamily == AddrFamilyDomain {
+			size = size - prefixLength(route.AddressFamily, 0) + len(route.Prefix)
 		}
 	}
-	size += len(encPathBytes)        // encrypted path data
-	size += 1 + len(r.SeenBy)*16     // seenByLen + seenBy
+	size += len(encPathBytes)
+	size += 1 + len(r.SeenBy)*16
 
-	buf := make([]byte, size)
-	offset := 0
-
-	copy(buf[offset:], r.OriginAgent[:])
-	offset += 16
-
-	// OriginDisplayName (length-prefixed string)
-	buf[offset] = uint8(len(r.OriginDisplayName))
-	offset++
-	copy(buf[offset:], r.OriginDisplayName)
-	offset += len(r.OriginDisplayName)
-
-	binary.BigEndian.PutUint64(buf[offset:], r.Sequence)
-	offset += 8
-
-	buf[offset] = uint8(len(r.Routes))
-	offset++
+	w := newBufferWriter(size)
+	w.writeBytes(r.OriginAgent[:])
+	w.writeString(r.OriginDisplayName)
+	w.writeUint64(r.Sequence)
+	w.writeUint8(uint8(len(r.Routes)))
 
 	for _, route := range r.Routes {
-		buf[offset] = route.AddressFamily
-		offset++
-		buf[offset] = route.PrefixLength
-		offset++
-
-		var prefixLen int
-		switch route.AddressFamily {
-		case AddrFamilyIPv4:
-			prefixLen = 4
-		case AddrFamilyIPv6:
-			prefixLen = 16
-		case AddrFamilyDomain:
-			// Domain routes: prefix is already length-prefixed string
-			prefixLen = len(route.Prefix)
-		default:
-			prefixLen = 16 // fallback
-		}
-		copy(buf[offset:], route.Prefix[:prefixLen])
-		offset += prefixLen
-		binary.BigEndian.PutUint16(buf[offset:], route.Metric)
-		offset += 2
+		w.writeUint8(route.AddressFamily)
+		w.writeUint8(route.PrefixLength)
+		w.writeBytes(route.Prefix)
+		w.writeUint16(route.Metric)
 	}
 
-	// Encrypted path data
-	copy(buf[offset:], encPathBytes)
-	offset += len(encPathBytes)
+	w.writeBytes(encPathBytes)
+	w.writeAgentIDs(r.SeenBy)
 
-	buf[offset] = uint8(len(r.SeenBy))
-	offset++
-	for _, id := range r.SeenBy {
-		copy(buf[offset:], id[:])
-		offset += 16
-	}
-
-	return buf[:offset]
+	return w.bytes()
 }
 
 // DecodeRouteAdvertise deserializes RouteAdvertise from bytes.
 // Supports new format with encrypted path:
-//   origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes +
-//   EncryptedData(flag+len+path) + seenByLen(1) + seenBy
+//
+//	origin(16) + displayNameLen(1) + displayName + seq(8) + routeCount(1) + routes +
+//	EncryptedData(flag+len+path) + seenByLen(1) + seenBy
 func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 	if len(buf) < 28 { // Minimum size
 		return nil, fmt.Errorf("%w: RouteAdvertise too short", ErrInvalidFrame)
 	}
 
-	r := &RouteAdvertise{}
-	offset := 0
-
-	copy(r.OriginAgent[:], buf[offset:offset+16])
-	offset += 16
-
-	// OriginDisplayName (length-prefixed string)
-	displayNameLen := int(buf[offset])
-	offset++
-	if offset+displayNameLen > len(buf) {
-		return nil, fmt.Errorf("%w: RouteAdvertise displayName truncated", ErrInvalidFrame)
+	rd := newBufferReader(buf, "RouteAdvertise")
+	ra := &RouteAdvertise{
+		OriginAgent:       rd.readAgentID(),
+		OriginDisplayName: rd.readString(),
+		Sequence:          rd.readUint64(),
 	}
-	r.OriginDisplayName = string(buf[offset : offset+displayNameLen])
-	offset += displayNameLen
-
-	if offset+8 > len(buf) {
-		return nil, fmt.Errorf("%w: RouteAdvertise sequence truncated", ErrInvalidFrame)
+	if rd.err != nil {
+		return nil, rd.err
 	}
-	r.Sequence = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
 
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: RouteAdvertise routes missing", ErrInvalidFrame)
-	}
-	routeCount := int(buf[offset])
-	offset++
+	routeCount := int(rd.readUint8())
+	ra.Routes = make([]Route, routeCount)
+	for i := 0; i < routeCount && rd.err == nil; i++ {
+		route := &ra.Routes[i]
+		route.AddressFamily = rd.readUint8()
+		route.PrefixLength = rd.readUint8()
 
-	r.Routes = make([]Route, routeCount)
-	for i := 0; i < routeCount; i++ {
-		if offset+2 > len(buf) {
-			return nil, fmt.Errorf("%w: RouteAdvertise routes truncated", ErrInvalidFrame)
-		}
-		route := &r.Routes[i]
-		route.AddressFamily = buf[offset]
-		offset++
-		route.PrefixLength = buf[offset]
-		offset++
-
-		var prefixLen int
-		switch route.AddressFamily {
-		case AddrFamilyIPv4:
-			prefixLen = 4
-		case AddrFamilyIPv6:
-			prefixLen = 16
-		case AddrFamilyDomain:
-			// Domain routes: first byte is domain length, followed by domain string
-			if offset >= len(buf) {
-				return nil, fmt.Errorf("%w: RouteAdvertise domain length missing", ErrInvalidFrame)
+		// Determine prefix length based on address family
+		var pLen int
+		if route.AddressFamily == AddrFamilyDomain {
+			if rd.offset >= len(buf) {
+				rd.setError("domain length missing")
+				break
 			}
-			domainLen := int(buf[offset])
-			prefixLen = 1 + domainLen // length byte + domain string
-		default:
-			prefixLen = 16 // fallback
+			pLen = 1 + int(buf[rd.offset])
+		} else {
+			pLen = prefixLength(route.AddressFamily, 0)
 		}
-		if offset+prefixLen+2 > len(buf) {
-			return nil, fmt.Errorf("%w: RouteAdvertise route prefix truncated", ErrInvalidFrame)
-		}
-		route.Prefix = make([]byte, prefixLen)
-		copy(route.Prefix, buf[offset:offset+prefixLen])
-		offset += prefixLen
-		route.Metric = binary.BigEndian.Uint16(buf[offset:])
-		offset += 2
+
+		route.Prefix = rd.readBytes(pLen)
+		route.Metric = rd.readUint16()
+	}
+	if rd.err != nil {
+		return nil, rd.err
 	}
 
-	// Encrypted path data
-	encPath, consumed, err := DecodeEncryptedData(buf[offset:])
+	// Encrypted path data (uses offset directly due to consumed bytes return)
+	encPath, consumed, err := DecodeEncryptedData(buf[rd.offset:])
 	if err != nil {
 		return nil, fmt.Errorf("decode path: %w", err)
 	}
-	offset += consumed
-	r.EncPath = encPath
+	rd.offset += consumed
+	ra.EncPath = encPath
 
 	// If not encrypted, decode path immediately
 	if !encPath.Encrypted {
@@ -746,26 +773,15 @@ func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode path: %w", err)
 		}
-		r.Path = path
-	}
-	// If encrypted, Path stays nil - caller must decrypt using SealedBox
-
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: RouteAdvertise seenBy missing", ErrInvalidFrame)
-	}
-	seenByLen := int(buf[offset])
-	offset++
-
-	r.SeenBy = make([]identity.AgentID, seenByLen)
-	for i := 0; i < seenByLen; i++ {
-		if offset+16 > len(buf) {
-			return nil, fmt.Errorf("%w: RouteAdvertise seenBy truncated", ErrInvalidFrame)
-		}
-		copy(r.SeenBy[i][:], buf[offset:offset+16])
-		offset += 16
+		ra.Path = path
 	}
 
-	return r, nil
+	ra.SeenBy = rd.readAgentIDs()
+	if rd.err != nil {
+		return nil, rd.err
+	}
+
+	return ra, nil
 }
 
 // RouteWithdraw is the payload for ROUTE_WITHDRAW frames.
@@ -778,52 +794,29 @@ type RouteWithdraw struct {
 
 // Encode serializes RouteWithdraw to bytes.
 func (r *RouteWithdraw) Encode() []byte {
-	// Similar to RouteAdvertise but without Path
-	size := 16 + 8 + 1 // origin + seq + routeCount
+	// Calculate size: origin + seq + routeCount + routes + seenBy
+	size := 16 + 8 + 1
 	for _, route := range r.Routes {
-		if route.AddressFamily == AddrFamilyIPv4 {
-			size += 2 + 4 + 2
-		} else {
-			size += 2 + 16 + 2
-		}
+		pLen := prefixLength(route.AddressFamily, 0)
+		size += 2 + pLen + 2 // family + prefixLen + prefix + metric
 	}
 	size += 1 + len(r.SeenBy)*16
 
-	buf := make([]byte, size)
-	offset := 0
-
-	copy(buf[offset:], r.OriginAgent[:])
-	offset += 16
-
-	binary.BigEndian.PutUint64(buf[offset:], r.Sequence)
-	offset += 8
-
-	buf[offset] = uint8(len(r.Routes))
-	offset++
+	w := newBufferWriter(size)
+	w.writeBytes(r.OriginAgent[:])
+	w.writeUint64(r.Sequence)
+	w.writeUint8(uint8(len(r.Routes)))
 
 	for _, route := range r.Routes {
-		buf[offset] = route.AddressFamily
-		offset++
-		buf[offset] = route.PrefixLength
-		offset++
-		prefixLen := 4
-		if route.AddressFamily == AddrFamilyIPv6 {
-			prefixLen = 16
-		}
-		copy(buf[offset:], route.Prefix[:prefixLen])
-		offset += prefixLen
-		binary.BigEndian.PutUint16(buf[offset:], route.Metric)
-		offset += 2
+		w.writeUint8(route.AddressFamily)
+		w.writeUint8(route.PrefixLength)
+		pLen := prefixLength(route.AddressFamily, 0)
+		w.writeBytes(route.Prefix[:pLen])
+		w.writeUint16(route.Metric)
 	}
 
-	buf[offset] = uint8(len(r.SeenBy))
-	offset++
-	for _, id := range r.SeenBy {
-		copy(buf[offset:], id[:])
-		offset += 16
-	}
-
-	return buf[:offset]
+	w.writeAgentIDs(r.SeenBy)
+	return w.bytes()
 }
 
 // DecodeRouteWithdraw deserializes RouteWithdraw from bytes.
@@ -832,59 +825,32 @@ func DecodeRouteWithdraw(buf []byte) (*RouteWithdraw, error) {
 		return nil, fmt.Errorf("%w: RouteWithdraw too short", ErrInvalidFrame)
 	}
 
-	r := &RouteWithdraw{}
-	offset := 0
-
-	copy(r.OriginAgent[:], buf[offset:offset+16])
-	offset += 16
-
-	r.Sequence = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	routeCount := int(buf[offset])
-	offset++
-
-	r.Routes = make([]Route, routeCount)
-	for i := 0; i < routeCount; i++ {
-		if offset+2 > len(buf) {
-			return nil, fmt.Errorf("%w: RouteWithdraw routes truncated", ErrInvalidFrame)
-		}
-		route := &r.Routes[i]
-		route.AddressFamily = buf[offset]
-		offset++
-		route.PrefixLength = buf[offset]
-		offset++
-
-		prefixLen := 4
-		if route.AddressFamily == AddrFamilyIPv6 {
-			prefixLen = 16
-		}
-		if offset+prefixLen+2 > len(buf) {
-			return nil, fmt.Errorf("%w: RouteWithdraw route prefix truncated", ErrInvalidFrame)
-		}
-		route.Prefix = make([]byte, prefixLen)
-		copy(route.Prefix, buf[offset:offset+prefixLen])
-		offset += prefixLen
-		route.Metric = binary.BigEndian.Uint16(buf[offset:])
-		offset += 2
+	rd := newBufferReader(buf, "RouteWithdraw")
+	rw := &RouteWithdraw{
+		OriginAgent: rd.readAgentID(),
+		Sequence:    rd.readUint64(),
 	}
 
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: RouteWithdraw seenBy missing", ErrInvalidFrame)
+	routeCount := int(rd.readUint8())
+	rw.Routes = make([]Route, routeCount)
+	for i := 0; i < routeCount && rd.err == nil; i++ {
+		route := &rw.Routes[i]
+		route.AddressFamily = rd.readUint8()
+		route.PrefixLength = rd.readUint8()
+		pLen := prefixLength(route.AddressFamily, 0)
+		route.Prefix = rd.readBytes(pLen)
+		route.Metric = rd.readUint16()
 	}
-	seenByLen := int(buf[offset])
-	offset++
-
-	r.SeenBy = make([]identity.AgentID, seenByLen)
-	for i := 0; i < seenByLen; i++ {
-		if offset+16 > len(buf) {
-			return nil, fmt.Errorf("%w: RouteWithdraw seenBy truncated", ErrInvalidFrame)
-		}
-		copy(r.SeenBy[i][:], buf[offset:offset+16])
-		offset += 16
+	if rd.err != nil {
+		return nil, rd.err
 	}
 
-	return r, nil
+	rw.SeenBy = rd.readAgentIDs()
+	if rd.err != nil {
+		return nil, rd.err
+	}
+
+	return rw, nil
 }
 
 // ============================================================================
@@ -901,15 +867,11 @@ type EncryptedData struct {
 // EncodeEncryptedData encodes an EncryptedData wrapper to bytes.
 // Format: Encrypted(1) + DataLen(2) + Data
 func EncodeEncryptedData(e *EncryptedData) []byte {
-	buf := make([]byte, 1+2+len(e.Data))
-	if e.Encrypted {
-		buf[0] = 1
-	} else {
-		buf[0] = 0
-	}
-	binary.BigEndian.PutUint16(buf[1:], uint16(len(e.Data)))
-	copy(buf[3:], e.Data)
-	return buf
+	w := newBufferWriter(1 + 2 + len(e.Data))
+	w.writeBool(e.Encrypted)
+	w.writeUint16(uint16(len(e.Data)))
+	w.writeBytes(e.Data)
+	return w.bytes()
 }
 
 // DecodeEncryptedData decodes an EncryptedData wrapper from bytes.
@@ -919,18 +881,16 @@ func DecodeEncryptedData(buf []byte) (*EncryptedData, int, error) {
 		return nil, 0, fmt.Errorf("%w: EncryptedData too short", ErrInvalidFrame)
 	}
 
+	r := newBufferReader(buf, "EncryptedData")
 	e := &EncryptedData{
-		Encrypted: buf[0] == 1,
+		Encrypted: r.readBool(),
 	}
-	dataLen := int(binary.BigEndian.Uint16(buf[1:]))
+	dataLen := int(r.readUint16())
+	e.Data = r.readBytes(dataLen)
 
-	if len(buf) < 3+dataLen {
-		return nil, 0, fmt.Errorf("%w: EncryptedData data truncated", ErrInvalidFrame)
+	if r.err != nil {
+		return nil, 0, r.err
 	}
-
-	e.Data = make([]byte, dataLen)
-	copy(e.Data, buf[3:3+dataLen])
-
 	return e, 3 + dataLen, nil
 }
 
@@ -952,16 +912,16 @@ const MaxPeersInNodeInfo = 50
 
 // NodeInfo contains metadata about an agent in the mesh.
 type NodeInfo struct {
-	DisplayName     string                 // Human-readable name (from config)
-	Hostname        string                 // System hostname
-	OS              string                 // Operating system (runtime.GOOS)
-	Arch            string                 // Architecture (runtime.GOARCH)
-	Version         string                 // Agent version
-	StartTime       int64                  // Agent start time (Unix timestamp)
-	IPAddresses     []string               // Local IP addresses (non-loopback)
-	Peers           []PeerConnectionInfo   // Connected peers (max 50)
-	PublicKey  [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
-	UDPEnabled bool                   // UDP relay enabled (for exit agents)
+	DisplayName string                 // Human-readable name (from config)
+	Hostname    string                 // System hostname
+	OS          string                 // Operating system (runtime.GOOS)
+	Arch        string                 // Architecture (runtime.GOARCH)
+	Version     string                 // Agent version
+	StartTime   int64                  // Agent start time (Unix timestamp)
+	IPAddresses []string               // Local IP addresses (non-loopback)
+	Peers       []PeerConnectionInfo   // Connected peers (max 50)
+	PublicKey   [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
+	UDPEnabled  bool                   // UDP relay enabled (for exit agents)
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -984,98 +944,39 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	for _, ip := range info.IPAddresses {
 		size += 1 + len(ip)
 	}
-	// Peers
 	size += 1 // PeerCount
 	for _, peer := range peers {
-		size += 16                      // PeerID
-		size += 1 + len(peer.Transport) // TransportLen + Transport
-		size += 8                       // RTTMs
-		size += 1                       // IsDialer
+		size += 16 + 1 + len(peer.Transport) + 8 + 1
 	}
-	size += EphemeralKeySize // PublicKey
-	// UDP info
-	size += 1 // UDPEnabled (bool)
+	size += EphemeralKeySize + 1 // PublicKey + UDPEnabled
 
-	buf := make([]byte, size)
-	offset := 0
-
-	// DisplayName
-	buf[offset] = uint8(len(info.DisplayName))
-	offset++
-	copy(buf[offset:], info.DisplayName)
-	offset += len(info.DisplayName)
-
-	// Hostname
-	buf[offset] = uint8(len(info.Hostname))
-	offset++
-	copy(buf[offset:], info.Hostname)
-	offset += len(info.Hostname)
-
-	// OS
-	buf[offset] = uint8(len(info.OS))
-	offset++
-	copy(buf[offset:], info.OS)
-	offset += len(info.OS)
-
-	// Arch
-	buf[offset] = uint8(len(info.Arch))
-	offset++
-	copy(buf[offset:], info.Arch)
-	offset += len(info.Arch)
-
-	// Version
-	buf[offset] = uint8(len(info.Version))
-	offset++
-	copy(buf[offset:], info.Version)
-	offset += len(info.Version)
-
-	// StartTime
-	binary.BigEndian.PutUint64(buf[offset:], uint64(info.StartTime))
-	offset += 8
+	w := newBufferWriter(size)
+	w.writeString(info.DisplayName)
+	w.writeString(info.Hostname)
+	w.writeString(info.OS)
+	w.writeString(info.Arch)
+	w.writeString(info.Version)
+	w.writeUint64(uint64(info.StartTime))
 
 	// IPAddresses
-	buf[offset] = uint8(len(info.IPAddresses))
-	offset++
+	w.writeUint8(uint8(len(info.IPAddresses)))
 	for _, ip := range info.IPAddresses {
-		buf[offset] = uint8(len(ip))
-		offset++
-		copy(buf[offset:], ip)
-		offset += len(ip)
+		w.writeString(ip)
 	}
 
 	// Peers
-	buf[offset] = uint8(len(peers))
-	offset++
+	w.writeUint8(uint8(len(peers)))
 	for _, peer := range peers {
-		copy(buf[offset:], peer.PeerID[:])
-		offset += 16
-		buf[offset] = uint8(len(peer.Transport))
-		offset++
-		copy(buf[offset:], peer.Transport)
-		offset += len(peer.Transport)
-		binary.BigEndian.PutUint64(buf[offset:], uint64(peer.RTTMs))
-		offset += 8
-		if peer.IsDialer {
-			buf[offset] = 1
-		} else {
-			buf[offset] = 0
-		}
-		offset++
+		w.writeBytes(peer.PeerID[:])
+		w.writeString(peer.Transport)
+		w.writeUint64(uint64(peer.RTTMs))
+		w.writeBool(peer.IsDialer)
 	}
 
-	// PublicKey
-	copy(buf[offset:], info.PublicKey[:])
-	offset += EphemeralKeySize
+	w.writeBytes(info.PublicKey[:])
+	w.writeBool(info.UDPEnabled)
 
-	// UDP info
-	if info.UDPEnabled {
-		buf[offset] = 1
-	} else {
-		buf[offset] = 0
-	}
-	offset++
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeNodeInfo decodes just the NodeInfo portion from bytes.
@@ -1085,162 +986,68 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 		return nil, fmt.Errorf("%w: NodeInfo too short", ErrInvalidFrame)
 	}
 
-	info := &NodeInfo{}
-	offset := 0
-
-	// DisplayName
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo displayName length missing", ErrInvalidFrame)
+	r := newBufferReader(buf, "NodeInfo")
+	info := &NodeInfo{
+		DisplayName: r.readString(),
+		Hostname:    r.readString(),
+		OS:          r.readString(),
+		Arch:        r.readString(),
+		Version:     r.readString(),
+		StartTime:   int64(r.readUint64()),
 	}
-	displayNameLen := int(buf[offset])
-	offset++
-	if offset+displayNameLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo displayName truncated", ErrInvalidFrame)
+	if r.err != nil {
+		return nil, r.err
 	}
-	info.DisplayName = string(buf[offset : offset+displayNameLen])
-	offset += displayNameLen
-
-	// Hostname
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo hostname length missing", ErrInvalidFrame)
-	}
-	hostnameLen := int(buf[offset])
-	offset++
-	if offset+hostnameLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo hostname truncated", ErrInvalidFrame)
-	}
-	info.Hostname = string(buf[offset : offset+hostnameLen])
-	offset += hostnameLen
-
-	// OS
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo os length missing", ErrInvalidFrame)
-	}
-	osLen := int(buf[offset])
-	offset++
-	if offset+osLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo os truncated", ErrInvalidFrame)
-	}
-	info.OS = string(buf[offset : offset+osLen])
-	offset += osLen
-
-	// Arch
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo arch length missing", ErrInvalidFrame)
-	}
-	archLen := int(buf[offset])
-	offset++
-	if offset+archLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo arch truncated", ErrInvalidFrame)
-	}
-	info.Arch = string(buf[offset : offset+archLen])
-	offset += archLen
-
-	// Version
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo version length missing", ErrInvalidFrame)
-	}
-	versionLen := int(buf[offset])
-	offset++
-	if offset+versionLen > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo version truncated", ErrInvalidFrame)
-	}
-	info.Version = string(buf[offset : offset+versionLen])
-	offset += versionLen
-
-	// StartTime
-	if offset+8 > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo startTime truncated", ErrInvalidFrame)
-	}
-	info.StartTime = int64(binary.BigEndian.Uint64(buf[offset:]))
-	offset += 8
 
 	// IPAddresses
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo ipCount missing", ErrInvalidFrame)
-	}
-	ipCount := int(buf[offset])
-	offset++
+	ipCount := int(r.readUint8())
 	info.IPAddresses = make([]string, ipCount)
-	for i := 0; i < ipCount; i++ {
-		if offset >= len(buf) {
-			return nil, fmt.Errorf("%w: NodeInfo ip length missing", ErrInvalidFrame)
-		}
-		ipLen := int(buf[offset])
-		offset++
-		if offset+ipLen > len(buf) {
-			return nil, fmt.Errorf("%w: NodeInfo ip truncated", ErrInvalidFrame)
-		}
-		info.IPAddresses[i] = string(buf[offset : offset+ipLen])
-		offset += ipLen
+	for i := 0; i < ipCount && r.err == nil; i++ {
+		info.IPAddresses[i] = r.readString()
+	}
+	if r.err != nil {
+		return nil, r.err
 	}
 
-	// Peers
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo peerCount missing", ErrInvalidFrame)
-	}
-	peerCount := int(buf[offset])
-	offset++
+	// Peers (with graceful truncation for incomplete data)
+	peerCount := int(r.readUint8())
 	if peerCount > MaxPeersInNodeInfo {
 		peerCount = MaxPeersInNodeInfo
 	}
 	info.Peers = make([]PeerConnectionInfo, 0, peerCount)
 	for i := 0; i < peerCount; i++ {
-		if offset+16 > len(buf) {
+		if r.remaining() < 16 {
 			break
 		}
 		var peer PeerConnectionInfo
-		copy(peer.PeerID[:], buf[offset:offset+16])
-		offset += 16
-
-		if offset >= len(buf) {
+		copy(peer.PeerID[:], r.readBytes(16))
+		peer.Transport = r.readString()
+		if r.remaining() < 9 { // 8 (RTTMs) + 1 (IsDialer)
 			break
 		}
-		transportLen := int(buf[offset])
-		offset++
-		if offset+transportLen > len(buf) {
-			break
-		}
-		peer.Transport = string(buf[offset : offset+transportLen])
-		offset += transportLen
-
-		if offset+8 > len(buf) {
-			break
-		}
-		peer.RTTMs = int64(binary.BigEndian.Uint64(buf[offset:]))
-		offset += 8
-
-		if offset >= len(buf) {
-			break
-		}
-		peer.IsDialer = buf[offset] != 0
-		offset++
-
+		peer.RTTMs = int64(r.readUint64())
+		peer.IsDialer = r.readBool()
 		info.Peers = append(info.Peers, peer)
 	}
 
 	// PublicKey
-	if offset+EphemeralKeySize > len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfo publicKey missing", ErrInvalidFrame)
+	info.PublicKey = r.readEphemeralKey()
+	if r.err != nil {
+		return nil, r.err
 	}
-	copy(info.PublicKey[:], buf[offset:offset+EphemeralKeySize])
-	offset += EphemeralKeySize
 
 	// UDP info (optional - for backward compatibility with older agents)
-	if offset < len(buf) {
-		info.UDPEnabled = buf[offset] != 0
-		offset++
-		// Skip over legacy UDPAllowedPorts data if present (backward compatibility)
-		if offset < len(buf) {
-			portCount := int(buf[offset])
-			offset++
-			for i := 0; i < portCount && offset < len(buf); i++ {
-				portLen := int(buf[offset])
-				offset++
-				if offset+portLen > len(buf) {
+	if r.remaining() > 0 {
+		info.UDPEnabled = r.readBool()
+		// Skip over legacy UDPAllowedPorts data if present
+		if r.remaining() > 0 {
+			portCount := int(r.readUint8())
+			for i := 0; i < portCount && r.remaining() > 0; i++ {
+				portLen := int(r.readUint8())
+				if r.remaining() < portLen {
 					break
 				}
-				offset += portLen // Skip port data
+				r.offset += portLen // Skip port data
 			}
 		}
 	}
@@ -1251,14 +1058,9 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 // EncodePath encodes a path (slice of AgentIDs) to bytes.
 // This is used for encryption - the returned bytes can be encrypted with the management key.
 func EncodePath(path []identity.AgentID) []byte {
-	buf := make([]byte, 1+len(path)*16)
-	buf[0] = uint8(len(path))
-	offset := 1
-	for _, id := range path {
-		copy(buf[offset:], id[:])
-		offset += 16
-	}
-	return buf
+	w := newBufferWriter(1 + len(path)*16)
+	w.writeAgentIDs(path)
+	return w.bytes()
 }
 
 // DecodePath decodes a path from bytes.
@@ -1267,20 +1069,12 @@ func DecodePath(buf []byte) ([]identity.AgentID, error) {
 	if len(buf) < 1 {
 		return nil, fmt.Errorf("%w: Path too short", ErrInvalidFrame)
 	}
-
-	pathLen := int(buf[0])
-	if len(buf) < 1+pathLen*16 {
-		return nil, fmt.Errorf("%w: Path truncated", ErrInvalidFrame)
+	r := newBufferReader(buf, "Path")
+	ids := r.readAgentIDs()
+	if r.err != nil {
+		return nil, r.err
 	}
-
-	path := make([]identity.AgentID, pathLen)
-	offset := 1
-	for i := 0; i < pathLen; i++ {
-		copy(path[i][:], buf[offset:offset+16])
-		offset += 16
-	}
-
-	return path, nil
+	return ids, nil
 }
 
 // NodeInfoAdvertise is the payload for NODE_INFO_ADVERTISE frames.
@@ -1295,77 +1089,48 @@ type NodeInfoAdvertise struct {
 
 // Encode serializes NodeInfoAdvertise to bytes.
 // New format (v2) with encryption support:
-//   OriginAgent(16) + Sequence(8) + EncryptedData(flag+len+data) + SeenByLen(1) + SeenBy(N*16)
+//
+//	OriginAgent(16) + Sequence(8) + EncryptedData(flag+len+data) + SeenByLen(1) + SeenBy(N*16)
+//
 // Where EncryptedData contains NodeInfo (plaintext or encrypted blob).
 func (n *NodeInfoAdvertise) Encode() []byte {
 	// Prepare NodeInfo data (encrypted or plaintext)
-	var encData *EncryptedData
-	if n.EncInfo != nil {
-		// Use pre-computed encrypted data
-		encData = n.EncInfo
-	} else {
-		// Encode NodeInfo as plaintext
-		encData = &EncryptedData{
-			Encrypted: false,
-			Data:      EncodeNodeInfo(&n.Info),
-		}
+	encData := n.EncInfo
+	if encData == nil {
+		encData = &EncryptedData{Encrypted: false, Data: EncodeNodeInfo(&n.Info)}
 	}
-
-	// Calculate size
 	encDataBytes := EncodeEncryptedData(encData)
-	size := 16 + 8 + len(encDataBytes) + 1 + len(n.SeenBy)*16
 
-	buf := make([]byte, size)
-	offset := 0
+	w := newBufferWriter(16 + 8 + len(encDataBytes) + 1 + len(n.SeenBy)*16)
+	w.writeBytes(n.OriginAgent[:])
+	w.writeUint64(n.Sequence)
+	w.writeBytes(encDataBytes)
+	w.writeAgentIDs(n.SeenBy)
 
-	// OriginAgent
-	copy(buf[offset:], n.OriginAgent[:])
-	offset += 16
-
-	// Sequence
-	binary.BigEndian.PutUint64(buf[offset:], n.Sequence)
-	offset += 8
-
-	// EncryptedData (contains NodeInfo, encrypted or plaintext)
-	copy(buf[offset:], encDataBytes)
-	offset += len(encDataBytes)
-
-	// SeenBy
-	buf[offset] = uint8(len(n.SeenBy))
-	offset++
-	for _, id := range n.SeenBy {
-		copy(buf[offset:], id[:])
-		offset += 16
-	}
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeNodeInfoAdvertise deserializes NodeInfoAdvertise from bytes.
 // Supports new format (v2) with encryption:
-//   OriginAgent(16) + Sequence(8) + EncryptedData(flag+len+data) + SeenByLen(1) + SeenBy(N*16)
+//
+//	OriginAgent(16) + Sequence(8) + EncryptedData(flag+len+data) + SeenByLen(1) + SeenBy(N*16)
 func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
 	if len(buf) < 28 { // Minimum: 16 + 8 + 3 (encData min) + 1 (seenByLen)
 		return nil, fmt.Errorf("%w: NodeInfoAdvertise too short", ErrInvalidFrame)
 	}
 
-	n := &NodeInfoAdvertise{}
-	offset := 0
+	r := newBufferReader(buf, "NodeInfoAdvertise")
+	n := &NodeInfoAdvertise{
+		OriginAgent: r.readAgentID(),
+		Sequence:    r.readUint64(),
+	}
 
-	// OriginAgent
-	copy(n.OriginAgent[:], buf[offset:offset+16])
-	offset += 16
-
-	// Sequence
-	n.Sequence = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	// EncryptedData (contains NodeInfo, encrypted or plaintext)
-	encData, consumed, err := DecodeEncryptedData(buf[offset:])
+	// EncryptedData (uses offset directly due to consumed bytes return)
+	encData, consumed, err := DecodeEncryptedData(buf[r.offset:])
 	if err != nil {
 		return nil, err
 	}
-	offset += consumed
+	r.offset += consumed
 	n.EncInfo = encData
 
 	// If not encrypted, decode NodeInfo immediately
@@ -1376,21 +1141,10 @@ func DecodeNodeInfoAdvertise(buf []byte) (*NodeInfoAdvertise, error) {
 		}
 		n.Info = *info
 	}
-	// If encrypted, Info stays empty - caller must decrypt using SealedBox
 
-	// SeenBy
-	if offset >= len(buf) {
-		return nil, fmt.Errorf("%w: NodeInfoAdvertise seenByLen missing", ErrInvalidFrame)
-	}
-	seenByLen := int(buf[offset])
-	offset++
-	n.SeenBy = make([]identity.AgentID, seenByLen)
-	for i := 0; i < seenByLen; i++ {
-		if offset+16 > len(buf) {
-			return nil, fmt.Errorf("%w: NodeInfoAdvertise seenBy truncated", ErrInvalidFrame)
-		}
-		copy(n.SeenBy[i][:], buf[offset:offset+16])
-		offset += 16
+	n.SeenBy = r.readAgentIDs()
+	if r.err != nil {
+		return nil, r.err
 	}
 
 	return n, nil
@@ -1413,33 +1167,15 @@ type ControlRequest struct {
 // Encode serializes ControlRequest to bytes.
 func (c *ControlRequest) Encode() []byte {
 	// Format: RequestID(8) + ControlType(1) + TargetAgent(16) + PathLen(1) + Path(N*16) + DataLen(4) + Data
-	size := 8 + 1 + 16 + 1 + len(c.Path)*16 + 4 + len(c.Data)
-	buf := make([]byte, size)
-	offset := 0
+	w := newBufferWriter(8 + 1 + 16 + 1 + len(c.Path)*16 + 4 + len(c.Data))
+	w.writeUint64(c.RequestID)
+	w.writeUint8(c.ControlType)
+	w.writeBytes(c.TargetAgent[:])
+	w.writeAgentIDs(c.Path)
+	w.writeUint32(uint32(len(c.Data)))
+	w.writeBytes(c.Data)
 
-	binary.BigEndian.PutUint64(buf[offset:], c.RequestID)
-	offset += 8
-
-	buf[offset] = c.ControlType
-	offset++
-
-	copy(buf[offset:], c.TargetAgent[:])
-	offset += 16
-
-	buf[offset] = uint8(len(c.Path))
-	offset++
-
-	for _, id := range c.Path {
-		copy(buf[offset:], id[:])
-		offset += 16
-	}
-
-	binary.BigEndian.PutUint32(buf[offset:], uint32(len(c.Data)))
-	offset += 4
-
-	copy(buf[offset:], c.Data)
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeControlRequest deserializes ControlRequest from bytes.
@@ -1448,44 +1184,22 @@ func DecodeControlRequest(buf []byte) (*ControlRequest, error) {
 		return nil, fmt.Errorf("%w: ControlRequest too short", ErrInvalidFrame)
 	}
 
-	c := &ControlRequest{}
-	offset := 0
-
-	c.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	c.ControlType = buf[offset]
-	offset++
-
-	copy(c.TargetAgent[:], buf[offset:offset+16])
-	offset += 16
-
-	pathLen := int(buf[offset])
-	offset++
-
-	c.Path = make([]identity.AgentID, pathLen)
-	for i := 0; i < pathLen; i++ {
-		if offset+16 > len(buf) {
-			return nil, fmt.Errorf("%w: ControlRequest path truncated", ErrInvalidFrame)
-		}
-		copy(c.Path[i][:], buf[offset:offset+16])
-		offset += 16
+	r := newBufferReader(buf, "ControlRequest")
+	c := &ControlRequest{
+		RequestID:   r.readUint64(),
+		ControlType: r.readUint8(),
+		TargetAgent: r.readAgentID(),
+		Path:        r.readAgentIDs(),
 	}
 
-	if offset+4 > len(buf) {
-		return nil, fmt.Errorf("%w: ControlRequest data length truncated", ErrInvalidFrame)
-	}
-	dataLen := int(binary.BigEndian.Uint32(buf[offset:]))
-	offset += 4
-
-	if offset+dataLen > len(buf) {
-		return nil, fmt.Errorf("%w: ControlRequest data truncated", ErrInvalidFrame)
-	}
+	dataLen := int(r.readUint32())
 	if dataLen > 0 {
-		c.Data = make([]byte, dataLen)
-		copy(c.Data, buf[offset:offset+dataLen])
+		c.Data = r.readBytes(dataLen)
 	}
 
+	if r.err != nil {
+		return nil, r.err
+	}
 	return c, nil
 }
 
@@ -1506,28 +1220,14 @@ func (c *ControlResponse) Encode() []byte {
 		data = data[:MaxPayloadSize-12]
 	}
 
-	buf := make([]byte, 8+1+1+2+len(data))
-	offset := 0
+	w := newBufferWriter(8 + 1 + 1 + 2 + len(data))
+	w.writeUint64(c.RequestID)
+	w.writeUint8(c.ControlType)
+	w.writeBool(c.Success)
+	w.writeUint16(uint16(len(data)))
+	w.writeBytes(data)
 
-	binary.BigEndian.PutUint64(buf[offset:], c.RequestID)
-	offset += 8
-
-	buf[offset] = c.ControlType
-	offset++
-
-	if c.Success {
-		buf[offset] = 1
-	} else {
-		buf[offset] = 0
-	}
-	offset++
-
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(data)))
-	offset += 2
-
-	copy(buf[offset:], data)
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeControlResponse deserializes ControlResponse from bytes.
@@ -1536,28 +1236,19 @@ func DecodeControlResponse(buf []byte) (*ControlResponse, error) {
 		return nil, fmt.Errorf("%w: ControlResponse too short", ErrInvalidFrame)
 	}
 
-	c := &ControlResponse{}
-	offset := 0
-
-	c.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	c.ControlType = buf[offset]
-	offset++
-
-	c.Success = buf[offset] == 1
-	offset++
-
-	dataLen := binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	if offset+int(dataLen) > len(buf) {
-		return nil, fmt.Errorf("%w: ControlResponse data truncated", ErrInvalidFrame)
+	r := newBufferReader(buf, "ControlResponse")
+	c := &ControlResponse{
+		RequestID:   r.readUint64(),
+		ControlType: r.readUint8(),
+		Success:     r.readBool(),
 	}
 
-	c.Data = make([]byte, dataLen)
-	copy(c.Data, buf[offset:offset+int(dataLen)])
+	dataLen := int(r.readUint16())
+	c.Data = r.readBytes(dataLen)
 
+	if r.err != nil {
+		return nil, r.err
+	}
 	return c, nil
 }
 
@@ -1568,47 +1259,27 @@ func DecodeControlResponse(buf []byte) (*ControlResponse, error) {
 // UDPOpen is the payload for UDP_OPEN frames.
 // Requests a UDP association through the mesh network.
 type UDPOpen struct {
-	RequestID       uint64             // Stable across hops for correlation
-	AddressType     uint8              // Bind address type (typically 0x01 for IPv4)
-	Address         []byte             // Bind address (usually 0.0.0.0)
-	Port            uint16             // Bind port (usually 0)
-	TTL             uint8              // Hop limit
-	RemainingPath   []identity.AgentID // Route to exit agent
+	RequestID       uint64                 // Stable across hops for correlation
+	AddressType     uint8                  // Bind address type (typically 0x01 for IPv4)
+	Address         []byte                 // Bind address (usually 0.0.0.0)
+	Port            uint16                 // Bind port (usually 0)
+	TTL             uint8                  // Hop limit
+	RemainingPath   []identity.AgentID     // Route to exit agent
 	EphemeralPubKey [EphemeralKeySize]byte // Initiator's ephemeral public key for E2E encryption
 }
 
 // Encode serializes UDPOpen to bytes.
 func (u *UDPOpen) Encode() []byte {
-	size := 8 + 1 + len(u.Address) + 2 + 1 + 1 + len(u.RemainingPath)*16 + EphemeralKeySize
-	buf := make([]byte, size)
-	offset := 0
+	w := newBufferWriter(8 + 1 + len(u.Address) + 2 + 1 + 1 + len(u.RemainingPath)*16 + EphemeralKeySize)
+	w.writeUint64(u.RequestID)
+	w.writeUint8(u.AddressType)
+	w.writeBytes(u.Address)
+	w.writeUint16(u.Port)
+	w.writeUint8(u.TTL)
+	w.writeAgentIDs(u.RemainingPath)
+	w.writeBytes(u.EphemeralPubKey[:])
 
-	binary.BigEndian.PutUint64(buf[offset:], u.RequestID)
-	offset += 8
-
-	buf[offset] = u.AddressType
-	offset++
-
-	copy(buf[offset:], u.Address)
-	offset += len(u.Address)
-
-	binary.BigEndian.PutUint16(buf[offset:], u.Port)
-	offset += 2
-
-	buf[offset] = u.TTL
-	offset++
-
-	buf[offset] = uint8(len(u.RemainingPath))
-	offset++
-
-	for _, agentID := range u.RemainingPath {
-		copy(buf[offset:], agentID[:])
-		offset += 16
-	}
-
-	copy(buf[offset:], u.EphemeralPubKey[:])
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeUDPOpen deserializes UDPOpen from bytes.
@@ -1617,64 +1288,36 @@ func DecodeUDPOpen(buf []byte) (*UDPOpen, error) {
 		return nil, fmt.Errorf("%w: UDPOpen too short", ErrInvalidFrame)
 	}
 
-	u := &UDPOpen{}
-	offset := 0
+	r := newBufferReader(buf, "UDPOpen")
+	u := &UDPOpen{
+		RequestID:   r.readUint64(),
+		AddressType: r.readUint8(),
+	}
 
-	u.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	u.AddressType = buf[offset]
-	offset++
-
+	// Determine address length based on type
 	var addrLen int
-	switch u.AddressType {
-	case AddrTypeIPv4:
-		addrLen = 4
-	case AddrTypeIPv6:
-		addrLen = 16
-	case AddrTypeDomain:
-		if offset >= len(buf) {
+	if u.AddressType == AddrTypeDomain {
+		if r.offset >= len(buf) {
 			return nil, fmt.Errorf("%w: UDPOpen domain length missing", ErrInvalidFrame)
 		}
-		addrLen = 1 + int(buf[offset])
-	default:
-		return nil, fmt.Errorf("%w: unknown address type %d", ErrInvalidFrame, u.AddressType)
-	}
-
-	if offset+addrLen > len(buf) {
-		return nil, fmt.Errorf("%w: UDPOpen address truncated", ErrInvalidFrame)
-	}
-	u.Address = make([]byte, addrLen)
-	copy(u.Address, buf[offset:offset+addrLen])
-	offset += addrLen
-
-	if offset+4 > len(buf) {
-		return nil, fmt.Errorf("%w: UDPOpen port/TTL missing", ErrInvalidFrame)
-	}
-
-	u.Port = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	u.TTL = buf[offset]
-	offset++
-
-	pathLen := int(buf[offset])
-	offset++
-
-	u.RemainingPath = make([]identity.AgentID, pathLen)
-	for i := 0; i < pathLen; i++ {
-		if offset+16 > len(buf) {
-			return nil, fmt.Errorf("%w: UDPOpen path truncated", ErrInvalidFrame)
+		addrLen = 1 + int(buf[r.offset])
+	} else {
+		var err error
+		addrLen, err = addressLength(u.AddressType, 0)
+		if err != nil {
+			return nil, err
 		}
-		copy(u.RemainingPath[i][:], buf[offset:offset+16])
-		offset += 16
 	}
 
-	if offset+EphemeralKeySize > len(buf) {
-		return nil, fmt.Errorf("%w: UDPOpen ephemeral key missing", ErrInvalidFrame)
-	}
-	copy(u.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
+	u.Address = r.readBytes(addrLen)
+	u.Port = r.readUint16()
+	u.TTL = r.readUint8()
+	u.RemainingPath = r.readAgentIDs()
+	u.EphemeralPubKey = r.readEphemeralKey()
 
+	if r.err != nil {
+		return nil, r.err
+	}
 	return u, nil
 }
 
@@ -1690,24 +1333,14 @@ type UDPOpenAck struct {
 
 // Encode serializes UDPOpenAck to bytes.
 func (u *UDPOpenAck) Encode() []byte {
-	buf := make([]byte, 8+1+len(u.BoundAddr)+2+EphemeralKeySize)
-	offset := 0
+	w := newBufferWriter(8 + 1 + len(u.BoundAddr) + 2 + EphemeralKeySize)
+	w.writeUint64(u.RequestID)
+	w.writeUint8(u.BoundAddrType)
+	w.writeBytes(u.BoundAddr)
+	w.writeUint16(u.BoundPort)
+	w.writeBytes(u.EphemeralPubKey[:])
 
-	binary.BigEndian.PutUint64(buf[offset:], u.RequestID)
-	offset += 8
-
-	buf[offset] = u.BoundAddrType
-	offset++
-
-	copy(buf[offset:], u.BoundAddr)
-	offset += len(u.BoundAddr)
-
-	binary.BigEndian.PutUint16(buf[offset:], u.BoundPort)
-	offset += 2
-
-	copy(buf[offset:], u.EphemeralPubKey[:])
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeUDPOpenAck deserializes UDPOpenAck from bytes.
@@ -1716,15 +1349,13 @@ func DecodeUDPOpenAck(buf []byte) (*UDPOpenAck, error) {
 		return nil, fmt.Errorf("%w: UDPOpenAck too short", ErrInvalidFrame)
 	}
 
-	u := &UDPOpenAck{}
-	offset := 0
+	r := newBufferReader(buf, "UDPOpenAck")
+	u := &UDPOpenAck{
+		RequestID:     r.readUint64(),
+		BoundAddrType: r.readUint8(),
+	}
 
-	u.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	u.BoundAddrType = buf[offset]
-	offset++
-
+	// Determine address length (only IPv4/IPv6 for bound addresses)
 	var addrLen int
 	switch u.BoundAddrType {
 	case AddrTypeIPv4:
@@ -1735,19 +1366,13 @@ func DecodeUDPOpenAck(buf []byte) (*UDPOpenAck, error) {
 		addrLen = 0
 	}
 
-	if offset+addrLen+2+EphemeralKeySize > len(buf) {
-		return nil, fmt.Errorf("%w: UDPOpenAck address truncated", ErrInvalidFrame)
+	u.BoundAddr = r.readBytes(addrLen)
+	u.BoundPort = r.readUint16()
+	u.EphemeralPubKey = r.readEphemeralKey()
+
+	if r.err != nil {
+		return nil, r.err
 	}
-
-	u.BoundAddr = make([]byte, addrLen)
-	copy(u.BoundAddr, buf[offset:offset+addrLen])
-	offset += addrLen
-
-	u.BoundPort = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	copy(u.EphemeralPubKey[:], buf[offset:offset+EphemeralKeySize])
-
 	return u, nil
 }
 
@@ -1761,26 +1386,17 @@ type UDPOpenErr struct {
 
 // Encode serializes UDPOpenErr to bytes.
 func (u *UDPOpenErr) Encode() []byte {
-	msgBytes := []byte(u.Message)
-	if len(msgBytes) > 255 {
-		msgBytes = msgBytes[:255]
+	msg := u.Message
+	if len(msg) > 255 {
+		msg = msg[:255]
 	}
 
-	buf := make([]byte, 8+2+1+len(msgBytes))
-	offset := 0
+	w := newBufferWriter(8 + 2 + 1 + len(msg))
+	w.writeUint64(u.RequestID)
+	w.writeUint16(u.ErrorCode)
+	w.writeString(msg)
 
-	binary.BigEndian.PutUint64(buf[offset:], u.RequestID)
-	offset += 8
-
-	binary.BigEndian.PutUint16(buf[offset:], u.ErrorCode)
-	offset += 2
-
-	buf[offset] = uint8(len(msgBytes))
-	offset++
-
-	copy(buf[offset:], msgBytes)
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeUDPOpenErr deserializes UDPOpenErr from bytes.
@@ -1789,24 +1405,16 @@ func DecodeUDPOpenErr(buf []byte) (*UDPOpenErr, error) {
 		return nil, fmt.Errorf("%w: UDPOpenErr too short", ErrInvalidFrame)
 	}
 
-	u := &UDPOpenErr{}
-	offset := 0
-
-	u.RequestID = binary.BigEndian.Uint64(buf[offset:])
-	offset += 8
-
-	u.ErrorCode = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	msgLen := int(buf[offset])
-	offset++
-
-	if offset+msgLen > len(buf) {
-		return nil, fmt.Errorf("%w: UDPOpenErr message truncated", ErrInvalidFrame)
+	r := newBufferReader(buf, "UDPOpenErr")
+	u := &UDPOpenErr{
+		RequestID: r.readUint64(),
+		ErrorCode: r.readUint16(),
+		Message:   r.readString(),
 	}
 
-	u.Message = string(buf[offset : offset+msgLen])
-
+	if r.err != nil {
+		return nil, r.err
+	}
 	return u, nil
 }
 
@@ -1825,24 +1433,14 @@ const MaxUDPDatagramSize = 1472
 // Encode serializes UDPDatagram to bytes.
 func (u *UDPDatagram) Encode() []byte {
 	// Format: AddrType(1) + Address(var) + Port(2) + DataLen(2) + Data
-	buf := make([]byte, 1+len(u.Address)+2+2+len(u.Data))
-	offset := 0
+	w := newBufferWriter(1 + len(u.Address) + 2 + 2 + len(u.Data))
+	w.writeUint8(u.AddressType)
+	w.writeBytes(u.Address)
+	w.writeUint16(u.Port)
+	w.writeUint16(uint16(len(u.Data)))
+	w.writeBytes(u.Data)
 
-	buf[offset] = u.AddressType
-	offset++
-
-	copy(buf[offset:], u.Address)
-	offset += len(u.Address)
-
-	binary.BigEndian.PutUint16(buf[offset:], u.Port)
-	offset += 2
-
-	binary.BigEndian.PutUint16(buf[offset:], uint16(len(u.Data)))
-	offset += 2
-
-	copy(buf[offset:], u.Data)
-
-	return buf
+	return w.bytes()
 }
 
 // DecodeUDPDatagram deserializes UDPDatagram from bytes.
@@ -1851,48 +1449,34 @@ func DecodeUDPDatagram(buf []byte) (*UDPDatagram, error) {
 		return nil, fmt.Errorf("%w: UDPDatagram too short", ErrInvalidFrame)
 	}
 
-	u := &UDPDatagram{}
-	offset := 0
+	r := newBufferReader(buf, "UDPDatagram")
+	u := &UDPDatagram{
+		AddressType: r.readUint8(),
+	}
 
-	u.AddressType = buf[offset]
-	offset++
-
+	// Determine address length based on type
 	var addrLen int
-	switch u.AddressType {
-	case AddrTypeIPv4:
-		addrLen = 4
-	case AddrTypeIPv6:
-		addrLen = 16
-	case AddrTypeDomain:
-		if offset >= len(buf) {
+	if u.AddressType == AddrTypeDomain {
+		if r.offset >= len(buf) {
 			return nil, fmt.Errorf("%w: UDPDatagram domain length missing", ErrInvalidFrame)
 		}
-		addrLen = 1 + int(buf[offset])
-	default:
-		return nil, fmt.Errorf("%w: unknown address type %d", ErrInvalidFrame, u.AddressType)
+		addrLen = 1 + int(buf[r.offset])
+	} else {
+		var err error
+		addrLen, err = addressLength(u.AddressType, 0)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if offset+addrLen+4 > len(buf) { // addr + port(2) + dataLen(2)
-		return nil, fmt.Errorf("%w: UDPDatagram address truncated", ErrInvalidFrame)
+	u.Address = r.readBytes(addrLen)
+	u.Port = r.readUint16()
+	dataLen := int(r.readUint16())
+	u.Data = r.readBytes(dataLen)
+
+	if r.err != nil {
+		return nil, r.err
 	}
-
-	u.Address = make([]byte, addrLen)
-	copy(u.Address, buf[offset:offset+addrLen])
-	offset += addrLen
-
-	u.Port = binary.BigEndian.Uint16(buf[offset:])
-	offset += 2
-
-	dataLen := int(binary.BigEndian.Uint16(buf[offset:]))
-	offset += 2
-
-	if offset+dataLen > len(buf) {
-		return nil, fmt.Errorf("%w: UDPDatagram data truncated", ErrInvalidFrame)
-	}
-
-	u.Data = make([]byte, dataLen)
-	copy(u.Data, buf[offset:offset+dataLen])
-
 	return u, nil
 }
 
@@ -1904,11 +1488,11 @@ type UDPClose struct {
 
 // UDP close reason codes
 const (
-	UDPCloseNormal       uint8 = 0 // Normal termination
-	UDPCloseTimeout      uint8 = 1 // Idle timeout
-	UDPCloseError        uint8 = 2 // Error occurred
-	UDPCloseTCPClosed    uint8 = 3 // TCP control connection closed
-	UDPCloseAdminClose   uint8 = 4 // Administrative close
+	UDPCloseNormal     uint8 = 0 // Normal termination
+	UDPCloseTimeout    uint8 = 1 // Idle timeout
+	UDPCloseError      uint8 = 2 // Error occurred
+	UDPCloseTCPClosed  uint8 = 3 // TCP control connection closed
+	UDPCloseAdminClose uint8 = 4 // Administrative close
 )
 
 // Encode serializes UDPClose to bytes.

@@ -104,6 +104,61 @@ func NewDomainTable(localID identity.AgentID) *DomainTable {
 	}
 }
 
+// routeMapAndKey returns the appropriate routes map and lookup key for a domain pattern.
+func (t *DomainTable) routeMapAndKey(pattern string, isWildcard bool, baseDomain string) (routeMap map[string][]*DomainRoute, key string) {
+	if isWildcard {
+		return t.wildcardBase, strings.ToLower(baseDomain)
+	}
+	return t.exactRoutes, strings.ToLower(pattern)
+}
+
+// allRouteMaps returns all route maps for iteration.
+func (t *DomainTable) allRouteMaps() []map[string][]*DomainRoute {
+	return []map[string][]*DomainRoute{t.exactRoutes, t.wildcardBase}
+}
+
+// filterRoutesFromPeer removes routes from a peer in a single map and returns the count removed.
+func filterRoutesFromPeer(routeMap map[string][]*DomainRoute, peerID identity.AgentID) int {
+	count := 0
+	for key, routes := range routeMap {
+		filtered := routes[:0]
+		for _, r := range routes {
+			if r.NextHop != peerID {
+				filtered = append(filtered, r)
+			} else {
+				count++
+			}
+		}
+		if len(filtered) == 0 {
+			delete(routeMap, key)
+		} else {
+			routeMap[key] = filtered
+		}
+	}
+	return count
+}
+
+// cleanupStaleRoutesInMap removes stale routes from a map and returns the count removed.
+func cleanupStaleRoutesInMap(routeMap map[string][]*DomainRoute, localID identity.AgentID, now time.Time, maxAge time.Duration) int {
+	removed := 0
+	for key, routes := range routeMap {
+		var kept []*DomainRoute
+		for _, r := range routes {
+			if r.OriginAgent == localID || now.Sub(r.LastUpdate) <= maxAge {
+				kept = append(kept, r)
+			} else {
+				removed++
+			}
+		}
+		if len(kept) > 0 {
+			routeMap[key] = kept
+		} else {
+			delete(routeMap, key)
+		}
+	}
+	return removed
+}
+
 // AddRoute adds or updates a domain route in the table.
 // Returns true if the route was added/updated, false if rejected (e.g., loop detected).
 func (t *DomainTable) AddRoute(route *DomainRoute) bool {
@@ -118,33 +173,21 @@ func (t *DomainTable) AddRoute(route *DomainRoute) bool {
 		}
 	}
 
-	var key string
-	var targetMap *map[string][]*DomainRoute
-
-	if route.IsWildcard {
-		key = strings.ToLower(route.BaseDomain)
-		targetMap = &t.wildcardBase
-	} else {
-		key = strings.ToLower(route.Pattern)
-		targetMap = &t.exactRoutes
-	}
-
-	now := time.Now()
-
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	targetMap, key := t.routeMapAndKey(route.Pattern, route.IsWildcard, route.BaseDomain)
+
 	// Check if we already have a route from this origin
-	existing := (*targetMap)[key]
-	for i, r := range existing {
+	for i, r := range targetMap[key] {
 		if r.OriginAgent == route.OriginAgent {
 			// Update if newer sequence or better metric
 			if route.Sequence > r.Sequence ||
 				(route.Sequence == r.Sequence && route.Metric < r.Metric) {
 				cloned := route.Clone()
-				cloned.LastUpdate = now
-				(*targetMap)[key][i] = cloned
-				t.sortRoutes(targetMap, key)
+				cloned.LastUpdate = time.Now()
+				targetMap[key][i] = cloned
+				t.sortRoutesInMap(targetMap, key)
 				return true
 			}
 			return false // Older/worse route
@@ -153,15 +196,15 @@ func (t *DomainTable) AddRoute(route *DomainRoute) bool {
 
 	// New route from this origin
 	cloned := route.Clone()
-	cloned.LastUpdate = now
-	(*targetMap)[key] = append((*targetMap)[key], cloned)
-	t.sortRoutes(targetMap, key)
+	cloned.LastUpdate = time.Now()
+	targetMap[key] = append(targetMap[key], cloned)
+	t.sortRoutesInMap(targetMap, key)
 	return true
 }
 
-// sortRoutes sorts routes for a key by metric (lowest first).
-func (t *DomainTable) sortRoutes(targetMap *map[string][]*DomainRoute, key string) {
-	routes := (*targetMap)[key]
+// sortRoutesInMap sorts routes for a key by metric (lowest first).
+func (t *DomainTable) sortRoutesInMap(routeMap map[string][]*DomainRoute, key string) {
+	routes := routeMap[key]
 	sort.Slice(routes, func(i, j int) bool {
 		return routes[i].Metric < routes[j].Metric
 	})
@@ -175,27 +218,17 @@ func (t *DomainTable) RemoveRoute(pattern string, originAgent identity.AgentID) 
 
 	isWildcard, baseDomain := ParseDomainPattern(pattern)
 
-	var key string
-	var targetMap *map[string][]*DomainRoute
-
-	if isWildcard {
-		key = strings.ToLower(baseDomain)
-		targetMap = &t.wildcardBase
-	} else {
-		key = strings.ToLower(pattern)
-		targetMap = &t.exactRoutes
-	}
-
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	routes := (*targetMap)[key]
+	targetMap, key := t.routeMapAndKey(pattern, isWildcard, baseDomain)
+
+	routes := targetMap[key]
 	for i, r := range routes {
 		if r.OriginAgent == originAgent {
-			// Remove this route
-			(*targetMap)[key] = append(routes[:i], routes[i+1:]...)
-			if len((*targetMap)[key]) == 0 {
-				delete(*targetMap, key)
+			targetMap[key] = append(routes[:i], routes[i+1:]...)
+			if len(targetMap[key]) == 0 {
+				delete(targetMap, key)
 			}
 			return true
 		}
@@ -209,41 +242,9 @@ func (t *DomainTable) RemoveRoutesFromPeer(peerID identity.AgentID) int {
 	defer t.mu.Unlock()
 
 	count := 0
-
-	// Remove from exact routes
-	for key, routes := range t.exactRoutes {
-		filtered := routes[:0]
-		for _, r := range routes {
-			if r.NextHop != peerID {
-				filtered = append(filtered, r)
-			} else {
-				count++
-			}
-		}
-		if len(filtered) == 0 {
-			delete(t.exactRoutes, key)
-		} else {
-			t.exactRoutes[key] = filtered
-		}
+	for _, routeMap := range t.allRouteMaps() {
+		count += filterRoutesFromPeer(routeMap, peerID)
 	}
-
-	// Remove from wildcard routes
-	for key, routes := range t.wildcardBase {
-		filtered := routes[:0]
-		for _, r := range routes {
-			if r.NextHop != peerID {
-				filtered = append(filtered, r)
-			} else {
-				count++
-			}
-		}
-		if len(filtered) == 0 {
-			delete(t.wildcardBase, key)
-		} else {
-			t.wildcardBase[key] = filtered
-		}
-	}
-
 	return count
 }
 
@@ -284,14 +285,11 @@ func (t *DomainTable) GetAllRoutes() []*DomainRoute {
 	defer t.mu.RUnlock()
 
 	var all []*DomainRoute
-	for _, routes := range t.exactRoutes {
-		for _, r := range routes {
-			all = append(all, r.Clone())
-		}
-	}
-	for _, routes := range t.wildcardBase {
-		for _, r := range routes {
-			all = append(all, r.Clone())
+	for _, routeMap := range t.allRouteMaps() {
+		for _, routes := range routeMap {
+			for _, r := range routes {
+				all = append(all, r.Clone())
+			}
 		}
 	}
 	return all
@@ -303,17 +301,12 @@ func (t *DomainTable) GetRoutesFromAgent(agentID identity.AgentID) []*DomainRout
 	defer t.mu.RUnlock()
 
 	var matching []*DomainRoute
-	for _, routes := range t.exactRoutes {
-		for _, r := range routes {
-			if r.OriginAgent == agentID {
-				matching = append(matching, r.Clone())
-			}
-		}
-	}
-	for _, routes := range t.wildcardBase {
-		for _, r := range routes {
-			if r.OriginAgent == agentID {
-				matching = append(matching, r.Clone())
+	for _, routeMap := range t.allRouteMaps() {
+		for _, routes := range routeMap {
+			for _, r := range routes {
+				if r.OriginAgent == agentID {
+					matching = append(matching, r.Clone())
+				}
 			}
 		}
 	}
@@ -333,11 +326,10 @@ func (t *DomainTable) TotalRoutes() int {
 	defer t.mu.RUnlock()
 
 	count := 0
-	for _, routes := range t.exactRoutes {
-		count += len(routes)
-	}
-	for _, routes := range t.wildcardBase {
-		count += len(routes)
+	for _, routeMap := range t.allRouteMaps() {
+		for _, routes := range routeMap {
+			count += len(routes)
+		}
 	}
 	return count
 }
@@ -358,20 +350,10 @@ func (t *DomainTable) HasRoute(pattern string, originAgent identity.AgentID) boo
 
 	isWildcard, baseDomain := ParseDomainPattern(pattern)
 
-	var key string
-	var targetMap map[string][]*DomainRoute
-
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	if isWildcard {
-		key = strings.ToLower(baseDomain)
-		targetMap = t.wildcardBase
-	} else {
-		key = strings.ToLower(pattern)
-		targetMap = t.exactRoutes
-	}
-
+	targetMap, key := t.routeMapAndKey(pattern, isWildcard, baseDomain)
 	for _, r := range targetMap[key] {
 		if r.OriginAgent == originAgent {
 			return true
@@ -389,57 +371,9 @@ func (t *DomainTable) CleanupStaleRoutes(maxAge time.Duration) int {
 
 	now := time.Now()
 	removed := 0
-
-	// Cleanup exact routes
-	for key, routes := range t.exactRoutes {
-		var kept []*DomainRoute
-		for _, r := range routes {
-			// Never remove local routes
-			if r.OriginAgent == t.localID {
-				kept = append(kept, r)
-				continue
-			}
-
-			// Keep routes that are still fresh
-			if now.Sub(r.LastUpdate) <= maxAge {
-				kept = append(kept, r)
-			} else {
-				removed++
-			}
-		}
-
-		if len(kept) > 0 {
-			t.exactRoutes[key] = kept
-		} else {
-			delete(t.exactRoutes, key)
-		}
+	for _, routeMap := range t.allRouteMaps() {
+		removed += cleanupStaleRoutesInMap(routeMap, t.localID, now, maxAge)
 	}
-
-	// Cleanup wildcard routes
-	for key, routes := range t.wildcardBase {
-		var kept []*DomainRoute
-		for _, r := range routes {
-			// Never remove local routes
-			if r.OriginAgent == t.localID {
-				kept = append(kept, r)
-				continue
-			}
-
-			// Keep routes that are still fresh
-			if now.Sub(r.LastUpdate) <= maxAge {
-				kept = append(kept, r)
-			} else {
-				removed++
-			}
-		}
-
-		if len(kept) > 0 {
-			t.wildcardBase[key] = kept
-		} else {
-			delete(t.wildcardBase, key)
-		}
-	}
-
 	return removed
 }
 

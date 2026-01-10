@@ -19,7 +19,7 @@ func TestGenerateSystemdUnit(t *testing.T) {
 	}
 	execPath := "/usr/local/bin/muti-metroo"
 
-	unit := generateSystemdUnit(cfg, execPath)
+	unit := generateSystemdUnit(cfg, execPath, false)
 
 	// Check that required sections exist
 	if !strings.Contains(unit, "[Unit]") {
@@ -97,7 +97,7 @@ func TestGenerateSystemdUnitWithUser(t *testing.T) {
 	}
 	execPath := "/usr/bin/muti-metroo"
 
-	unit := generateSystemdUnit(cfg, execPath)
+	unit := generateSystemdUnit(cfg, execPath, false)
 
 	// Check User setting
 	if !strings.Contains(unit, "User=metroo") {
@@ -120,7 +120,7 @@ func TestGenerateSystemdUnitWithoutUser(t *testing.T) {
 	}
 	execPath := "/usr/bin/muti-metroo"
 
-	unit := generateSystemdUnit(cfg, execPath)
+	unit := generateSystemdUnit(cfg, execPath, false)
 
 	// Should not contain User= or Group= lines when empty
 	if strings.Contains(unit, "User=") {
@@ -128,6 +128,29 @@ func TestGenerateSystemdUnitWithoutUser(t *testing.T) {
 	}
 	if strings.Contains(unit, "Group=") {
 		t.Error("Unit file should not contain Group= when Group is empty")
+	}
+}
+
+func TestGenerateSystemdUnitEmbedded(t *testing.T) {
+	cfg := ServiceConfig{
+		Name:        "muti-metroo",
+		Description: "Test service",
+		ConfigPath:  "/etc/config.yaml",
+		WorkingDir:  "/etc",
+	}
+	execPath := "/usr/bin/muti-metroo"
+
+	unit := generateSystemdUnit(cfg, execPath, true)
+
+	// ExecStart should NOT include -c flag for embedded mode
+	if strings.Contains(unit, "-c") {
+		t.Error("Embedded unit file should not contain -c flag")
+	}
+
+	// ExecStart should be just "run" without config path
+	expectedExec := "ExecStart=/usr/bin/muti-metroo run"
+	if !strings.Contains(unit, expectedExec) {
+		t.Errorf("Embedded unit file missing ExecStart, expected: %s", expectedExec)
 	}
 }
 

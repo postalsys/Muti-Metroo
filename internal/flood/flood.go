@@ -23,9 +23,9 @@ type AdvertisementKey struct {
 
 // SeenAdvertisement tracks a seen advertisement for loop prevention.
 type SeenAdvertisement struct {
-	Key       AdvertisementKey
-	SeenAt    time.Time
-	SeenFrom  identity.AgentID
+	Key      AdvertisementKey
+	SeenAt   time.Time
+	SeenFrom identity.AgentID
 }
 
 // NodeInfoKey uniquely identifies a node info advertisement for dedup.
@@ -185,10 +185,8 @@ func (f *Flooder) HandleRouteAdvertise(
 	}
 
 	// Check if we're in the seen-by list (loop detection)
-	for _, id := range seenBy {
-		if id == f.localID {
-			return false // We've already processed this
-		}
+	if containsAgent(seenBy, f.localID) {
+		return false
 	}
 
 	// Decode path from advertisement
@@ -218,28 +216,7 @@ func (f *Flooder) HandleRouteAdvertise(
 	domainEntries := make([]routing.DomainRouteEntry, 0)
 
 	for _, r := range routes {
-		if len(r.Prefix) == 0 {
-			continue
-		}
-
-		switch r.AddressFamily {
-		case protocol.AddrFamilyIPv4:
-			ip := make(net.IP, 4)
-			copy(ip, r.Prefix)
-			mask := net.CIDRMask(int(r.PrefixLength), 32)
-			cidrEntries = append(cidrEntries, routing.RouteEntry{
-				Network: &net.IPNet{IP: ip, Mask: mask},
-				Metric:  r.Metric,
-			})
-		case protocol.AddrFamilyIPv6:
-			ip := make(net.IP, 16)
-			copy(ip, r.Prefix)
-			mask := net.CIDRMask(int(r.PrefixLength), 128)
-			cidrEntries = append(cidrEntries, routing.RouteEntry{
-				Network: &net.IPNet{IP: ip, Mask: mask},
-				Metric:  r.Metric,
-			})
-		case protocol.AddrFamilyDomain:
+		if r.AddressFamily == protocol.AddrFamilyDomain {
 			// Domain route: PrefixLength 0=exact, 1=wildcard
 			pattern := protocol.DecodeDomainPrefix(r.Prefix)
 			if pattern != "" {
@@ -249,6 +226,13 @@ func (f *Flooder) HandleRouteAdvertise(
 					Metric:     r.Metric,
 				})
 			}
+			continue
+		}
+		if ipNet := protocolRouteToIPNet(r); ipNet != nil {
+			cidrEntries = append(cidrEntries, routing.RouteEntry{
+				Network: ipNet,
+				Metric:  r.Metric,
+			})
 		}
 	}
 
@@ -297,33 +281,14 @@ func (f *Flooder) HandleRouteWithdraw(
 	f.mu.Unlock()
 
 	// Check loop detection
-	for _, id := range seenBy {
-		if id == f.localID {
-			return false
-		}
+	if containsAgent(seenBy, f.localID) {
+		return false
 	}
 
 	// Convert to routing entries
 	entries := make([]routing.RouteEntry, 0, len(routes))
 	for _, r := range routes {
-		if len(r.Prefix) == 0 {
-			continue
-		}
-
-		var ipNet *net.IPNet
-		if r.AddressFamily == protocol.AddrFamilyIPv4 {
-			ip := make(net.IP, 4)
-			copy(ip, r.Prefix)
-			mask := net.CIDRMask(int(r.PrefixLength), 32)
-			ipNet = &net.IPNet{IP: ip, Mask: mask}
-		} else if r.AddressFamily == protocol.AddrFamilyIPv6 {
-			ip := make(net.IP, 16)
-			copy(ip, r.Prefix)
-			mask := net.CIDRMask(int(r.PrefixLength), 128)
-			ipNet = &net.IPNet{IP: ip, Mask: mask}
-		}
-
-		if ipNet != nil {
+		if ipNet := protocolRouteToIPNet(r); ipNet != nil {
 			entries = append(entries, routing.RouteEntry{
 				Network: ipNet,
 				Metric:  r.Metric,
@@ -353,8 +318,6 @@ func (f *Flooder) floodAdvertisementEncrypted(
 	encPath *protocol.EncryptedData,
 	seenBy []identity.AgentID,
 ) {
-	peers := f.sender.GetPeerIDs()
-
 	// Extend the path if it's plaintext (normal case)
 	// For encrypted paths (legacy), forward as-is
 	fwdEncPath := encPath
@@ -386,30 +349,7 @@ func (f *Flooder) floodAdvertisementEncrypted(
 		Payload:  adv.Encode(),
 	}
 
-	for _, peerID := range peers {
-		// Don't send back to source
-		if peerID == fromPeer {
-			continue
-		}
-
-		// Don't send to peers in the seen-by list
-		skip := false
-		for _, id := range seenBy {
-			if id == peerID {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			continue
-		}
-
-		if err := f.sender.SendToPeer(peerID, frame); err != nil {
-			f.logger.Debug("failed to send route advertisement",
-				logging.KeyPeerID, peerID.ShortString(),
-				logging.KeyError, err)
-		}
-	}
+	f.floodFrame(fromPeer, seenBy, frame, "failed to send route advertisement")
 }
 
 // floodWithdrawal sends a route withdrawal to all peers except the source.
@@ -420,9 +360,6 @@ func (f *Flooder) floodWithdrawal(
 	routes []protocol.Route,
 	seenBy []identity.AgentID,
 ) {
-	peers := f.sender.GetPeerIDs()
-
-	// Build the withdraw payload
 	withdraw := &protocol.RouteWithdraw{
 		OriginAgent: originAgent,
 		Sequence:    sequence,
@@ -436,28 +373,7 @@ func (f *Flooder) floodWithdrawal(
 		Payload:  withdraw.Encode(),
 	}
 
-	for _, peerID := range peers {
-		if peerID == fromPeer {
-			continue
-		}
-
-		skip := false
-		for _, id := range seenBy {
-			if id == peerID {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			continue
-		}
-
-		if err := f.sender.SendToPeer(peerID, frame); err != nil {
-			f.logger.Debug("failed to send route withdrawal",
-				logging.KeyPeerID, peerID.ShortString(),
-				logging.KeyError, err)
-		}
-	}
+	f.floodFrame(fromPeer, seenBy, frame, "failed to send route withdrawal")
 }
 
 // AnnounceLocalRoutes floods all local routes (CIDR and domain) to all peers.
@@ -476,18 +392,7 @@ func (f *Flooder) AnnounceLocalRoutes() {
 
 	// Add CIDR routes
 	for _, lr := range localRoutes {
-		ones, bits := lr.Network.Mask.Size()
-		family := protocol.AddrFamilyIPv4
-		if bits == 128 {
-			family = protocol.AddrFamilyIPv6
-		}
-
-		routes = append(routes, protocol.Route{
-			AddressFamily: family,
-			PrefixLength:  uint8(ones),
-			Prefix:        []byte(lr.Network.IP),
-			Metric:        lr.Metric,
-		})
+		routes = append(routes, ipNetToProtocolRoute(lr.Network, lr.Metric))
 	}
 
 	// Add domain routes
@@ -552,18 +457,7 @@ func (f *Flooder) WithdrawLocalRoutes() {
 
 	routes := make([]protocol.Route, 0, len(localRoutes))
 	for _, lr := range localRoutes {
-		ones, bits := lr.Network.Mask.Size()
-		family := protocol.AddrFamilyIPv4
-		if bits == 128 {
-			family = protocol.AddrFamilyIPv6
-		}
-
-		routes = append(routes, protocol.Route{
-			AddressFamily: family,
-			PrefixLength:  uint8(ones),
-			Prefix:        []byte(lr.Network.IP),
-			Metric:        lr.Metric,
-		})
+		routes = append(routes, ipNetToProtocolRoute(lr.Network, lr.Metric))
 	}
 
 	withdraw := &protocol.RouteWithdraw{
@@ -608,18 +502,7 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 
 		routes := make([]protocol.Route, 0, len(originRoutes))
 		for _, r := range originRoutes {
-			ones, bits := r.Network.Mask.Size()
-			family := protocol.AddrFamilyIPv4
-			if bits == 128 {
-				family = protocol.AddrFamilyIPv6
-			}
-
-			routes = append(routes, protocol.Route{
-				AddressFamily: family,
-				PrefixLength:  uint8(ones),
-				Prefix:        []byte(r.Network.IP),
-				Metric:        r.Metric,
-			})
+			routes = append(routes, routeToProtocol(r))
 		}
 
 		// Use the path from the first route (they should be the same for same origin)
@@ -687,55 +570,61 @@ func (f *Flooder) cleanup() {
 
 	// Cleanup route advertisement cache
 	f.mu.Lock()
+	f.cleanupSeenCache(now, expiry)
+	f.mu.Unlock()
+
+	// Cleanup node info cache
+	f.nodeInfoMu.Lock()
+	f.cleanupNodeInfoCache(now, expiry)
+	f.nodeInfoMu.Unlock()
+}
+
+// cleanupSeenCache removes expired entries from the seen cache.
+// Must be called with f.mu held.
+func (f *Flooder) cleanupSeenCache(now time.Time, expiry time.Duration) {
 	for key, entry := range f.seenCache {
 		if now.Sub(entry.SeenAt) > expiry {
 			delete(f.seenCache, key)
 		}
 	}
 
-	// If still too large, remove oldest entries
-	if len(f.seenCache) > f.cfg.MaxSeenCacheSize {
-		// Find oldest entries and remove them
-		excess := len(f.seenCache) - f.cfg.MaxSeenCacheSize
-		var oldest []AdvertisementKey
-		for key, entry := range f.seenCache {
-			oldest = append(oldest, key)
-			if len(oldest) >= excess {
-				// Just remove any excess entries
-				break
-			}
-			_ = entry // Used for future sorting if needed
-		}
-		for _, key := range oldest {
-			delete(f.seenCache, key)
+	// If still too large, remove entries until under limit
+	excess := len(f.seenCache) - f.cfg.MaxSeenCacheSize
+	if excess <= 0 {
+		return
+	}
+	removed := 0
+	for key := range f.seenCache {
+		delete(f.seenCache, key)
+		removed++
+		if removed >= excess {
+			break
 		}
 	}
-	f.mu.Unlock()
+}
 
-	// Cleanup node info cache
-	f.nodeInfoMu.Lock()
+// cleanupNodeInfoCache removes expired entries from the node info cache.
+// Must be called with f.nodeInfoMu held.
+func (f *Flooder) cleanupNodeInfoCache(now time.Time, expiry time.Duration) {
 	for key, entry := range f.nodeInfoSeenCache {
 		if now.Sub(entry.SeenAt) > expiry {
 			delete(f.nodeInfoSeenCache, key)
 		}
 	}
 
-	// If still too large, remove oldest entries
-	if len(f.nodeInfoSeenCache) > f.cfg.MaxSeenCacheSize {
-		excess := len(f.nodeInfoSeenCache) - f.cfg.MaxSeenCacheSize
-		var oldest []NodeInfoKey
-		for key, entry := range f.nodeInfoSeenCache {
-			oldest = append(oldest, key)
-			if len(oldest) >= excess {
-				break
-			}
-			_ = entry
-		}
-		for _, key := range oldest {
-			delete(f.nodeInfoSeenCache, key)
+	// If still too large, remove entries until under limit
+	excess := len(f.nodeInfoSeenCache) - f.cfg.MaxSeenCacheSize
+	if excess <= 0 {
+		return
+	}
+	removed := 0
+	for key := range f.nodeInfoSeenCache {
+		delete(f.nodeInfoSeenCache, key)
+		removed++
+		if removed >= excess {
+			break
 		}
 	}
-	f.nodeInfoMu.Unlock()
 }
 
 // SeenCacheSize returns the current size of the seen cache.
@@ -751,6 +640,70 @@ func (f *Flooder) Stop() {
 		close(f.stopCh)
 	})
 	f.wg.Wait()
+}
+
+// containsAgent checks if the given agent ID is in the list.
+func containsAgent(list []identity.AgentID, id identity.AgentID) bool {
+	for _, v := range list {
+		if v == id {
+			return true
+		}
+	}
+	return false
+}
+
+// protocolRouteToIPNet converts a protocol.Route to a net.IPNet.
+// Returns nil if the route is not an IP route (e.g., domain route) or has an empty prefix.
+func protocolRouteToIPNet(r protocol.Route) *net.IPNet {
+	if len(r.Prefix) == 0 {
+		return nil
+	}
+	switch r.AddressFamily {
+	case protocol.AddrFamilyIPv4:
+		ip := make(net.IP, 4)
+		copy(ip, r.Prefix)
+		return &net.IPNet{IP: ip, Mask: net.CIDRMask(int(r.PrefixLength), 32)}
+	case protocol.AddrFamilyIPv6:
+		ip := make(net.IP, 16)
+		copy(ip, r.Prefix)
+		return &net.IPNet{IP: ip, Mask: net.CIDRMask(int(r.PrefixLength), 128)}
+	default:
+		return nil
+	}
+}
+
+// ipNetToProtocolRoute converts a net.IPNet and metric to a protocol.Route.
+func ipNetToProtocolRoute(network *net.IPNet, metric uint16) protocol.Route {
+	ones, bits := network.Mask.Size()
+	family := protocol.AddrFamilyIPv4
+	if bits == 128 {
+		family = protocol.AddrFamilyIPv6
+	}
+	return protocol.Route{
+		AddressFamily: family,
+		PrefixLength:  uint8(ones),
+		Prefix:        []byte(network.IP),
+		Metric:        metric,
+	}
+}
+
+// routeToProtocol converts a routing.Route (full route with path) to a protocol.Route.
+func routeToProtocol(route *routing.Route) protocol.Route {
+	return ipNetToProtocolRoute(route.Network, route.Metric)
+}
+
+// floodFrame sends a frame to all peers except the source and those in the seen-by list.
+func (f *Flooder) floodFrame(fromPeer identity.AgentID, seenBy []identity.AgentID, frame *protocol.Frame, logMsg string) {
+	for _, peerID := range f.sender.GetPeerIDs() {
+		if peerID == fromPeer || containsAgent(seenBy, peerID) {
+			continue
+		}
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug(logMsg,
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
+	}
 }
 
 // HasSeen checks if an advertisement has been seen.
@@ -808,10 +761,8 @@ func (f *Flooder) HandleNodeInfoAdvertise(
 	f.nodeInfoMu.Unlock()
 
 	// Check if we're in the seen-by list (loop detection)
-	for _, id := range seenBy {
-		if id == f.localID {
-			return false // We've already processed this
-		}
+	if containsAgent(seenBy, f.localID) {
+		return false
 	}
 
 	// Store the node info in the routing manager (handles decryption if possible)
@@ -836,9 +787,6 @@ func (f *Flooder) floodNodeInfoEncrypted(
 	encInfo *protocol.EncryptedData,
 	seenBy []identity.AgentID,
 ) {
-	peers := f.sender.GetPeerIDs()
-
-	// Build the node info advertise payload with encrypted data
 	adv := &protocol.NodeInfoAdvertise{
 		OriginAgent: originAgent,
 		Sequence:    sequence,
@@ -852,30 +800,7 @@ func (f *Flooder) floodNodeInfoEncrypted(
 		Payload:  adv.Encode(),
 	}
 
-	for _, peerID := range peers {
-		// Don't send back to source
-		if peerID == fromPeer {
-			continue
-		}
-
-		// Don't send to peers in the seen-by list
-		skip := false
-		for _, id := range seenBy {
-			if id == peerID {
-				skip = true
-				break
-			}
-		}
-		if skip {
-			continue
-		}
-
-		if err := f.sender.SendToPeer(peerID, frame); err != nil {
-			f.logger.Debug("failed to send node info advertisement",
-				logging.KeyPeerID, peerID.ShortString(),
-				logging.KeyError, err)
-		}
-	}
+	f.floodFrame(fromPeer, seenBy, frame, "failed to send node info advertisement")
 }
 
 // AnnounceLocalNodeInfo floods local node info to all peers.

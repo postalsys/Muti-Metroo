@@ -586,3 +586,50 @@ func TestTestPeerConnectivityLive(t *testing.T) {
 	// If we get here, Agent B is running and the test passed
 	t.Log("Successfully connected to Agent B")
 }
+
+func TestTransportIndex(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport string
+		expected  int
+	}{
+		{"quic", "quic", 0},
+		{"h2", "h2", 1},
+		{"ws", "ws", 2},
+		{"unknown defaults to 0", "unknown", 0},
+		{"empty defaults to 0", "", 0},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := transportIndex(tc.transport)
+			if result != tc.expected {
+				t.Errorf("transportIndex(%q) = %d, want %d", tc.transport, result, tc.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeHexKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"no prefix", "abcd1234", "abcd1234"},
+		{"0x prefix", "0xabcd1234", "abcd1234"},
+		{"0X prefix", "0Xabcd1234", "abcd1234"},
+		{"whitespace", "  abcd1234  ", "abcd1234"},
+		{"prefix and whitespace", "  0xabcd1234  ", "abcd1234"},
+		{"empty string", "", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := normalizeHexKey(tc.input)
+			if result != tc.expected {
+				t.Errorf("normalizeHexKey(%q) = %q, want %q", tc.input, result, tc.expected)
+			}
+		})
+	}
+}

@@ -14,6 +14,41 @@ import (
 	"github.com/postalsys/muti-metroo/internal/protocol"
 )
 
+// formatIPAddress returns the address type and byte representation for the given IP.
+func formatIPAddress(ip net.IP) (addrType uint8, addr []byte) {
+	if ip4 := ip.To4(); ip4 != nil {
+		return protocol.AddrTypeIPv4, ip4
+	}
+	return protocol.AddrTypeIPv6, ip.To16()
+}
+
+// resolveDatagramAddress resolves the destination address from a UDP datagram.
+func resolveDatagramAddress(datagram *protocol.UDPDatagram) (*net.UDPAddr, error) {
+	port := int(datagram.Port)
+
+	switch datagram.AddressType {
+	case protocol.AddrTypeIPv4, protocol.AddrTypeIPv6:
+		return &net.UDPAddr{IP: net.IP(datagram.Address), Port: port}, nil
+
+	case protocol.AddrTypeDomain:
+		if len(datagram.Address) < 2 {
+			return nil, fmt.Errorf("invalid domain address")
+		}
+		domain := string(datagram.Address[1:])
+		ips, err := net.LookupIP(domain)
+		if err != nil {
+			return nil, fmt.Errorf("DNS lookup failed: %w", err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no IP addresses for domain")
+		}
+		return &net.UDPAddr{IP: ips[0], Port: port}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown address type: %d", datagram.AddressType)
+	}
+}
+
 // DataWriter is the interface for sending frames back to the mesh.
 type DataWriter interface {
 	// WriteUDPDatagram sends a UDP datagram frame to the specified peer.
@@ -122,125 +157,104 @@ func (h *Handler) HandleUDPOpen(
 
 	assoc.SetUDPConn(udpConn)
 
-	// Perform E2E key exchange
+	// Perform E2E key exchange if remote provided an ephemeral key
+	var ephPub [protocol.EphemeralKeySize]byte
 	var zeroKey [protocol.EphemeralKeySize]byte
-	if remoteEphemeralPub != zeroKey {
-		// Generate ephemeral keypair for this session
-		ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
-		if err != nil {
-			udpConn.Close()
-			h.writer.WriteUDPOpenErr(peerID, streamID, &protocol.UDPOpenErr{
-				RequestID: open.RequestID,
-				ErrorCode: protocol.ErrGeneralFailure,
-				Message:   "failed to generate ephemeral key",
-			})
-			return fmt.Errorf("generate ephemeral key: %w", err)
+	hasEncryption := remoteEphemeralPub != zeroKey
+
+	if hasEncryption {
+		var keyExchangeErr error
+		ephPub, keyExchangeErr = h.performKeyExchange(assoc, open, remoteEphemeralPub, udpConn)
+		if keyExchangeErr != nil {
+			return keyExchangeErr
 		}
+	} else {
+		h.logger.Warn("UDP_OPEN without ephemeral key, encryption disabled",
+			logging.KeyStreamID, streamID)
+	}
 
-		// Compute shared secret
-		sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
-		if err != nil {
-			crypto.ZeroKey(&ephPriv)
-			udpConn.Close()
-			h.writer.WriteUDPOpenErr(peerID, streamID, &protocol.UDPOpenErr{
-				RequestID: open.RequestID,
-				ErrorCode: protocol.ErrGeneralFailure,
-				Message:   "key exchange failed",
-			})
-			return fmt.Errorf("ECDH: %w", err)
-		}
+	// Register association
+	h.mu.Lock()
+	h.associations[streamID] = assoc
+	h.byRequestID[open.RequestID] = assoc
+	h.mu.Unlock()
 
-		// Zero out private key immediately
-		crypto.ZeroKey(&ephPriv)
+	// Build and send UDP_OPEN_ACK
+	localAddr := udpConn.LocalAddr().(*net.UDPAddr)
+	addrType, boundAddr := formatIPAddress(localAddr.IP)
+	ack := &protocol.UDPOpenAck{
+		RequestID:     open.RequestID,
+		BoundAddrType: addrType,
+		BoundAddr:     boundAddr,
+		BoundPort:     uint16(localAddr.Port),
+	}
+	if hasEncryption {
+		ack.EphemeralPubKey = ephPub
+	}
 
-		// Derive session key (we are responder)
-		sessionKey := crypto.DeriveSessionKey(sharedSecret, open.RequestID, remoteEphemeralPub, ephPub, false)
-		crypto.ZeroKey(&sharedSecret)
+	if err := h.writer.WriteUDPOpenAck(peerID, streamID, ack); err != nil {
+		h.removeAssociation(streamID)
+		return fmt.Errorf("send UDP_OPEN_ACK: %w", err)
+	}
 
-		assoc.SetSessionKey(sessionKey)
+	assoc.SetOpen()
 
-		// Register association
-		h.mu.Lock()
-		h.associations[streamID] = assoc
-		h.byRequestID[open.RequestID] = assoc
-		h.mu.Unlock()
+	// Start read loop
+	h.wg.Add(1)
+	go h.readLoop(assoc)
 
-		// Send UDP_OPEN_ACK with our ephemeral public key
-		localAddr := udpConn.LocalAddr().(*net.UDPAddr)
-		var addrType uint8
-		var boundAddr []byte
-		if ip4 := localAddr.IP.To4(); ip4 != nil {
-			addrType = protocol.AddrTypeIPv4
-			boundAddr = ip4
-		} else {
-			addrType = protocol.AddrTypeIPv6
-			boundAddr = localAddr.IP.To16()
-		}
-		ack := &protocol.UDPOpenAck{
-			RequestID:       open.RequestID,
-			BoundAddrType:   addrType,
-			BoundAddr:       boundAddr,
-			BoundPort:       uint16(localAddr.Port),
-			EphemeralPubKey: ephPub,
-		}
-
-		if err := h.writer.WriteUDPOpenAck(peerID, streamID, ack); err != nil {
-			h.removeAssociation(streamID)
-			return fmt.Errorf("send UDP_OPEN_ACK: %w", err)
-		}
-
-		assoc.SetOpen()
-
-		// Start read loop
-		h.wg.Add(1)
-		go h.readLoop(assoc)
-
+	if hasEncryption {
 		h.logger.Info("UDP association established",
 			logging.KeyStreamID, streamID,
 			logging.KeyRequestID, open.RequestID,
 			"local_addr", localAddr.String())
-	} else {
-		// No encryption (should we allow this?)
-		h.logger.Warn("UDP_OPEN without ephemeral key, encryption disabled",
-			logging.KeyStreamID, streamID)
-
-		// Register association
-		h.mu.Lock()
-		h.associations[streamID] = assoc
-		h.byRequestID[open.RequestID] = assoc
-		h.mu.Unlock()
-
-		// Send UDP_OPEN_ACK without ephemeral key
-		localAddr := udpConn.LocalAddr().(*net.UDPAddr)
-		var addrType uint8
-		var boundAddr []byte
-		if ip4 := localAddr.IP.To4(); ip4 != nil {
-			addrType = protocol.AddrTypeIPv4
-			boundAddr = ip4
-		} else {
-			addrType = protocol.AddrTypeIPv6
-			boundAddr = localAddr.IP.To16()
-		}
-		ack := &protocol.UDPOpenAck{
-			RequestID:     open.RequestID,
-			BoundAddrType: addrType,
-			BoundAddr:     boundAddr,
-			BoundPort:     uint16(localAddr.Port),
-		}
-
-		if err := h.writer.WriteUDPOpenAck(peerID, streamID, ack); err != nil {
-			h.removeAssociation(streamID)
-			return fmt.Errorf("send UDP_OPEN_ACK: %w", err)
-		}
-
-		assoc.SetOpen()
-
-		// Start read loop
-		h.wg.Add(1)
-		go h.readLoop(assoc)
 	}
 
 	return nil
+}
+
+// performKeyExchange generates an ephemeral keypair and derives the session key.
+// Returns the public key for inclusion in the ack, or an error.
+func (h *Handler) performKeyExchange(
+	assoc *Association,
+	open *protocol.UDPOpen,
+	remoteEphemeralPub [protocol.EphemeralKeySize]byte,
+	udpConn *net.UDPConn,
+) ([protocol.EphemeralKeySize]byte, error) {
+	var zeroKey [protocol.EphemeralKeySize]byte
+
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		udpConn.Close()
+		h.writer.WriteUDPOpenErr(assoc.PeerID, assoc.StreamID, &protocol.UDPOpenErr{
+			RequestID: open.RequestID,
+			ErrorCode: protocol.ErrGeneralFailure,
+			Message:   "failed to generate ephemeral key",
+		})
+		return zeroKey, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, remoteEphemeralPub)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		udpConn.Close()
+		h.writer.WriteUDPOpenErr(assoc.PeerID, assoc.StreamID, &protocol.UDPOpenErr{
+			RequestID: open.RequestID,
+			ErrorCode: protocol.ErrGeneralFailure,
+			Message:   "key exchange failed",
+		})
+		return zeroKey, fmt.Errorf("ECDH: %w", err)
+	}
+
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key (we are responder)
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, open.RequestID, remoteEphemeralPub, ephPub, false)
+	crypto.ZeroKey(&sharedSecret)
+
+	assoc.SetSessionKey(sessionKey)
+
+	return ephPub, nil
 }
 
 // HandleUDPDatagram processes a UDP_DATAGRAM frame.
@@ -272,36 +286,9 @@ func (h *Handler) HandleUDPDatagram(peerID identity.AgentID, streamID uint64, da
 	}
 
 	// Resolve destination address
-	var destAddr *net.UDPAddr
-	switch datagram.AddressType {
-	case protocol.AddrTypeIPv4:
-		destAddr = &net.UDPAddr{
-			IP:   net.IP(datagram.Address),
-			Port: int(datagram.Port),
-		}
-	case protocol.AddrTypeIPv6:
-		destAddr = &net.UDPAddr{
-			IP:   net.IP(datagram.Address),
-			Port: int(datagram.Port),
-		}
-	case protocol.AddrTypeDomain:
-		if len(datagram.Address) < 2 {
-			return fmt.Errorf("invalid domain address")
-		}
-		domain := string(datagram.Address[1:])
-		ips, err := net.LookupIP(domain)
-		if err != nil {
-			return fmt.Errorf("DNS lookup failed: %w", err)
-		}
-		if len(ips) == 0 {
-			return fmt.Errorf("no IP addresses for domain")
-		}
-		destAddr = &net.UDPAddr{
-			IP:   ips[0],
-			Port: int(datagram.Port),
-		}
-	default:
-		return fmt.Errorf("unknown address type: %d", datagram.AddressType)
+	destAddr, err := resolveDatagramAddress(datagram)
+	if err != nil {
+		return err
 	}
 
 	// Send to destination
@@ -440,16 +427,7 @@ func (h *Handler) readLoop(assoc *Association) {
 		}
 
 		// Build datagram
-		var addrType uint8
-		var addr []byte
-		if ip4 := remoteAddr.IP.To4(); ip4 != nil {
-			addrType = protocol.AddrTypeIPv4
-			addr = ip4
-		} else {
-			addrType = protocol.AddrTypeIPv6
-			addr = remoteAddr.IP.To16()
-		}
-
+		addrType, addr := formatIPAddress(remoteAddr.IP)
 		datagram := &protocol.UDPDatagram{
 			AddressType: addrType,
 			Address:     addr,

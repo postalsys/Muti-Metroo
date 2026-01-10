@@ -213,16 +213,7 @@ func (h *Handshaker) listenerHandshake(ctx context.Context, conn *Connection, re
 
 // AcceptHandshake accepts an incoming connection and performs handshake.
 func (h *Handshaker) AcceptHandshake(ctx context.Context, peerConn transport.PeerConn, cfg ConnectionConfig) (*Connection, error) {
-	conn := NewConnection(peerConn, cfg)
-
-	result, err := h.PerformHandshake(ctx, conn, cfg.ExpectedPeerID)
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	_ = result // Connection already updated
-	return conn, nil
+	return h.handshakeConnection(ctx, NewConnection(peerConn, cfg), cfg.ExpectedPeerID)
 }
 
 // DialAndHandshake dials a peer and performs handshake.
@@ -231,15 +222,14 @@ func (h *Handshaker) DialAndHandshake(ctx context.Context, tr transport.Transpor
 	if err != nil {
 		return nil, fmt.Errorf("dial failed: %w", err)
 	}
+	return h.handshakeConnection(ctx, NewConnection(peerConn, cfg), cfg.ExpectedPeerID)
+}
 
-	conn := NewConnection(peerConn, cfg)
-
-	result, err := h.PerformHandshake(ctx, conn, cfg.ExpectedPeerID)
-	if err != nil {
+// handshakeConnection performs the handshake on a connection, closing it on failure.
+func (h *Handshaker) handshakeConnection(ctx context.Context, conn *Connection, expectedPeerID identity.AgentID) (*Connection, error) {
+	if _, err := h.PerformHandshake(ctx, conn, expectedPeerID); err != nil {
 		conn.Close()
 		return nil, err
 	}
-
-	_ = result // Connection already updated
 	return conn, nil
 }
