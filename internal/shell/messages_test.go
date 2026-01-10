@@ -456,3 +456,355 @@ func TestEncodeStdinStdoutStderr(t *testing.T) {
 		t.Errorf("stderr payload = %q, want %q", payload, data)
 	}
 }
+
+func TestDecodeAck(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		want    *ShellAck
+		wantErr bool
+	}{
+		{
+			name:    "success ack",
+			payload: []byte(`{"success":true}`),
+			want:    &ShellAck{Success: true},
+			wantErr: false,
+		},
+		{
+			name:    "failure ack with error",
+			payload: []byte(`{"success":false,"error":"command failed"}`),
+			want:    &ShellAck{Success: false, Error: "command failed"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid JSON",
+			payload: []byte(`{invalid json`),
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "empty payload",
+			payload: []byte{},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := DecodeAck(tt.payload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DecodeAck() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if got.Success != tt.want.Success {
+				t.Errorf("DecodeAck().Success = %v, want %v", got.Success, tt.want.Success)
+			}
+			if got.Error != tt.want.Error {
+				t.Errorf("DecodeAck().Error = %q, want %q", got.Error, tt.want.Error)
+			}
+		})
+	}
+}
+
+func TestDecodeError(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		want    *ShellError
+		wantErr bool
+	}{
+		{
+			name:    "simple error",
+			payload: []byte(`{"message":"something went wrong"}`),
+			want:    &ShellError{Message: "something went wrong"},
+			wantErr: false,
+		},
+		{
+			name:    "error with code",
+			payload: []byte(`{"message":"error with code","code":42}`),
+			want:    &ShellError{Message: "error with code", Code: 42},
+			wantErr: false,
+		},
+		{
+			name:    "invalid JSON",
+			payload: []byte(`not valid json`),
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "empty payload",
+			payload: []byte{},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := DecodeError(tt.payload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DecodeError() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if got.Message != tt.want.Message {
+				t.Errorf("DecodeError().Message = %q, want %q", got.Message, tt.want.Message)
+			}
+			if got.Code != tt.want.Code {
+				t.Errorf("DecodeError().Code = %d, want %d", got.Code, tt.want.Code)
+			}
+		})
+	}
+}
+
+func TestDecodeMeta_Errors(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		wantErr bool
+	}{
+		{
+			name:    "valid meta",
+			payload: []byte(`{"command":"echo","args":["hello"]}`),
+			wantErr: false,
+		},
+		{
+			name:    "invalid JSON",
+			payload: []byte(`{command: "invalid}`),
+			wantErr: true,
+		},
+		{
+			name:    "empty payload",
+			payload: []byte{},
+			wantErr: true,
+		},
+		{
+			name:    "null payload",
+			payload: []byte(`null`),
+			wantErr: false, // JSON null decodes to zero value
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := DecodeMeta(tt.payload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DecodeMeta() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestDecodeSignal_Errors(t *testing.T) {
+	// Empty payload should error
+	_, err := DecodeSignal([]byte{})
+	if err == nil {
+		t.Error("DecodeSignal() with empty payload should error")
+	}
+}
+
+func TestDecodeExit_Errors(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload []byte
+		wantErr bool
+	}{
+		{
+			name:    "valid exit code",
+			payload: []byte{0x00, 0x00, 0x00, 0x00},
+			wantErr: false,
+		},
+		{
+			name:    "empty payload",
+			payload: []byte{},
+			wantErr: true,
+		},
+		{
+			name:    "too short",
+			payload: []byte{0x00, 0x00, 0x00},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := DecodeExit(tt.payload)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DecodeExit() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEncodeMessage_TypeOnly(t *testing.T) {
+	// Test encoding a message with just the type and no payload
+	encoded := EncodeMessage(MsgMeta, nil)
+	if len(encoded) != 1 {
+		t.Errorf("EncodeMessage with nil payload should have length 1, got %d", len(encoded))
+	}
+	if encoded[0] != MsgMeta {
+		t.Errorf("EncodeMessage type = %d, want %d", encoded[0], MsgMeta)
+	}
+
+	// Decoding should work and return empty payload
+	msgType, payload, err := DecodeMessage(encoded)
+	if err != nil {
+		t.Fatalf("DecodeMessage() error = %v", err)
+	}
+	if msgType != MsgMeta {
+		t.Errorf("DecodeMessage type = %d, want %d", msgType, MsgMeta)
+	}
+	if len(payload) != 0 {
+		t.Errorf("DecodeMessage payload length = %d, want 0", len(payload))
+	}
+}
+
+func TestEncodeMeta_MinimalFields(t *testing.T) {
+	// Test encoding meta with only command
+	meta := &ShellMeta{
+		Command: "pwd",
+	}
+
+	encoded, err := EncodeMeta(meta)
+	if err != nil {
+		t.Fatalf("EncodeMeta() error = %v", err)
+	}
+
+	msgType, payload, err := DecodeMessage(encoded)
+	if err != nil {
+		t.Fatalf("DecodeMessage() error = %v", err)
+	}
+
+	if msgType != MsgMeta {
+		t.Errorf("message type = %d, want %d", msgType, MsgMeta)
+	}
+
+	decoded, err := DecodeMeta(payload)
+	if err != nil {
+		t.Fatalf("DecodeMeta() error = %v", err)
+	}
+
+	if decoded.Command != meta.Command {
+		t.Errorf("Command = %q, want %q", decoded.Command, meta.Command)
+	}
+	if decoded.TTY != nil {
+		t.Error("TTY should be nil when not set")
+	}
+	if len(decoded.Args) != 0 {
+		t.Errorf("Args should be empty, got %v", decoded.Args)
+	}
+}
+
+func TestDecodeMessage_SingleByte(t *testing.T) {
+	// A single byte message (just the type) should decode successfully
+	data := []byte{MsgStdout}
+	msgType, payload, err := DecodeMessage(data)
+	if err != nil {
+		t.Fatalf("DecodeMessage() error = %v", err)
+	}
+	if msgType != MsgStdout {
+		t.Errorf("msgType = %d, want %d", msgType, MsgStdout)
+	}
+	if len(payload) != 0 {
+		t.Errorf("payload length = %d, want 0", len(payload))
+	}
+}
+
+func TestMsgTypeName_AllTypes(t *testing.T) {
+	// Ensure all defined message types have proper names
+	knownTypes := map[uint8]string{
+		MsgMeta:   "META",
+		MsgAck:    "ACK",
+		MsgStdin:  "STDIN",
+		MsgStdout: "STDOUT",
+		MsgStderr: "STDERR",
+		MsgResize: "RESIZE",
+		MsgSignal: "SIGNAL",
+		MsgExit:   "EXIT",
+		MsgError:  "ERROR",
+	}
+
+	for msgType, expectedName := range knownTypes {
+		got := MsgTypeName(msgType)
+		if got != expectedName {
+			t.Errorf("MsgTypeName(%d) = %q, want %q", msgType, got, expectedName)
+		}
+	}
+
+	// Test a few unknown types
+	unknownTypes := []uint8{0, 10, 100, 200, 255}
+	for _, msgType := range unknownTypes {
+		got := MsgTypeName(msgType)
+		if got != "UNKNOWN" {
+			t.Errorf("MsgTypeName(%d) = %q, want UNKNOWN", msgType, got)
+		}
+	}
+}
+
+func TestEncodeDecodeAck_RoundTrip(t *testing.T) {
+	// Full round-trip test using DecodeAck function
+	original := &ShellAck{Success: true, Error: ""}
+
+	encoded, err := EncodeAck(original)
+	if err != nil {
+		t.Fatalf("EncodeAck() error = %v", err)
+	}
+
+	msgType, payload, err := DecodeMessage(encoded)
+	if err != nil {
+		t.Fatalf("DecodeMessage() error = %v", err)
+	}
+
+	if msgType != MsgAck {
+		t.Errorf("message type = %d, want %d", msgType, MsgAck)
+	}
+
+	decoded, err := DecodeAck(payload)
+	if err != nil {
+		t.Fatalf("DecodeAck() error = %v", err)
+	}
+
+	if decoded.Success != original.Success {
+		t.Errorf("Success = %v, want %v", decoded.Success, original.Success)
+	}
+	if decoded.Error != original.Error {
+		t.Errorf("Error = %q, want %q", decoded.Error, original.Error)
+	}
+}
+
+func TestEncodeDecodeError_RoundTrip(t *testing.T) {
+	// Full round-trip test using DecodeError function
+	original := &ShellError{Message: "test error", Code: 123}
+
+	encoded, err := EncodeError(original)
+	if err != nil {
+		t.Fatalf("EncodeError() error = %v", err)
+	}
+
+	msgType, payload, err := DecodeMessage(encoded)
+	if err != nil {
+		t.Fatalf("DecodeMessage() error = %v", err)
+	}
+
+	if msgType != MsgError {
+		t.Errorf("message type = %d, want %d", msgType, MsgError)
+	}
+
+	decoded, err := DecodeError(payload)
+	if err != nil {
+		t.Fatalf("DecodeError() error = %v", err)
+	}
+
+	if decoded.Message != original.Message {
+		t.Errorf("Message = %q, want %q", decoded.Message, original.Message)
+	}
+	if decoded.Code != original.Code {
+		t.Errorf("Code = %d, want %d", decoded.Code, original.Code)
+	}
+}
