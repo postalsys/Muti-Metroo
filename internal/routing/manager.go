@@ -49,8 +49,10 @@ type Manager struct {
 	localID      identity.AgentID
 	table        *Table
 	domainTable  *DomainTable // Domain-based routing table
+	tunnelTable  *TunnelTable // Tunnel-based routing table
 	localRoutes  map[string]*LocalRoute
 	localDomains map[string]*LocalDomainRoute        // Local domain routes
+	localTunnels map[string]*LocalTunnelRoute        // Local tunnel routes
 	displayNames map[identity.AgentID]string         // Agent ID -> Display Name mapping
 	nodeInfos    map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
 	sequence     uint64
@@ -67,8 +69,10 @@ func NewManager(localID identity.AgentID) *Manager {
 		localID:      localID,
 		table:        NewTable(localID),
 		domainTable:  NewDomainTable(localID),
+		tunnelTable:  NewTunnelTable(localID),
 		localRoutes:  make(map[string]*LocalRoute),
 		localDomains: make(map[string]*LocalDomainRoute),
+		localTunnels: make(map[string]*LocalTunnelRoute),
 		displayNames: make(map[identity.AgentID]string),
 		nodeInfos:    make(map[identity.AgentID]*NodeInfoEntry),
 	}
@@ -735,4 +739,138 @@ func (m *Manager) DomainSize() int {
 // TotalDomainRoutes returns the total number of domain route entries.
 func (m *Manager) TotalDomainRoutes() int {
 	return m.domainTable.TotalRoutes()
+}
+
+// TunnelTable returns the underlying tunnel routing table.
+func (m *Manager) TunnelTable() *TunnelTable {
+	return m.tunnelTable
+}
+
+// AddLocalTunnelRoute adds a locally-originated tunnel route.
+func (m *Manager) AddLocalTunnelRoute(key, target string, metric uint16) bool {
+	if key == "" || target == "" {
+		return false
+	}
+
+	m.mu.Lock()
+	m.sequence++
+	seq := m.sequence
+
+	m.localTunnels[key] = &LocalTunnelRoute{
+		Key:    key,
+		Target: target,
+		Metric: metric,
+	}
+	m.mu.Unlock()
+
+	// Add to tunnel table with ourselves as origin
+	route := &TunnelRoute{
+		Key:         key,
+		Target:      target,
+		NextHop:     m.localID, // Local route
+		OriginAgent: m.localID,
+		Metric:      metric,
+		Path:        nil, // Empty path for local routes
+		Sequence:    seq,
+	}
+
+	return m.tunnelTable.AddRoute(route)
+}
+
+// RemoveLocalTunnelRoute removes a locally-originated tunnel route.
+func (m *Manager) RemoveLocalTunnelRoute(key string) bool {
+	if key == "" {
+		return false
+	}
+
+	m.mu.Lock()
+	_, exists := m.localTunnels[key]
+	if !exists {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.localTunnels, key)
+	m.mu.Unlock()
+
+	return m.tunnelTable.RemoveRoute(key, m.localID)
+}
+
+// GetLocalTunnelRoutes returns all locally-originated tunnel routes.
+func (m *Manager) GetLocalTunnelRoutes() []*LocalTunnelRoute {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	routes := make([]*LocalTunnelRoute, 0, len(m.localTunnels))
+	for _, r := range m.localTunnels {
+		routes = append(routes, &LocalTunnelRoute{
+			Key:    r.Key,
+			Target: r.Target,
+			Metric: r.Metric,
+		})
+	}
+	return routes
+}
+
+// LookupTunnel finds the best tunnel route for a routing key.
+func (m *Manager) LookupTunnel(key string) *TunnelRoute {
+	return m.tunnelTable.Lookup(key)
+}
+
+// TunnelRouteEntry is a simplified tunnel route for advertisements.
+type TunnelRouteEntry struct {
+	Key    string
+	Metric uint16
+}
+
+// ProcessTunnelRouteAdvertise processes incoming tunnel route advertisements.
+// Returns the list of routes that were added/updated.
+func (m *Manager) ProcessTunnelRouteAdvertise(
+	fromPeer identity.AgentID,
+	originAgent identity.AgentID,
+	sequence uint64,
+	routes []TunnelRouteEntry,
+	path []identity.AgentID,
+	encPath *protocol.EncryptedData,
+) []*TunnelRoute {
+	var accepted []*TunnelRoute
+
+	for _, entry := range routes {
+		route := &TunnelRoute{
+			Key:         entry.Key,
+			Target:      "", // Target is not shared in advertisements
+			NextHop:     fromPeer,
+			OriginAgent: originAgent,
+			Metric:      entry.Metric + 1, // Increment metric
+			Path:        path,
+			EncPath:     encPath,
+			Sequence:    sequence,
+		}
+
+		if m.tunnelTable.AddRoute(route) {
+			accepted = append(accepted, route.Clone())
+		}
+	}
+
+	return accepted
+}
+
+// HandlePeerDisconnectTunnel removes all tunnel routes learned from a disconnected peer.
+func (m *Manager) HandlePeerDisconnectTunnel(peerID identity.AgentID) int {
+	return m.tunnelTable.RemoveRoutesFromPeer(peerID)
+}
+
+// CleanupStaleTunnelRoutes removes tunnel routes that haven't been updated within maxAge.
+// Local routes are never removed. Returns the number of routes removed.
+func (m *Manager) CleanupStaleTunnelRoutes(maxAge time.Duration) int {
+	return m.tunnelTable.CleanupStaleRoutes(maxAge)
+}
+
+// TunnelSize returns the number of unique tunnel keys in the routing table.
+func (m *Manager) TunnelSize() int {
+	return m.tunnelTable.Size()
+}
+
+// TotalTunnelRoutes returns the total number of tunnel route entries.
+func (m *Manager) TotalTunnelRoutes() int {
+	return m.tunnelTable.TotalRoutes()
 }

@@ -73,6 +73,7 @@ type Config struct {
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
 	Shell        ShellConfig        `yaml:"shell"`
 	UDP          UDPConfig          `yaml:"udp"`
+	Tunnel       TunnelConfig       `yaml:"tunnel"`
 }
 
 // ProtocolConfig defines protocol identifiers used for transport negotiation.
@@ -486,6 +487,49 @@ type UDPConfig struct {
 	MaxDatagramSize int `yaml:"max_datagram_size"`
 }
 
+// TunnelConfig configures TCP tunnel port forwarding.
+// This enables ngrok/localtunnel-style reverse tunneling where local services
+// can be exposed through the mesh network using named routing keys.
+type TunnelConfig struct {
+	// Endpoints define tunnel exit points - where tunneled connections terminate.
+	// Each endpoint maps a routing key to a fixed target host:port.
+	// The agent advertises these routing keys through the mesh.
+	Endpoints []TunnelEndpoint `yaml:"endpoints"`
+
+	// Listeners define tunnel ingress points - where external connections enter.
+	// Each listener binds to a local address and forwards connections to the
+	// agent with the matching routing key.
+	Listeners []TunnelListener `yaml:"listeners"`
+}
+
+// TunnelEndpoint defines a tunnel exit point configuration.
+// Traffic arriving for this routing key will be forwarded to the target.
+type TunnelEndpoint struct {
+	// Key is the routing key that identifies this tunnel endpoint.
+	// Must be unique within the mesh. Example: "my-web-server"
+	Key string `yaml:"key"`
+
+	// Target is the fixed destination host:port for tunneled connections.
+	// Example: "localhost:3000" or "192.168.1.10:8080"
+	Target string `yaml:"target"`
+}
+
+// TunnelListener defines a tunnel ingress point configuration.
+// Connections to this listener are forwarded through the mesh to the
+// agent with a matching routing key endpoint.
+type TunnelListener struct {
+	// Key is the routing key to look up in the mesh.
+	// Must match a TunnelEndpoint.Key on some agent.
+	Key string `yaml:"key"`
+
+	// Address is the local address to listen on.
+	// Example: ":8080" or "127.0.0.1:8080"
+	Address string `yaml:"address"`
+
+	// MaxConnections limits concurrent connections (0 = unlimited).
+	MaxConnections int `yaml:"max_connections"`
+}
+
 // Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
@@ -560,6 +604,10 @@ func Default() *Config {
 			MaxAssociations: 1000,            // Default limit
 			IdleTimeout:     5 * time.Minute, // Same as connection idle threshold
 			MaxDatagramSize: 1472,            // MTU - IP/UDP headers
+		},
+		Tunnel: TunnelConfig{
+			Endpoints: []TunnelEndpoint{},
+			Listeners: []TunnelListener{},
 		},
 	}
 }
@@ -727,6 +775,11 @@ func (c *Config) Validate() error {
 		errs = append(errs, err.Error())
 	}
 
+	// Validate tunnel configuration
+	if err := c.validateTunnel(); err != nil {
+		errs = append(errs, err.Error())
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("validation errors:\n  - %s", strings.Join(errs, "\n  - "))
 	}
@@ -772,6 +825,64 @@ func (c *Config) validateManagementKeys() error {
 		}
 	}
 
+	return nil
+}
+
+// validateTunnel validates the tunnel configuration.
+func (c *Config) validateTunnel() error {
+	var errs []string
+
+	// Validate tunnel endpoints
+	seenKeys := make(map[string]bool)
+	for i, ep := range c.Tunnel.Endpoints {
+		if ep.Key == "" {
+			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: key is required", i))
+			continue
+		}
+		if seenKeys[ep.Key] {
+			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: duplicate key %q", i, ep.Key))
+		}
+		seenKeys[ep.Key] = true
+
+		if ep.Target == "" {
+			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: target is required", i))
+		} else if err := isValidHostPort(ep.Target); err != nil {
+			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: invalid target: %v", i, err))
+		}
+	}
+
+	// Validate tunnel listeners
+	for i, lis := range c.Tunnel.Listeners {
+		if lis.Key == "" {
+			errs = append(errs, fmt.Sprintf("tunnel.listeners[%d]: key is required", i))
+		}
+		if lis.Address == "" {
+			errs = append(errs, fmt.Sprintf("tunnel.listeners[%d]: address is required", i))
+		}
+		if lis.MaxConnections < 0 {
+			errs = append(errs, fmt.Sprintf("tunnel.listeners[%d]: max_connections cannot be negative", i))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("tunnel validation errors:\n    - %s", strings.Join(errs, "\n    - "))
+	}
+
+	return nil
+}
+
+// isValidHostPort validates a host:port string.
+func isValidHostPort(hostPort string) error {
+	host, port, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return fmt.Errorf("invalid host:port format: %w", err)
+	}
+	if host == "" {
+		return fmt.Errorf("host cannot be empty")
+	}
+	if port == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
 	return nil
 }
 

@@ -211,12 +211,14 @@ func (f *Flooder) HandleRouteAdvertise(
 		}
 	}
 
-	// Convert protocol routes to routing entries (CIDR and domain)
+	// Convert protocol routes to routing entries (CIDR, domain, and tunnel)
 	cidrEntries := make([]routing.RouteEntry, 0, len(routes))
 	domainEntries := make([]routing.DomainRouteEntry, 0)
+	tunnelEntries := make([]routing.TunnelRouteEntry, 0)
 
 	for _, r := range routes {
-		if r.AddressFamily == protocol.AddrFamilyDomain {
+		switch r.AddressFamily {
+		case protocol.AddrFamilyDomain:
 			// Domain route: PrefixLength 0=exact, 1=wildcard
 			pattern := protocol.DecodeDomainPrefix(r.Prefix)
 			if pattern != "" {
@@ -226,13 +228,23 @@ func (f *Flooder) HandleRouteAdvertise(
 					Metric:     r.Metric,
 				})
 			}
-			continue
-		}
-		if ipNet := protocolRouteToIPNet(r); ipNet != nil {
-			cidrEntries = append(cidrEntries, routing.RouteEntry{
-				Network: ipNet,
-				Metric:  r.Metric,
-			})
+		case protocol.AddrFamilyTunnel:
+			// Tunnel route: Prefix contains the routing key
+			key := protocol.DecodeTunnelKey(r.Prefix)
+			if key != "" {
+				tunnelEntries = append(tunnelEntries, routing.TunnelRouteEntry{
+					Key:    key,
+					Metric: r.Metric,
+				})
+			}
+		default:
+			// CIDR route (IPv4 or IPv6)
+			if ipNet := protocolRouteToIPNet(r); ipNet != nil {
+				cidrEntries = append(cidrEntries, routing.RouteEntry{
+					Network: ipNet,
+					Metric:  r.Metric,
+				})
+			}
 		}
 	}
 
@@ -244,6 +256,11 @@ func (f *Flooder) HandleRouteAdvertise(
 	// Process domain routes in routing manager
 	if len(domainEntries) > 0 {
 		f.routeMgr.ProcessDomainRouteAdvertise(fromPeer, originAgent, sequence, domainEntries, path, encPath)
+	}
+
+	// Process tunnel routes in routing manager
+	if len(tunnelEntries) > 0 {
+		f.routeMgr.ProcessTunnelRouteAdvertise(fromPeer, originAgent, sequence, tunnelEntries, path, encPath)
 	}
 
 	// Flood to other peers (forward encrypted path as-is)
@@ -376,19 +393,20 @@ func (f *Flooder) floodWithdrawal(
 	f.floodFrame(fromPeer, seenBy, frame, "failed to send route withdrawal")
 }
 
-// AnnounceLocalRoutes floods all local routes (CIDR and domain) to all peers.
+// AnnounceLocalRoutes floods all local routes (CIDR, domain, and tunnel) to all peers.
 func (f *Flooder) AnnounceLocalRoutes() {
 	localRoutes := f.routeMgr.GetLocalRoutes()
 	localDomainRoutes := f.routeMgr.GetLocalDomainRoutes()
+	localTunnelRoutes := f.routeMgr.GetLocalTunnelRoutes()
 
-	if len(localRoutes) == 0 && len(localDomainRoutes) == 0 {
+	if len(localRoutes) == 0 && len(localDomainRoutes) == 0 && len(localTunnelRoutes) == 0 {
 		return
 	}
 
 	seq := f.routeMgr.IncrementSequence()
 
-	// Convert to protocol routes (CIDR + domain)
-	routes := make([]protocol.Route, 0, len(localRoutes)+len(localDomainRoutes))
+	// Convert to protocol routes (CIDR + domain + tunnel)
+	routes := make([]protocol.Route, 0, len(localRoutes)+len(localDomainRoutes)+len(localTunnelRoutes))
 
 	// Add CIDR routes
 	for _, lr := range localRoutes {
@@ -406,6 +424,16 @@ func (f *Flooder) AnnounceLocalRoutes() {
 			PrefixLength:  prefixLen,
 			Prefix:        protocol.EncodeDomainPrefix(dr.Pattern),
 			Metric:        dr.Metric,
+		})
+	}
+
+	// Add tunnel routes
+	for _, tr := range localTunnelRoutes {
+		routes = append(routes, protocol.Route{
+			AddressFamily: protocol.AddrFamilyTunnel,
+			PrefixLength:  0, // Not used for tunnels
+			Prefix:        protocol.EncodeTunnelKey(tr.Key),
+			Metric:        tr.Metric,
 		})
 	}
 

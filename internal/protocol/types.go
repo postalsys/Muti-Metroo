@@ -62,6 +62,7 @@ const (
 	AddrFamilyIPv4   uint8 = 0x01
 	AddrFamilyIPv6   uint8 = 0x02
 	AddrFamilyDomain uint8 = 0x03 // Domain pattern route
+	AddrFamilyTunnel uint8 = 0x04 // Tunnel routing key
 )
 
 // Error codes for STREAM_OPEN_ERR and STREAM_RESET
@@ -91,6 +92,7 @@ const (
 	ErrCommandNotAllowed  uint16 = 23 // Command not in whitelist
 	ErrUDPDisabled        uint16 = 30 // UDP relay is disabled
 	ErrUDPPortNotAllowed  uint16 = 31 // UDP port not in whitelist
+	ErrTunnelNotFound     uint16 = 40 // Tunnel routing key not configured
 )
 
 // Protocol constants
@@ -133,6 +135,13 @@ const (
 const (
 	// UDPAssociation is the domain address for UDP ASSOCIATE streams
 	UDPAssociation = "udp:assoc"
+)
+
+// Tunnel stream addresses (used with AddrTypeDomain)
+const (
+	// TunnelStreamPrefix is the prefix for tunnel stream addresses.
+	// Format: "tunnel:<routing-key>"
+	TunnelStreamPrefix = "tunnel:"
 )
 
 // FrameTypeName returns a human-readable name for a frame type.
@@ -236,6 +245,8 @@ func ErrorCodeName(code uint16) string {
 		return "UDP_DISABLED"
 	case ErrUDPPortNotAllowed:
 		return "UDP_PORT_NOT_ALLOWED"
+	case ErrTunnelNotFound:
+		return "TUNNEL_NOT_FOUND"
 	default:
 		return "UNKNOWN"
 	}
