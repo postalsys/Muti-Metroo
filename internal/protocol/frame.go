@@ -659,6 +659,28 @@ func DecodeDomainPrefix(prefix []byte) string {
 	return string(prefix[1 : 1+domainLen])
 }
 
+// EncodeTunnelKey encodes a tunnel routing key for route advertisement.
+// Returns length-prefixed key string (1 byte length + key).
+func EncodeTunnelKey(key string) []byte {
+	buf := make([]byte, 1+len(key))
+	buf[0] = uint8(len(key))
+	copy(buf[1:], key)
+	return buf
+}
+
+// DecodeTunnelKey decodes a tunnel routing key from route advertisement.
+// Input is length-prefixed key string (1 byte length + key).
+func DecodeTunnelKey(prefix []byte) string {
+	if len(prefix) < 1 {
+		return ""
+	}
+	keyLen := int(prefix[0])
+	if len(prefix) < 1+keyLen {
+		return ""
+	}
+	return string(prefix[1 : 1+keyLen])
+}
+
 // RouteAdvertise is the payload for ROUTE_ADVERTISE frames.
 type RouteAdvertise struct {
 	OriginAgent       identity.AgentID
@@ -742,13 +764,16 @@ func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 
 		// Determine prefix length based on address family
 		var pLen int
-		if route.AddressFamily == AddrFamilyDomain {
+		switch route.AddressFamily {
+		case AddrFamilyDomain, AddrFamilyTunnel:
+			// Domain and tunnel routes use length-prefixed strings
 			if rd.offset >= len(buf) {
-				rd.setError("domain length missing")
+				rd.setError("prefix length missing")
 				break
 			}
 			pLen = 1 + int(buf[rd.offset])
-		} else {
+		default:
+			// IPv4/IPv6 routes have fixed prefix lengths
 			pLen = prefixLength(route.AddressFamily, 0)
 		}
 
