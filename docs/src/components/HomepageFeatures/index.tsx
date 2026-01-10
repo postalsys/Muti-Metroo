@@ -14,50 +14,38 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'End-to-End Encryption',
-    image: '/img/mole-inspecting.png',
-    imageAlt: 'Mole inspecting with magnifying glass',
-    link: '/security/e2e-encryption',
-    description: (
-      <>
-        X25519 key exchange with ChaCha20-Poly1305 encryption. Transit nodes
-        relay traffic they cannot decrypt - zero trust by design.
-      </>
-    ),
-  },
-  {
-    title: 'Multi-Hop Mesh Routing',
-    image: '/img/mole-plumbing.png',
-    imageAlt: 'Mole connecting pipes',
-    link: '/concepts/routing',
-    description: (
-      <>
-        Automatic route propagation across arbitrary topologies. Traffic flows
-        through chains, trees, or full mesh with CIDR and domain-based routing.
-      </>
-    ),
-  },
-  {
-    title: 'Flexible Transports',
+    title: 'Traverse Any Firewall',
     image: '/img/mole-wiring.png',
     imageAlt: 'Mole connecting wires',
     link: '/concepts/transports',
     description: (
       <>
-        QUIC for performance, HTTP/2 for blending with HTTPS, or WebSocket for
-        traversing corporate proxies and restrictive firewalls.
+        Reach networks behind restrictive firewalls using HTTP/2 or WebSocket
+        that blends with normal HTTPS traffic. Works through corporate proxies.
       </>
     ),
   },
   {
-    title: 'No Root Required',
+    title: 'Single Binary, No Privileges',
     image: '/img/mole-drilling.png',
     imageAlt: 'Mole drilling through layers',
     link: '/concepts/architecture',
     description: (
       <>
-        Runs entirely in userspace as a single binary. No kernel modules,
-        no elevated privileges. Deploy on containers, VMs, or bare metal.
+        Deploy anywhere in seconds. One binary, no root required, no kernel
+        modules. Runs on containers, VMs, cloud instances, or bare metal.
+      </>
+    ),
+  },
+  {
+    title: 'Multi-Hop Relay Chains',
+    image: '/img/mole-plumbing.png',
+    imageAlt: 'Mole connecting pipes',
+    link: '/concepts/routing',
+    description: (
+      <>
+        Build relay chains through multiple network segments. Traffic
+        automatically finds its way through any mesh topology to reach the exit.
       </>
     ),
   },
@@ -81,8 +69,20 @@ const FeatureList: FeatureItem[] = [
     link: '/features/shell',
     description: (
       <>
-        Execute commands and transfer files across the mesh. Interactive shell
-        with command whitelisting and authenticated file upload/download.
+        Execute commands and transfer files on any agent in the mesh. Interactive
+        shell with command whitelisting and authenticated file upload/download.
+      </>
+    ),
+  },
+  {
+    title: 'End-to-End Encrypted',
+    image: '/img/mole-inspecting.png',
+    imageAlt: 'Mole inspecting with magnifying glass',
+    link: '/security/e2e-encryption',
+    description: (
+      <>
+        Transit nodes relay traffic they cannot decrypt. Built on proven
+        cryptography (X25519 + ChaCha20-Poly1305) with zero trust by design.
       </>
     ),
   },

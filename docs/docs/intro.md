@@ -27,22 +27,30 @@ flowchart LR
     C --> Server
 ```
 
+## Why Muti Metroo?
+
+| Challenge | How Muti Metroo Helps |
+| --------- | --------------------- |
+| **Need to reach a restricted network** | Tunnel through firewalls using HTTP/2 or WebSocket that blends with normal HTTPS |
+| **Complex network topology** | Build multi-hop relay chains - traffic automatically finds its path to the exit |
+| **Hard to deploy** | Single binary, no root required, no kernel modules - deploy in seconds |
+| **Per-application configuration** | SOCKS5 proxy or TUN interface routes all traffic transparently |
+| **Security concerns** | End-to-end encrypted - transit nodes relay data they cannot decrypt |
+
 ## Key Features
 
-| Feature                   | Description                                                          |
-| ------------------------- | -------------------------------------------------------------------- |
-| **End-to-End Encryption** | X25519 + ChaCha20-Poly1305 encryption - transit nodes cannot decrypt |
-| **Multiple Transports**   | QUIC/TLS 1.3, HTTP/2, and WebSocket - mix protocols in a single mesh |
-| **SOCKS5 Proxy**          | TCP CONNECT and UDP ASSOCIATE with optional authentication           |
-| **Flexible Routing**      | CIDR and domain-based routes with DNS resolution at exit             |
-| **UDP Relay**             | Tunnel UDP traffic (DNS, NTP) through SOCKS5 UDP ASSOCIATE           |
-| **Multi-Hop Paths**       | Traffic automatically finds its way through the mesh                 |
-| **Stream Multiplexing**   | Multiple virtual streams over single connections                     |
-| **File Transfer**         | Upload/download files and directories across the mesh                |
-| **Remote Execution**      | Execute commands on remote agents (interactive shell)                |
-| **Web Dashboard**         | Visual topology with metro map visualization                         |
-| **No Root Required**      | Runs entirely in userspace                                           |
-| **TUN Interface**         | Transparent L3 routing with [Mutiauk](/mutiauk) companion tool       |
+| Feature | What It Does |
+| ------- | ------------ |
+| **Firewall Traversal** | HTTP/2 and WebSocket transports blend with HTTPS traffic to bypass restrictive firewalls |
+| **Multi-Hop Routing** | Automatic route propagation - traffic flows through chains, trees, or full mesh topologies |
+| **SOCKS5 Proxy** | TCP CONNECT and UDP ASSOCIATE with optional authentication |
+| **CIDR and Domain Routes** | Route by IP range or domain pattern with DNS resolution at the exit node |
+| **File Transfer** | Upload/download files and directories to any agent in the mesh |
+| **Remote Shell** | Execute commands on remote agents with interactive PTY support |
+| **TUN Interface** | Transparent L3 routing with [Mutiauk](/mutiauk) - no per-app configuration |
+| **Web Dashboard** | Visual metro map showing mesh topology and connections |
+| **No Root Required** | Runs entirely in userspace as a single binary |
+| **E2E Encryption** | X25519 + ChaCha20-Poly1305 - transit nodes cannot decrypt your traffic |
 
 ## Use Cases
 
