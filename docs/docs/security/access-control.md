@@ -9,11 +9,16 @@ sidebar_position: 4
 
 # Access Control
 
-Control what destinations, commands, and paths are accessible.
+Limit what authenticated users can actually do. Even with valid credentials, users can only reach destinations you allow, run commands you whitelist, and access files in directories you specify.
+
+**Three layers of restriction:**
+- **Exit routes**: Which IP ranges/domains traffic can reach
+- **Shell whitelist**: Which commands can be executed
+- **File paths**: Which directories are accessible for upload/download
 
 ## Route-Based Access Control
 
-Exit nodes only allow connections to advertised routes:
+Only allow connections to specific networks - reject everything else:
 
 ```yaml
 exit:

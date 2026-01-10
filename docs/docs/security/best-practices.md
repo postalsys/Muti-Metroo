@@ -9,13 +9,18 @@ sidebar_position: 5
 
 # Security Best Practices
 
-Production hardening guide for Muti Metroo deployments.
+Make your mesh harder to compromise. The defaults are secure, but production deployments need additional hardening - protecting your CA key, enabling mTLS, and limiting what each component can do.
+
+**The three most important things:**
+1. Protect your CA private key - if stolen, attackers can create valid certificates
+2. Enable mTLS - only agents with your certificates can connect
+3. Disable features you don't use - shell and file transfer are disabled by default for a reason
 
 ## Certificate Management
 
 ### Protect CA Private Key
 
-The CA private key is the most critical secret:
+If someone gets your CA key, they can create certificates that your mesh will trust:
 
 ```bash
 # Secure storage options:

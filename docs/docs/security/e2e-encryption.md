@@ -5,31 +5,27 @@ sidebar_position: 2
 
 # End-to-End Encryption
 
-Muti Metroo provides automatic end-to-end encryption for all stream data. Only the ingress (entry) and exit agents can read the payload - transit agents cannot decrypt it.
+Even if a transit node is compromised or the network is monitored, your traffic stays private. Only the ingress and exit can read your data - everything in between sees encrypted bytes.
 
-## Overview
+**This protects you when:**
+- Traffic passes through untrusted networks
+- A transit agent you don't control is in the path
+- Someone captures packets between agents
 
-All stream data is encrypted automatically using modern cryptography:
+## What Gets Encrypted
 
-- **Key Exchange**: X25519 elliptic curve Diffie-Hellman
-- **Encryption**: ChaCha20-Poly1305 authenticated encryption
-- **Forward Secrecy**: Each stream uses unique ephemeral keys
+| Data | Encrypted? | Why |
+|------|------------|-----|
+| Your application data (HTTP, SSH, etc.) | Yes | Protected from transit nodes |
+| Destination address/port | No | Needed for routing |
 
 ## Security Properties
 
-| Property | Description |
-|----------|-------------|
-| **Confidentiality** | Only ingress and exit can read stream data |
-| **Integrity** | Tampering is detected and rejected |
-| **Forward Secrecy** | Each stream uses ephemeral keys |
-| **Transit Opacity** | Transit agents see only encrypted data |
-
-## What Is Encrypted
-
-| Data | Encrypted | Notes |
-|------|-----------|-------|
-| Stream payload | Yes | All application data |
-| Destination address/port | No | Required for routing |
+| What You Get | What It Means |
+|--------------|---------------|
+| **Confidentiality** | Transit nodes can't read your traffic |
+| **Integrity** | If someone modifies data, it's detected and rejected |
+| **Forward Secrecy** | Even if keys are later compromised, past traffic stays safe |
 
 ## No Configuration Required
 
@@ -80,20 +76,20 @@ Both systems use the same cryptographic primitives but serve different purposes.
 
 See [Management Keys](/red-team/management-keys) for management encryption details.
 
-## Threat Protection
+## What E2E Protects (and Doesn't)
 
-### Protected Against
+### You're Protected Against
 
-- Passive eavesdropping at transit nodes
-- Compromised transit agents reading your data
-- Replay attacks
-- Message tampering
+- Someone monitoring traffic at a transit node
+- A compromised transit agent trying to read your data
+- Replay attacks (sending captured traffic again)
+- Traffic modification (changing data in transit)
 
-### Not Protected Against
+### You're NOT Protected Against
 
-- Compromised ingress or exit agent (secure your endpoints)
-- Traffic analysis (timing, volume patterns)
-- Metadata leakage (destination is visible for routing)
+- Compromised ingress or exit agent - they see your data (secure your endpoints!)
+- Traffic analysis - timing and volume patterns are visible
+- Destination visibility - routing requires knowing where traffic goes
 
 ## Troubleshooting
 

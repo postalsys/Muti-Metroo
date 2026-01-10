@@ -9,16 +9,15 @@ sidebar_position: 2
 
 # TLS and Mutual TLS
 
-Secure your mesh with TLS encryption and mutual authentication.
+Control which agents can connect to your mesh. With basic TLS, agents verify they're connecting to the right server. With mutual TLS (mTLS), both sides verify each other - unauthorized agents can't connect at all.
+
+**Quick decision:**
+- Development/testing: TLS without mTLS is fine
+- Production: Always enable mTLS - only agents with valid certificates can connect
 
 ## TLS Basics
 
-All Muti Metroo peer connections use TLS 1.3:
-
-- **Encryption**: AES-256-GCM or ChaCha20-Poly1305
-- **Key Exchange**: ECDHE with X25519 or P-256
-- **Authentication**: ECDSA certificates (EC-only, RSA not supported)
-- **Forward Secrecy**: New keys per session
+All connections between agents are encrypted with TLS 1.3. Traffic between agents cannot be read by network observers.
 
 ## Global TLS Configuration
 
@@ -54,17 +53,11 @@ peers:
     # Uses global CA to validate server, global cert as client cert
 ```
 
-### What This Provides
+### What You Get
 
-- Server identity verified
-- Client can trust it's connecting to the right agent
-- Traffic encrypted
-- Peers still present certificates (using global cert)
-
-### What This Does NOT Provide
-
-- No mandatory validation of client identity on listeners
-- Any client can connect (if they can reach the port)
+- You know you're connecting to the right agent (not an imposter)
+- Traffic is encrypted between agents
+- But: any client with network access can connect to listeners
 
 ## Mutual TLS (mTLS)
 
@@ -83,12 +76,12 @@ With mTLS enabled:
 - The global CA is used to verify client certificates
 - Peers automatically use the global agent certificate as their client certificate
 
-### What mTLS Provides
+### What You Get with mTLS
 
-- Mutual authentication (both sides verified)
-- Only authorized peers can connect
-- Strong defense against unauthorized access
-- Certificate-based access control
+- Only agents with valid certificates can connect
+- Both sides verify each other - no anonymous connections
+- Unauthorized agents are rejected before they can do anything
+- You control who's in your mesh by controlling who has certificates
 
 ## EC-Only Certificates
 

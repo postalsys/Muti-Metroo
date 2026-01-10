@@ -9,18 +9,22 @@ sidebar_position: 1
 
 # Security Overview
 
-Muti Metroo is designed with security as a core principle. This guide covers the security model and best practices.
+Your traffic stays private even when it passes through transit nodes you don't control. Only the ingress and exit see your data - everything in between sees encrypted bytes they cannot decrypt.
+
+**What this means for you:**
+- Compromise a transit node? Attacker sees nothing useful
+- Network tapped between agents? Traffic is encrypted
+- Unauthorized client tries to connect? Rejected by authentication
 
 ## Security Model
 
 ### End-to-End Encryption
 
-All stream data is encrypted end-to-end between ingress and exit agents:
+Transit nodes relay your traffic without being able to read it:
 
-- **X25519 Key Exchange**: Ephemeral keys per stream for forward secrecy
-- **ChaCha20-Poly1305**: Authenticated encryption prevents tampering
-- **Transit Opacity**: Transit agents cannot decrypt payload data
-- **Key Derivation**: HKDF-SHA256 with stream context
+- Your data is encrypted before leaving the ingress
+- Only the exit node can decrypt it
+- Even if a transit is compromised, your data stays private
 
 See [End-to-End Encryption](/security/e2e-encryption) for details.
 
@@ -50,30 +54,26 @@ All peer connections use TLS 1.3:
 - **Shell whitelist**: Only whitelisted commands allowed
 - **File path restrictions**: Only allowed paths accessible
 
-## Threat Model
+## What You're Protected Against
 
-### What Muti Metroo Protects Against
+| If This Happens... | You're Protected Because... |
+|--------------------|----------------------------|
+| Someone captures traffic between agents | It's encrypted - they see random bytes |
+| Transit node is compromised | E2E encryption - transit can't decrypt your data |
+| Attacker replays captured traffic | Nonce-based encryption detects replays |
+| Someone modifies traffic in transit | Authenticated encryption detects tampering |
+| Unauthorized peer tries to connect | mTLS rejects unknown certificates |
+| Unauthorized client tries to use proxy | SOCKS5 authentication blocks them |
+| Someone tries to run unauthorized commands | Shell whitelist blocks unapproved commands |
 
-| Threat | Protection |
-|--------|------------|
-| Eavesdropping | TLS + E2E encryption |
-| Compromised transit | E2E encryption (transit cannot decrypt) |
-| Replay attacks | Nonce-based encryption |
-| Data tampering | Authenticated encryption (Poly1305) |
-| Man-in-the-middle | Certificate validation |
-| Unauthorized peers | mTLS authentication |
-| Unauthorized clients | SOCKS5 authentication |
-| Unauthorized commands | Shell whitelist + password |
-| Resource exhaustion | Connection limits |
+## What You Need to Protect Yourself
 
-### What Muti Metroo Does NOT Protect Against
-
-| Threat | Mitigation |
-|--------|------------|
-| Compromised CA | Secure CA key management |
-| Compromised host | Host security hardening |
-| Traffic analysis | Use VPN/Tor if needed |
-| Insider threat | Audit logging, monitoring |
+| Risk | Your Responsibility |
+|------|---------------------|
+| CA private key stolen | Store it securely (HSM, vault, encrypted disk) |
+| Ingress or exit host compromised | Harden your endpoints - they see your data |
+| Traffic pattern analysis | Use additional anonymization (Tor) if needed |
+| Insider with valid credentials | Monitor logs, rotate credentials |
 
 ## Security Checklist
 

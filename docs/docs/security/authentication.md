@@ -9,17 +9,17 @@ sidebar_position: 3
 
 # Authentication
 
-Muti Metroo supports multiple authentication mechanisms for different components.
+Control who can use your mesh. Require passwords for SOCKS5 proxy access, shell commands, and file transfers. Without valid credentials, requests are rejected.
 
-## Authentication Overview
+## Where Authentication Applies
 
-| Component | Mechanism | Purpose |
-|-----------|-----------|---------|
-| Peer connections | TLS/mTLS | Agent-to-agent authentication |
-| SOCKS5 proxy | Username/password | Client authentication |
-| Shell | bcrypt password | Command authorization |
-| File transfer | bcrypt password | Transfer authorization |
-| HTTP API | None (use firewall) | Monitoring endpoints |
+| Component | How to Authenticate | What It Protects |
+|-----------|--------------------|--------------------|
+| SOCKS5 proxy | Username + password | Who can tunnel traffic |
+| Remote shell | Password | Who can run commands |
+| File transfer | Password | Who can upload/download files |
+| Peer connections | TLS certificates | Which agents can join the mesh |
+| HTTP API | Firewall/reverse proxy | Monitoring access |
 
 ## SOCKS5 Authentication
 
