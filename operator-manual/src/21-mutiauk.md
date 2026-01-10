@@ -281,10 +281,12 @@ routes:
 ```
 
 ```bash
-# Any application now transparently uses the mesh
-ping 10.10.5.100
+# Any TCP/UDP application now transparently uses the mesh
 ssh user@10.10.5.100
+curl http://10.10.5.100
 ```
+
+**Note:** ICMP (ping) is not forwarded through the tunnel. Use TCP-based connectivity tests instead.
 
 ### Network Scanning with Nmap
 
@@ -351,8 +353,9 @@ ip addr show tun0
 # Verify route
 ip route | grep tun0
 
-# Test connectivity
-ping 10.10.5.100
+# Test connectivity (use TCP, not ping - ICMP is not forwarded)
+nc -zv 10.10.5.100 22
+curl http://10.10.5.100
 ```
 
 ## Limitations
