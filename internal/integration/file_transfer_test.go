@@ -186,7 +186,7 @@ func TestFileTransfer_BasicUploadDownload(t *testing.T) {
 	ftCfg := &config.FileTransferConfig{
 		Enabled:      true,
 		AllowedPaths: []string{tmpDir}, // Allow only temp directory
-		MaxFileSize:  0,                 // Unlimited
+		MaxFileSize:  0,                // Unlimited
 	}
 
 	chain := newFileTransferTestChain(t, ftCfg)

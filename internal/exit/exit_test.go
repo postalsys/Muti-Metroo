@@ -148,11 +148,11 @@ func TestParseAllowedRoutes_Invalid(t *testing.T) {
 // ============================================================================
 
 type mockStreamWriter struct {
-	mu         sync.Mutex
-	acks       []streamAck
-	errs       []streamErr
-	data       []streamData
-	closes     []uint64
+	mu     sync.Mutex
+	acks   []streamAck
+	errs   []streamErr
+	data   []streamData
+	closes []uint64
 }
 
 type streamAck struct {

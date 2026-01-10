@@ -213,8 +213,8 @@ func TestEncryptDecrypt_MultipleMessages(t *testing.T) {
 		"First message",
 		"Second message",
 		"Third message with more content",
-		"",                                    // Empty message
-		string(make([]byte, 16000)),           // Large message
+		"",                          // Empty message
+		string(make([]byte, 16000)), // Large message
 	}
 
 	for i, msg := range messages {

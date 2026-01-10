@@ -44,8 +44,8 @@ func TestParseUDPHeader_IPv6(t *testing.T) {
 	// RSV(2) + FRAG(1) + ATYP(1) + IPv6(16) + PORT(2) + DATA
 	data := []byte{
 		0x00, 0x00, // RSV
-		0x00,       // FRAG
-		0x04,       // ATYP (IPv6)
+		0x00, // FRAG
+		0x04, // ATYP (IPv6)
 		// IPv6 address (2001:4860:4860::8888)
 		0x20, 0x01, 0x48, 0x60, 0x48, 0x60, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x88,
@@ -74,9 +74,9 @@ func TestParseUDPHeader_Domain(t *testing.T) {
 	domain := "example.com"
 	data := []byte{
 		0x00, 0x00, // RSV
-		0x00,                // FRAG
-		0x03,                // ATYP (Domain)
-		byte(len(domain)),   // Domain length
+		0x00,              // FRAG
+		0x03,              // ATYP (Domain)
+		byte(len(domain)), // Domain length
 	}
 	data = append(data, []byte(domain)...)
 	data = append(data, 0x00, 0x50) // Port 80
@@ -323,8 +323,8 @@ func TestHandler_UDPAssociate_Disabled(t *testing.T) {
 		// VER(1) + CMD(1) + RSV(1) + ATYP(1) + DST.ADDR(4) + DST.PORT(2)
 		client.Write([]byte{
 			0x05, 0x03, 0x00, // VER, CMD=UDP_ASSOCIATE, RSV
-			0x01,             // ATYP (IPv4)
-			0, 0, 0, 0,       // 0.0.0.0
+			0x01,       // ATYP (IPv4)
+			0, 0, 0, 0, // 0.0.0.0
 			0x00, 0x00, // Port 0
 		})
 

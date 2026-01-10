@@ -58,11 +58,11 @@ func (s ConnectionTestState) String() string {
 
 // MockStream represents a simplified stream for chaos testing.
 type MockStream struct {
-	id       uint64
-	state    atomic.Int32
-	conn     *MockConnection
-	data     chan []byte
-	closed   chan struct{}
+	id     uint64
+	state  atomic.Int32
+	conn   *MockConnection
+	data   chan []byte
+	closed chan struct{}
 }
 
 // StreamTestState represents stream states for testing.
@@ -693,4 +693,3 @@ func TestChaos_PanicRecovery(t *testing.T) {
 		t.Error("Should have panicked and recovered")
 	}
 }
-

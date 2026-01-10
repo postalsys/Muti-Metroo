@@ -17,26 +17,26 @@ import (
 
 // StreamMetrics contains metrics from stream load testing.
 type StreamMetrics struct {
-	TotalStreams       int64
-	SuccessfulStreams  int64
-	FailedStreams      int64
-	TotalBytesWritten  int64
-	TotalBytesRead     int64
-	AvgLatencyMs       float64
-	MaxLatencyMs       float64
-	MinLatencyMs       float64
-	Duration           time.Duration
-	StreamsPerSecond   float64
-	ThroughputMBps     float64
+	TotalStreams      int64
+	SuccessfulStreams int64
+	FailedStreams     int64
+	TotalBytesWritten int64
+	TotalBytesRead    int64
+	AvgLatencyMs      float64
+	MaxLatencyMs      float64
+	MinLatencyMs      float64
+	Duration          time.Duration
+	StreamsPerSecond  float64
+	ThroughputMBps    float64
 }
 
 // RouteMetrics contains metrics from route table load testing.
 type RouteMetrics struct {
-	TotalRoutes       int
-	InsertionTimeMs   float64
-	LookupTimeNs      float64
-	MemoryUsageBytes  int64
-	LookupsPerSecond  float64
+	TotalRoutes      int
+	InsertionTimeMs  float64
+	LookupTimeNs     float64
+	MemoryUsageBytes int64
+	LookupsPerSecond float64
 }
 
 // ChurnMetrics contains metrics from connection churn testing.
@@ -335,10 +335,10 @@ func NewThroughputTester(duration time.Duration, bufferSize int) *ThroughputTest
 
 // ThroughputMetrics contains throughput test results.
 type ThroughputMetrics struct {
-	TotalBytes      int64
-	Duration        time.Duration
-	ThroughputMBps  float64
-	ThroughputGbps  float64
+	TotalBytes     int64
+	Duration       time.Duration
+	ThroughputMBps float64
+	ThroughputGbps float64
 }
 
 // Run executes the throughput test.

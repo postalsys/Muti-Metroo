@@ -66,7 +66,7 @@ type Connection struct {
 	writeMu       sync.Mutex
 
 	// Streams
-	streamAlloc *transport.StreamIDAllocator
+	streamAlloc  *transport.StreamIDAllocator
 	nextStreamID atomic.Uint64
 
 	// Activity tracking
@@ -87,12 +87,12 @@ type Connection struct {
 
 // ConnectionConfig contains configuration for a connection.
 type ConnectionConfig struct {
-	LocalID         identity.AgentID
-	ExpectedPeerID  identity.AgentID // Optional: verify peer ID during handshake
-	Capabilities    []string
+	LocalID          identity.AgentID
+	ExpectedPeerID   identity.AgentID // Optional: verify peer ID during handshake
+	Capabilities     []string
 	HandshakeTimeout time.Duration
-	OnFrame         func(*Connection, *protocol.Frame)
-	OnDisconnect    func(*Connection, error)
+	OnFrame          func(*Connection, *protocol.Frame)
+	OnDisconnect     func(*Connection, error)
 }
 
 // DefaultConnectionConfig returns a config with defaults.

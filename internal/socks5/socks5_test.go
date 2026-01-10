@@ -137,8 +137,8 @@ func TestUserPassAuthenticator_Authenticate_Success(t *testing.T) {
 
 	// Build auth request: VER=0x01, ULEN, USERNAME, PLEN, PASSWORD
 	request := []byte{
-		0x01,       // version
-		0x08,       // username length
+		0x01, // version
+		0x08, // username length
 		't', 'e', 's', 't', 'u', 's', 'e', 'r',
 		0x08, // password length
 		't', 'e', 's', 't', 'p', 'a', 's', 's',

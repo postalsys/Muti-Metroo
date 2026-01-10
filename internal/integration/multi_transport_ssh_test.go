@@ -472,17 +472,17 @@ func TestMultiTransport_SSHToKreata(t *testing.T) {
 	// Verify routing before SSH test
 	routes := chain.Agents[0].GetRoutes()
 	var kreataRoute *struct {
-		origin   string
-		nextHop  string
-		metric   uint16
+		origin  string
+		nextHop string
+		metric  uint16
 	}
 
 	for _, r := range routes {
 		if r.Network.String() == "178.33.49.65/32" {
 			kreataRoute = &struct {
-				origin   string
-				nextHop  string
-				metric   uint16
+				origin  string
+				nextHop string
+				metric  uint16
 			}{
 				origin:  r.OriginAgent.ShortString(),
 				nextHop: r.NextHop.ShortString(),
@@ -526,7 +526,7 @@ func TestMultiTransport_SSHToKreata(t *testing.T) {
 		"-o", "ServerAliveInterval=30",
 		"-o", "ServerAliveCountMax=10",
 		"andris@kreata.ee",
-		"vmstat 1",  // Print vmstat every second - generates continuous output
+		"vmstat 1", // Print vmstat every second - generates continuous output
 	)
 
 	// Capture output

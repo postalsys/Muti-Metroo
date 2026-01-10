@@ -35,9 +35,9 @@ type LocalRoute struct {
 
 // NodeInfoEntry stores node info with metadata.
 type NodeInfoEntry struct {
-	Encrypted  bool                // True if EncInfo contains encrypted data
+	Encrypted  bool                    // True if EncInfo contains encrypted data
 	EncInfo    *protocol.EncryptedData // Raw encrypted/plaintext data for forwarding
-	Info       *protocol.NodeInfo  // Decrypted NodeInfo (nil if encrypted and can't decrypt)
+	Info       *protocol.NodeInfo      // Decrypted NodeInfo (nil if encrypted and can't decrypt)
 	Sequence   uint64
 	LastUpdate time.Time
 }
@@ -48,10 +48,10 @@ type Manager struct {
 
 	localID      identity.AgentID
 	table        *Table
-	domainTable  *DomainTable               // Domain-based routing table
+	domainTable  *DomainTable // Domain-based routing table
 	localRoutes  map[string]*LocalRoute
-	localDomains map[string]*LocalDomainRoute // Local domain routes
-	displayNames map[identity.AgentID]string // Agent ID -> Display Name mapping
+	localDomains map[string]*LocalDomainRoute        // Local domain routes
+	displayNames map[identity.AgentID]string         // Agent ID -> Display Name mapping
 	nodeInfos    map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
 	sequence     uint64
 	sealedBox    *crypto.SealedBox // For decrypting NodeInfo (nil if not configured)

@@ -199,11 +199,11 @@ type Target interface {
 
 // Event represents a chaos event.
 type Event struct {
-	Time      time.Time
-	TargetID  string
-	Action    string
-	Success   bool
-	Error     error
+	Time     time.Time
+	TargetID string
+	Action   string
+	Success  bool
+	Error    error
 }
 
 // NewChaosMonkey creates a new chaos monkey.

@@ -217,8 +217,8 @@ func TestAuthBypass_SizeLimit(t *testing.T) {
 		{"at limit", 1024, false, false},
 		{"over limit", 1025, false, true},
 		{"way over limit", 1024 * 1024, false, true},
-		{"negative size", -1, false, false},  // -1 means unknown
-		{"zero size", 0, false, false},       // Empty file
+		{"negative size", -1, false, false},              // -1 means unknown
+		{"zero size", 0, false, false},                   // Empty file
 		{"directory bypasses", 1024 * 1024, true, false}, // Dirs not checked
 	}
 
@@ -242,8 +242,8 @@ func TestAuthBypass_SizeLimit(t *testing.T) {
 // TestAuthBypass_DisabledTransfer tests that disabled transfer rejects all.
 func TestAuthBypass_DisabledTransfer(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
-		Enabled:      false,       // Disabled!
-		AllowedPaths: []string{},  // Empty list would also block, but Enabled=false is checked first
+		Enabled:      false,      // Disabled!
+		AllowedPaths: []string{}, // Empty list would also block, but Enabled=false is checked first
 	})
 
 	err := h.ValidateUploadMetadata(&TransferMetadata{
@@ -327,9 +327,9 @@ func TestAuthBypass_SpecialFiles(t *testing.T) {
 		wantErr bool
 	}{
 		// Device files (Unix)
-		{"dev null", "/dev/null", false},      // Should be allowed (valid absolute path)
-		{"dev random", "/dev/random", false},  // Should be allowed
-		{"dev zero", "/dev/zero", false},      // Should be allowed
+		{"dev null", "/dev/null", false},     // Should be allowed (valid absolute path)
+		{"dev random", "/dev/random", false}, // Should be allowed
+		{"dev zero", "/dev/zero", false},     // Should be allowed
 
 		// Proc filesystem
 		{"proc self", "/proc/self/environ", false}, // Path is valid, may fail on access
@@ -431,7 +431,7 @@ func TestAuthBypass_UnicodePathTraversal(t *testing.T) {
 		// - Fullwidth dots (U+FF0E) are different codepoints, not directory traversal
 		// - The filesystem treats them as literal characters in directory names
 		// - NFC normalization doesn't convert fullwidth to ASCII
-		{"fullwidth dot dot", "/tmp/uploads/\uFF0E\uFF0E/secret", false}, // Not traversal, just odd dirname
+		{"fullwidth dot dot", "/tmp/uploads/\uFF0E\uFF0E/secret", false},      // Not traversal, just odd dirname
 		{"overlong UTF-8 dot", "/tmp/uploads/\xc0\xae\xc0\xae/secret", false}, // Invalid UTF-8, but not traversal
 
 		// Valid Unicode
@@ -503,7 +503,7 @@ func TestAuthBypass_WriteToReadOnly(t *testing.T) {
 	// Create a read-only directory
 	tmpDir := t.TempDir()
 	roDir := filepath.Join(tmpDir, "readonly")
-	os.MkdirAll(roDir, 0555) // Read + execute only
+	os.MkdirAll(roDir, 0555)    // Read + execute only
 	defer os.Chmod(roDir, 0755) // Restore for cleanup
 
 	destPath := filepath.Join(roDir, "file.txt")
@@ -594,10 +594,10 @@ func TestAllowedPaths_GlobPatterns(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{
 		Enabled: true,
 		AllowedPaths: []string{
-			"/tmp/**",           // Recursive glob
-			"/home/*/uploads",   // Wildcard in path
-			"/var/log/*.log",    // Single level glob with extension
-			"/data",             // Simple prefix
+			"/tmp/**",         // Recursive glob
+			"/home/*/uploads", // Wildcard in path
+			"/var/log/*.log",  // Single level glob with extension
+			"/data",           // Simple prefix
 		},
 	})
 

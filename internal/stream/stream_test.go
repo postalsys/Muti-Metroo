@@ -657,8 +657,8 @@ func TestStream_EncryptDecryptWithSessionKey(t *testing.T) {
 	secretIngress, _ := crypto.ComputeECDH(privIngress, pubExit)
 	secretExit, _ := crypto.ComputeECDH(privExit, pubIngress)
 
-	skIngress := crypto.DeriveSessionKey(secretIngress, 1, pubIngress, pubExit, true)  // initiator
-	skExit := crypto.DeriveSessionKey(secretExit, 1, pubIngress, pubExit, false)       // responder
+	skIngress := crypto.DeriveSessionKey(secretIngress, 1, pubIngress, pubExit, true) // initiator
+	skExit := crypto.DeriveSessionKey(secretExit, 1, pubIngress, pubExit, false)      // responder
 
 	streamIngress.SetSessionKey(skIngress)
 	streamExit.SetSessionKey(skExit)

@@ -46,10 +46,10 @@ type MeshAgent struct {
 
 // RelayStream tracks a stream being relayed.
 type RelayStream struct {
-	StreamID     uint64
-	UpstreamPeer identity.AgentID
+	StreamID       uint64
+	UpstreamPeer   identity.AgentID
 	DownstreamConn net.Conn // For exit node
-	DataChan     chan []byte
+	DataChan       chan []byte
 }
 
 // NewMeshAgent creates a new mesh agent.
@@ -166,7 +166,7 @@ func (a *MeshAgent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Fr
 func (a *MeshAgent) handleExitStreamOpen(upstreamPeer identity.AgentID, streamID uint64, open *protocol.StreamOpen) {
 	// Connect to destination
 	destAddr := a.addressToString(open.AddressType, open.Address)
-	dest := fmt.Sprintf("%s:%d", destAddr, open.Port)
+	dest := net.JoinHostPort(destAddr, fmt.Sprintf("%d", open.Port))
 
 	conn, err := net.DialTimeout("tcp", dest, 10*time.Second)
 	if err != nil {

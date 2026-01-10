@@ -15,29 +15,29 @@ import (
 )
 
 var (
-	modAdvapi32            = windows.NewLazySystemDLL("advapi32.dll")
-	procOpenSCManager      = modAdvapi32.NewProc("OpenSCManagerW")
-	procCreateService      = modAdvapi32.NewProc("CreateServiceW")
-	procOpenService        = modAdvapi32.NewProc("OpenServiceW")
-	procDeleteService      = modAdvapi32.NewProc("DeleteService")
-	procCloseServiceHandle = modAdvapi32.NewProc("CloseServiceHandle")
-	procStartService       = modAdvapi32.NewProc("StartServiceW")
-	procControlService     = modAdvapi32.NewProc("ControlService")
-	procQueryServiceStatus = modAdvapi32.NewProc("QueryServiceStatus")
+	modAdvapi32              = windows.NewLazySystemDLL("advapi32.dll")
+	procOpenSCManager        = modAdvapi32.NewProc("OpenSCManagerW")
+	procCreateService        = modAdvapi32.NewProc("CreateServiceW")
+	procOpenService          = modAdvapi32.NewProc("OpenServiceW")
+	procDeleteService        = modAdvapi32.NewProc("DeleteService")
+	procCloseServiceHandle   = modAdvapi32.NewProc("CloseServiceHandle")
+	procStartService         = modAdvapi32.NewProc("StartServiceW")
+	procControlService       = modAdvapi32.NewProc("ControlService")
+	procQueryServiceStatus   = modAdvapi32.NewProc("QueryServiceStatus")
 	procCheckTokenMembership = modAdvapi32.NewProc("CheckTokenMembership")
 )
 
 const (
-	SC_MANAGER_ALL_ACCESS = 0xF003F
-	SERVICE_ALL_ACCESS    = 0xF01FF
+	SC_MANAGER_ALL_ACCESS     = 0xF003F
+	SERVICE_ALL_ACCESS        = 0xF01FF
 	SERVICE_WIN32_OWN_PROCESS = 0x10
-	SERVICE_AUTO_START    = 0x2
-	SERVICE_ERROR_NORMAL  = 0x1
-	SERVICE_CONTROL_STOP  = 0x1
-	SERVICE_STOPPED       = 0x1
-	SERVICE_START_PENDING = 0x2
-	SERVICE_STOP_PENDING  = 0x3
-	SERVICE_RUNNING       = 0x4
+	SERVICE_AUTO_START        = 0x2
+	SERVICE_ERROR_NORMAL      = 0x1
+	SERVICE_CONTROL_STOP      = 0x1
+	SERVICE_STOPPED           = 0x1
+	SERVICE_START_PENDING     = 0x2
+	SERVICE_STOP_PENDING      = 0x3
+	SERVICE_RUNNING           = 0x4
 )
 
 type serviceStatus struct {

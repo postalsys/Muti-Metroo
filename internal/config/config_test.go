@@ -677,10 +677,10 @@ func TestTLSConfig_InlinePEM(t *testing.T) {
 
 func TestTLSConfig_HasCertAndKey(t *testing.T) {
 	tests := []struct {
-		name     string
-		tls      TLSConfig
-		hasCert  bool
-		hasKey   bool
+		name    string
+		tls     TLSConfig
+		hasCert bool
+		hasKey  bool
 	}{
 		{
 			name:    "empty",

@@ -364,13 +364,13 @@ Example output:
 			defer resp.Body.Close()
 
 			var status struct {
-				Status            string `json:"status"`
-				Running           bool   `json:"running"`
-				PeerCount         int    `json:"peer_count"`
-				StreamCount       int    `json:"stream_count"`
-				RouteCount        int    `json:"route_count"`
-				SOCKS5Running     bool   `json:"socks5_running"`
-				ExitHandlerRunning bool  `json:"exit_handler_running"`
+				Status             string `json:"status"`
+				Running            bool   `json:"running"`
+				PeerCount          int    `json:"peer_count"`
+				StreamCount        int    `json:"stream_count"`
+				RouteCount         int    `json:"route_count"`
+				SOCKS5Running      bool   `json:"socks5_running"`
+				ExitHandlerRunning bool   `json:"exit_handler_running"`
 			}
 			if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
 				return fmt.Errorf("failed to decode response: %w", err)

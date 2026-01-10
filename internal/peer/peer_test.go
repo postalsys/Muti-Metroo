@@ -514,7 +514,7 @@ func TestManager_JitteredKeepaliveInterval_MinimumEnforced(t *testing.T) {
 
 	cfg := DefaultManagerConfig(localID, tr)
 	cfg.KeepaliveInterval = 500 * time.Millisecond // Very short base interval
-	cfg.KeepaliveJitter = 0.9                       // 90% jitter could go below 1s
+	cfg.KeepaliveJitter = 0.9                      // 90% jitter could go below 1s
 
 	m := NewManager(cfg)
 	defer m.Close()

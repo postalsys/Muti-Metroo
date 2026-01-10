@@ -64,11 +64,11 @@ type Stream struct {
 	remoteFinCh    chan struct{} // Signals remote half-close to readers
 
 	// For request/response tracking
-	DestAddr    string
-	DestPort    uint16
-	CreatedAt   time.Time
-	BytesSent   atomic.Uint64
-	BytesRecv   atomic.Uint64
+	DestAddr  string
+	DestPort  uint16
+	CreatedAt time.Time
+	BytesSent atomic.Uint64
+	BytesRecv atomic.Uint64
 
 	// Callbacks
 	onData  func(*Stream, []byte)

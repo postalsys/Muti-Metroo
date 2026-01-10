@@ -23,12 +23,12 @@ import (
 
 // TestAgent represents a test agent instance.
 type TestAgent struct {
-	ID       identity.AgentID
-	Name     string
-	DataDir  string
-	PeerMgr  *peer.Manager
-	RouteMgr *routing.Manager
-	Listener transport.Listener
+	ID        identity.AgentID
+	Name      string
+	DataDir   string
+	PeerMgr   *peer.Manager
+	RouteMgr  *routing.Manager
+	Listener  transport.Listener
 	Transport *transport.QUICTransport
 
 	// Connections to peers

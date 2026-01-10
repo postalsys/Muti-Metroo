@@ -9,9 +9,9 @@ import (
 
 func TestPartialPaths(t *testing.T) {
 	tests := []struct {
-		input        string
-		partialPath  string
-		infoPath     string
+		input       string
+		partialPath string
+		infoPath    string
 	}{
 		{"/tmp/file.iso", "/tmp/file.iso.partial", "/tmp/file.iso.partial.json"},
 		{"/home/user/data.bin", "/home/user/data.bin.partial", "/home/user/data.bin.partial.json"},

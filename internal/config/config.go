@@ -304,15 +304,15 @@ type ProxyAuth struct {
 
 // SOCKS5Config defines SOCKS5 server settings.
 type SOCKS5Config struct {
-	Enabled        bool            `yaml:"enabled"`
-	Address        string          `yaml:"address"`
+	Enabled        bool             `yaml:"enabled"`
+	Address        string           `yaml:"address"`
 	Auth           SOCKS5AuthConfig `yaml:"auth"`
-	MaxConnections int             `yaml:"max_connections"`
+	MaxConnections int              `yaml:"max_connections"`
 }
 
 // SOCKS5AuthConfig defines SOCKS5 authentication settings.
 type SOCKS5AuthConfig struct {
-	Enabled bool              `yaml:"enabled"`
+	Enabled bool               `yaml:"enabled"`
 	Users   []SOCKS5UserConfig `yaml:"users"`
 }
 
@@ -342,18 +342,18 @@ type DNSConfig struct {
 
 // RoutingConfig defines routing parameters.
 type RoutingConfig struct {
-	AdvertiseInterval  time.Duration `yaml:"advertise_interval"`
-	NodeInfoInterval   time.Duration `yaml:"node_info_interval"` // Defaults to AdvertiseInterval if not set
-	RouteTTL           time.Duration `yaml:"route_ttl"`
-	MaxHops            int           `yaml:"max_hops"`
+	AdvertiseInterval time.Duration `yaml:"advertise_interval"`
+	NodeInfoInterval  time.Duration `yaml:"node_info_interval"` // Defaults to AdvertiseInterval if not set
+	RouteTTL          time.Duration `yaml:"route_ttl"`
+	MaxHops           int           `yaml:"max_hops"`
 }
 
 // ConnectionsConfig defines connection tuning parameters.
 type ConnectionsConfig struct {
-	IdleThreshold    time.Duration   `yaml:"idle_threshold"`
-	Timeout          time.Duration   `yaml:"timeout"`
-	KeepaliveJitter  float64         `yaml:"keepalive_jitter"` // Jitter fraction for keepalive timing (0.0-1.0)
-	Reconnect        ReconnectConfig `yaml:"reconnect"`
+	IdleThreshold   time.Duration   `yaml:"idle_threshold"`
+	Timeout         time.Duration   `yaml:"timeout"`
+	KeepaliveJitter float64         `yaml:"keepalive_jitter"` // Jitter fraction for keepalive timing (0.0-1.0)
+	Reconnect       ReconnectConfig `yaml:"reconnect"`
 }
 
 // ReconnectConfig defines reconnection behavior.

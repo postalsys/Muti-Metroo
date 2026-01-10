@@ -86,18 +86,18 @@ func TestBuildConfig(t *testing.T) {
 	w := New()
 
 	tests := []struct {
-		name           string
-		dataDir        string
-		transport      string
-		listenAddr     string
-		listenPath     string
-		tlsConfig      config.GlobalTLSConfig
-		peers          []config.PeerConfig
+		name          string
+		dataDir       string
+		transport     string
+		listenAddr    string
+		listenPath    string
+		tlsConfig     config.GlobalTLSConfig
+		peers         []config.PeerConfig
 		socks5Config  config.SOCKS5Config
 		exitConfig    config.ExitConfig
 		healthEnabled bool
 		logLevel      string
-		validate       func(*testing.T, *config.Config)
+		validate      func(*testing.T, *config.Config)
 	}{
 		{
 			name:       "basic QUIC config",
@@ -239,13 +239,13 @@ func TestBuildConfig(t *testing.T) {
 			},
 		},
 		{
-			name:       "with exit enabled",
-			dataDir:    "/data",
-			transport:  "quic",
-			listenAddr: "0.0.0.0:4433",
-			listenPath: "",
-			tlsConfig:  config.GlobalTLSConfig{Cert: "c", Key: "k"},
-			peers:      nil,
+			name:         "with exit enabled",
+			dataDir:      "/data",
+			transport:    "quic",
+			listenAddr:   "0.0.0.0:4433",
+			listenPath:   "",
+			tlsConfig:    config.GlobalTLSConfig{Cert: "c", Key: "k"},
+			peers:        nil,
 			socks5Config: config.SOCKS5Config{Enabled: false},
 			exitConfig: config.ExitConfig{
 				Enabled: true,
@@ -492,9 +492,9 @@ func TestTestPeerConnectivity(t *testing.T) {
 	w := New()
 
 	tests := []struct {
-		name        string
-		peer        config.PeerConfig
-		expectError bool
+		name          string
+		peer          config.PeerConfig
+		expectError   bool
 		errorContains string
 	}{
 		{
@@ -504,7 +504,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 				Address:   "127.0.0.1:59999", // Non-existent port
 				TLS:       config.TLSConfig{InsecureSkipVerify: true},
 			},
-			expectError: true,
+			expectError:   true,
 			errorContains: "", // Can be timeout or refused
 		},
 		{
@@ -514,7 +514,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 				Address:   "invalid-host-that-does-not-exist.local:4433",
 				TLS:       config.TLSConfig{InsecureSkipVerify: true},
 			},
-			expectError: true,
+			expectError:   true,
 			errorContains: "", // DNS or connection error
 		},
 		{
@@ -525,7 +525,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 				Path:      "", // Should default to /mesh
 				TLS:       config.TLSConfig{InsecureSkipVerify: true},
 			},
-			expectError: true,
+			expectError:   true,
 			errorContains: "", // Connection error expected
 		},
 		{
@@ -536,7 +536,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 				Path:      "", // Should default to /mesh
 				TLS:       config.TLSConfig{InsecureSkipVerify: true},
 			},
-			expectError: true,
+			expectError:   true,
 			errorContains: "", // Connection error expected
 		},
 	}

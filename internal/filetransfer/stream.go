@@ -16,17 +16,17 @@ import (
 
 // TransferMetadata is sent as the first data frame in a file transfer stream.
 type TransferMetadata struct {
-	Path        string `json:"path"`                   // Absolute destination path
-	Mode        uint32 `json:"mode"`                   // File permissions (e.g., 0644)
-	Size        int64  `json:"size"`                   // File size in bytes (-1 for directories)
-	IsDirectory bool   `json:"is_directory"`           // True if transferring a directory
-	Password    string `json:"password,omitempty"`     // Authentication password
-	Compress    bool   `json:"compress"`               // Whether data is gzip compressed
-	Checksum    string `json:"checksum,omitempty"`     // Optional SHA256 checksum (hex)
-	RateLimit   int64  `json:"rate_limit,omitempty"`   // Max bytes per second (0 = unlimited)
-	Offset      int64  `json:"offset,omitempty"`       // Resume from this byte offset (uncompressed)
-	OriginalSize int64 `json:"original_size,omitempty"` // Expected file size for resume validation
-	Error       string `json:"error,omitempty"`        // Error message (set when transfer fails)
+	Path         string `json:"path"`                    // Absolute destination path
+	Mode         uint32 `json:"mode"`                    // File permissions (e.g., 0644)
+	Size         int64  `json:"size"`                    // File size in bytes (-1 for directories)
+	IsDirectory  bool   `json:"is_directory"`            // True if transferring a directory
+	Password     string `json:"password,omitempty"`      // Authentication password
+	Compress     bool   `json:"compress"`                // Whether data is gzip compressed
+	Checksum     string `json:"checksum,omitempty"`      // Optional SHA256 checksum (hex)
+	RateLimit    int64  `json:"rate_limit,omitempty"`    // Max bytes per second (0 = unlimited)
+	Offset       int64  `json:"offset,omitempty"`        // Resume from this byte offset (uncompressed)
+	OriginalSize int64  `json:"original_size,omitempty"` // Expected file size for resume validation
+	Error        string `json:"error,omitempty"`         // Error message (set when transfer fails)
 }
 
 // TransferResult is sent back after a transfer completes (in download response metadata).
@@ -481,7 +481,7 @@ func (cw *CountingWriter) Write(p []byte) (int, error) {
 
 // CountingReader wraps a reader and counts bytes read.
 type CountingReader struct {
-	R        io.Reader
+	R         io.Reader
 	BytesRead int64
 }
 

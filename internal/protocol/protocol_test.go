@@ -1425,8 +1425,8 @@ func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
 
 func TestEncodePath_DecodePath(t *testing.T) {
 	tests := []struct {
-		name     string
-		pathLen  int
+		name    string
+		pathLen int
 	}{
 		{"empty", 0},
 		{"one", 1},

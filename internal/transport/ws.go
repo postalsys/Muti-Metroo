@@ -293,7 +293,7 @@ func (c *WebSocketPeerConn) OpenStream(ctx context.Context) (Stream, error) {
 		c.stream = &WebSocketStream{
 			conn: c.conn,
 			ctx:  context.Background(), // Use background context for long-lived stream
-			id:   1,                     // Single stream
+			id:   1,                    // Single stream
 		}
 	})
 	return c.stream, nil
@@ -306,7 +306,7 @@ func (c *WebSocketPeerConn) AcceptStream(ctx context.Context) (Stream, error) {
 		c.stream = &WebSocketStream{
 			conn: c.conn,
 			ctx:  context.Background(), // Use background context for long-lived stream
-			id:   1,                     // Single stream
+			id:   1,                    // Single stream
 		}
 	})
 	return c.stream, nil
