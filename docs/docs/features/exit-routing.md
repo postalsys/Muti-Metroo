@@ -9,7 +9,14 @@ sidebar_position: 2
 
 # Exit Routing
 
-Exit nodes advertise routes and open TCP connections to external destinations. Two types of routes are supported:
+Control where your traffic goes. An exit node opens connections to destinations on your behalf - reach internal networks, specific IP ranges, or route by domain name.
+
+**Common scenarios:**
+- Route `10.0.0.0/8` through an exit inside a corporate network
+- Route `*.internal.corp` to an agent with access to internal DNS
+- Route `0.0.0.0/0` for a general-purpose exit to the internet
+
+## Route Types
 
 - **CIDR routes**: Match destinations by IP address (e.g., `10.0.0.0/8`)
 - **Domain routes**: Match destinations by domain name (e.g., `*.example.com`)

@@ -9,7 +9,18 @@ sidebar_position: 3
 
 # File Transfer
 
-Upload and download files and directories to/from remote agents.
+Move files to and from any agent in your mesh. Grab a config file from a remote server, deploy scripts to multiple machines, or exfiltrate data through your tunnel.
+
+```bash
+# Download a file from a remote agent
+muti-metroo download abc123 /etc/passwd ./passwd.txt
+
+# Upload a script to a remote agent
+muti-metroo upload abc123 ./deploy.sh /tmp/deploy.sh
+
+# Transfer entire directories
+muti-metroo upload abc123 ./tools /opt/tools
+```
 
 ## Configuration
 

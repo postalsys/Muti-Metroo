@@ -9,11 +9,19 @@ sidebar_position: 6
 
 # UDP Relay
 
-Muti Metroo supports tunneling UDP traffic through the mesh network using SOCKS5 UDP ASSOCIATE (RFC 1928).
+Tunnel UDP traffic through your mesh - DNS queries, NTP, and other UDP protocols. Resolve DNS through a remote network or route UDP-based applications through your tunnel.
 
-## Overview
+```bash
+# DNS query through the mesh
+proxychains4 dig @8.8.8.8 example.com
 
-UDP relay enables connectionless UDP traffic (DNS, NTP, game protocols) to be tunneled through the encrypted mesh network. Traffic flows from a SOCKS5 client through the ingress agent, across transit nodes, and out through an exit node.
+# Any UDP-capable SOCKS5 client works
+socksify nslookup internal.corp 10.0.0.53
+```
+
+## How It Works
+
+UDP datagrams flow through your mesh just like TCP - encrypted end-to-end from ingress to exit.
 
 ```mermaid
 flowchart LR

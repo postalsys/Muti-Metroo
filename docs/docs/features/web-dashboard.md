@@ -9,27 +9,19 @@ sidebar_position: 5
 
 # Web Dashboard
 
-Embedded web interface with metro map visualization of mesh topology.
-
-## Access
+See your entire mesh at a glance. The built-in dashboard shows all agents, their connections, and active routes - updated in real time as your network changes.
 
 ```bash
-# Enable HTTP server in config
-http:
-  enabled: true
-  address: ":8080"
-
-# Access dashboard
+# Open the dashboard
 open http://localhost:8080/ui/
 ```
 
-## Features
+## What You Can See
 
-### Metro Map Visualization
-
-- **Visual topology**: See all agents and connections as a metro map
-- **Real-time updates**: Live status of connections and routes
-- **Interactive**: Click nodes for details
+- **All agents** in your mesh and how they connect
+- **Active routes** and which exit handles each destination
+- **Connection status** - know instantly when a link goes down
+- **Agent details** - click any node to see system info, peers, and routes
 
 <div style={{textAlign: 'center', margin: '2rem 0'}}>
   <img src="/img/dashboard-screenshot.png" alt="Muti Metroo Dashboard" style={{maxWidth: '100%', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'}} />

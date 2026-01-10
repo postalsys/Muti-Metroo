@@ -9,7 +9,13 @@ sidebar_position: 1
 
 # SOCKS5 Proxy
 
-Muti Metroo provides SOCKS5 proxy ingress for client connections, supporting both TCP (CONNECT) and UDP (UDP ASSOCIATE) commands per RFC 1928.
+Route any TCP application through your mesh - curl, SSH, browsers, database clients, or any tool that supports SOCKS5. Point your application at the proxy and traffic flows through the mesh to its destination.
+
+```bash
+# These just work once your mesh is running
+curl -x socks5://localhost:1080 https://internal.example.com
+ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
+```
 
 ## Configuration
 

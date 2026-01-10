@@ -9,10 +9,22 @@ sidebar_position: 5
 
 # Remote Shell
 
-Execute shell commands on remote agents with support for both normal and interactive modes:
+Run commands on any agent in your mesh. Check system status, edit configuration files, or get a full interactive shell - all through your encrypted tunnel.
 
-- **Normal mode**: Standard command execution (default)
-- **Interactive TTY**: Full terminal support for programs like vim, bash, htop
+```bash
+# Run a quick command
+muti-metroo shell abc123 whoami
+
+# Get an interactive bash session
+muti-metroo shell --tty abc123 bash
+
+# Edit a file with vim
+muti-metroo shell --tty abc123 vim /etc/config.yaml
+```
+
+Two modes are available:
+- **Normal mode**: Run commands and see output (default)
+- **Interactive TTY**: Full terminal for vim, bash, htop, and other interactive programs
 
 ## Configuration
 
