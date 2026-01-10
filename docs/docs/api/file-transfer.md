@@ -8,7 +8,19 @@ title: File Transfer Endpoints
 
 # File Transfer Endpoints
 
-File upload and download APIs.
+Move files to and from any agent in your mesh. Upload configs, download logs, or transfer entire directories.
+
+**Quick examples:**
+```bash
+# Upload a file
+curl -X POST http://localhost:8080/agents/abc123/file/upload \
+  -F "file=@./config.yaml" \
+  -F "path=/tmp/config.yaml"
+
+# Download a file
+curl -X POST http://localhost:8080/agents/abc123/file/download \
+  -d '{"path":"/var/log/app.log"}' -o app.log
+```
 
 ## POST /agents/\{agent-id\}/file/upload
 

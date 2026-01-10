@@ -8,7 +8,18 @@ title: HTTP API Overview
 
 # HTTP API Reference
 
-Complete HTTP API reference for Muti Metroo.
+Query agent status, trigger actions, and build integrations. Every agent exposes an HTTP API for monitoring and management.
+
+**Quick reference:**
+
+| I want to... | Endpoint |
+|--------------|----------|
+| Check if an agent is running | [GET /healthz](/api/health) |
+| See all agents in the mesh | [GET /agents](/api/agents) |
+| Push route updates immediately | [POST /routes/advertise](/api/routes) |
+| Run commands on remote agents | [WebSocket /agents/\{id\}/shell](/api/shell) |
+| Transfer files to/from agents | [POST /agents/\{id\}/file/*](/api/file-transfer) |
+| Get topology for visualization | [GET /api/topology](/api/dashboard) |
 
 ## Base URL
 

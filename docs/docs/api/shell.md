@@ -4,7 +4,18 @@ title: Shell WebSocket API
 
 # Shell WebSocket API
 
-The shell API uses WebSocket for bidirectional streaming communication.
+Execute commands on remote agents through the mesh. The CLI handles this automatically - this reference is for building custom integrations.
+
+**Using the CLI (recommended):**
+```bash
+muti-metroo shell abc123 whoami
+muti-metroo shell --tty abc123 bash
+```
+
+**WebSocket endpoint for custom clients:**
+```
+ws://localhost:8080/agents/{agent-id}/shell?mode=tty
+```
 
 ## WebSocket Endpoint
 

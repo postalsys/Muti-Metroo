@@ -8,7 +8,13 @@ title: Health Endpoints
 
 # Health Endpoints
 
-Health check and readiness endpoints.
+Check if an agent is running and ready to handle traffic. Use these for load balancer health checks, Kubernetes probes, or monitoring scripts.
+
+**Quick check:**
+```bash
+curl http://localhost:8080/healthz
+# Returns: peer count, stream count, route count, and status
+```
 
 ## GET /health
 

@@ -8,7 +8,12 @@ title: Dashboard Endpoints
 
 # Dashboard Endpoints
 
-Web dashboard and topology data APIs.
+See your mesh visually. Open the web dashboard in a browser or fetch topology data for custom visualizations.
+
+**Open the dashboard:**
+```
+http://localhost:8080/ui/
+```
 
 ## GET /ui/
 

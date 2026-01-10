@@ -9,7 +9,21 @@ sidebar_position: 9
 
 # Debugging Endpoints
 
-Muti Metroo exposes pprof endpoints for profiling and debugging.
+Find memory leaks, CPU hotspots, and goroutine issues. These Go pprof endpoints help diagnose performance problems in running agents.
+
+**Quick diagnostics:**
+```bash
+# CPU profile (30 seconds)
+curl http://localhost:8080/debug/pprof/profile?seconds=30 > cpu.prof
+go tool pprof cpu.prof
+
+# Memory usage
+curl http://localhost:8080/debug/pprof/heap > heap.prof
+go tool pprof heap.prof
+
+# Goroutine count
+curl http://localhost:8080/debug/pprof/goroutine?debug=1 | head -1
+```
 
 ## Endpoints
 

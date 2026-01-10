@@ -8,7 +8,19 @@ title: Agent Endpoints
 
 # Agent Endpoints
 
-Remote agent status and management.
+Query any agent in your mesh from any other agent. Get status, routes, and peer lists without direct access to the remote machine.
+
+**Quick examples:**
+```bash
+# List all known agents
+curl http://localhost:8080/agents
+
+# Get specific agent's status
+curl http://localhost:8080/agents/abc123def456/
+
+# See what routes an agent advertises
+curl http://localhost:8080/agents/abc123def456/routes
+```
 
 ## GET /agents
 

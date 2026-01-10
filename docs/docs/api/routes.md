@@ -8,7 +8,12 @@ title: Route Endpoints
 
 # Route Endpoints
 
-Route management and advertising.
+Force route updates to propagate immediately instead of waiting for the next scheduled interval.
+
+**Trigger now:**
+```bash
+curl -X POST http://localhost:8080/routes/advertise
+```
 
 ## POST /routes/advertise
 
