@@ -9,7 +9,14 @@ sidebar_position: 3
 
 # Quick Start
 
-This guide walks you through manually setting up a Muti Metroo agent with full control over the configuration.
+By the end of this guide, you will have a working SOCKS5 proxy that can tunnel traffic to any destination. You will be able to run commands like:
+
+```bash
+curl -x socks5://localhost:1080 https://internal.example.com
+ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
+```
+
+This guide gives you full control over the configuration. For a guided experience, use the [Interactive Setup Wizard](/getting-started/interactive-setup) instead.
 
 ## Step 1: Initialize Agent Identity
 

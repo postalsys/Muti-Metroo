@@ -9,11 +9,11 @@ sidebar_position: 2
 
 # Installation
 
-This guide covers all methods for installing Muti Metroo.
+Muti Metroo is a single binary with no dependencies. Download it, make it executable, and you are ready to tunnel traffic through any network.
 
 ## Download Binary
 
-The easiest way to install Muti Metroo is to download a pre-built binary for your platform.
+Download the pre-built binary for your platform - no compilation or package manager required.
 
 **[Download Muti Metroo](/download)**
 

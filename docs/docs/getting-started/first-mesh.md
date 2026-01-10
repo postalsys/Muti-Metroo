@@ -9,15 +9,16 @@ sidebar_position: 5
 
 # Your First Mesh Network
 
-This guide walks you through creating your first multi-agent mesh network. By the end, you will have:
+This guide shows you how to tunnel traffic through a remote network. You will connect two agents so that traffic entering one exits from the other - reaching destinations that would otherwise be inaccessible.
 
-- Two agents communicating securely
-- Traffic flowing through the mesh
-- Understanding of how routing works
+**What you will build:**
+- An ingress agent that accepts your SOCKS5 connections
+- An exit agent on a remote network that opens connections to destinations
+- A secure tunnel between them that traverses any network path
 
-## Architecture Overview
+## The Setup
 
-We will create this simple topology:
+Here is what you are building:
 
 ```mermaid
 flowchart LR
@@ -31,8 +32,8 @@ flowchart LR
     B -->|TCP| I
 ```
 
-- **Agent A**: Accepts SOCKS5 connections, forwards to mesh
-- **Agent B**: Receives traffic from mesh, connects to external destinations
+- **Agent A** (your machine): Where you connect with curl, SSH, or browser
+- **Agent B** (remote network): Opens connections to destinations you want to reach
 
 ## Prerequisites
 
@@ -263,16 +264,17 @@ Configure your browser to use `localhost:1080` as SOCKS5 proxy.
 curl -v -x socks5://localhost:1080 https://httpbin.org/ip
 ```
 
-## Understanding the Data Flow
+## How It Works
 
-1. **Client** connects to Agent A's SOCKS5 server (port 1080)
-2. **Agent A** looks up route for destination IP
-3. **Routing table** shows 0.0.0.0/0 via Agent B
-4. **Agent A** opens a stream to Agent B
-5. **Agent B** opens TCP connection to destination
-6. **Agent B** confirms the stream is ready
-7. **Data flows** bidirectionally through the mesh
-8. **Stream closes** when the connection terminates
+When you run `curl -x socks5://localhost:1080 https://example.com`:
+
+1. Your request goes to Agent A's SOCKS5 proxy
+2. Agent A finds that Agent B advertises a route to the destination
+3. Agent A tunnels the connection through to Agent B
+4. Agent B opens the real TCP connection to example.com
+5. Data flows back through the tunnel to your curl command
+
+The key insight: Agent B can reach destinations that Agent A cannot. Your traffic exits from Agent B's network.
 
 ## Viewing the Dashboard
 

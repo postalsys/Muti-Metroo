@@ -9,18 +9,21 @@ sidebar_position: 1
 
 # Getting Started
 
-Welcome to Muti Metroo! This guide will help you get up and running with your first mesh network.
+In the next few minutes, you will have a working tunnel that can reach networks behind firewalls, relay traffic through multiple hops, and route connections to any destination.
+
+**What you will build:**
+- A SOCKS5 proxy that tunnels traffic through restricted networks
+- Multi-hop relay chains that reach destinations you could not access directly
+- Exit points that connect to internal resources or the internet
 
 ## Prerequisites
 
-Before you begin, ensure you have:
-
 - **Muti Metroo binary** - [Download for your platform](/download)
-- **Basic networking knowledge** (understanding of TCP/IP, CIDR notation)
+- **Basic networking knowledge** (TCP/IP, CIDR notation)
 
 ## Choose Your Path
 
-Depending on your goals, choose the best starting point:
+Pick the setup method that fits your situation:
 
 ### Quick Evaluation
 
@@ -57,16 +60,15 @@ For containerized deployments, see the **Docker guide**:
 
 [Go to Docker Deployment](/deployment/docker)
 
-## What You Will Learn
+## What You Will Accomplish
 
-By the end of the Getting Started guides, you will:
+By the end of these guides, you will be able to:
 
-1. Have Muti Metroo installed and running
-2. Understand the basic agent roles (ingress, transit, exit)
-3. Have generated TLS certificates for secure communication
-4. Created a basic configuration file
-5. Connected two or more agents into a mesh
-6. Successfully proxied traffic through your mesh
+1. **Tunnel through firewalls** - Route traffic through HTTP/2 or WebSocket that blends with normal HTTPS
+2. **Reach internal networks** - Access resources behind NAT or segmented networks
+3. **Build relay chains** - Connect through multiple hops to reach any destination
+4. **Proxy any application** - Use SOCKS5 with curl, SSH, browsers, or any TCP application
+5. **Monitor your mesh** - View connections and routes in the web dashboard
 
 ## Next Steps
 

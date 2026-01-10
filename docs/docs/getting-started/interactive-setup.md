@@ -9,7 +9,9 @@ sidebar_position: 4
 
 # Interactive Setup Wizard
 
-The easiest way to get started with Muti Metroo is using the interactive setup wizard. It guides you through all configuration steps with sensible defaults.
+Get a working tunnel in under 5 minutes. The wizard asks you a few questions and generates everything you need - certificates, configuration, and agent identity.
+
+By the end, you will have a SOCKS5 proxy ready to tunnel traffic through your mesh.
 
 ## Running the Wizard
 
@@ -29,15 +31,15 @@ The wizard walks you through 13 steps, though some are conditional based on your
 
 ### 2. Agent Role
 
-Choose one or more roles for your agent:
+Choose what this agent will do:
 
-| Role | Description |
-|------|-------------|
-| **Ingress** | SOCKS5 proxy for client connections |
-| **Transit** | Relay traffic between peers |
-| **Exit** | Open connections to external destinations |
+| Role | What It Does |
+|------|--------------|
+| **Ingress** | Accept your SOCKS5 connections (curl, SSH, browser) |
+| **Transit** | Relay traffic to other agents in the mesh |
+| **Exit** | Open connections to destinations (internet, internal networks) |
 
-You can select multiple roles to create a combined agent.
+Most setups need at least one ingress (where you connect) and one exit (where traffic goes). A single agent can do all three.
 
 ### 3. Network Configuration
 
