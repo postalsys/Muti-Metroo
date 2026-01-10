@@ -9,7 +9,19 @@ sidebar_position: 2
 
 # Connectivity Troubleshooting
 
-Diagnose and fix network connectivity issues.
+Agents not connecting? Routes not showing up? Step through these diagnostics to find the problem.
+
+**Quick checks:**
+```bash
+# Is the agent healthy?
+curl http://localhost:8080/healthz | jq '{peers: .peer_count, routes: .route_count}'
+
+# Can you reach the peer?
+nc -zv peer-address 4433
+
+# Are certificates valid?
+muti-metroo cert info ./certs/agent.crt
+```
 
 ## Diagnostic Tools
 

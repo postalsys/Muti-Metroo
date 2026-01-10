@@ -9,7 +9,15 @@ sidebar_position: 1
 
 # Common Issues
 
-Quick solutions for frequently encountered problems.
+Find your error message and fix it. Jump to the section that matches what you're seeing.
+
+**Jump to:**
+- [Agent won't start](#agent-wont-start) - port in use, config errors, certificates
+- [Connection issues](#connection-issues) - peers not connecting, TLS failures
+- [SOCKS5 issues](#socks5-issues) - no route, timeouts, auth failures
+- [Shell/file transfer issues](#shell-issues) - command rejected, path not allowed
+- [Windows-specific](#windows-specific-issues) - ports, services, paths
+- [Multi-agent deployment](#multi-agent-deployment) - start order, routes not propagating
 
 ## Agent Won't Start
 

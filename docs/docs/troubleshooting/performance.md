@@ -9,7 +9,19 @@ sidebar_position: 3
 
 # Performance Troubleshooting
 
-Diagnose and optimize performance issues.
+Things running slow? Use these diagnostics to find bottlenecks and tune your mesh for better speed.
+
+**Quick diagnostics:**
+```bash
+# Check stream and connection counts
+curl http://localhost:8080/healthz | jq '{streams: .stream_count, peers: .peer_count}'
+
+# CPU profile (30 seconds)
+curl http://localhost:8080/debug/pprof/profile?seconds=30 > cpu.prof
+
+# Memory usage
+curl http://localhost:8080/debug/pprof/heap > heap.prof
+```
 
 ## High Latency
 

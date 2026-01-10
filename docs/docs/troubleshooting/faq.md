@@ -9,6 +9,14 @@ sidebar_position: 4
 
 # Frequently Asked Questions
 
+Quick answers to common questions about running Muti Metroo.
+
+**Most asked:**
+- [Do I need root?](#do-i-need-root-to-run-muti-metroo) - No, except for low ports or services
+- [Which transport should I use?](#what-transport-should-i-use) - QUIC for speed, WebSocket through firewalls
+- [How many hops?](#how-many-hops-can-i-have) - 8-12 for interactive, 4-6 for high latency
+- [IPv6 support?](#does-muti-metroo-support-ipv6) - Yes, fully supported
+
 ## General
 
 ### What is Muti Metroo?
