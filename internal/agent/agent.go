@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/stream"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/transport"
+	"github.com/postalsys/muti-metroo/internal/tunnel"
 	"github.com/postalsys/muti-metroo/internal/udp"
 )
 
@@ -116,6 +118,10 @@ type Agent struct {
 
 	// UDP relay (for exit nodes)
 	udpHandler *udp.Handler
+
+	// Tunnel (port forwarding)
+	tunnelHandler   *tunnel.Handler
+	tunnelListeners []*tunnel.Listener
 
 	// Relay stream tracking
 	relayMu           sync.RWMutex
@@ -380,6 +386,43 @@ func (a *Agent) initComponents() error {
 		a.socks5Srv.SetUDPHandler(a)
 	}
 
+	// Initialize tunnel exit handler if endpoints are configured
+	if len(a.cfg.Tunnel.Endpoints) > 0 {
+		endpoints := make([]tunnel.Endpoint, len(a.cfg.Tunnel.Endpoints))
+		for i, ep := range a.cfg.Tunnel.Endpoints {
+			endpoints[i] = tunnel.Endpoint{
+				Key:    ep.Key,
+				Target: ep.Target,
+			}
+		}
+
+		handlerCfg := tunnel.HandlerConfig{
+			Endpoints:      endpoints,
+			ConnectTimeout: 30 * time.Second,
+			IdleTimeout:    a.cfg.Connections.IdleThreshold,
+			MaxConnections: a.cfg.Limits.MaxStreamsTotal,
+			Logger:         a.logger,
+		}
+		a.tunnelHandler = tunnel.NewHandler(handlerCfg, a.id, a)
+
+		// Register local tunnel routes
+		for _, ep := range a.cfg.Tunnel.Endpoints {
+			a.routeMgr.AddLocalTunnelRoute(ep.Key, ep.Target, 0)
+		}
+	}
+
+	// Initialize tunnel listeners
+	for _, lisCfg := range a.cfg.Tunnel.Listeners {
+		cfg := tunnel.ListenerConfig{
+			Key:            lisCfg.Key,
+			Address:        lisCfg.Address,
+			MaxConnections: lisCfg.MaxConnections,
+			Logger:         a.logger,
+		}
+		listener := tunnel.NewListener(cfg, a)
+		a.tunnelListeners = append(a.tunnelListeners, listener)
+	}
+
 	return nil
 }
 
@@ -471,10 +514,31 @@ func (a *Agent) Start() error {
 			"domain_routes", len(a.cfg.Exit.DomainRoutes))
 	}
 
+	// Start tunnel handler if enabled
+	if a.tunnelHandler != nil {
+		a.tunnelHandler.Start()
+		a.logger.Info("tunnel handler started",
+			"endpoints", len(a.cfg.Tunnel.Endpoints))
+	}
+
+	// Start tunnel listeners
+	for _, listener := range a.tunnelListeners {
+		if err := listener.Start(); err != nil {
+			a.logger.Error("failed to start tunnel listener",
+				"key", listener.Key(),
+				logging.KeyError, err)
+			a.running.Store(false)
+			return fmt.Errorf("start tunnel listener %s: %w", listener.Key(), err)
+		}
+		a.logger.Info("tunnel listener started",
+			"key", listener.Key(),
+			"address", listener.Address().String())
+	}
+
 	// Start route advertisement loop and announce initial routes
 	a.wg.Add(1)
 	go a.routeAdvertiseLoop()
-	if a.cfg.Exit.Enabled {
+	if a.cfg.Exit.Enabled || len(a.cfg.Tunnel.Endpoints) > 0 {
 		a.flooder.AnnounceLocalRoutes() // Initial announcement
 	}
 
@@ -895,13 +959,23 @@ func (a *Agent) Stop() error {
 		close(a.stopCh)
 
 		// Withdraw routes before shutdown
-		if a.cfg.Exit.Enabled {
+		if a.cfg.Exit.Enabled || len(a.cfg.Tunnel.Endpoints) > 0 {
 			a.flooder.WithdrawLocalRoutes()
 		}
 
 		// Stop components in reverse order
 		if a.healthServer != nil {
 			a.healthServer.Stop()
+		}
+
+		// Stop tunnel listeners
+		for _, listener := range a.tunnelListeners {
+			listener.Stop()
+		}
+
+		// Stop tunnel handler
+		if a.tunnelHandler != nil {
+			a.tunnelHandler.Stop()
 		}
 
 		if a.exitHandler != nil {
@@ -1161,6 +1235,28 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, true, open.EphemeralPubKey)
 				return
 			}
+			// Tunnel streams
+			if strings.HasPrefix(destAddr, protocol.TunnelStreamPrefix) {
+				key := strings.TrimPrefix(destAddr, protocol.TunnelStreamPrefix)
+				if a.tunnelHandler != nil {
+					ctx := context.Background()
+					a.tunnelHandler.HandleStreamOpen(ctx, frame.StreamID, open.RequestID, peerID, key, open.EphemeralPubKey)
+				} else {
+					// No tunnel handler - send error
+					errPayload := &protocol.StreamOpenErr{
+						RequestID: open.RequestID,
+						ErrorCode: protocol.ErrTunnelNotFound,
+						Message:   "tunnel key not configured",
+					}
+					errFrame := &protocol.Frame{
+						Type:     protocol.FrameStreamOpenErr,
+						StreamID: frame.StreamID,
+						Payload:  errPayload.Encode(),
+					}
+					a.peerMgr.SendToPeer(peerID, errFrame)
+				}
+				return
+			}
 		}
 
 		// We are the exit node for TCP traffic
@@ -1387,6 +1483,13 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 		return
 	}
 
+	// Check if this is a tunnel handler stream
+	if a.tunnelHandler != nil {
+		if err := a.tunnelHandler.HandleStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags); err == nil {
+			return
+		}
+	}
+
 	// Check if this is a file transfer stream
 	if a.getFileTransferStream(frame.StreamID) != nil {
 		a.handleFileTransferStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags)
@@ -1459,6 +1562,11 @@ func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame
 		return
 	}
 
+	// Check if this is a tunnel handler stream
+	if a.tunnelHandler != nil {
+		a.tunnelHandler.HandleStreamClose(peerID, frame.StreamID)
+	}
+
 	// Check if this is a file transfer stream
 	if a.getFileTransferStream(frame.StreamID) != nil {
 		a.cleanupFileTransferStream(frame.StreamID)
@@ -1529,6 +1637,11 @@ func (a *Agent) handleStreamReset(peerID identity.AgentID, frame *protocol.Frame
 	if a.exitHandler != nil && a.exitHandler.GetConnection(frame.StreamID) != nil {
 		a.exitHandler.HandleStreamReset(peerID, frame.StreamID, reset.ErrorCode)
 		return
+	}
+
+	// Check if this is a tunnel handler stream
+	if a.tunnelHandler != nil {
+		a.tunnelHandler.HandleStreamReset(peerID, frame.StreamID, reset.ErrorCode)
 	}
 
 	// Check if this is a file transfer stream
@@ -2292,6 +2405,127 @@ func (a *Agent) dialViaDomainRouteWithContext(ctx context.Context, network, host
 	}, nil
 }
 
+// DialTunnel implements tunnel.TunnelDialer for tunnel connections.
+// This routes connections through the mesh network to a tunnel endpoint.
+func (a *Agent) DialTunnel(ctx context.Context, key string) (net.Conn, error) {
+	// Look up tunnel route
+	route := a.routeMgr.LookupTunnel(key)
+	if route == nil {
+		return nil, fmt.Errorf("no route for tunnel: %s", key)
+	}
+
+	// Get next hop connection
+	conn := a.peerMgr.GetPeer(route.NextHop)
+	if conn == nil {
+		return nil, fmt.Errorf("next hop %s not connected", route.NextHop.ShortString())
+	}
+
+	// Build the path for STREAM_OPEN
+	var remainingPath []identity.AgentID
+	if len(route.Path) > 1 {
+		remainingPath = make([]identity.AgentID, len(route.Path)-1)
+		copy(remainingPath, route.Path[1:])
+	}
+
+	// Generate stream ID
+	streamID := conn.NextStreamID()
+
+	// Build tunnel address (domain type with "tunnel:" prefix)
+	tunnelAddr := protocol.TunnelStreamPrefix + key
+	addrBytes := make([]byte, 1+len(tunnelAddr))
+	addrBytes[0] = byte(len(tunnelAddr))
+	copy(addrBytes[1:], tunnelAddr)
+
+	// Generate ephemeral keypair for E2E encryption key exchange
+	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
+	if err != nil {
+		return nil, fmt.Errorf("generate ephemeral key: %w", err)
+	}
+
+	// Create the stream in stream manager (port 0 for tunnel connections)
+	pending := a.streamMgr.OpenStream(streamID, route.NextHop, tunnelAddr, 0, 30*time.Second)
+
+	// Store ephemeral keys in pending request for later key derivation
+	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
+
+	// Build and send STREAM_OPEN with tunnel address
+	openPayload := &protocol.StreamOpen{
+		RequestID:       pending.RequestID,
+		AddressType:     protocol.AddrTypeDomain,
+		Address:         addrBytes,
+		Port:            0, // Not used for tunnels
+		RemainingPath:   remainingPath,
+		EphemeralPubKey: ephPub,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameStreamOpen,
+		StreamID: streamID,
+		Payload:  openPayload.Encode(),
+	}
+
+	if err := a.peerMgr.SendToPeer(route.NextHop, frame); err != nil {
+		a.streamMgr.CancelPendingRequest(pending.RequestID)
+		return nil, fmt.Errorf("send stream open: %w", err)
+	}
+
+	// Wait for response with context support
+	var result *stream.StreamOpenResult
+	select {
+	case result = <-pending.ResultCh:
+		// Got result
+	case <-ctx.Done():
+		// Context cancelled - clean up and return
+		a.streamMgr.CancelPendingRequest(pending.RequestID)
+		crypto.ZeroKey(&ephPriv)
+		return nil, ctx.Err()
+	}
+
+	if result.Error != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, result.Error
+	}
+
+	// Derive session key from ECDH with exit node's ephemeral public key
+	sharedSecret, err := crypto.ComputeECDH(ephPriv, result.RemoteEphemeral)
+	if err != nil {
+		crypto.ZeroKey(&ephPriv)
+		return nil, fmt.Errorf("compute ECDH: %w", err)
+	}
+
+	crypto.ZeroKey(&ephPriv)
+
+	// Derive session key - we are the initiator
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, pending.RequestID, ephPub, result.RemoteEphemeral, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	// Store session key in stream
+	result.Stream.SetSessionKey(sessionKey)
+
+	// Return a MeshConn wrapper
+	return &meshConn{
+		agent:    a,
+		stream:   result.Stream,
+		peerID:   route.NextHop,
+		streamID: streamID,
+		localAddr: &net.TCPAddr{
+			IP:   result.BoundIP,
+			Port: int(result.BoundPort),
+		},
+		remoteAddr: &tunnelAddr_{
+			key: key,
+		},
+	}, nil
+}
+
+// tunnelAddr_ implements net.Addr for tunnel connections.
+type tunnelAddr_ struct {
+	key string
+}
+
+func (t *tunnelAddr_) Network() string { return "tcp" }
+func (t *tunnelAddr_) String() string  { return "tunnel:" + t.key }
+
 // domainAddr implements net.Addr for domain-based connections.
 type domainAddr struct {
 	domain string
@@ -2682,6 +2916,68 @@ func (a *Agent) GetUDPInfo() health.UDPInfo {
 	return health.UDPInfo{
 		Enabled: a.cfg.UDP.Enabled,
 	}
+}
+
+// GetTunnelInfo returns tunnel configuration info for the dashboard.
+func (a *Agent) GetTunnelInfo() health.TunnelInfo {
+	info := health.TunnelInfo{}
+
+	// Get listener keys and addresses
+	for _, listener := range a.tunnelListeners {
+		info.ListenerKeys = append(info.ListenerKeys, listener.Key())
+		if addr := listener.Address(); addr != nil {
+			info.ListenerAddresses = append(info.ListenerAddresses, addr.String())
+		}
+	}
+
+	// Get endpoint keys from tunnel handler
+	if a.tunnelHandler != nil {
+		info.EndpointKeys = a.tunnelHandler.GetKeys()
+	}
+
+	return info
+}
+
+// GetTunnelRouteDetails returns detailed tunnel route information for the dashboard.
+func (a *Agent) GetTunnelRouteDetails() []health.TunnelRouteDetails {
+	localID := a.ID()
+	var details []health.TunnelRouteDetails
+
+	// Add local tunnel endpoints (this agent is the exit)
+	if a.tunnelHandler != nil {
+		for _, key := range a.tunnelHandler.GetKeys() {
+			target, _ := a.tunnelHandler.GetTarget(key)
+			details = append(details, health.TunnelRouteDetails{
+				Key:      key,
+				Target:   target,
+				NextHop:  localID,
+				Origin:   localID,
+				Metric:   0,
+				HopCount: 0,
+				Path:     []identity.AgentID{},
+				IsLocal:  true,
+			})
+		}
+	}
+
+	// Add remote tunnel routes from route table
+	for _, route := range a.routeMgr.TunnelTable().GetAllRoutes() {
+		// Skip local routes (already handled above)
+		if route.OriginAgent == localID {
+			continue
+		}
+		details = append(details, health.TunnelRouteDetails{
+			Key:      route.Key,
+			NextHop:  route.NextHop,
+			Origin:   route.OriginAgent,
+			Metric:   int(route.Metric),
+			HopCount: len(route.Path),
+			Path:     route.Path,
+			IsLocal:  false,
+		})
+	}
+
+	return details
 }
 
 // getPeerConnectionInfo returns peer connection info for NodeInfo advertisement.

@@ -51,6 +51,7 @@ class MetroMap {
             <div class="tooltip-udp"></div>
             <div class="tooltip-exits"></div>
             <div class="tooltip-domains"></div>
+            <div class="tooltip-tunnels"></div>
             <div class="tooltip-id-section">
                 <div class="tooltip-id-label">Agent ID</div>
                 <div class="tooltip-id"></div>
@@ -684,6 +685,34 @@ class MetroMap {
         } else {
             domainsEl.innerHTML = '';
             domainsEl.style.display = 'none';
+        }
+
+        // Build tunnel info section (listeners and endpoints)
+        const tunnelsEl = this.stationTooltip.querySelector('.tooltip-tunnels');
+        const tunnelListeners = agent.tunnel_listeners || [];
+        const tunnelEndpoints = agent.tunnel_endpoints || [];
+        if (tunnelListeners.length > 0 || tunnelEndpoints.length > 0) {
+            let tunnelsHtml = '';
+
+            if (tunnelListeners.length > 0) {
+                tunnelsHtml += '<div class="tooltip-tunnels-header">Tunnel Listeners</div>';
+                tunnelsHtml += '<div class="tooltip-tunnels-list">';
+                tunnelsHtml += tunnelListeners.map(key => `<span class="tooltip-tunnel-key">${key}</span>`).join('');
+                tunnelsHtml += '</div>';
+            }
+
+            if (tunnelEndpoints.length > 0) {
+                tunnelsHtml += '<div class="tooltip-tunnels-header">Tunnel Endpoints</div>';
+                tunnelsHtml += '<div class="tooltip-tunnels-list">';
+                tunnelsHtml += tunnelEndpoints.map(key => `<span class="tooltip-tunnel-key">${key}</span>`).join('');
+                tunnelsHtml += '</div>';
+            }
+
+            tunnelsEl.innerHTML = tunnelsHtml;
+            tunnelsEl.style.display = 'block';
+        } else {
+            tunnelsEl.innerHTML = '';
+            tunnelsEl.style.display = 'none';
         }
 
         // Update ID

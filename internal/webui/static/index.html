@@ -82,6 +82,14 @@
                         <span class="legend-ring transit"></span>
                         <span>Transit</span>
                     </div>
+                    <div class="legend-item">
+                        <span class="legend-ring tunnel_ingress"></span>
+                        <span>Tunnel Ingress</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-ring tunnel_exit"></span>
+                        <span>Tunnel Exit</span>
+                    </div>
                 </div>
             </div>
         </section>
@@ -100,6 +108,25 @@
                     </thead>
                     <tbody id="routes-tbody">
                         <tr><td colspan="4" class="no-data">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="tunnel-routes-section" style="display: none;">
+            <h2>Tunnel Routes</h2>
+            <div class="table-container">
+                <table id="tunnel-routes-table">
+                    <thead>
+                        <tr>
+                            <th>Key</th>
+                            <th>Target</th>
+                            <th>Exit Node</th>
+                            <th>Hops</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tunnel-routes-tbody">
+                        <tr><td colspan="4" class="no-data">No tunnel routes</td></tr>
                     </tbody>
                 </table>
             </div>

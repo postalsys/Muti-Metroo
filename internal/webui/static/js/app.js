@@ -30,6 +30,7 @@ class Dashboard {
             this.updateAgentInfo(dashboard.agent);
             this.updateStats(dashboard.stats, dashboard.routes);
             this.updateRoutesTable(dashboard.routes);
+            this.updateTunnelRoutesTable(dashboard.tunnel_routes);
             this.metroMap.setRoutes(dashboard.routes);
             this.metroMap.update(topology);
             this.updateLastRefresh();
@@ -94,6 +95,57 @@ class Dashboard {
 
     setupRouteHoverEvents() {
         const rows = document.querySelectorAll('.route-row');
+        rows.forEach(row => {
+            row.addEventListener('mouseenter', () => {
+                const pathIds = JSON.parse(row.dataset.pathIds || '[]');
+                if (pathIds.length > 0 && this.metroMap) {
+                    this.metroMap.highlightPath(pathIds);
+                }
+            });
+            row.addEventListener('mouseleave', () => {
+                if (this.metroMap) {
+                    this.metroMap.clearHighlight();
+                }
+            });
+        });
+    }
+
+    updateTunnelRoutesTable(tunnelRoutes) {
+        const section = document.getElementById('tunnel-routes-section');
+        const tbody = document.getElementById('tunnel-routes-tbody');
+
+        if (!tunnelRoutes || tunnelRoutes.length === 0) {
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = 'block';
+        tbody.innerHTML = tunnelRoutes.map(route => {
+            // Path IDs for hover highlighting (JSON-encoded for data attribute)
+            const pathData = JSON.stringify(route.path_ids || []);
+
+            // Target display (only for local endpoints)
+            const targetDisplay = route.target || '-';
+
+            // Local indicator
+            const localBadge = route.is_local ? '<span class="local-badge">local</span>' : '';
+
+            return `
+                <tr class="route-row tunnel-route-row" data-path-ids='${pathData}'>
+                    <td class="route-key"><code>${route.key}</code></td>
+                    <td>${targetDisplay}</td>
+                    <td title="${route.origin_id}">${route.origin}${localBadge}</td>
+                    <td>${route.hop_count}</td>
+                </tr>
+            `;
+        }).join('');
+
+        // Add hover event listeners for path highlighting
+        this.setupTunnelRouteHoverEvents();
+    }
+
+    setupTunnelRouteHoverEvents() {
+        const rows = document.querySelectorAll('.tunnel-route-row');
         rows.forEach(row => {
             row.addEventListener('mouseenter', () => {
                 const pathIds = JSON.parse(row.dataset.pathIds || '[]');
