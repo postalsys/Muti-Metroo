@@ -9,7 +9,13 @@ sidebar_position: 2
 
 # Docker Deployment
 
-Deploy Muti Metroo using Docker and Docker Compose.
+Run agents in containers for consistent, isolated deployments you can spin up anywhere Docker runs - your laptop, a server, or the cloud.
+
+**What you get:**
+- Same agent behavior on any system
+- Easy multi-agent testing with Docker Compose
+- Clean teardown - remove container, everything is gone
+- No host system dependencies
 
 ## Docker Image
 

@@ -9,7 +9,13 @@ sidebar_position: 3
 
 # Kubernetes Deployment
 
-Deploy Muti Metroo on Kubernetes.
+Run agents as Kubernetes workloads with automatic restarts, health checks, and secret management handled by the cluster.
+
+**What you get:**
+- Automatic restart if an agent crashes
+- Health and readiness probes for load balancer integration
+- Secrets injected as environment variables
+- Scale replicas for high availability
 
 ## Prerequisites
 

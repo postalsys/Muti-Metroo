@@ -9,16 +9,22 @@ sidebar_position: 5
 
 # High Availability
 
-Design patterns for fault-tolerant Muti Metroo deployments.
+Stay connected when servers fail. With redundant paths, traffic automatically reroutes around problems - no manual intervention, no downtime.
 
-## Overview
+**What happens when something fails:**
 
-High availability in Muti Metroo is achieved through:
+| If This Fails... | Traffic Automatically... |
+|------------------|--------------------------|
+| Transit agent | Reroutes through backup transit |
+| Exit agent | Switches to another exit advertising the same routes |
+| Network link | Uses alternate path if available |
+| Primary datacenter | Fails over to secondary region |
 
-1. **Redundant paths**: Multiple routes to destinations
-2. **Automatic failover**: Route selection based on availability
-3. **Reconnection**: Automatic peer reconnection with backoff
-4. **Load distribution**: Multiple exit points
+**How it works:**
+- Multiple routes to the same destination are learned
+- Routes expire when the path goes down (configurable TTL)
+- Traffic switches to the remaining routes
+- When the failed component recovers, traffic returns
 
 ## Pattern 1: Redundant Transit
 

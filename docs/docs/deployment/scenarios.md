@@ -9,7 +9,17 @@ sidebar_position: 1
 
 # Deployment Scenarios
 
-This guide covers common deployment patterns for Muti Metroo.
+Pick the pattern that matches your goal. Each scenario shows you exactly how to configure agents to solve a specific access problem.
+
+**Quick Guide:**
+
+| I want to... | Use |
+|--------------|-----|
+| Access internal resources from anywhere | [Corporate Network Access](#scenario-1-corporate-network-access) |
+| Connect multiple office networks | [Multi-Site Connectivity](#scenario-2-multi-site-connectivity) |
+| Route all my traffic through a secure gateway | [Secure Internet Gateway](#scenario-3-secure-internet-gateway) |
+| Get through corporate firewalls that block everything | [Firewall Traversal](#scenario-4-firewall-traversal) |
+| Stay connected even when servers fail | [High Availability](#scenario-5-high-availability) |
 
 ## Scenario 1: Corporate Network Access
 

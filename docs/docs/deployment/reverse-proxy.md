@@ -7,16 +7,14 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
-  <img src="/img/mole-climbing.png" alt="Mole behind proxy" style={{maxWidth: '180px'}} />
+  <img src="/img/mole-behind-proxy.png" alt="Mole behind proxy" style={{maxWidth: '180px'}} />
 </div>
 
 # Reverse Proxy Deployment
 
-This guide covers deploying Muti Metroo agents behind reverse proxies that handle TLS termination.
+Put agents behind Nginx, Caddy, or Apache to use your existing certificate infrastructure and share a public endpoint with other services.
 
-## Overview
-
-When deploying Muti Metroo behind a reverse proxy (Nginx, Caddy, Apache, etc.), the proxy handles TLS termination and forwards plain WebSocket connections to the agent. This is useful when:
+**When to use this:**
 
 - You have an existing reverse proxy infrastructure
 - You want centralized certificate management (e.g., Let's Encrypt via Certbot)

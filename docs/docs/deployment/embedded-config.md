@@ -5,15 +5,21 @@ sidebar_position: 2
 
 # Embedded Configuration
 
-Muti Metroo supports embedding configuration directly into the binary for single-file deployments. This eliminates the need for separate config files and simplifies distribution.
+Drop a single executable. No config files, no setup - just run the binary and the agent starts with all settings baked in.
 
-## Overview
+**What you get:**
+- One file to transfer and deploy
+- Nothing to configure on the target system
+- Custom binary name for each deployment
+- Can still edit config later without rebuilding
 
-When you embed configuration:
-- The YAML config is XOR-obfuscated and appended to the binary
-- The binary automatically detects and loads embedded config on startup
-- No `-c` flag needed when running the embedded binary
-- Config files are ignored when embedded config is present
+## How It Works
+
+The configuration is appended to the binary itself:
+- YAML config is XOR-obfuscated and added to the end of the executable
+- The agent detects and loads embedded config automatically on startup
+- No `-c` flag needed - just `./my-agent run`
+- External config files are ignored when embedded config is present
 
 ## Creating an Embedded Binary
 

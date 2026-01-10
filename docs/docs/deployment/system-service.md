@@ -9,7 +9,13 @@ sidebar_position: 4
 
 # System Service Installation
 
-Install Muti Metroo as a system service for automatic startup and management.
+Install once, run forever. The agent starts automatically when the system boots and restarts if it crashes - no manual intervention needed.
+
+**What you get:**
+- Automatic start on boot - agent runs without logging in
+- Crash recovery - system restarts the agent if it dies
+- Managed lifecycle - start, stop, and check status with standard commands
+- Security hardening - runs as a dedicated user with limited privileges
 
 ## Linux (systemd)
 
