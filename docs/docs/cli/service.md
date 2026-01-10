@@ -8,7 +8,19 @@ title: service
 
 # muti-metroo service
 
-Service management commands for system integration.
+Install the agent as a system service so it starts automatically on boot and restarts if it crashes. Works on Linux (systemd or cron), macOS (launchd), and Windows.
+
+**Quick install:**
+```bash
+# Linux/macOS (requires root)
+sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
+
+# Linux without root (uses cron)
+muti-metroo service install --user -c ~/muti-metroo/config.yaml
+
+# Windows (as Administrator)
+muti-metroo service install -c C:\muti-metroo\config.yaml
+```
 
 ## Subcommands
 

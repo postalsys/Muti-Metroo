@@ -8,7 +8,20 @@ title: CLI Overview
 
 # CLI Reference
 
-Complete command-line interface reference for Muti Metroo.
+Everything you need to set up agents, manage certificates, transfer files, and run commands on remote systems - all from the command line.
+
+**Quick reference:**
+
+| I want to... | Command |
+|--------------|---------|
+| Set up a new agent interactively | `muti-metroo setup` |
+| Start an agent | `muti-metroo run -c config.yaml` |
+| Create TLS certificates | `muti-metroo cert ca` / `muti-metroo cert agent` |
+| Generate a password hash | `muti-metroo hash` |
+| Run a command on a remote agent | `muti-metroo shell <agent-id> <command>` |
+| Transfer files | `muti-metroo upload` / `muti-metroo download` |
+| Test if a listener is reachable | `muti-metroo probe <address>` |
+| Install as a system service | `muti-metroo service install` |
 
 ## HTTP API
 

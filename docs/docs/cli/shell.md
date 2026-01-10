@@ -8,7 +8,19 @@ title: shell
 
 # muti-metroo shell
 
-Run commands on a remote agent.
+Execute commands on remote agents through the mesh. Run one-off commands or open a full interactive terminal session.
+
+**Quick examples:**
+```bash
+# Run a command
+muti-metroo shell abc123 whoami
+
+# Open an interactive shell
+muti-metroo shell --tty abc123 bash
+
+# Follow logs in real-time
+muti-metroo shell abc123 journalctl -f
+```
 
 ## Usage
 

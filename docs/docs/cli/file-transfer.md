@@ -8,7 +8,19 @@ title: File Transfer (upload/download)
 
 # File Transfer Commands
 
-Upload and download files to/from remote agents.
+Move files and directories to and from remote agents through the mesh. Works with any file size - data streams directly without loading into memory.
+
+**Quick examples:**
+```bash
+# Upload a file
+muti-metroo upload abc123 ./local-file.txt /tmp/remote-file.txt
+
+# Download a file
+muti-metroo download abc123 /etc/config.yaml ./config.yaml
+
+# Upload an entire directory
+muti-metroo upload abc123 ./my-folder /tmp/my-folder
+```
 
 ## muti-metroo upload
 

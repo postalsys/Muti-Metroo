@@ -8,7 +8,13 @@ title: run
 
 # muti-metroo run
 
-Run the agent with a configuration file.
+Start the agent. It reads your config file, connects to peers, and begins accepting connections.
+
+```bash
+muti-metroo run -c config.yaml
+```
+
+The agent runs in the foreground and logs to stdout. Use `Ctrl+C` to stop. For background operation, see [System Service](/deployment/system-service).
 
 ## Usage
 

@@ -9,7 +9,16 @@ sidebar_position: 8
 
 # muti-metroo hash
 
-Generate bcrypt password hashes for use in configuration files.
+Turn a password into a secure hash you can safely put in config files. The hash can't be reversed back to the password, but it can verify when someone enters the correct password.
+
+**Quick usage:**
+```bash
+# Interactive (recommended - hides your typing)
+muti-metroo hash
+
+# The output goes in your config file
+# password_hash: "$2a$10$N9qo8uLOickgx2ZMRZoMye..."
+```
 
 ## Synopsis
 

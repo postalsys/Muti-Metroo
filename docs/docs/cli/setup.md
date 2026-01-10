@@ -8,7 +8,16 @@ title: setup
 
 # muti-metroo setup
 
-Interactive setup wizard for configuring Muti Metroo.
+Create a complete agent configuration through guided prompts. The wizard generates everything you need: config file, TLS certificates, and optionally installs as a system service.
+
+**Best for:**
+- First-time setup
+- Creating configs without memorizing YAML syntax
+- Single-file deployments with embedded config
+
+```bash
+muti-metroo setup
+```
 
 ## Usage
 

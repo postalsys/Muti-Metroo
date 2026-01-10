@@ -9,7 +9,18 @@ sidebar_position: 5
 
 # muti-metroo probe
 
-Test connectivity to a Muti Metroo listener.
+Check if you can reach a listener before deploying an agent. Useful for testing firewall rules and TLS configuration without running a full agent.
+
+**Quick test:**
+```bash
+# Test a QUIC listener
+muti-metroo probe server.example.com:4433
+
+# Test different transports to find what's not blocked
+muti-metroo probe --transport quic server.example.com:4433   # UDP
+muti-metroo probe --transport h2 server.example.com:443      # HTTPS
+muti-metroo probe --transport ws server.example.com:443      # WebSocket
+```
 
 ## Synopsis
 
@@ -17,21 +28,12 @@ Test connectivity to a Muti Metroo listener.
 muti-metroo probe [flags] <address>
 ```
 
-## Description
-
-The `probe` command tests if a Muti Metroo listener is reachable and responding. It performs two levels of verification:
+## What It Tests
 
 1. **Transport-level connection** - Establishes a TCP/TLS connection using the specified transport (QUIC, HTTP/2, or WebSocket)
 2. **Protocol handshake** - Performs a PEER_HELLO exchange to verify it's a real Muti Metroo listener
 
-This command is useful for:
-
-- Verifying connectivity before deploying an agent
-- Diagnosing connection issues with existing listeners
-- Testing firewall rules
-- Validating TLS certificate configuration
-
-**Note:** The probe operates standalone and does not require a running agent.
+The probe operates standalone - no running agent needed.
 
 ## Flags
 

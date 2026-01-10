@@ -8,7 +8,16 @@ title: cert
 
 # muti-metroo cert
 
-Certificate management commands.
+Create the certificates that let agents trust each other. Generate a CA once, then create agent certificates signed by that CA.
+
+**Typical workflow:**
+```bash
+# 1. Create your CA (do this once)
+muti-metroo cert ca --cn "My Mesh CA" -o ./certs
+
+# 2. Create a certificate for each agent
+muti-metroo cert agent --cn "agent-1" --ca ./certs/ca.crt --ca-key ./certs/ca.key -o ./certs
+```
 
 ## Subcommands
 

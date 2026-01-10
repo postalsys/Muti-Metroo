@@ -5,11 +5,18 @@ sidebar_position: 10
 
 # management-key
 
-Generate and manage X25519 keypairs for mesh topology encryption.
+Hide your mesh topology from field agents. Generate encryption keys that let operators see which systems are in the mesh while field agents only see opaque IDs.
 
-## Overview
+**What this protects:** If a field agent is compromised, the attacker learns nothing about your infrastructure - no hostnames, no IP addresses, no OS details. They see only random-looking agent IDs.
 
-The `management-key` command helps you create and manage encryption keys for protecting mesh topology data. When management key encryption is enabled, sensitive NodeInfo (hostnames, IPs, OS details) is encrypted so only operators with the private key can view topology details.
+**Quick setup:**
+```bash
+# Generate a keypair
+muti-metroo management-key generate
+
+# Add public key to ALL agents (they can encrypt but not decrypt)
+# Add private key ONLY to operator nodes (they can see topology)
+```
 
 ## Subcommands
 

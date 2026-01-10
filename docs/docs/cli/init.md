@@ -8,7 +8,9 @@ title: init
 
 # muti-metroo init
 
-Initialize agent identity (generates AgentID).
+Create a unique identity for an agent. This generates the AgentID that other agents use to identify and route traffic to this agent.
+
+**Note:** You usually don't need to run this manually - `muti-metroo run` creates the identity automatically if it doesn't exist. Use this command when you need to generate the identity ahead of time (e.g., to configure peers before the agent runs).
 
 ## Usage
 
