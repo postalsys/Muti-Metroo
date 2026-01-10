@@ -9,27 +9,26 @@ sidebar_position: 2
 
 # Agent Roles
 
-Every Muti Metroo agent can serve one or more roles simultaneously. Understanding these roles is essential for designing your mesh topology.
+Each agent in your mesh has a job: accept connections from users, relay traffic between networks, or open connections to destinations. One agent can do all three, or you can specialize agents for different purposes.
 
-## Overview
+## The Three Roles
 
-| Role | Description | Typical Use |
-|------|-------------|-------------|
-| **Ingress** | Accepts client connections via SOCKS5 | User-facing proxy endpoint |
-| **Transit** | Relays traffic between other agents | Network bridge, VPN gateway |
-| **Exit** | Opens connections to external destinations | Internet gateway, private network access |
+| Role | What It Does | You Need This When... |
+|------|--------------|----------------------|
+| **Ingress** | Accepts your SOCKS5 connections | You want to connect through this agent |
+| **Transit** | Relays traffic to other agents | You need to bridge network segments |
+| **Exit** | Opens connections to destinations | You want traffic to exit from this network |
 
 ## Ingress Role
 
-An **ingress agent** accepts client connections and initiates streams into the mesh.
+An **ingress agent** is where you connect. Point your browser, curl, or SSH at the SOCKS5 proxy and your traffic enters the mesh.
 
-### Responsibilities
+### What It Does
 
-- Run SOCKS5 server on configured address
-- Authenticate clients (if enabled)
-- Perform route lookup for destinations
-- Open streams to the appropriate exit node
-- Relay data between SOCKS5 client and mesh stream
+- Runs a SOCKS5 proxy that you connect to
+- Looks up which exit can reach your destination
+- Opens a tunnel through the mesh to that exit
+- Relays your traffic through the tunnel
 
 ### Configuration
 
@@ -82,14 +81,14 @@ socks5:
 
 ## Transit Role
 
-A **transit agent** relays traffic between other agents without initiating or terminating connections.
+A **transit agent** bridges networks. Put one in the cloud, the DMZ, or anywhere that can reach multiple network segments, and it relays traffic between them.
 
-### Responsibilities
+### What It Does
 
-- Receive data from connected peers
-- Forward data to next hop based on routing
-- Propagate route advertisements through the mesh
-- Provide bridging between network segments
+- Connects to agents in different networks
+- Forwards traffic between them
+- Propagates route information so agents discover each other
+- Cannot see the traffic content (end-to-end encrypted)
 
 ### Configuration
 
@@ -152,16 +151,14 @@ http:
 
 ## Exit Role
 
-An **exit agent** opens real TCP connections to external destinations.
+An **exit agent** is where traffic leaves the mesh. Put one inside a private network to reach internal resources, or in a cloud region to exit from that location.
 
-### Responsibilities
+### What It Does
 
-- Advertise CIDR routes to the mesh
-- Accept stream open requests from ingress agents
-- Validate destination against allowed routes
-- Open TCP connections to destinations
-- Handle DNS resolution for domain names
-- Enforce access control
+- Advertises which destinations it can reach (CIDR routes, domains)
+- Opens real TCP connections to those destinations
+- Resolves DNS for domain-based routing
+- Controls which destinations are allowed
 
 ### Configuration
 
@@ -273,13 +270,13 @@ exit:
 
 ## Role Selection Guide
 
-| Scenario | Recommended Roles |
-|----------|------------------|
-| Local proxy for one user | Ingress + Exit (standalone) |
-| Team proxy with cloud exit | Ingress (local) + Exit (cloud) |
-| Multi-site connectivity | Transit (cloud) + Exit (each site) |
-| Internet gateway for office | Ingress (office) + Exit (DMZ) |
-| Geo-distributed access | Multiple Transit + regional Exits |
+| What You Want | How To Set It Up |
+|---------------|------------------|
+| Tunnel from my laptop to the internet | Single agent with Ingress + Exit |
+| Reach a remote office network | Ingress on your laptop, Exit inside the office |
+| Connect multiple offices together | Transit in the cloud, Exit at each site |
+| Team access to internal resources | Ingress at each user location, Exit inside the network |
+| Exit from different geographic regions | Transit hub, regional Exit agents |
 
 ## Role Visualization
 

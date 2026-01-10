@@ -9,15 +9,23 @@ sidebar_position: 1
 
 # Architecture Overview
 
-Muti Metroo is designed as a modular, userspace mesh networking agent. This document explains the high-level architecture and how components interact.
+Muti Metroo lets you deploy tunneling agents anywhere - cloud servers, office networks, laptops behind firewalls - and they automatically discover routes to reach each other. No central coordinator, no complex configuration, no root privileges required.
+
+**What the architecture enables:**
+- Deploy agents on any machine without admin access
+- Mix different transports (QUIC, HTTP/2, WebSocket) in the same mesh
+- Agents find each other and propagate routes automatically
+- Connections recover from failures without intervention
 
 ## Design Principles
 
-1. **Userspace Operation**: No root/kernel access required - runs entirely in userspace
-2. **Transport Agnostic**: Support heterogeneous transports (QUIC, HTTP/2, WebSocket) in the same mesh
-3. **Multi-Hop Routing**: Dynamic route discovery and propagation
-4. **Resilient Connections**: Automatic reconnection with exponential backoff
-5. **Resource Efficient**: Configurable limits and stream multiplexing
+| Principle | What It Means For You |
+|-----------|----------------------|
+| **Userspace Operation** | Drop the binary anywhere and run it - no root, no kernel modules |
+| **Transport Agnostic** | Use QUIC for speed, WebSocket to punch through firewalls - your choice per connection |
+| **Multi-Hop Routing** | Traffic finds its way through the mesh - you don't manually configure paths |
+| **Resilient Connections** | Agents reconnect automatically when links go down |
+| **Resource Efficient** | Run on small VMs or containers with predictable memory usage |
 
 ## High-Level Architecture
 

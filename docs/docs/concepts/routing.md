@@ -7,23 +7,20 @@ sidebar_position: 4
   <img src="/img/mole-plumbing.png" alt="Mole routing pipes" style={{maxWidth: '180px'}} />
 </div>
 
-# Routing in Muti Metroo
+# Routing
 
-Muti Metroo automatically discovers and selects the best routes through the mesh network.
+When you connect to a destination, your traffic automatically finds its way to the right exit. You don't configure paths manually - exit agents advertise what they can reach, and the mesh figures out how to get there.
 
-## Overview
+**How it works in practice:**
+- Exit agent inside corporate network advertises `10.0.0.0/8`
+- Exit agent in the cloud advertises `0.0.0.0/0` (everything else)
+- You connect to `10.1.2.3` - traffic goes to corporate exit
+- You connect to `8.8.8.8` - traffic goes to cloud exit
 
-Routing works as follows:
+## Route Types
 
-1. **Exit agents** advertise which networks they can reach (CIDR routes and domain routes)
-2. **Routes propagate** automatically through the mesh
-3. **Each agent** maintains a routing table
-4. **Traffic is routed** to the exit agent that can reach the destination
-
-Two types of routes are supported:
-
-- **CIDR routes**: Match by IP address (e.g., `10.0.0.0/8`, `0.0.0.0/0`)
-- **Domain routes**: Match by domain name (e.g., `api.internal.corp`, `*.example.com`)
+- **CIDR routes**: Match by IP address (e.g., `10.0.0.0/8` for internal network)
+- **Domain routes**: Match by domain name (e.g., `*.internal.corp` for internal DNS)
 
 ## Configuring Exit Routes
 

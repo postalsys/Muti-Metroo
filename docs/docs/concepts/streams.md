@@ -7,31 +7,26 @@ sidebar_position: 5
   <img src="/img/mole-escalator.png" alt="Mole on data flow" style={{maxWidth: '180px'}} />
 </div>
 
-# Stream Multiplexing
+# Streams
 
-Muti Metroo uses virtual streams to multiplex multiple connections over a single peer connection.
+Each connection through the mesh - every curl request, SSH session, or browser tab - becomes a stream. Hundreds of streams share a single connection between agents, so you don't need a new network connection for each request.
 
-## Overview
-
-A **stream** represents a single TCP-like connection flowing through the mesh. Streams are:
-
-- **Multiplexed**: Many streams share one peer connection
-- **Bidirectional**: Data flows both directions
-- **Encrypted**: End-to-end encryption between ingress and exit
-- **Buffered**: Each hop buffers data for flow control
-- **Half-closable**: Can close one direction independently
+**What this means for you:**
+- Open many connections without overwhelming the network
+- Each stream is encrypted end-to-end (transit agents can't read your data)
+- Streams are independent - one slow connection doesn't block others
 
 ## How Streams Work
 
-When you connect through the SOCKS5 proxy:
+When you run `curl -x socks5://localhost:1080 https://example.com`:
 
-1. Your application connects to the SOCKS5 proxy
+1. Your curl connects to the SOCKS5 proxy
 2. The ingress agent opens a stream through the mesh
-3. The exit agent establishes a TCP connection to the destination
-4. Data flows bidirectionally through the stream
-5. The stream closes when either side disconnects
+3. The exit agent opens a TCP connection to example.com
+4. Data flows through the stream in both directions
+5. When curl finishes, the stream closes
 
-Transit agents simply forward data without being able to read it (end-to-end encrypted).
+Transit agents forward the encrypted data without seeing the contents.
 
 ## Buffering
 
@@ -46,22 +41,22 @@ When a buffer fills, backpressure propagates upstream, preventing memory exhaust
 
 ## Stream Limits
 
-Configure stream limits based on your hardware capacity:
+Control how many concurrent connections your agent handles:
 
 ```yaml
 limits:
-  max_streams_per_peer: 1000   # Concurrent streams per peer
-  max_streams_total: 10000     # Total concurrent streams
-  max_pending_opens: 100       # Pending stream requests
-  stream_open_timeout: 30s     # Time to open stream
+  max_streams_per_peer: 1000   # Max connections through one peer
+  max_streams_total: 10000     # Max total connections
+  max_pending_opens: 100       # Max connections being established
+  stream_open_timeout: 30s     # Give up if connection takes too long
 ```
 
-| Limit | Purpose |
-|-------|---------|
-| max_streams_per_peer | Prevent single peer from exhausting resources |
-| max_streams_total | Overall memory and CPU protection |
-| max_pending_opens | Prevent connection flood |
-| stream_open_timeout | Fail fast on network issues |
+| Setting | What It Controls | Default |
+|---------|------------------|---------|
+| max_streams_per_peer | Connections through any single peer | 1000 |
+| max_streams_total | Total connections across all peers | 10000 |
+| max_pending_opens | Connections waiting to be established | 100 |
+| stream_open_timeout | How long to wait for a connection | 30s |
 
 ## Performance Considerations
 

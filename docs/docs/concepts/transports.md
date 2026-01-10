@@ -9,15 +9,24 @@ sidebar_position: 3
 
 # Transport Protocols
 
-Muti Metroo supports three transport protocols, each with different characteristics. You can mix transports within the same mesh.
+Choose the right transport for your network environment. Use QUIC when you control the network, HTTP/2 or WebSocket when you need to get through firewalls and proxies.
 
-## Overview
+## Quick Guide
 
-| Transport | Protocol | Port | Firewall Friendliness | Performance |
-|-----------|----------|------|----------------------|-------------|
-| **QUIC** | UDP | 4433 (default) | Medium | Best |
-| **HTTP/2** | TCP | 443/8443 | Good | Good |
-| **WebSocket** | TCP/HTTP | 443/80 | Excellent | Fair |
+| Your Situation | Use This |
+|----------------|----------|
+| Direct connection, no firewall issues | **QUIC** - fastest option |
+| Corporate firewall blocks UDP | **HTTP/2** - looks like normal HTTPS |
+| Must go through HTTP proxy | **WebSocket** - maximum compatibility |
+| Not sure | Start with QUIC, fall back to WebSocket if blocked |
+
+## Comparison
+
+| Transport | Speed | Firewall Friendliness | Best For |
+|-----------|-------|----------------------|----------|
+| **QUIC** | Fastest | Medium (needs UDP) | Data centers, home networks |
+| **HTTP/2** | Good | Good | Corporate networks |
+| **WebSocket** | Fair | Excellent | Restrictive proxies, CDNs |
 
 ## QUIC Transport
 
@@ -33,10 +42,10 @@ QUIC (Quick UDP Internet Connections) is the recommended transport for most depl
 
 ### When to Use
 
-- Direct server-to-server connections
-- Low-latency requirements
-- High-throughput scenarios
-- When UDP is not blocked
+- Connecting servers you control (cloud, data center)
+- Home or office network without strict firewalls
+- When speed matters (large file transfers, low latency)
+- Most residential ISP connections (UDP usually works)
 
 ### Configuration
 
@@ -85,10 +94,10 @@ HTTP/2 provides a TCP-based alternative with good firewall compatibility.
 
 ### When to Use
 
-- Corporate environments blocking UDP
-- When QUIC is not available
-- Standard HTTPS infrastructure
-- Load balancer compatibility needed
+- Corporate network that blocks UDP
+- Behind a load balancer or reverse proxy
+- Need to blend with normal HTTPS traffic
+- QUIC is being blocked or throttled
 
 ### Configuration
 
@@ -139,10 +148,10 @@ WebSocket provides maximum compatibility, especially through HTTP proxies.
 
 ### When to Use
 
-- Restrictive corporate proxies
-- Browser-based clients (future)
-- When HTTP/2 is blocked or problematic
-- Through CDNs or WAFs
+- Must go through a corporate HTTP proxy
+- Network inspects and blocks non-HTTP traffic
+- Hosting behind a CDN or WAF
+- Maximum compatibility is more important than speed
 
 ### Configuration
 
@@ -283,15 +292,14 @@ peers:
 
 ## Transport Selection Guide
 
-| Scenario | Recommended | Reason |
-|----------|-------------|--------|
-| Data center to data center | QUIC | Best performance, controlled network |
-| Office to cloud | HTTP/2 or QUIC | Depends on firewall policy |
-| Home user to cloud | QUIC | Most ISPs allow UDP |
-| Corporate laptop to cloud | WebSocket | Works through corporate proxies |
-| Through CDN/WAF | WebSocket | HTTP-based, compatible |
-| High-frequency trading | QUIC | Lowest latency |
-| Large file transfers | QUIC | Best throughput |
+| Where You Are | Where You're Connecting | Use |
+|---------------|------------------------|-----|
+| Home network | Cloud server | QUIC |
+| Office (no proxy) | Cloud server | QUIC or HTTP/2 |
+| Corporate laptop | Through corporate proxy | WebSocket |
+| Cloud server | Another cloud server | QUIC |
+| Behind CDN/WAF | Anywhere | WebSocket |
+| Anywhere | Server behind reverse proxy | HTTP/2 or WebSocket |
 
 ## Troubleshooting
 
