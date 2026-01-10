@@ -769,3 +769,931 @@ func (s *mockStream) SetReadDeadline(t time.Time) error {
 func (s *mockStream) SetWriteDeadline(t time.Time) error {
 	return nil
 }
+
+// ============================================================================
+// addrToString Tests
+// ============================================================================
+
+func TestAddrToString(t *testing.T) {
+	tests := []struct {
+		name string
+		addr net.Addr
+		want string
+	}{
+		{
+			name: "nil address",
+			addr: nil,
+			want: "",
+		},
+		{
+			name: "mock address",
+			addr: &mockAddr{addr: "127.0.0.1:8080"},
+			want: "127.0.0.1:8080",
+		},
+		{
+			name: "empty address",
+			addr: &mockAddr{addr: ""},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := addrToString(tt.addr)
+			if got != tt.want {
+				t.Errorf("addrToString() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// Connection Address Tests
+// ============================================================================
+
+func TestConnection_LocalAddr(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+
+	tests := []struct {
+		name      string
+		localAddr string
+		want      string
+	}{
+		{
+			name:      "with address",
+			localAddr: "192.168.1.1:5000",
+			want:      "192.168.1.1:5000",
+		},
+		{
+			name:      "empty address",
+			localAddr: "",
+			want:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockConn := &mockPeerConn{localAddr: tt.localAddr}
+			conn := NewConnection(mockConn, cfg)
+			defer conn.Close()
+
+			if got := conn.LocalAddr(); got != tt.want {
+				t.Errorf("LocalAddr() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConnection_LocalAddr_NilConn(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+
+	// Set conn.conn to nil to test nil check
+	// Note: we don't defer Close() here because that would panic with nil conn
+	conn.conn = nil
+
+	if got := conn.LocalAddr(); got != "" {
+		t.Errorf("LocalAddr() with nil conn = %q, want empty string", got)
+	}
+}
+
+func TestConnection_RemoteAddr(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		want       string
+	}{
+		{
+			name:       "with address",
+			remoteAddr: "10.0.0.1:4433",
+			want:       "10.0.0.1:4433",
+		},
+		{
+			name:       "empty address",
+			remoteAddr: "",
+			want:       "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockConn := &mockPeerConn{remoteAddr: tt.remoteAddr}
+			conn := NewConnection(mockConn, cfg)
+			defer conn.Close()
+
+			if got := conn.RemoteAddr(); got != tt.want {
+				t.Errorf("RemoteAddr() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConnection_RemoteAddr_NilConn(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+
+	// Set conn.conn to nil to test nil check
+	// Note: we don't defer Close() here because that would panic with nil conn
+	conn.conn = nil
+
+	if got := conn.RemoteAddr(); got != "" {
+		t.Errorf("RemoteAddr() with nil conn = %q, want empty string", got)
+	}
+}
+
+func TestConnection_ConfigAddr(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	// Initially empty
+	if got := conn.ConfigAddr(); got != "" {
+		t.Errorf("ConfigAddr() initially = %q, want empty string", got)
+	}
+
+	// Set and verify
+	conn.SetConfigAddr("example.com:4433")
+	if got := conn.ConfigAddr(); got != "example.com:4433" {
+		t.Errorf("ConfigAddr() after set = %q, want %q", got, "example.com:4433")
+	}
+}
+
+// ============================================================================
+// Connection Transport Tests
+// ============================================================================
+
+func TestConnection_TransportType(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	if got := conn.TransportType(); got != transport.TransportQUIC {
+		t.Errorf("TransportType() = %q, want %q", got, transport.TransportQUIC)
+	}
+}
+
+func TestConnection_TransportType_NilConn(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+
+	// Set conn.conn to nil to test nil check
+	// Note: we don't defer Close() here because that would panic with nil conn
+	conn.conn = nil
+
+	if got := conn.TransportType(); got != "" {
+		t.Errorf("TransportType() with nil conn = %q, want empty string", got)
+	}
+}
+
+func TestConnection_IsDialer(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+
+	tests := []struct {
+		name     string
+		isDialer bool
+	}{
+		{"dialer", true},
+		{"listener", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockConn := &mockPeerConn{isDialer: tt.isDialer}
+			conn := NewConnection(mockConn, cfg)
+			defer conn.Close()
+
+			if got := conn.IsDialer(); got != tt.isDialer {
+				t.Errorf("IsDialer() = %v, want %v", got, tt.isDialer)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// Connection String Representation Tests
+// ============================================================================
+
+func TestConnection_String(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	remoteID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+
+	mockConn := &mockPeerConn{remoteAddr: "10.0.0.1:4433"}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	conn.RemoteID = remoteID
+
+	str := conn.String()
+
+	// Should contain the short ID
+	if !contains(str, remoteID.ShortString()) {
+		t.Errorf("String() = %q, should contain remote ID short string", str)
+	}
+
+	// Should contain the state
+	if !contains(str, "HANDSHAKING") {
+		t.Errorf("String() = %q, should contain state", str)
+	}
+
+	// Should contain the address
+	if !contains(str, "10.0.0.1:4433") {
+		t.Errorf("String() = %q, should contain address", str)
+	}
+}
+
+// contains checks if s contains substr
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// ============================================================================
+// Connection Ready/Context Tests
+// ============================================================================
+
+func TestConnection_Ready(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	// Ready channel should not be closed initially
+	select {
+	case <-conn.Ready():
+		t.Error("Ready channel should not be closed initially")
+	default:
+	}
+
+	// Mark as ready
+	conn.markReady()
+
+	// Ready channel should now be closed
+	select {
+	case <-conn.Ready():
+	default:
+		t.Error("Ready channel should be closed after markReady()")
+	}
+
+	// Multiple markReady calls should not panic
+	conn.markReady()
+	conn.markReady()
+}
+
+func TestConnection_Context(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+
+	ctx := conn.Context()
+	if ctx == nil {
+		t.Error("Context() should not return nil")
+	}
+
+	// Context should not be cancelled initially
+	select {
+	case <-ctx.Done():
+		t.Error("Context should not be cancelled initially")
+	default:
+	}
+
+	// Close connection
+	conn.Close()
+
+	// Context should be cancelled after close
+	select {
+	case <-ctx.Done():
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Context should be cancelled after close")
+	}
+}
+
+// ============================================================================
+// Connection Stream Tests
+// ============================================================================
+
+func TestConnection_NextStreamID(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+
+	t.Run("dialer gets odd IDs", func(t *testing.T) {
+		mockConn := &mockPeerConn{isDialer: true}
+		conn := NewConnection(mockConn, cfg)
+		defer conn.Close()
+
+		for i := 0; i < 5; i++ {
+			id := conn.NextStreamID()
+			if id%2 != 1 {
+				t.Errorf("Dialer NextStreamID() = %d, want odd number", id)
+			}
+		}
+	})
+
+	t.Run("listener gets even IDs", func(t *testing.T) {
+		mockConn := &mockPeerConn{isDialer: false}
+		conn := NewConnection(mockConn, cfg)
+		defer conn.Close()
+
+		for i := 0; i < 5; i++ {
+			id := conn.NextStreamID()
+			if id%2 != 0 {
+				t.Errorf("Listener NextStreamID() = %d, want even number", id)
+			}
+		}
+	})
+}
+
+func TestConnection_OpenStream_NotConnected(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	// State is HANDSHAKING, not CONNECTED
+	_, err := conn.OpenStream(context.Background())
+	if err == nil {
+		t.Error("OpenStream() should fail when not connected")
+	}
+}
+
+func TestConnection_OpenStream_Connected(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	conn.SetState(StateConnected)
+
+	stream, err := conn.OpenStream(context.Background())
+	if err != nil {
+		t.Errorf("OpenStream() error = %v, want nil", err)
+	}
+	if stream == nil {
+		t.Error("OpenStream() returned nil stream")
+	}
+}
+
+func TestConnection_AcceptStream(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	stream, err := conn.AcceptStream(context.Background())
+	if err != nil {
+		t.Errorf("AcceptStream() error = %v, want nil", err)
+	}
+	if stream == nil {
+		t.Error("AcceptStream() returned nil stream")
+	}
+}
+
+// ============================================================================
+// Connection Write Tests
+// ============================================================================
+
+func TestConnection_WriteFrame_NotInitialized(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	// Writer is nil
+	err := conn.WriteFrame(&protocol.Frame{
+		Type:     protocol.FrameStreamData,
+		StreamID: 1,
+		Payload:  []byte("test"),
+	})
+
+	if err == nil {
+		t.Error("WriteFrame() should fail when writer not initialized")
+	}
+}
+
+func TestConnection_WriteFrame_Success(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	// Set up a mock stream for the writer
+	mockStream := &mockStream{}
+	conn.writer = protocol.NewFrameWriter(mockStream)
+
+	err := conn.WriteFrame(&protocol.Frame{
+		Type:     protocol.FrameStreamData,
+		StreamID: 1,
+		Payload:  []byte("test"),
+	})
+
+	if err != nil {
+		t.Errorf("WriteFrame() error = %v, want nil", err)
+	}
+}
+
+func TestConnection_SendData(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	mockStream := &mockStream{}
+	conn.writer = protocol.NewFrameWriter(mockStream)
+
+	err := conn.SendData(1, []byte("hello"))
+	if err != nil {
+		t.Errorf("SendData() error = %v, want nil", err)
+	}
+
+	// Verify data was written to the stream
+	if len(mockStream.data) == 0 {
+		t.Error("SendData() should write data to stream")
+	}
+}
+
+func TestConnection_SendKeepalive(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	mockStream := &mockStream{}
+	conn.writer = protocol.NewFrameWriter(mockStream)
+
+	err := conn.SendKeepalive()
+	if err != nil {
+		t.Errorf("SendKeepalive() error = %v, want nil", err)
+	}
+
+	if len(mockStream.data) == 0 {
+		t.Error("SendKeepalive() should write data to stream")
+	}
+}
+
+func TestConnection_SendKeepaliveAck(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	mockStream := &mockStream{}
+	conn.writer = protocol.NewFrameWriter(mockStream)
+
+	timestamp := uint64(time.Now().UnixNano())
+	err := conn.SendKeepaliveAck(timestamp)
+	if err != nil {
+		t.Errorf("SendKeepaliveAck() error = %v, want nil", err)
+	}
+
+	if len(mockStream.data) == 0 {
+		t.Error("SendKeepaliveAck() should write data to stream")
+	}
+}
+
+// ============================================================================
+// Connection Capabilities Tests
+// ============================================================================
+
+func TestConnection_Capabilities(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	cfg := DefaultConnectionConfig(localID)
+	cfg.Capabilities = []string{"exit", "relay", "shell"}
+
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	defer conn.Close()
+
+	conn.capabilities = cfg.Capabilities
+
+	caps := conn.Capabilities()
+	if len(caps) != 3 {
+		t.Errorf("Capabilities() returned %d items, want 3", len(caps))
+	}
+}
+
+// ============================================================================
+// Manager Extended Tests
+// ============================================================================
+
+func TestManager_GetAllPeers(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	m := NewManager(cfg)
+	defer m.Close()
+
+	// Initially empty
+	peers := m.GetAllPeers()
+	if len(peers) != 0 {
+		t.Errorf("GetAllPeers() initially returned %d peers, want 0", len(peers))
+	}
+}
+
+func TestManager_GetPeerIDs(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	m := NewManager(cfg)
+	defer m.Close()
+
+	// Initially empty
+	ids := m.GetPeerIDs()
+	if len(ids) != 0 {
+		t.Errorf("GetPeerIDs() initially returned %d IDs, want 0", len(ids))
+	}
+}
+
+func TestManager_Broadcast_NoPeers(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	m := NewManager(cfg)
+	defer m.Close()
+
+	// Broadcast with no peers should succeed (no-op)
+	err := m.Broadcast(&protocol.Frame{
+		Type:     protocol.FrameStreamData,
+		StreamID: 1,
+		Payload:  []byte("test"),
+	})
+
+	if err != nil {
+		t.Errorf("Broadcast() with no peers error = %v, want nil", err)
+	}
+}
+
+func TestManager_Disconnect_NotFound(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	m := NewManager(cfg)
+	defer m.Close()
+
+	unknownID, _ := identity.NewAgentID()
+	err := m.Disconnect(unknownID)
+	if err == nil {
+		t.Error("Disconnect() should fail for unknown peer")
+	}
+}
+
+func TestManager_SendToPeer_NotFound(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	m := NewManager(cfg)
+	defer m.Close()
+
+	unknownID, _ := identity.NewAgentID()
+	err := m.SendToPeer(unknownID, &protocol.Frame{
+		Type:     protocol.FrameStreamData,
+		StreamID: 1,
+		Payload:  []byte("test"),
+	})
+
+	if err == nil {
+		t.Error("SendToPeer() should fail for unknown peer")
+	}
+}
+
+func TestManager_SetFrameCallback(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	m := NewManager(cfg)
+	defer m.Close()
+
+	m.SetFrameCallback(func(id identity.AgentID, frame *protocol.Frame) {
+		// Callback registered
+	})
+
+	// Verify callback was set
+	if m.cfg.OnFrame == nil {
+		t.Error("SetFrameCallback should set OnFrame callback")
+	}
+}
+
+func TestManager_SetFrameCallback_Nil(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	m := NewManager(cfg)
+	defer m.Close()
+
+	// Set a nil callback - should not panic
+	m.SetFrameCallback(nil)
+}
+
+func TestManager_buildConnectionConfig_WithInfo(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	expectedID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	cfg.Capabilities = []string{"exit", "relay"}
+	m := NewManager(cfg)
+	defer m.Close()
+
+	dialOpts := transport.DialOptions{
+		Timeout: 5 * time.Second,
+	}
+	info := &PeerInfo{
+		Address:     "10.0.0.1:4433",
+		ExpectedID:  expectedID,
+		Persistent:  true,
+		DialOptions: &dialOpts,
+	}
+
+	connCfg, opts := m.buildConnectionConfig(info)
+
+	if connCfg.LocalID != localID {
+		t.Error("buildConnectionConfig should set LocalID")
+	}
+	if connCfg.ExpectedPeerID != expectedID {
+		t.Error("buildConnectionConfig should set ExpectedPeerID from info")
+	}
+	if len(connCfg.Capabilities) != 2 {
+		t.Errorf("buildConnectionConfig Capabilities = %d, want 2", len(connCfg.Capabilities))
+	}
+	if opts.Timeout != 5*time.Second {
+		t.Errorf("buildConnectionConfig DialOptions.Timeout = %v, want 5s", opts.Timeout)
+	}
+}
+
+func TestManager_buildConnectionConfig_NilInfo(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	tr := transport.NewQUICTransport()
+	defer tr.Close()
+
+	cfg := DefaultManagerConfig(localID, tr)
+	cfg.DialOptions = transport.DialOptions{
+		Timeout: 10 * time.Second,
+	}
+	m := NewManager(cfg)
+	defer m.Close()
+
+	connCfg, opts := m.buildConnectionConfig(nil)
+
+	if connCfg.LocalID != localID {
+		t.Error("buildConnectionConfig with nil info should set LocalID")
+	}
+	if connCfg.ExpectedPeerID != (identity.AgentID{}) {
+		t.Error("buildConnectionConfig with nil info should have empty ExpectedPeerID")
+	}
+	if opts.Timeout != 10*time.Second {
+		t.Error("buildConnectionConfig with nil info should use default DialOptions")
+	}
+}
+
+// ============================================================================
+// Reconnector Extended Tests
+// ============================================================================
+
+func TestReconnector_GetAttempts(t *testing.T) {
+	cfg := ReconnectConfig{
+		InitialDelay: 10 * time.Millisecond,
+		MaxDelay:     100 * time.Millisecond,
+		Multiplier:   2.0,
+		MaxAttempts:  0,
+	}
+
+	callback := func(addr string) error {
+		return context.DeadlineExceeded
+	}
+
+	r := NewReconnector(cfg, callback)
+	defer r.Stop()
+
+	// Initially 0 attempts
+	if r.GetAttempts("127.0.0.1:8080") != 0 {
+		t.Error("GetAttempts should return 0 for unknown address")
+	}
+
+	// Schedule and wait for an attempt
+	r.Schedule("127.0.0.1:8080")
+	time.Sleep(50 * time.Millisecond)
+
+	attempts := r.GetAttempts("127.0.0.1:8080")
+	if attempts < 1 {
+		t.Errorf("GetAttempts after schedule = %d, want >= 1", attempts)
+	}
+}
+
+func TestReconnector_Reset(t *testing.T) {
+	cfg := ReconnectConfig{
+		InitialDelay: 100 * time.Millisecond,
+		MaxDelay:     1 * time.Second,
+		Multiplier:   2.0,
+		MaxAttempts:  0,
+	}
+
+	callback := func(addr string) error {
+		return context.DeadlineExceeded
+	}
+
+	r := NewReconnector(cfg, callback)
+	defer r.Stop()
+
+	// Schedule reconnection
+	r.Schedule("127.0.0.1:8080")
+
+	// Verify pending
+	if !r.IsPending("127.0.0.1:8080") {
+		t.Error("Should be pending after Schedule")
+	}
+
+	// Reset (same as Cancel)
+	r.Reset("127.0.0.1:8080")
+
+	// Should not be pending
+	if r.IsPending("127.0.0.1:8080") {
+		t.Error("Should not be pending after Reset")
+	}
+}
+
+func TestReconnector_clearState(t *testing.T) {
+	cfg := ReconnectConfig{
+		InitialDelay: 100 * time.Millisecond,
+		MaxDelay:     1 * time.Second,
+		Multiplier:   2.0,
+		MaxAttempts:  0,
+	}
+
+	callback := func(addr string) error {
+		return context.DeadlineExceeded
+	}
+
+	r := NewReconnector(cfg, callback)
+	defer r.Stop()
+
+	// Schedule reconnection
+	r.Schedule("127.0.0.1:8080")
+	r.Schedule("127.0.0.1:8081")
+
+	// Clear one
+	r.clearState("127.0.0.1:8080")
+
+	if r.IsPending("127.0.0.1:8080") {
+		t.Error("Should not be pending after clearState")
+	}
+	if !r.IsPending("127.0.0.1:8081") {
+		t.Error("Other address should still be pending")
+	}
+
+	// Clear non-existent address (should not panic)
+	r.clearState("192.168.1.1:9999")
+}
+
+func TestReconnector_addJitter(t *testing.T) {
+	tests := []struct {
+		name      string
+		jitter    float64
+		duration  time.Duration
+		wantExact bool // If true, result should equal duration exactly
+	}{
+		{
+			name:      "no jitter",
+			jitter:    0,
+			duration:  1 * time.Second,
+			wantExact: true,
+		},
+		{
+			name:      "negative jitter treated as zero",
+			jitter:    -0.5,
+			duration:  1 * time.Second,
+			wantExact: true,
+		},
+		{
+			name:      "with jitter",
+			jitter:    0.2,
+			duration:  1 * time.Second,
+			wantExact: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := ReconnectConfig{
+				InitialDelay: 1 * time.Second,
+				MaxDelay:     60 * time.Second,
+				Multiplier:   2.0,
+				Jitter:       tt.jitter,
+			}
+			r := NewReconnector(cfg, nil)
+			defer r.Stop()
+
+			result := r.addJitter(tt.duration)
+
+			if tt.wantExact {
+				if result != tt.duration {
+					t.Errorf("addJitter() = %v, want %v", result, tt.duration)
+				}
+			} else {
+				// With jitter, result should be different from exact value (usually)
+				// Just verify it's positive
+				if result <= 0 {
+					t.Errorf("addJitter() = %v, want positive duration", result)
+				}
+			}
+		})
+	}
+}
+
+func TestReconnector_Schedule_AlreadyClosed(t *testing.T) {
+	cfg := ReconnectConfig{
+		InitialDelay: 100 * time.Millisecond,
+		MaxDelay:     1 * time.Second,
+		Multiplier:   2.0,
+	}
+
+	callback := func(addr string) error {
+		return nil
+	}
+
+	r := NewReconnector(cfg, callback)
+	r.Stop()
+
+	// Schedule after stop should not panic
+	r.Schedule("127.0.0.1:8080")
+
+	// Should not be pending since reconnector is closed
+	if r.IsPending("127.0.0.1:8080") {
+		t.Error("Should not be pending after Stop")
+	}
+}
+
+func TestBackoffCalculator_EdgeCases(t *testing.T) {
+	cfg := ReconnectConfig{
+		InitialDelay: 1 * time.Second,
+		MaxDelay:     10 * time.Second,
+		Multiplier:   2.0,
+	}
+	calc := NewBackoffCalculator(cfg)
+
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{-5, 1 * time.Second},  // Negative attempt should return initial
+		{-1, 1 * time.Second},  // Negative attempt
+		{0, 1 * time.Second},   // Zero attempt
+		{1, 2 * time.Second},   // First retry
+		{10, 10 * time.Second}, // Should be capped at max
+		{100, 10 * time.Second},
+	}
+
+	for _, tt := range tests {
+		got := calc.CalculateDelay(tt.attempt)
+		if got != tt.want {
+			t.Errorf("CalculateDelay(%d) = %v, want %v", tt.attempt, got, tt.want)
+		}
+	}
+}
