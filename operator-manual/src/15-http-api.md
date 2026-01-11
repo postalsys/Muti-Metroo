@@ -120,7 +120,7 @@ curl http://localhost:8080/agents | jq
 Get status from a specific agent:
 
 ```bash
-curl http://localhost:8080/agents/abc123def456/status | jq
+curl http://localhost:8080/agents/abc123def456 | jq
 ```
 
 ### GET /agents/{agent-id}/routes

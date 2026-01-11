@@ -159,6 +159,9 @@ management:
 | `/agents/{id}` | GET | Agent status |
 | `/agents/{id}/routes` | GET | Agent routes |
 | `/agents/{id}/peers` | GET | Agent peers |
+| `/agents/{id}/shell` | GET | WebSocket shell |
+| `/agents/{id}/file/upload` | POST | Upload file |
+| `/agents/{id}/file/download` | POST | Download file |
 | `/routes/advertise` | POST | Trigger route advertisement |
 
 ## Environment Variables

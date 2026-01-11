@@ -74,6 +74,7 @@ routing:
 connections:
   idle_threshold: 5m
   timeout: 90s
+  keepalive_jitter: 0.2
   reconnect:
     initial_delay: 1s
     max_delay: 60s
@@ -117,6 +118,18 @@ file_transfer:
 management:
   public_key: ""
   private_key: ""
+
+# UDP relay
+udp:
+  enabled: false
+  max_associations: 1000
+  idle_timeout: 5m
+  max_datagram_size: 1472
+
+# Port forwarding
+forward:
+  endpoints: []
+  listeners: []
 ```
 
 ## Agent Section
