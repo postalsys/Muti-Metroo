@@ -22,12 +22,20 @@ This downloads from your local web server, tunneled through the mesh.
 
 Port forwarding creates **reverse tunnels** - the opposite direction from SOCKS5 proxy:
 
+```mermaid
+flowchart LR
+    subgraph socks["SOCKS5 (Outbound)"]
+        direction LR
+        S1[Your App] --> S2[Ingress] --> S3[Transit] --> S4[Exit] --> S5[Remote Server]
+    end
 ```
-SOCKS5 (Outbound - you reach remote destinations):
-  Your App --> Ingress Agent --> Transit --> Exit Agent --> Remote Server
 
-Port Forwarding (Inbound - remote machines reach you):
-  Your Service <-- Endpoint Agent <-- Transit <-- Listener Agent <-- Remote Client
+```mermaid
+flowchart RL
+    subgraph forward["Port Forwarding (Inbound)"]
+        direction RL
+        P1[Remote Client] --> P2[Listener] --> P3[Transit] --> P4[Endpoint] --> P5[Your Service]
+    end
 ```
 
 **Endpoints** run on the agent with access to your service. **Listeners** run on agents where remote clients will connect.

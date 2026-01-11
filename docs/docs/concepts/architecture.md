@@ -129,8 +129,9 @@ Understanding the difference between transport connections and virtual streams i
 
 **Transport connections** are the underlying network pipes between agents. When Agent B has Agent A configured as a `peer`, Agent B **dials** Agent A (who must have a `listener`):
 
-```
-Transport: Agent B (dialer) -----> Agent A (listener)
+```mermaid
+flowchart LR
+    B["Agent B<br/>(dialer)"] -->|Transport Connection| A["Agent A<br/>(listener)"]
 ```
 
 **Virtual streams** are logical TCP tunnels created on top of transport connections. They represent actual data flows through the mesh.
