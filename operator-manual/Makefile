@@ -63,9 +63,11 @@ $(BUILD_DIR)/combined.md: mermaid
 		-e 's/!\[diagram\](\.\/01-introduction-2/![Corporate network access topology](\.\/01-introduction-2/g' \
 		-e 's/!\[diagram\](\.\/01-introduction-3/![Multi-site connectivity topology](\.\/01-introduction-3/g' \
 		-e 's/!\[diagram\](\.\/07-agent-roles-1/![Agent roles in mesh network](\.\/07-agent-roles-1/g' \
-		-e 's/!\[diagram\](\.\/08-transports-1/![Transport selection decision tree](\.\/08-transports-1/g' \
-		-e 's/!\[diagram\](\.\/21-mutiauk-1/![Mutiauk TUN interface flow](\.\/21-mutiauk-1/g' \
-		-e 's/!\[diagram\](\.\/21-mutiauk-2/![Red team multi-network pivot topology](\.\/21-mutiauk-2/g' \
+		-e 's/!\[diagram\](\.\/07-agent-roles-2/![Bidirectional stream flow between agents](\.\/07-agent-roles-2/g' \
+		-e 's/!\[diagram\](\.\/08-transports-1/![Mixed transport mesh topology](\.\/08-transports-1/g' \
+		-e 's/!\[diagram\](\.\/10-tun-interface-1/![TUN interface traffic flow](\.\/10-tun-interface-1/g' \
+		-e 's/!\[diagram\](\.\/10-tun-interface-2/![Red team multi-network pivot topology](\.\/10-tun-interface-2/g' \
+		-e 's/!\[diagram\](\.\/15-port-forwarding-1/![SOCKS5 vs port forwarding traffic direction](\.\/15-port-forwarding-1/g' \
 		$@ && rm -f $@.bak
 	@# Copy diagram files to build dir so pandoc can find them
 	@for ext in png pdf svg; do \
