@@ -271,12 +271,15 @@ A common misconception is that connection direction determines agent roles. This
 
 Consider this topology where Agent B dials Agent A:
 
-```
-                Agent A                           Agent B
-        +-------------------+             +-------------------+
-        | SOCKS5 Ingress    |             | SOCKS5 Ingress    |
-        | Exit: 10.0.0.0/8  |<---dial-----| Exit: 192.168.0.0/16|
-        +-------------------+             +-------------------+
+```mermaid
+flowchart LR
+    subgraph A["Agent A"]
+        A1["SOCKS5 Ingress<br/>Exit: 10.0.0.0/8"]
+    end
+    subgraph B["Agent B"]
+        B1["SOCKS5 Ingress<br/>Exit: 192.168.0.0/16"]
+    end
+    B1 -->|dial| A1
 ```
 
 Even though B dialed A, virtual streams can flow **both directions**:

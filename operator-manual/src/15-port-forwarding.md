@@ -8,14 +8,16 @@ Port forwarding creates **reverse tunnels** through the mesh network. Unlike SOC
 
 **Primary use case**: Distribute tools, receive callbacks, or expose services without direct network connectivity.
 
-```
-Traffic Direction Comparison:
-
-SOCKS5 (Outbound - you reach remote):
-  Your App --> Ingress Agent --> Transit --> Exit Agent --> Target Server
-
-Port Forwarding (Inbound - remote reaches you):
-  Your Service <-- Endpoint Agent <-- Transit <-- Listener Agent <-- Remote Client
+```mermaid
+flowchart LR
+    subgraph socks["SOCKS5 (Outbound)"]
+        direction LR
+        A1[Your App] --> A2[Ingress] --> A3[Transit] --> A4[Exit] --> A5[Target Server]
+    end
+    subgraph forward["Port Forwarding (Inbound)"]
+        direction RL
+        B1[Remote Client] --> B2[Listener] --> B3[Transit] --> B4[Endpoint] --> B5[Your Service]
+    end
 ```
 
 ## Quick Reference
