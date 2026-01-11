@@ -988,6 +988,16 @@ type PeerConnectionInfo struct {
 // MaxPeersInNodeInfo is the maximum number of peers to include in NodeInfo.
 const MaxPeersInNodeInfo = 50
 
+// MaxForwardListenersInNodeInfo is the maximum number of forward listeners to include in NodeInfo.
+const MaxForwardListenersInNodeInfo = 20
+
+// ForwardListenerInfo contains port forward listener information for NodeInfo.
+// Used to advertise which agents have listeners for specific forward routing keys.
+type ForwardListenerInfo struct {
+	Key     string // Routing key (e.g., "web-server")
+	Address string // Listen address (e.g., ":8080", "0.0.0.0:443")
+}
+
 // NodeInfo contains metadata about an agent in the mesh.
 type NodeInfo struct {
 	DisplayName string                 // Human-readable name (from config)
@@ -998,8 +1008,9 @@ type NodeInfo struct {
 	StartTime   int64                  // Agent start time (Unix timestamp)
 	IPAddresses []string               // Local IP addresses (non-loopback)
 	Peers       []PeerConnectionInfo   // Connected peers (max 50)
-	PublicKey   [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
-	UDPEnabled  bool                   // UDP relay enabled (for exit agents)
+	PublicKey        [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
+	UDPEnabled       bool                   // UDP relay enabled (for exit agents)
+	ForwardListeners []ForwardListenerInfo  // Port forward listeners (for ingress agents)
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -1009,6 +1020,12 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	peers := info.Peers
 	if len(peers) > MaxPeersInNodeInfo {
 		peers = peers[:MaxPeersInNodeInfo]
+	}
+
+	// Limit forward listeners to max
+	forwardListeners := info.ForwardListeners
+	if len(forwardListeners) > MaxForwardListenersInNodeInfo {
+		forwardListeners = forwardListeners[:MaxForwardListenersInNodeInfo]
 	}
 
 	// Calculate size
@@ -1027,6 +1044,10 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 		size += 16 + 1 + len(peer.Transport) + 8 + 1
 	}
 	size += EphemeralKeySize + 1 // PublicKey + UDPEnabled
+	size += 1                    // ForwardListenerCount
+	for _, fl := range forwardListeners {
+		size += 1 + len(fl.Key) + 1 + len(fl.Address)
+	}
 
 	w := newBufferWriter(size)
 	w.writeString(info.DisplayName)
@@ -1053,6 +1074,13 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 
 	w.writeBytes(info.PublicKey[:])
 	w.writeBool(info.UDPEnabled)
+
+	// ForwardListeners
+	w.writeUint8(uint8(len(forwardListeners)))
+	for _, fl := range forwardListeners {
+		w.writeString(fl.Key)
+		w.writeString(fl.Address)
+	}
 
 	return w.bytes()
 }
@@ -1117,16 +1145,28 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 	// UDP info (optional - for backward compatibility with older agents)
 	if r.remaining() > 0 {
 		info.UDPEnabled = r.readBool()
-		// Skip over legacy UDPAllowedPorts data if present
-		if r.remaining() > 0 {
-			portCount := int(r.readUint8())
-			for i := 0; i < portCount && r.remaining() > 0; i++ {
-				portLen := int(r.readUint8())
-				if r.remaining() < portLen {
-					break
-				}
-				r.offset += portLen // Skip port data
+	}
+
+	// ForwardListeners (optional - for backward compatibility with older agents)
+	if r.remaining() > 0 {
+		listenerCount := int(r.readUint8())
+		if listenerCount > MaxForwardListenersInNodeInfo {
+			listenerCount = MaxForwardListenersInNodeInfo
+		}
+		info.ForwardListeners = make([]ForwardListenerInfo, 0, listenerCount)
+		for i := 0; i < listenerCount && r.remaining() > 0; i++ {
+			key := r.readString()
+			if r.remaining() < 1 {
+				break
 			}
+			address := r.readString()
+			if r.err != nil {
+				break
+			}
+			info.ForwardListeners = append(info.ForwardListeners, ForwardListenerInfo{
+				Key:     key,
+				Address: address,
+			})
 		}
 	}
 

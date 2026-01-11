@@ -350,16 +350,18 @@ type DashboardDomainRouteInfo struct {
 }
 
 // DashboardPortForwardRouteInfo contains information about a port forward route.
+// Shows ingress-exit pairs for port forwarding routes.
 type DashboardPortForwardRouteInfo struct {
 	Key             string   `json:"key"`                        // Port forward routing key
-	ListenerAddress string   `json:"listener_address,omitempty"` // Listener address (if local listener exists)
-	Target          string   `json:"target,omitempty"`           // Target address
-	Origin          string   `json:"origin"`                     // Display name of origin
-	OriginID        string   `json:"origin_id"`                  // Short ID of origin
-	HopCount        int      `json:"hop_count"`                  // Number of hops to origin
-	PathDisplay     []string `json:"path_display"`               // Display names: [local, peer1, ..., origin]
+	IngressAgent    string   `json:"ingress_agent"`              // Display name of ingress agent
+	IngressAgentID  string   `json:"ingress_agent_id"`           // Short ID of ingress agent
+	ListenerAddress string   `json:"listener_address,omitempty"` // Ingress listen address
+	ExitAgent       string   `json:"exit_agent"`                 // Display name of exit agent
+	ExitAgentID     string   `json:"exit_agent_id"`              // Short ID of exit agent
+	Target          string   `json:"target,omitempty"`           // Exit target address
+	HopCount        int      `json:"hop_count"`                  // Number of hops from ingress to exit
+	PathDisplay     []string `json:"path_display"`               // Path from ingress to exit: [ingress, ..., exit]
 	PathIDs         []string `json:"path_ids"`                   // Short IDs for path highlighting
-	IsLocal         bool     `json:"is_local"`                   // True if this is a local port forward endpoint
 }
 
 // DashboardResponse is the response for the /api/dashboard endpoint.
@@ -1619,30 +1621,134 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return domainRoutes[i].OriginID < domainRoutes[j].OriginID
 	})
 
-	// Build port forward routes
+	// Build port forward routes as ingress-exit pairs
 	forwardRouteDetails := s.remoteProvider.GetPortForwardRouteDetails()
-	forwardRoutes := make([]DashboardPortForwardRouteInfo, 0, len(forwardRouteDetails))
-	for _, route := range forwardRouteDetails {
-		pathDisplay, pathIDs := buildPath(route.Path)
-		forwardRoutes = append(forwardRoutes, DashboardPortForwardRouteInfo{
-			Key:             route.Key,
-			ListenerAddress: route.ListenerAddress,
-			Target:          route.Target,
-			Origin:          getDisplayName(route.Origin),
-			OriginID:        route.Origin.ShortString(),
-			HopCount:        route.HopCount,
-			PathDisplay:     pathDisplay,
-			PathIDs:         pathIDs,
-			IsLocal:         route.IsLocal,
-		})
+
+	// Build listener map from node info: key -> list of (agentID, address)
+	type listenerInfo struct {
+		agentID identity.AgentID
+		address string
+	}
+	listenersByKey := make(map[string][]listenerInfo)
+	for agentID, nodeInfo := range allNodeInfo {
+		if nodeInfo == nil {
+			continue
+		}
+		for _, fl := range nodeInfo.ForwardListeners {
+			listenersByKey[fl.Key] = append(listenersByKey[fl.Key], listenerInfo{
+				agentID: agentID,
+				address: fl.Address,
+			})
+		}
+	}
+	// Also check local node info
+	localNodeInfo := s.remoteProvider.GetLocalNodeInfo()
+	if localNodeInfo != nil {
+		for _, fl := range localNodeInfo.ForwardListeners {
+			listenersByKey[fl.Key] = append(listenersByKey[fl.Key], listenerInfo{
+				agentID: localID,
+				address: fl.Address,
+			})
+		}
 	}
 
-	// Sort port forward routes by key, then by origin
+	// Build adjacency graph for hop calculation from node info peer connections
+	adj := make(map[identity.AgentID]map[identity.AgentID]bool)
+	addEdge := func(a, b identity.AgentID) {
+		if adj[a] == nil {
+			adj[a] = make(map[identity.AgentID]bool)
+		}
+		if adj[b] == nil {
+			adj[b] = make(map[identity.AgentID]bool)
+		}
+		adj[a][b] = true
+		adj[b][a] = true
+	}
+	for agentID, nodeInfo := range allNodeInfo {
+		if nodeInfo == nil {
+			continue
+		}
+		for _, peer := range nodeInfo.Peers {
+			addEdge(agentID, identity.AgentID(peer.PeerID))
+		}
+	}
+	if localNodeInfo != nil {
+		for _, peer := range localNodeInfo.Peers {
+			addEdge(localID, identity.AgentID(peer.PeerID))
+		}
+	}
+
+	// BFS to compute hops between two agents
+	computeHops := func(from, to identity.AgentID) int {
+		if from == to {
+			return 0
+		}
+		visited := make(map[identity.AgentID]bool)
+		queue := []struct {
+			id   identity.AgentID
+			hops int
+		}{{from, 0}}
+		visited[from] = true
+		for len(queue) > 0 {
+			curr := queue[0]
+			queue = queue[1:]
+			for neighbor := range adj[curr.id] {
+				if neighbor == to {
+					return curr.hops + 1
+				}
+				if !visited[neighbor] {
+					visited[neighbor] = true
+					queue = append(queue, struct {
+						id   identity.AgentID
+						hops int
+					}{neighbor, curr.hops + 1})
+				}
+			}
+		}
+		return -1 // No path found
+	}
+
+	// Group exit routes by key
+	exitsByKey := make(map[string][]PortForwardRouteDetails)
+	for _, route := range forwardRouteDetails {
+		exitsByKey[route.Key] = append(exitsByKey[route.Key], route)
+	}
+
+	// Build cross-product of listeners x exits for each key
+	var forwardRoutes []DashboardPortForwardRouteInfo
+	for key, exits := range exitsByKey {
+		listeners := listenersByKey[key]
+		for _, exit := range exits {
+			for _, listener := range listeners {
+				hops := computeHops(listener.agentID, exit.Origin)
+				if hops < 0 {
+					hops = 0 // Fallback if no path found
+				}
+				forwardRoutes = append(forwardRoutes, DashboardPortForwardRouteInfo{
+					Key:             key,
+					IngressAgent:    getDisplayName(listener.agentID),
+					IngressAgentID:  listener.agentID.ShortString(),
+					ListenerAddress: listener.address,
+					ExitAgent:       getDisplayName(exit.Origin),
+					ExitAgentID:     exit.Origin.ShortString(),
+					Target:          exit.Target,
+					HopCount:        hops,
+					PathDisplay:     []string{getDisplayName(listener.agentID), getDisplayName(exit.Origin)},
+					PathIDs:         []string{listener.agentID.ShortString(), exit.Origin.ShortString()},
+				})
+			}
+		}
+	}
+
+	// Sort port forward routes by key, then by ingress, then by exit
 	sort.Slice(forwardRoutes, func(i, j int) bool {
 		if forwardRoutes[i].Key != forwardRoutes[j].Key {
 			return forwardRoutes[i].Key < forwardRoutes[j].Key
 		}
-		return forwardRoutes[i].OriginID < forwardRoutes[j].OriginID
+		if forwardRoutes[i].IngressAgentID != forwardRoutes[j].IngressAgentID {
+			return forwardRoutes[i].IngressAgentID < forwardRoutes[j].IngressAgentID
+		}
+		return forwardRoutes[i].ExitAgentID < forwardRoutes[j].ExitAgentID
 	})
 
 	writeJSON(w, http.StatusOK, DashboardResponse{

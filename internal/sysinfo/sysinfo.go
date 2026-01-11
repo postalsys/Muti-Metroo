@@ -76,10 +76,16 @@ type UDPConfig struct {
 	Enabled bool
 }
 
+// ForwardConfig contains port forward listener configuration for node info advertisements.
+type ForwardConfig struct {
+	Listeners []protocol.ForwardListenerInfo
+}
+
 // The peers parameter contains current peer connection details to include in the advertisement.
 // The publicKey parameter is the agent's X25519 public key for E2E encryption.
 // The udpConfig parameter is optional and can be nil if UDP is not configured.
-func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte, udpConfig *UDPConfig) *protocol.NodeInfo {
+// The forwardConfig parameter is optional and can be nil if no forward listeners are configured.
+func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte, udpConfig *UDPConfig, forwardConfig *ForwardConfig) *protocol.NodeInfo {
 	hostname, _ := os.Hostname()
 
 	info := &protocol.NodeInfo{
@@ -97,6 +103,11 @@ func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey 
 	// Add UDP config if provided
 	if udpConfig != nil {
 		info.UDPEnabled = udpConfig.Enabled
+	}
+
+	// Add forward listeners if provided
+	if forwardConfig != nil {
+		info.ForwardListeners = forwardConfig.Listeners
 	}
 
 	return info

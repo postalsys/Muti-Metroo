@@ -549,7 +549,7 @@ func (a *Agent) Start() error {
 	// Initial node info announcement (with small delay for peer connections)
 	go func() {
 		time.Sleep(2 * time.Second) // Wait for initial peer connections
-		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig())
+		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
@@ -1150,7 +1150,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			}
 
 			// Collect and announce local node info with current peer connections
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig())
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -2893,7 +2893,7 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig())
+	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig())
 }
 
 // getUDPConfig returns the UDP configuration for node info advertisements.
@@ -2901,6 +2901,23 @@ func (a *Agent) getUDPConfig() *sysinfo.UDPConfig {
 	return &sysinfo.UDPConfig{
 		Enabled: a.cfg.UDP.Enabled,
 	}
+}
+
+// getForwardConfig returns the forward listener configuration for node info advertisements.
+func (a *Agent) getForwardConfig() *sysinfo.ForwardConfig {
+	var listeners []protocol.ForwardListenerInfo
+	for _, listener := range a.forwardListeners {
+		if addr := listener.Address(); addr != nil {
+			listeners = append(listeners, protocol.ForwardListenerInfo{
+				Key:     listener.Key(),
+				Address: addr.String(),
+			})
+		}
+	}
+	if len(listeners) == 0 {
+		return nil
+	}
+	return &sysinfo.ForwardConfig{Listeners: listeners}
 }
 
 // GetSOCKS5Info returns SOCKS5 configuration info for the dashboard.

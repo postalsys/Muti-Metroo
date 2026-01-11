@@ -130,15 +130,13 @@ class Dashboard {
             // Target display
             const targetDisplay = route.target || '-';
 
-            // Local indicator
-            const localBadge = route.is_local ? '<span class="local-badge">local</span>' : '';
-
             return `
                 <tr class="route-row forward-route-row" data-path-ids='${pathData}'>
                     <td class="route-key"><code>${route.key}</code></td>
+                    <td title="${route.ingress_agent_id}">${route.ingress_agent}</td>
                     <td><code>${listenerDisplay}</code></td>
+                    <td title="${route.exit_agent_id}">${route.exit_agent}</td>
                     <td><code>${targetDisplay}</code></td>
-                    <td title="${route.origin_id}">${route.origin}${localBadge}</td>
                     <td>${route.hop_count}</td>
                 </tr>
             `;

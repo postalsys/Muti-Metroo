@@ -875,3 +875,117 @@ func (m *Manager) ForwardSize() int {
 func (m *Manager) TotalForwardRoutes() int {
 	return m.forwardTable.TotalRoutes()
 }
+
+// ForwardListenerAgent represents an agent with a forward listener.
+type ForwardListenerAgent struct {
+	AgentID identity.AgentID
+	Address string // Listen address
+}
+
+// GetForwardListenerAgents returns all agents that have a listener for the given key.
+// This uses NodeInfo data propagated through the mesh.
+func (m *Manager) GetForwardListenerAgents(key string) []ForwardListenerAgent {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []ForwardListenerAgent
+	for agentID, entry := range m.nodeInfos {
+		if entry.Info == nil {
+			continue
+		}
+		for _, listener := range entry.Info.ForwardListeners {
+			if listener.Key == key {
+				result = append(result, ForwardListenerAgent{
+					AgentID: agentID,
+					Address: listener.Address,
+				})
+				break // Only one listener per key per agent
+			}
+		}
+	}
+	return result
+}
+
+// GetAllForwardListeners returns all known forward listeners from all agents.
+// Returns a map of key -> list of agents with that listener.
+func (m *Manager) GetAllForwardListeners() map[string][]ForwardListenerAgent {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make(map[string][]ForwardListenerAgent)
+	for agentID, entry := range m.nodeInfos {
+		if entry.Info == nil {
+			continue
+		}
+		for _, listener := range entry.Info.ForwardListeners {
+			result[listener.Key] = append(result[listener.Key], ForwardListenerAgent{
+				AgentID: agentID,
+				Address: listener.Address,
+			})
+		}
+	}
+	return result
+}
+
+// GetHopsBetweenAgents computes the shortest path (hop count) between two agents.
+// Uses BFS on the peer connection graph from NodeInfo.
+// Returns -1 if no path exists or either agent is unknown.
+func (m *Manager) GetHopsBetweenAgents(from, to identity.AgentID) int {
+	if from == to {
+		return 0
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Build adjacency list from peer connections
+	adj := make(map[identity.AgentID][]identity.AgentID)
+	for agentID, entry := range m.nodeInfos {
+		if entry.Info == nil {
+			continue
+		}
+		for _, peer := range entry.Info.Peers {
+			peerID := identity.AgentID(peer.PeerID)
+			adj[agentID] = append(adj[agentID], peerID)
+			// Add reverse edge (connections are bidirectional)
+			adj[peerID] = append(adj[peerID], agentID)
+		}
+	}
+
+	// Also add local agent's connections
+	if entry, ok := m.nodeInfos[m.localID]; ok && entry.Info != nil {
+		for _, peer := range entry.Info.Peers {
+			peerID := identity.AgentID(peer.PeerID)
+			adj[m.localID] = append(adj[m.localID], peerID)
+			adj[peerID] = append(adj[peerID], m.localID)
+		}
+	}
+
+	// BFS from 'from' to 'to'
+	visited := make(map[identity.AgentID]bool)
+	queue := []struct {
+		id   identity.AgentID
+		hops int
+	}{{from, 0}}
+	visited[from] = true
+
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+
+		for _, neighbor := range adj[curr.id] {
+			if neighbor == to {
+				return curr.hops + 1
+			}
+			if !visited[neighbor] {
+				visited[neighbor] = true
+				queue = append(queue, struct {
+					id   identity.AgentID
+					hops int
+				}{neighbor, curr.hops + 1})
+			}
+		}
+	}
+
+	return -1 // No path found
+}
