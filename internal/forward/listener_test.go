@@ -27,14 +27,14 @@ func (m *mockDialer) DialForward(ctx context.Context, key string) (net.Conn, err
 
 // mockConn is a mock net.Conn for testing.
 type mockConn struct {
-	readData  []byte
-	readIdx   int
-	writeData []byte
-	writeMu   sync.Mutex
-	closed    atomic.Bool
-	readErr   error
-	writeErr  error
-	localAddr net.Addr
+	readData   []byte
+	readIdx    int
+	writeData  []byte
+	writeMu    sync.Mutex
+	closed     atomic.Bool
+	readErr    error
+	writeErr   error
+	localAddr  net.Addr
 	remoteAddr net.Addr
 }
 
@@ -82,8 +82,8 @@ func (m *mockConn) Close() error {
 	return nil
 }
 
-func (m *mockConn) LocalAddr() net.Addr  { return m.localAddr }
-func (m *mockConn) RemoteAddr() net.Addr { return m.remoteAddr }
+func (m *mockConn) LocalAddr() net.Addr                { return m.localAddr }
+func (m *mockConn) RemoteAddr() net.Addr               { return m.remoteAddr }
 func (m *mockConn) SetDeadline(t time.Time) error      { return nil }
 func (m *mockConn) SetReadDeadline(t time.Time) error  { return nil }
 func (m *mockConn) SetWriteDeadline(t time.Time) error { return nil }

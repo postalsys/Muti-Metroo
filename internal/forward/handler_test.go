@@ -41,11 +41,11 @@ type dataWrite struct {
 }
 
 type ackWrite struct {
-	PeerID      identity.AgentID
-	StreamID    uint64
-	RequestID   uint64
-	BoundIP     net.IP
-	BoundPort   uint16
+	PeerID       identity.AgentID
+	StreamID     uint64
+	RequestID    uint64
+	BoundIP      net.IP
+	BoundPort    uint16
 	EphemeralPub [crypto.KeySize]byte
 }
 
@@ -84,11 +84,11 @@ func (m *mockStreamWriter) WriteStreamOpenAck(peerID identity.AgentID, streamID 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.acks = append(m.acks, ackWrite{
-		PeerID:      peerID,
-		StreamID:    streamID,
-		RequestID:   requestID,
-		BoundIP:     boundIP,
-		BoundPort:   boundPort,
+		PeerID:       peerID,
+		StreamID:     streamID,
+		RequestID:    requestID,
+		BoundIP:      boundIP,
+		BoundPort:    boundPort,
 		EphemeralPub: ephemeralPubKey,
 	})
 	return nil
@@ -588,56 +588,6 @@ func TestHandler_MapDialError(t *testing.T) {
 			code := handler.mapDialError(tt.err)
 			if code != tt.expected {
 				t.Errorf("mapDialError(%v): expected %d, got %d", tt.err, tt.expected, code)
-			}
-		})
-	}
-}
-
-func TestContains(t *testing.T) {
-	tests := []struct {
-		s      string
-		substr string
-		want   bool
-	}{
-		{"hello world", "world", true},
-		{"hello world", "WORLD", true},
-		{"hello world", "foo", false},
-		{"connection refused", "refused", true},
-		{"CONNECTION REFUSED", "refused", true},
-		{"", "foo", false},
-		{"foo", "", true},
-		{"", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.s+"_"+tt.substr, func(t *testing.T) {
-			got := contains(tt.s, tt.substr)
-			if got != tt.want {
-				t.Errorf("contains(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestToLower(t *testing.T) {
-	tests := []struct {
-		input    byte
-		expected byte
-	}{
-		{'A', 'a'},
-		{'Z', 'z'},
-		{'M', 'm'},
-		{'a', 'a'},
-		{'z', 'z'},
-		{'0', '0'},
-		{'!', '!'},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.input), func(t *testing.T) {
-			got := toLower(tt.input)
-			if got != tt.expected {
-				t.Errorf("toLower(%q) = %q, want %q", tt.input, got, tt.expected)
 			}
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -416,58 +417,24 @@ func (h *Handler) mapDialError(err error) uint16 {
 		return 0
 	}
 
-	// Check for common network errors
-	if netErr, ok := err.(net.Error); ok {
-		if netErr.Timeout() {
-			return protocol.ErrConnectionTimeout
-		}
+	// Check for timeout via net.Error interface
+	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		return protocol.ErrConnectionTimeout
 	}
 
-	errStr := err.Error()
-	if contains(errStr, "refused") {
+	// Check error message for common patterns (case-insensitive)
+	errLower := strings.ToLower(err.Error())
+	if strings.Contains(errLower, "refused") {
 		return protocol.ErrConnectionRefused
 	}
-	if contains(errStr, "unreachable") {
+	if strings.Contains(errLower, "unreachable") {
 		return protocol.ErrHostUnreachable
 	}
-	if contains(errStr, "timeout") {
+	if strings.Contains(errLower, "timeout") {
 		return protocol.ErrConnectionTimeout
 	}
 
 	return protocol.ErrGeneralFailure
-}
-
-// contains checks if s contains substr (case-insensitive).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && containsLower(s, substr)))
-}
-
-func containsLower(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if equalFoldAt(s, i, substr) {
-			return true
-		}
-	}
-	return false
-}
-
-func equalFoldAt(s string, start int, substr string) bool {
-	for i := 0; i < len(substr); i++ {
-		c1 := s[start+i]
-		c2 := substr[i]
-		if c1 != c2 && toLower(c1) != toLower(c2) {
-			return false
-		}
-	}
-	return true
-}
-
-func toLower(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + 32
-	}
-	return c
 }
 
 // ConnectionCount returns the number of active connections.
