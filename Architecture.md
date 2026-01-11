@@ -664,13 +664,14 @@ All communication uses a consistent framing protocol:
 │  └──────┴────────────────────┴─────────────┴─────────────────────────────┘  │
 │                                                                             │
 │  Route Address Families:                                                    │
-│  ┌──────┬─────────────────┬─────────────────────────────────────────────┐   │
-│  │ Type │ Name            │ Description                                 │   │
-│  ├──────┼─────────────────┼─────────────────────────────────────────────┤   │
-│  │ 0x01 │ AddrFamilyIPv4  │ IPv4 CIDR route (e.g., 10.0.0.0/8)          │   │
-│  │ 0x02 │ AddrFamilyIPv6  │ IPv6 CIDR route (e.g., ::/0)                │   │
-│  │ 0x03 │ AddrFamilyDomain│ Domain pattern (exact or wildcard)          │   │
-│  └──────┴─────────────────┴─────────────────────────────────────────────┘   │
+│  ┌──────┬──────────────────┬────────────────────────────────────────────┐   │
+│  │ Type │ Name             │ Description                                │   │
+│  ├──────┼──────────────────┼────────────────────────────────────────────┤   │
+│  │ 0x01 │ AddrFamilyIPv4   │ IPv4 CIDR route (e.g., 10.0.0.0/8)         │   │
+│  │ 0x02 │ AddrFamilyIPv6   │ IPv6 CIDR route (e.g., ::/0)               │   │
+│  │ 0x03 │ AddrFamilyDomain │ Domain pattern (exact or wildcard)         │   │
+│  │ 0x04 │ AddrFamilyForward│ Port forward routing key                   │   │
+│  └──────┴──────────────────┴────────────────────────────────────────────┘   │
 │                                                                             │
 │  Domain Route Wire Format in ROUTE_ADVERTISE:                               │
 │  • AddressFamily: 0x03 (domain)                                             │
@@ -2516,6 +2517,13 @@ muti-metroo/
 │   │   ├── flood.go                # Flood protocol (advertise/withdraw)
 │   │   └── flood_test.go           # Flood tests
 │   │
+│   ├── forward/
+│   │   ├── forward.go              # Endpoint struct, ForwardDialer interface
+│   │   ├── handler.go              # Exit point handler for port forwarding
+│   │   ├── listener.go             # TCP listener for incoming connections
+│   │   ├── handler_test.go         # Handler unit tests
+│   │   └── listener_test.go        # Listener unit tests
+│   │
 │   ├── socks5/
 │   │   ├── server.go               # SOCKS5 server
 │   │   ├── handler.go              # SOCKS5 command handler
@@ -2526,6 +2534,10 @@ muti-metroo/
 │   │   ├── handler.go              # Exit handler
 │   │   ├── dns.go                  # DNS resolution
 │   │   └── exit_test.go            # Exit tests
+│   │
+│   ├── embed/
+│   │   ├── embed.go                # Binary config embedding (XOR obfuscation)
+│   │   └── embed_test.go           # Embed tests
 │   │
 │   ├── certutil/
 │   │   ├── certutil.go             # Certificate generation and management
@@ -2814,22 +2826,42 @@ docker run --rm muti-metroo-test
 | 0x23 | KEEPALIVE_ACK       | Liveness response      |
 | 0x24 | CONTROL_REQUEST     | Request status/RPC     |
 | 0x25 | CONTROL_RESPONSE    | Response with data     |
+| 0x30 | UDP_OPEN            | Request UDP association |
+| 0x31 | UDP_OPEN_ACK        | Association established |
+| 0x32 | UDP_OPEN_ERR        | Association failed     |
+| 0x33 | UDP_DATAGRAM        | UDP datagram payload   |
+| 0x34 | UDP_CLOSE           | Close association      |
 
 ### Error Codes
 
-| Code | Name                | Description                    |
-| ---- | ------------------- | ------------------------------ |
-| 1    | NO_ROUTE            | No route to destination        |
-| 2    | CONNECTION_REFUSED  | Target refused connection      |
-| 3    | CONNECTION_TIMEOUT  | Connection attempt timed out   |
-| 4    | TTL_EXCEEDED        | TTL reached zero               |
-| 5    | HOST_UNREACHABLE    | Cannot reach target host       |
-| 6    | NETWORK_UNREACHABLE | Cannot reach target network    |
-| 7    | DNS_ERROR           | Domain name resolution failed  |
-| 8    | EXIT_DISABLED       | Exit functionality not enabled |
-| 9    | RESOURCE_LIMIT      | Too many streams               |
-| 10   | CONNECTION_LIMIT    | Connection limit exceeded      |
-| 11   | NOT_ALLOWED         | Operation not permitted        |
+| Code | Name                 | Description                      |
+| ---- | -------------------- | -------------------------------- |
+| 1    | NO_ROUTE             | No route to destination          |
+| 2    | CONNECTION_REFUSED   | Target refused connection        |
+| 3    | CONNECTION_TIMEOUT   | Connection attempt timed out     |
+| 4    | TTL_EXCEEDED         | TTL reached zero                 |
+| 5    | HOST_UNREACHABLE     | Cannot reach target host         |
+| 6    | NETWORK_UNREACHABLE  | Cannot reach target network      |
+| 7    | DNS_ERROR            | Domain name resolution failed    |
+| 8    | EXIT_DISABLED        | Exit functionality not enabled   |
+| 9    | RESOURCE_LIMIT       | Too many streams                 |
+| 10   | CONNECTION_LIMIT     | Connection limit exceeded        |
+| 11   | NOT_ALLOWED          | Operation not permitted          |
+| 12   | FILE_TRANSFER_DENIED | File transfer not allowed        |
+| 13   | AUTH_REQUIRED        | Authentication required          |
+| 14   | PATH_NOT_ALLOWED     | Path not in allowed list         |
+| 15   | FILE_TOO_LARGE       | File exceeds size limit          |
+| 16   | FILE_NOT_FOUND       | File does not exist              |
+| 17   | WRITE_FAILED         | Write operation failed           |
+| 18   | GENERAL_FAILURE      | General error                    |
+| 19   | RESUME_FAILED        | Resume not possible              |
+| 20   | SHELL_DISABLED       | Shell feature is disabled        |
+| 21   | SHELL_AUTH_FAILED    | Shell authentication failed      |
+| 22   | PTY_FAILED           | PTY allocation failed            |
+| 23   | COMMAND_NOT_ALLOWED  | Command not in whitelist         |
+| 30   | UDP_DISABLED         | UDP relay is disabled            |
+| 31   | UDP_PORT_NOT_ALLOWED | UDP port not in whitelist        |
+| 40   | FORWARD_NOT_FOUND    | Port forward key not configured  |
 
 ### Default Timing
 
