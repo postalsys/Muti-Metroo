@@ -24,16 +24,17 @@ flowchart LR
 
 | Feature | Description |
 |---------|-------------|
-| **End-to-End Encryption** | X25519 + ChaCha20-Poly1305 - transit nodes cannot decrypt |
-| **Multiple Transports** | QUIC/TLS 1.3, HTTP/2, and WebSocket |
+| **Multi-Hop Mesh** | Traffic automatically routes through the mesh to reach any exit |
 | **SOCKS5 Proxy** | TCP CONNECT and UDP ASSOCIATE with authentication |
-| **Flexible Routing** | CIDR and domain-based routes |
-| **Multi-Hop Paths** | Traffic automatically finds its way through the mesh |
-| **File Transfer** | Upload/download files across the mesh |
-| **Remote Execution** | Execute commands on remote agents |
-| **Web Dashboard** | Visual topology with metro map visualization |
-| **No Root Required** | Runs entirely in userspace |
 | **TUN Interface** | Transparent L3 routing with Mutiauk companion tool (Linux) |
+| **Flexible Routing** | CIDR and domain-based exit routes |
+| **Multiple Transports** | QUIC/TLS 1.3, HTTP/2, and WebSocket to bypass firewalls |
+| **Port Forwarding** | Expose local services through reverse tunnels |
+| **Remote Execution** | Execute commands on remote agents |
+| **File Transfer** | Upload/download files across the mesh |
+| **Web Dashboard** | Visual topology with metro map visualization |
+| **No Root Required** | Runs entirely in userspace (except TUN interface) |
+| **End-to-End Encryption** | X25519 + ChaCha20-Poly1305 - transit nodes cannot decrypt |
 
 ## Use Cases
 
