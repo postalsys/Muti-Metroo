@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.0.1...muti-metroo-v2.1.0) (2026-01-11)
+
+
+### Features
+
+* add TCP tunnel port forwarding (ngrok-style) ([227b2b0](https://github.com/postalsys/Muti-Metroo/commit/227b2b00fac4af45280872701dbfec084cbe85e8))
+* add tunnel visualization to web dashboard ([bd6c668](https://github.com/postalsys/Muti-Metroo/commit/bd6c668f8fd0b30a0027340c24855cbdea019684))
+* **dashboard:** show all ingress-exit pairs for port forward routes ([d9a69fe](https://github.com/postalsys/Muti-Metroo/commit/d9a69fee62893b90ea1f751ce0aa9e081193ee6d))
+
+
+### Bug Fixes
+
+* decode tunnel routes using length-prefixed format ([da64562](https://github.com/postalsys/Muti-Metroo/commit/da645620850443545caef0b9e0305489ce893408))
+* update diagram captions in Makefile for renumbered chapters ([e10bcae](https://github.com/postalsys/Muti-Metroo/commit/e10bcae5139d71d9c20b4d41791d94785f496f53))
+
 ## [2.0.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.0.0...muti-metroo-v2.0.1) (2026-01-10)
 
 
