@@ -261,6 +261,7 @@ An agent can serve multiple roles simultaneously:
 | `exit`         | Exit node handler - TCP dial, route-based access control, E2E decryption                    |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
 | `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |
+| `forward`      | Port forwarding (reverse tunnel) - endpoints expose local services, listeners accept remote |
 | `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
 | `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
 | `integration`  | Integration tests for multi-agent mesh scenarios                                            |
@@ -754,6 +755,56 @@ socksify dig @8.8.8.8 example.com
 - Maximum datagram size: 1472 bytes
 - No fragmentation support (frag > 0 rejected)
 - UDP association tied to TCP control connection lifetime
+
+## Port Forwarding
+
+Port forwarding enables reverse tunneling - exposing local services through the mesh to remote agents. Unlike SOCKS5 (outbound: you reach remote destinations), port forwarding routes inbound traffic (remote machines reach your services).
+
+### Configuration
+
+```yaml
+forward:
+  # Endpoints - where your services run (exit side)
+  endpoints:
+    - key: "web-server"           # Routing key advertised to mesh
+      target: "localhost:3000"     # Local service to expose
+
+  # Listeners - where remote clients connect (ingress side)
+  listeners:
+    - key: "web-server"           # Must match an endpoint key
+      address: ":8080"            # Bind address for connections
+      max_connections: 100        # Optional limit
+```
+
+### Use Cases
+
+1. **Tool Distribution**: Serve tools from operator machine to field agents
+2. **C2 Callbacks**: Receive reverse shells through the mesh
+3. **Service Exposure**: Share development servers across the network
+
+### Traffic Flow
+
+```
+Remote Client -> Listener Agent -> Transit -> Endpoint Agent -> Local Service
+```
+
+- **Listeners** accept incoming TCP connections and look up the routing key
+- **Endpoints** receive forwarded connections and dial the target service
+- E2E encryption (X25519 + ChaCha20-Poly1305) protects data from transit agents
+
+### CLI Usage
+
+Port forwarding is configuration-only. No CLI commands exist (OPSEC - no command history).
+
+Verify routes via HTTP API:
+```bash
+curl http://localhost:8080/healthz | jq '.forward_routes'
+```
+
+Trigger immediate route advertisement:
+```bash
+curl -X POST http://localhost:8080/routes/advertise
+```
 
 ## Design Decisions
 

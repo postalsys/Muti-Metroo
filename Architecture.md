@@ -13,6 +13,8 @@
 4. [Identity and Addressing](#4-identity-and-addressing)
 5. [Transport Layer](#5-transport-layer)
 6. [Frame Protocol](#6-frame-protocol)
+   - [6.5 UDP Relay Protocol](#65-udp-relay-protocol)
+   - [6.6 Port Forwarding](#66-port-forwarding-reverse-tunnel)
 7. [Stream Management](#7-stream-management)
 8. [Routing System](#8-routing-system)
 9. [Flood Protocol](#9-flood-protocol)
@@ -1003,6 +1005,151 @@ SOCKS5 UDP ASSOCIATE (RFC 1928) enables tunneling UDP traffic through the mesh n
 - **Association Lifetime**: Tied to TCP control connection. When TCP closes, UDP association terminates.
 - **Port Whitelist**: Exit nodes can restrict allowed UDP ports via configuration.
 - **Authentication**: Uses existing SOCKS5 authentication (not separate password).
+
+---
+
+## 6.6 Port Forwarding (Reverse Tunnel)
+
+Port forwarding enables reverse tunneling through the mesh - exposing local services to remote agents. Unlike SOCKS5 (outbound: local client -> mesh -> remote destination), port forwarding routes inbound traffic (remote client -> mesh -> local service).
+
+### Architecture
+
+**Components:**
+
+- **Endpoint** (`internal/forward/handler.go`): Exit point where local services are exposed
+- **Listener** (`internal/forward/listener.go`): Ingress point accepting remote connections
+- **Routing Key**: String identifier matching listeners to endpoints
+
+**Traffic Flow:**
+
+```
+Remote Client
+    |
+    | TCP connect
+    |
+    v
+Listener Agent (forward.listeners)
+    |
+    | DialForward("routing-key")
+    | Route lookup -> ForwardRoute
+    |
+    v
+Transit Agent(s)
+    |
+    | Frame relay (E2E encrypted)
+    |
+    v
+Endpoint Agent (forward.endpoints)
+    |
+    | TCP dial target
+    |
+    v
+Local Service (target: "localhost:80")
+```
+
+### Frame Protocol
+
+Port forwarding uses standard `STREAM_OPEN` frames with special address format:
+
+**Address Encoding:**
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ AddressType     │ 1      │ 0x03 (AddrTypeDomain)                    │
+│ AddressLength   │ 1      │ Length of address string                 │
+│ Address         │ varies │ "forward:<routing-key>" (ASCII)          │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+**Protocol Constant:**
+
+```go
+const ForwardStreamPrefix = "forward:"
+```
+
+Example: For routing key "tools", the address bytes are: `\x03\x0eforward:tools`
+
+### Route Advertisement
+
+Forward routes propagate via flood routing (same mechanism as CIDR routes):
+
+**ForwardRoute Structure:**
+
+```go
+type ForwardRoute struct {
+    Key         string    // Routing key
+    Target      string    // Endpoint target (host:port)
+    OriginAgent AgentID   // Agent advertising endpoint
+    NextHop     AgentID   // Next hop toward origin
+    Metric      uint8     // Hop count
+    Sequence    uint64    // Advertisement sequence number
+    ExpiresAt   time.Time // Route TTL
+    Path        []AgentID // Full path (for loop prevention)
+}
+```
+
+**Advertisement Process:**
+
+1. Endpoint agent registers local route via `AddLocalForwardRoute(key, target, 0)`
+2. Route included in periodic flood advertisements
+3. Transit agents increment metric and re-advertise
+4. Listener agents store routes in forward routing table
+5. On connection, listener performs `LookupForward(key)` to find best route
+
+### E2E Encryption
+
+Each forwarded connection establishes independent E2E encryption:
+
+1. Listener generates ephemeral X25519 keypair
+2. `STREAM_OPEN` includes listener's public key
+3. Endpoint generates ephemeral keypair, derives shared secret via ECDH
+4. `STREAM_OPEN_ACK` includes endpoint's public key
+5. Both derive session key: `DeriveSessionKey(sharedSecret, listenerPub, endpointPub)`
+6. All `STREAM_DATA` encrypted with ChaCha20-Poly1305
+
+Transit agents relay encrypted frames without decryption capability.
+
+### Configuration
+
+**Endpoints (where service runs):**
+
+```yaml
+forward:
+  endpoints:
+    - key: "web-server"        # Routing key
+      target: "localhost:3000" # Local service
+```
+
+**Listeners (where clients connect):**
+
+```yaml
+forward:
+  listeners:
+    - key: "web-server"        # Must match endpoint key
+      address: ":8080"         # Bind address
+      max_connections: 100     # Optional limit
+```
+
+### Error Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| 40 | `ErrForwardNotFound` | Routing key not configured on endpoint |
+| 41 | `ErrConnectionRefused` | Target service refused connection |
+| 42 | `ErrConnectionTimeout` | Target dial timed out |
+
+### Package Structure
+
+```
+internal/forward/
+├── forward.go        # Endpoint struct, ForwardDialer interface
+├── handler.go        # Exit point handler (processes STREAM_OPEN for forward)
+├── listener.go       # TCP listener (accepts connections, calls DialForward)
+├── handler_test.go   # Handler unit tests
+└── listener_test.go  # Listener unit tests
+```
 
 ---
 

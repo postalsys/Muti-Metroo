@@ -10,6 +10,7 @@ A userspace mesh networking agent that creates virtual TCP tunnels across hetero
 
 - **Multiple Transport Layers**: QUIC/TLS 1.3, HTTP/2, and WebSocket transports
 - **SOCKS5 Proxy Ingress**: Accept client connections with optional username/password authentication
+- **Port Forwarding**: Reverse tunnel to expose local services through the mesh (ngrok-style)
 - **CIDR-Based Exit Routing**: Advertise routes and handle DNS resolution at exit nodes
 - **Multi-Hop Mesh Routing**: Flood-based route propagation with longest-prefix match
 - **Stream Multiplexing**: Multiple virtual streams over a single peer connection with half-close support
