@@ -139,22 +139,7 @@ socks5:
 
 ## UDP Support
 
-SOCKS5 UDP ASSOCIATE enables UDP traffic tunneling (DNS, NTP) through the mesh.
-
-On the exit node, configure UDP relay:
-
-```yaml
-udp:
-  enabled: true
-  max_associations: 1000
-  idle_timeout: 5m
-```
-
-Test with proxychains:
-
-```bash
-proxychains4 dig @8.8.8.8 example.com
-```
+For UDP traffic tunneling (DNS, NTP, etc.), see [UDP Relay](14-udp-relay.md). UDP relay uses SOCKS5 UDP ASSOCIATE and requires configuration on the exit agent.
 
 ## Security Considerations
 
