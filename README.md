@@ -41,6 +41,14 @@ A userspace mesh networking agent that creates virtual TCP tunnels across hetero
 4. Exit agent opens real TCP connection to target server
 5. Data flows bidirectionally - encrypted within the mesh, plain at endpoints
 
+## Web Dashboard
+
+Muti Metroo includes an embedded web dashboard with a metro map visualization showing real-time mesh topology, agent status, and connection health.
+
+<p align="center">
+  <img src="docs/static/img/muti-dashboard.png" alt="Muti Metroo Dashboard" width="800">
+</p>
+
 ## Transparent TUN Routing with Mutiauk
 
 For transparent traffic routing without per-application SOCKS5 configuration, use **[Mutiauk](https://github.com/postalsys/Mutiauk)** - a companion TUN interface tool that forwards all traffic through Muti Metroo's SOCKS5 proxy.
