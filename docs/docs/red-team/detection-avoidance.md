@@ -38,6 +38,20 @@ Higher jitter values provide better evasion but may affect connection stability:
 | 0.3 | 21-39s | Enhanced evasion |
 | 0.5 | 15-45s | Maximum evasion (may affect stability) |
 
+### Connection Staggering
+
+Avoid simultaneous connections when deploying multiple agents:
+
+- Deploy agents with 30-60 second intervals between startups
+- Use different initial reconnection delays per agent
+- Consider time-of-day for initial connections (blend with business hours traffic)
+- For automated deployments, randomize startup delays:
+
+```bash
+# Add random delay before agent startup
+sleep $((RANDOM % 60 + 30)) && muti-metroo run -c config.yaml
+```
+
 ## Host Indicators
 
 | Indicator | Mitigation |

@@ -69,6 +69,7 @@ Execute commands and transfer files across Linux, macOS, and Windows targets fro
 | **E2E encryption** | X25519 + ChaCha20-Poly1305 per-stream, transit nodes cannot decrypt |
 | **Remote shell** | Interactive PTY (bash, PowerShell, cmd) and streaming command execution |
 | **File transfer** | Upload/download files and directories with streaming and compression |
+| **Port forwarding** | Reverse tunnels to serve tools and receive callbacks from any mesh node |
 | **Topology protection** | Management key encryption hides mesh structure from compromised agents |
 | **Transport options** | QUIC, HTTP/2, WebSocket - with HTTP proxy support for WebSocket |
 | **Cross-platform** | Linux, macOS, Windows with full PTY support (ConPTY on Windows) |
@@ -98,12 +99,14 @@ This red team operations guide is organized into the following sections:
 
 - **[OPSEC Configuration](/red-team/opsec-configuration)** - Protocol identifiers, HTTP endpoint hardening, environment variables
 - **[Transport Selection](/red-team/transport-selection)** - Choosing transports for different environments (QUIC, HTTP/2, WebSocket)
-- **[C2 Capabilities](/red-team/c2-capabilities)** - Remote command execution, file operations, multi-hop routing
+- **[C2 Capabilities](/red-team/c2-capabilities)** - Remote command execution, file operations, multi-hop routing, port forwarding
 - **[Management Keys](/red-team/management-keys)** - Topology protection with cryptographic compartmentalization
 - **[Example Configurations](/red-team/example-configurations)** - Ready-to-use configs for transit, C2, and ingress nodes
 - **[Persistence](/red-team/persistence)** - System service installation across platforms
 - **[Detection Avoidance](/red-team/detection-avoidance)** - Network and host indicator mitigation
 - **[Operational Procedures](/red-team/operational-procedures)** - Cleanup, checklists, and legal considerations
+
+For reverse tunneling (tool distribution, C2 callbacks), see [Port Forwarding](/features/port-forwarding).
 
 ---
 

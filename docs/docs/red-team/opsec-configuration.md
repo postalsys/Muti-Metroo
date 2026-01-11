@@ -98,4 +98,10 @@ management:
   public_key: "${MGMT_PUBKEY}"
 ```
 
-This allows credentials to be passed at runtime without filesystem artifacts.
+Pass credentials at runtime without filesystem artifacts:
+
+```bash
+SOCKS_USER=operator SOCKS_PASS=secret SHELL_HASH='$2a$10$...' muti-metroo run -c config.yaml
+```
+
+For persistent deployments, credentials can be injected via systemd environment files or other system mechanisms that don't write to config files.
