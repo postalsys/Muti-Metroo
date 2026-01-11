@@ -32,7 +32,7 @@ services:
       - ./testbed/certs:/app/certs:ro
     ports:
       - "31080:1080"   # SOCKS5 (mapped to 31080 to avoid conflicts)
-      - "8081:8080"   # Health/Metrics
+      - "8091:8080"   # Health/Metrics
     networks:
       - mesh
     depends_on:

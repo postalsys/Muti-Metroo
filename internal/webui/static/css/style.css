@@ -241,11 +241,11 @@ section h2 {
     border-color: #a89f94;
 }
 
-.legend-ring.tunnel_ingress {
+.legend-ring.forward_ingress {
     border-color: #9b59b6;
 }
 
-.legend-ring.tunnel_exit {
+.legend-ring.forward_exit {
     border-color: #e67e22;
 }
 

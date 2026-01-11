@@ -1,7 +1,7 @@
-// Package tunnel implements TCP port forwarding through the mesh network.
+// Package forward implements TCP port forwarding through the mesh network.
 // This enables ngrok/localtunnel-style reverse tunneling where local services
 // can be exposed through the mesh network using named routing keys.
-package tunnel
+package forward
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 	"github.com/postalsys/muti-metroo/internal/identity"
 )
 
-// TunnelDialer is an interface for dialing tunnel connections through the mesh.
-type TunnelDialer interface {
-	// DialTunnel opens a connection to the exit agent with the matching routing key.
-	DialTunnel(ctx context.Context, key string) (net.Conn, error)
+// ForwardDialer is an interface for dialing port forward connections through the mesh.
+type ForwardDialer interface {
+	// DialForward opens a connection to the exit agent with the matching routing key.
+	DialForward(ctx context.Context, key string) (net.Conn, error)
 }
 
 // StreamWriter is an interface for writing to virtual streams.

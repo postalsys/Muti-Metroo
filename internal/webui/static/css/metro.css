@@ -111,13 +111,13 @@
     stroke: #a89f94;
 }
 
-/* Tunnel Ingress role - purple (tunnel listener) */
-.station-role.tunnel_ingress {
+/* Port Forward Ingress role - purple (port forward listener) */
+.station-role.forward_ingress {
     stroke: #9b59b6;
 }
 
-/* Tunnel Exit role - orange (tunnel endpoint) */
-.station-role.tunnel_exit {
+/* Port Forward Exit role - orange (port forward endpoint) */
+.station-role.forward_exit {
     stroke: #e67e22;
 }
 
@@ -305,13 +305,13 @@
     border: 1px solid #a89f94;
 }
 
-.station-tooltip .tooltip-role-badge.tunnel_ingress {
+.station-tooltip .tooltip-role-badge.forward_ingress {
     background: rgba(155, 89, 182, 0.2);
     color: #9b59b6;
     border: 1px solid #9b59b6;
 }
 
-.station-tooltip .tooltip-role-badge.tunnel_exit {
+.station-tooltip .tooltip-role-badge.forward_exit {
     background: rgba(230, 126, 34, 0.2);
     color: #e67e22;
     border: 1px solid #e67e22;
@@ -417,14 +417,14 @@
     background: #3d3d3d;
 }
 
-/* Tunnel Routes Section */
-.station-tooltip .tooltip-tunnels {
+/* Port Forward Routes Section */
+.station-tooltip .tooltip-forwards {
     padding: 0.5rem 0.8rem;
     border-top: 1px solid #4a3f35;
     background: #3d3d3d;
 }
 
-.station-tooltip .tooltip-tunnels-header {
+.station-tooltip .tooltip-forwards-header {
     font-size: 0.65rem;
     font-weight: 600;
     color: #9b59b6;
@@ -433,17 +433,17 @@
     margin-bottom: 0.3rem;
 }
 
-.station-tooltip .tooltip-tunnels-header:not(:first-child) {
+.station-tooltip .tooltip-forwards-header:not(:first-child) {
     margin-top: 0.5rem;
 }
 
-.station-tooltip .tooltip-tunnels-list {
+.station-tooltip .tooltip-forwards-list {
     display: flex;
     flex-wrap: wrap;
     gap: 0.25rem;
 }
 
-.station-tooltip .tooltip-tunnel-key {
+.station-tooltip .tooltip-forward-key {
     background: rgba(155, 89, 182, 0.2);
     padding: 0.15rem 0.4rem;
     border-radius: 3px;

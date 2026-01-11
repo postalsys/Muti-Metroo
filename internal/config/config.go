@@ -73,7 +73,7 @@ type Config struct {
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
 	Shell        ShellConfig        `yaml:"shell"`
 	UDP          UDPConfig          `yaml:"udp"`
-	Tunnel       TunnelConfig       `yaml:"tunnel"`
+	Forward      ForwardConfig      `yaml:"forward"`
 }
 
 // ProtocolConfig defines protocol identifiers used for transport negotiation.
@@ -487,39 +487,39 @@ type UDPConfig struct {
 	MaxDatagramSize int `yaml:"max_datagram_size"`
 }
 
-// TunnelConfig configures TCP tunnel port forwarding.
-// This enables ngrok/localtunnel-style reverse tunneling where local services
+// ForwardConfig configures TCP port forwarding.
+// This enables ngrok/localtunnel-style reverse port forwarding where local services
 // can be exposed through the mesh network using named routing keys.
-type TunnelConfig struct {
-	// Endpoints define tunnel exit points - where tunneled connections terminate.
+type ForwardConfig struct {
+	// Endpoints define port forward exit points - where forwarded connections terminate.
 	// Each endpoint maps a routing key to a fixed target host:port.
 	// The agent advertises these routing keys through the mesh.
-	Endpoints []TunnelEndpoint `yaml:"endpoints"`
+	Endpoints []ForwardEndpoint `yaml:"endpoints"`
 
-	// Listeners define tunnel ingress points - where external connections enter.
+	// Listeners define port forward ingress points - where external connections enter.
 	// Each listener binds to a local address and forwards connections to the
 	// agent with the matching routing key.
-	Listeners []TunnelListener `yaml:"listeners"`
+	Listeners []ForwardListener `yaml:"listeners"`
 }
 
-// TunnelEndpoint defines a tunnel exit point configuration.
+// ForwardEndpoint defines a port forward exit point configuration.
 // Traffic arriving for this routing key will be forwarded to the target.
-type TunnelEndpoint struct {
-	// Key is the routing key that identifies this tunnel endpoint.
+type ForwardEndpoint struct {
+	// Key is the routing key that identifies this port forward endpoint.
 	// Must be unique within the mesh. Example: "my-web-server"
 	Key string `yaml:"key"`
 
-	// Target is the fixed destination host:port for tunneled connections.
+	// Target is the fixed destination host:port for forwarded connections.
 	// Example: "localhost:3000" or "192.168.1.10:8080"
 	Target string `yaml:"target"`
 }
 
-// TunnelListener defines a tunnel ingress point configuration.
+// ForwardListener defines a port forward ingress point configuration.
 // Connections to this listener are forwarded through the mesh to the
 // agent with a matching routing key endpoint.
-type TunnelListener struct {
+type ForwardListener struct {
 	// Key is the routing key to look up in the mesh.
-	// Must match a TunnelEndpoint.Key on some agent.
+	// Must match a ForwardEndpoint.Key on some agent.
 	Key string `yaml:"key"`
 
 	// Address is the local address to listen on.
@@ -605,9 +605,9 @@ func Default() *Config {
 			IdleTimeout:     5 * time.Minute, // Same as connection idle threshold
 			MaxDatagramSize: 1472,            // MTU - IP/UDP headers
 		},
-		Tunnel: TunnelConfig{
-			Endpoints: []TunnelEndpoint{},
-			Listeners: []TunnelListener{},
+		Forward: ForwardConfig{
+			Endpoints: []ForwardEndpoint{},
+			Listeners: []ForwardListener{},
 		},
 	}
 }
@@ -775,8 +775,8 @@ func (c *Config) Validate() error {
 		errs = append(errs, err.Error())
 	}
 
-	// Validate tunnel configuration
-	if err := c.validateTunnel(); err != nil {
+	// Validate port forward configuration
+	if err := c.validateForward(); err != nil {
 		errs = append(errs, err.Error())
 	}
 
@@ -828,44 +828,44 @@ func (c *Config) validateManagementKeys() error {
 	return nil
 }
 
-// validateTunnel validates the tunnel configuration.
-func (c *Config) validateTunnel() error {
+// validateForward validates the port forward configuration.
+func (c *Config) validateForward() error {
 	var errs []string
 
-	// Validate tunnel endpoints
+	// Validate forward endpoints
 	seenKeys := make(map[string]bool)
-	for i, ep := range c.Tunnel.Endpoints {
+	for i, ep := range c.Forward.Endpoints {
 		if ep.Key == "" {
-			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: key is required", i))
+			errs = append(errs, fmt.Sprintf("forward.endpoints[%d]: key is required", i))
 			continue
 		}
 		if seenKeys[ep.Key] {
-			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: duplicate key %q", i, ep.Key))
+			errs = append(errs, fmt.Sprintf("forward.endpoints[%d]: duplicate key %q", i, ep.Key))
 		}
 		seenKeys[ep.Key] = true
 
 		if ep.Target == "" {
-			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: target is required", i))
+			errs = append(errs, fmt.Sprintf("forward.endpoints[%d]: target is required", i))
 		} else if err := isValidHostPort(ep.Target); err != nil {
-			errs = append(errs, fmt.Sprintf("tunnel.endpoints[%d]: invalid target: %v", i, err))
+			errs = append(errs, fmt.Sprintf("forward.endpoints[%d]: invalid target: %v", i, err))
 		}
 	}
 
-	// Validate tunnel listeners
-	for i, lis := range c.Tunnel.Listeners {
+	// Validate forward listeners
+	for i, lis := range c.Forward.Listeners {
 		if lis.Key == "" {
-			errs = append(errs, fmt.Sprintf("tunnel.listeners[%d]: key is required", i))
+			errs = append(errs, fmt.Sprintf("forward.listeners[%d]: key is required", i))
 		}
 		if lis.Address == "" {
-			errs = append(errs, fmt.Sprintf("tunnel.listeners[%d]: address is required", i))
+			errs = append(errs, fmt.Sprintf("forward.listeners[%d]: address is required", i))
 		}
 		if lis.MaxConnections < 0 {
-			errs = append(errs, fmt.Sprintf("tunnel.listeners[%d]: max_connections cannot be negative", i))
+			errs = append(errs, fmt.Sprintf("forward.listeners[%d]: max_connections cannot be negative", i))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("tunnel validation errors:\n    - %s", strings.Join(errs, "\n    - "))
+		return fmt.Errorf("forward validation errors:\n    - %s", strings.Join(errs, "\n    - "))
 	}
 
 	return nil

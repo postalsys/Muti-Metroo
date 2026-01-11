@@ -51,7 +51,7 @@ class MetroMap {
             <div class="tooltip-udp"></div>
             <div class="tooltip-exits"></div>
             <div class="tooltip-domains"></div>
-            <div class="tooltip-tunnels"></div>
+            <div class="tooltip-forwards"></div>
             <div class="tooltip-id-section">
                 <div class="tooltip-id-label">Agent ID</div>
                 <div class="tooltip-id"></div>
@@ -687,32 +687,32 @@ class MetroMap {
             domainsEl.style.display = 'none';
         }
 
-        // Build tunnel info section (listeners and endpoints)
-        const tunnelsEl = this.stationTooltip.querySelector('.tooltip-tunnels');
-        const tunnelListeners = agent.tunnel_listeners || [];
-        const tunnelEndpoints = agent.tunnel_endpoints || [];
-        if (tunnelListeners.length > 0 || tunnelEndpoints.length > 0) {
-            let tunnelsHtml = '';
+        // Build port forward info section (listeners and endpoints)
+        const forwardsEl = this.stationTooltip.querySelector('.tooltip-forwards');
+        const forwardListeners = agent.forward_listeners || [];
+        const forwardEndpoints = agent.forward_endpoints || [];
+        if (forwardListeners.length > 0 || forwardEndpoints.length > 0) {
+            let forwardsHtml = '';
 
-            if (tunnelListeners.length > 0) {
-                tunnelsHtml += '<div class="tooltip-tunnels-header">Tunnel Listeners</div>';
-                tunnelsHtml += '<div class="tooltip-tunnels-list">';
-                tunnelsHtml += tunnelListeners.map(key => `<span class="tooltip-tunnel-key">${key}</span>`).join('');
-                tunnelsHtml += '</div>';
+            if (forwardListeners.length > 0) {
+                forwardsHtml += '<div class="tooltip-forwards-header">Port Forward Listeners</div>';
+                forwardsHtml += '<div class="tooltip-forwards-list">';
+                forwardsHtml += forwardListeners.map(key => `<span class="tooltip-forward-key">${key}</span>`).join('');
+                forwardsHtml += '</div>';
             }
 
-            if (tunnelEndpoints.length > 0) {
-                tunnelsHtml += '<div class="tooltip-tunnels-header">Tunnel Endpoints</div>';
-                tunnelsHtml += '<div class="tooltip-tunnels-list">';
-                tunnelsHtml += tunnelEndpoints.map(key => `<span class="tooltip-tunnel-key">${key}</span>`).join('');
-                tunnelsHtml += '</div>';
+            if (forwardEndpoints.length > 0) {
+                forwardsHtml += '<div class="tooltip-forwards-header">Port Forward Endpoints</div>';
+                forwardsHtml += '<div class="tooltip-forwards-list">';
+                forwardsHtml += forwardEndpoints.map(key => `<span class="tooltip-forward-key">${key}</span>`).join('');
+                forwardsHtml += '</div>';
             }
 
-            tunnelsEl.innerHTML = tunnelsHtml;
-            tunnelsEl.style.display = 'block';
+            forwardsEl.innerHTML = forwardsHtml;
+            forwardsEl.style.display = 'block';
         } else {
-            tunnelsEl.innerHTML = '';
-            tunnelsEl.style.display = 'none';
+            forwardsEl.innerHTML = '';
+            forwardsEl.style.display = 'none';
         }
 
         // Update ID

@@ -1,4 +1,4 @@
-package tunnel
+package forward
 
 import (
 	"context"
@@ -28,10 +28,10 @@ type ListenerConfig struct {
 	Logger *slog.Logger
 }
 
-// Listener is a TCP listener that forwards connections to tunnel routes.
+// Listener is a TCP listener that forwards connections to port forward routes.
 type Listener struct {
 	cfg      ListenerConfig
-	dialer   TunnelDialer
+	dialer   ForwardDialer
 	listener net.Listener
 	logger   *slog.Logger
 
@@ -45,8 +45,8 @@ type Listener struct {
 	wg       sync.WaitGroup
 }
 
-// NewListener creates a new tunnel listener.
-func NewListener(cfg ListenerConfig, dialer TunnelDialer) *Listener {
+// NewListener creates a new port forward listener.
+func NewListener(cfg ListenerConfig, dialer ForwardDialer) *Listener {
 	logger := cfg.Logger
 	if logger == nil {
 		logger = logging.NopLogger()
@@ -78,7 +78,7 @@ func (l *Listener) Start() error {
 	l.wg.Add(1)
 	go l.acceptLoop()
 
-	l.logger.Info("tunnel listener started",
+	l.logger.Info("forward listener started",
 		"key", l.cfg.Key,
 		"address", l.listener.Addr().String())
 
@@ -104,7 +104,7 @@ func (l *Listener) Stop() error {
 		}
 		l.mu.Unlock()
 
-		l.logger.Info("tunnel listener stopped",
+		l.logger.Info("forward listener stopped",
 			"key", l.cfg.Key)
 	})
 
@@ -134,7 +134,7 @@ func (l *Listener) ConnectionCount() int64 {
 // acceptLoop accepts incoming connections.
 func (l *Listener) acceptLoop() {
 	defer l.wg.Done()
-	defer recovery.RecoverWithLog(l.logger, "tunnel.Listener.acceptLoop")
+	defer recovery.RecoverWithLog(l.logger, "forward.Listener.acceptLoop")
 
 	for {
 		conn, err := l.listener.Accept()
@@ -174,7 +174,7 @@ func (l *Listener) acceptLoop() {
 // handleConnection handles a single incoming connection.
 func (l *Listener) handleConnection(conn net.Conn) {
 	defer l.wg.Done()
-	defer recovery.RecoverWithLog(l.logger, "tunnel.Listener.handleConnection")
+	defer recovery.RecoverWithLog(l.logger, "forward.Listener.handleConnection")
 	defer func() {
 		conn.Close()
 		l.mu.Lock()
@@ -184,7 +184,7 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	}()
 
 	remoteAddr := conn.RemoteAddr().String()
-	l.logger.Debug("new tunnel connection",
+	l.logger.Debug("new forward connection",
 		"key", l.cfg.Key,
 		"remote", remoteAddr)
 
@@ -201,10 +201,10 @@ func (l *Listener) handleConnection(conn net.Conn) {
 		}
 	}()
 
-	// Dial through the mesh to the tunnel exit
-	target, err := l.dialer.DialTunnel(ctx, l.cfg.Key)
+	// Dial through the mesh to the port forward exit
+	target, err := l.dialer.DialForward(ctx, l.cfg.Key)
 	if err != nil {
-		l.logger.Debug("dial tunnel failed",
+		l.logger.Debug("dial forward failed",
 			"key", l.cfg.Key,
 			"remote", remoteAddr,
 			logging.KeyError, err)
@@ -212,14 +212,14 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	}
 	defer target.Close()
 
-	l.logger.Debug("tunnel connected",
+	l.logger.Debug("forward connected",
 		"key", l.cfg.Key,
 		"remote", remoteAddr)
 
 	// Relay data bidirectionally
 	relay(conn, target)
 
-	l.logger.Debug("tunnel connection closed",
+	l.logger.Debug("forward connection closed",
 		"key", l.cfg.Key,
 		"remote", remoteAddr)
 }

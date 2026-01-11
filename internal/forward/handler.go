@@ -1,4 +1,4 @@
-package tunnel
+package forward
 
 import (
 	"context"
@@ -173,8 +173,8 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 	// Look up target for this routing key
 	target, ok := h.targets[key]
 	if !ok {
-		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrTunnelNotFound, "tunnel key not found")
-		return fmt.Errorf("tunnel key not found: %s", key)
+		h.sendOpenErr(remoteID, streamID, requestID, protocol.ErrForwardNotFound, "forward key not found")
+		return fmt.Errorf("forward key not found: %s", key)
 	}
 
 	// Perform the rest asynchronously to avoid blocking the frame processing loop.
@@ -185,7 +185,7 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 
 // handleStreamOpenAsync performs the actual stream open work asynchronously.
 func (h *Handler) handleStreamOpenAsync(ctx context.Context, streamID uint64, requestID uint64, remoteID identity.AgentID, key, target string, remoteEphemeralPub [crypto.KeySize]byte) {
-	defer recovery.RecoverWithLog(h.logger, "tunnel.Handler.handleStreamOpenAsync")
+	defer recovery.RecoverWithLog(h.logger, "forward.Handler.handleStreamOpenAsync")
 
 	// Generate ephemeral keypair for E2E encryption key exchange
 	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
@@ -238,7 +238,7 @@ func (h *Handler) handleStreamOpenAsync(ctx context.Context, streamID uint64, re
 	h.connCount.Add(1)
 	h.mu.Unlock()
 
-	h.logger.Debug("tunnel stream opened",
+	h.logger.Debug("forward stream opened",
 		"key", key,
 		"target", target,
 		logging.KeyStreamID, streamID)
@@ -311,7 +311,7 @@ func (h *Handler) HandleStreamReset(peerID identity.AgentID, streamID uint64, er
 // readLoop reads data from the target and forwards to the stream.
 func (h *Handler) readLoop(ac *ActiveConnection) {
 	defer h.closeConnection(ac.StreamID, ac.RemoteID, nil)
-	defer recovery.RecoverWithLog(h.logger, "tunnel.readLoop")
+	defer recovery.RecoverWithLog(h.logger, "forward.readLoop")
 
 	// Account for encryption overhead when reading
 	// Each encrypted message must fit in a single frame to be decryptable
@@ -372,7 +372,7 @@ func (h *Handler) closeConnection(streamID uint64, peerID identity.AgentID, err 
 
 	ac.Close()
 
-	h.logger.Debug("tunnel stream closed",
+	h.logger.Debug("forward stream closed",
 		"key", ac.Key,
 		"target", ac.Target,
 		logging.KeyStreamID, streamID)
@@ -400,7 +400,7 @@ func (h *Handler) removeConnection(streamID uint64) *ActiveConnection {
 
 // sendOpenErr sends a stream open error.
 func (h *Handler) sendOpenErr(peerID identity.AgentID, streamID, requestID uint64, code uint16, msg string) {
-	h.logger.Debug("tunnel stream open error",
+	h.logger.Debug("forward stream open error",
 		logging.KeyStreamID, streamID,
 		"error_code", code,
 		"message", msg)

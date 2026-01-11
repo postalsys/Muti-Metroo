@@ -280,11 +280,11 @@ udp:
   max_datagram_size: 1472      # Max UDP payload (MTU - IP/UDP headers)
 
 # ------------------------------------------------------------------------------
-# TCP Tunnel (Port Forwarding)
+# Port Forwarding
 # Expose local services through the mesh network (like ngrok/localtunnel)
 # ------------------------------------------------------------------------------
-tunnel:
-  # Tunnel endpoints (exit side) - expose local services
+forward:
+  # Port forward endpoints (exit side) - expose local services
   endpoints: []
   # endpoints:
   #   - key: "web-server"           # Routing key (advertised to mesh)
@@ -292,7 +292,7 @@ tunnel:
   #   - key: "internal-api"
   #     target: "192.168.1.10:8080"
 
-  # Tunnel listeners (ingress side) - accept incoming connections
+  # Port forward listeners (ingress side) - accept incoming connections
   listeners: []
   # listeners:
   #   - key: "web-server"           # Routing key to look up in mesh

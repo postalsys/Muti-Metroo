@@ -659,18 +659,29 @@ func DecodeDomainPrefix(prefix []byte) string {
 	return string(prefix[1 : 1+domainLen])
 }
 
-// EncodeTunnelKey encodes a tunnel routing key for route advertisement.
+// EncodeForwardKey encodes a port forward routing key for route advertisement.
 // Returns length-prefixed key string (1 byte length + key).
-func EncodeTunnelKey(key string) []byte {
+func EncodeForwardKey(key string) []byte {
 	buf := make([]byte, 1+len(key))
 	buf[0] = uint8(len(key))
 	copy(buf[1:], key)
 	return buf
 }
 
-// DecodeTunnelKey decodes a tunnel routing key from route advertisement.
+// EncodeForwardKeyWithTarget encodes a port forward routing key and target for route advertisement.
+// Format: [1 byte key length][key][1 byte target length][target]
+func EncodeForwardKeyWithTarget(key, target string) []byte {
+	buf := make([]byte, 2+len(key)+len(target))
+	buf[0] = uint8(len(key))
+	copy(buf[1:], key)
+	buf[1+len(key)] = uint8(len(target))
+	copy(buf[2+len(key):], target)
+	return buf
+}
+
+// DecodeForwardKey decodes a port forward routing key from route advertisement.
 // Input is length-prefixed key string (1 byte length + key).
-func DecodeTunnelKey(prefix []byte) string {
+func DecodeForwardKey(prefix []byte) string {
 	if len(prefix) < 1 {
 		return ""
 	}
@@ -679,6 +690,32 @@ func DecodeTunnelKey(prefix []byte) string {
 		return ""
 	}
 	return string(prefix[1 : 1+keyLen])
+}
+
+// DecodeForwardKeyAndTarget decodes a port forward routing key and target from route advertisement.
+// Format: [1 byte key length][key][1 byte target length][target]
+// Returns key and target strings.
+func DecodeForwardKeyAndTarget(prefix []byte) (key, target string) {
+	if len(prefix) < 1 {
+		return "", ""
+	}
+	keyLen := int(prefix[0])
+	if len(prefix) < 1+keyLen {
+		return "", ""
+	}
+	key = string(prefix[1 : 1+keyLen])
+
+	// Check if target is present
+	targetOffset := 1 + keyLen
+	if len(prefix) < targetOffset+1 {
+		return key, ""
+	}
+	targetLen := int(prefix[targetOffset])
+	if len(prefix) < targetOffset+1+targetLen {
+		return key, ""
+	}
+	target = string(prefix[targetOffset+1 : targetOffset+1+targetLen])
+	return key, target
 }
 
 // RouteAdvertise is the payload for ROUTE_ADVERTISE frames.
@@ -709,7 +746,8 @@ func (r *RouteAdvertise) Encode() []byte {
 	size := 16 + 1 + len(r.OriginDisplayName) + 8 + 1
 	for _, route := range r.Routes {
 		size += 2 + prefixLength(route.AddressFamily, 0) + 2
-		if route.AddressFamily == AddrFamilyDomain {
+		// Domain and forward routes use variable-length prefixes
+		if route.AddressFamily == AddrFamilyDomain || route.AddressFamily == AddrFamilyForward {
 			size = size - prefixLength(route.AddressFamily, 0) + len(route.Prefix)
 		}
 	}
@@ -765,13 +803,28 @@ func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 		// Determine prefix length based on address family
 		var pLen int
 		switch route.AddressFamily {
-		case AddrFamilyDomain, AddrFamilyTunnel:
-			// Domain and tunnel routes use length-prefixed strings
+		case AddrFamilyDomain:
+			// Domain routes use length-prefixed strings: [1 byte len][domain]
 			if rd.offset >= len(buf) {
 				rd.setError("prefix length missing")
 				break
 			}
 			pLen = 1 + int(buf[rd.offset])
+		case AddrFamilyForward:
+			// Forward routes: [1 byte key len][key][1 byte target len][target]
+			if rd.offset >= len(buf) {
+				rd.setError("forward key length missing")
+				break
+			}
+			keyLen := int(buf[rd.offset])
+			// Calculate total: keyLen byte + key + targetLen byte + target
+			targetLenOffset := rd.offset + 1 + keyLen
+			if targetLenOffset >= len(buf) {
+				rd.setError("forward target length missing")
+				break
+			}
+			targetLen := int(buf[targetLenOffset])
+			pLen = 1 + keyLen + 1 + targetLen
 		default:
 			// IPv4/IPv6 routes have fixed prefix lengths
 			pLen = prefixLength(route.AddressFamily, 0)

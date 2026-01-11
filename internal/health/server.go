@@ -121,13 +121,13 @@ type UDPInfo struct {
 	Enabled bool
 }
 
-// TunnelInfo contains tunnel configuration for display.
-type TunnelInfo struct {
-	// ListenerKeys contains routing keys for tunnel listeners (ingress).
+// PortForwardInfo contains port forward configuration for display.
+type PortForwardInfo struct {
+	// ListenerKeys contains routing keys for port forward listeners (ingress).
 	ListenerKeys []string
 	// ListenerAddresses contains listen addresses for each listener.
 	ListenerAddresses []string
-	// EndpointKeys contains routing keys for tunnel endpoints (exit).
+	// EndpointKeys contains routing keys for port forward endpoints (exit).
 	EndpointKeys []string
 }
 
@@ -175,11 +175,11 @@ type RemoteStatusProvider interface {
 	// GetUDPInfo returns UDP relay configuration for the local agent.
 	GetUDPInfo() UDPInfo
 
-	// GetTunnelInfo returns tunnel configuration for the local agent.
-	GetTunnelInfo() TunnelInfo
+	// GetPortForwardInfo returns port forward configuration for the local agent.
+	GetPortForwardInfo() PortForwardInfo
 
-	// GetTunnelRouteDetails returns detailed tunnel route information for the dashboard.
-	GetTunnelRouteDetails() []TunnelRouteDetails
+	// GetPortForwardRouteDetails returns detailed port forward route information for the dashboard.
+	GetPortForwardRouteDetails() []PortForwardRouteDetails
 
 	// UploadFile uploads a file or directory to a remote agent via stream-based transfer.
 	// localPath is the local file/directory path, remotePath is the destination on the remote agent.
@@ -245,16 +245,17 @@ type DomainRouteDetails struct {
 	Path       []identity.AgentID // Full path from local to origin
 }
 
-// TunnelRouteDetails contains detailed tunnel route information for the dashboard.
-type TunnelRouteDetails struct {
-	Key      string
-	Target   string             // Only set for local routes (exit agent)
-	NextHop  identity.AgentID
-	Origin   identity.AgentID
-	Metric   int
-	HopCount int
-	Path     []identity.AgentID // Full path from local to origin
-	IsLocal  bool               // True if this is a local tunnel endpoint
+// PortForwardRouteDetails contains detailed port forward route information for the dashboard.
+type PortForwardRouteDetails struct {
+	Key             string
+	ListenerAddress string             // Listener address if local agent has a listener for this key
+	Target          string             // Target address (propagated in route advertisements)
+	NextHop         identity.AgentID
+	Origin          identity.AgentID
+	Metric          int
+	HopCount        int
+	Path            []identity.AgentID // Full path from local to origin
+	IsLocal         bool               // True if this is a local port forward endpoint
 }
 
 // RouteAdvertiseTrigger provides the ability to trigger immediate route advertisement.
@@ -285,13 +286,13 @@ type TopologyAgentInfo struct {
 	Version        string   `json:"version,omitempty"`
 	UptimeHours    float64  `json:"uptime_hours,omitempty"`
 	IPAddresses    []string `json:"ip_addresses,omitempty"`
-	Roles          []string `json:"roles,omitempty"`           // Agent roles: "ingress", "exit", "transit", "tunnel_ingress", "tunnel_exit"
-	SOCKS5Addr     string   `json:"socks5_addr,omitempty"`     // SOCKS5 listen address (for ingress)
-	ExitRoutes     []string `json:"exit_routes,omitempty"`     // CIDR routes (for exit)
-	DomainRoutes   []string `json:"domain_routes,omitempty"`   // Domain patterns (for exit)
-	UDPEnabled     bool     `json:"udp_enabled,omitempty"`     // UDP relay enabled (for exit)
-	TunnelListeners []string `json:"tunnel_listeners,omitempty"` // Tunnel listener keys (for tunnel_ingress)
-	TunnelEndpoints []string `json:"tunnel_endpoints,omitempty"` // Tunnel endpoint keys (for tunnel_exit)
+	Roles            []string `json:"roles,omitempty"`             // Agent roles: "ingress", "exit", "transit", "forward_ingress", "forward_exit"
+	SOCKS5Addr       string   `json:"socks5_addr,omitempty"`       // SOCKS5 listen address (for ingress)
+	ExitRoutes       []string `json:"exit_routes,omitempty"`       // CIDR routes (for exit)
+	DomainRoutes     []string `json:"domain_routes,omitempty"`     // Domain patterns (for exit)
+	UDPEnabled       bool     `json:"udp_enabled,omitempty"`       // UDP relay enabled (for exit)
+	ForwardListeners []string `json:"forward_listeners,omitempty"` // Port forward listener keys (for forward_ingress)
+	ForwardEndpoints []string `json:"forward_endpoints,omitempty"` // Port forward endpoint keys (for forward_exit)
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -348,16 +349,17 @@ type DashboardDomainRouteInfo struct {
 	UDP         bool     `json:"udp"`          // UDP support (exit has UDP enabled)
 }
 
-// DashboardTunnelRouteInfo contains information about a tunnel route.
-type DashboardTunnelRouteInfo struct {
-	Key         string   `json:"key"`                   // Tunnel routing key
-	Target      string   `json:"target,omitempty"`      // Target address (only for local endpoints)
-	Origin      string   `json:"origin"`                // Display name of origin
-	OriginID    string   `json:"origin_id"`             // Short ID of origin
-	HopCount    int      `json:"hop_count"`             // Number of hops to origin
-	PathDisplay []string `json:"path_display"`          // Display names: [local, peer1, ..., origin]
-	PathIDs     []string `json:"path_ids"`              // Short IDs for path highlighting
-	IsLocal     bool     `json:"is_local"`              // True if this is a local tunnel endpoint
+// DashboardPortForwardRouteInfo contains information about a port forward route.
+type DashboardPortForwardRouteInfo struct {
+	Key             string   `json:"key"`                        // Port forward routing key
+	ListenerAddress string   `json:"listener_address,omitempty"` // Listener address (if local listener exists)
+	Target          string   `json:"target,omitempty"`           // Target address
+	Origin          string   `json:"origin"`                     // Display name of origin
+	OriginID        string   `json:"origin_id"`                  // Short ID of origin
+	HopCount        int      `json:"hop_count"`                  // Number of hops to origin
+	PathDisplay     []string `json:"path_display"`               // Display names: [local, peer1, ..., origin]
+	PathIDs         []string `json:"path_ids"`                   // Short IDs for path highlighting
+	IsLocal         bool     `json:"is_local"`                   // True if this is a local port forward endpoint
 }
 
 // DashboardResponse is the response for the /api/dashboard endpoint.
@@ -365,9 +367,9 @@ type DashboardResponse struct {
 	Agent        TopologyAgentInfo          `json:"agent"`
 	Stats        Stats                      `json:"stats"`
 	Peers        []DashboardPeerInfo        `json:"peers"`
-	Routes       []DashboardRouteInfo       `json:"routes"`
-	DomainRoutes []DashboardDomainRouteInfo `json:"domain_routes,omitempty"`
-	TunnelRoutes []DashboardTunnelRouteInfo `json:"tunnel_routes,omitempty"`
+	Routes        []DashboardRouteInfo            `json:"routes"`
+	DomainRoutes  []DashboardDomainRouteInfo      `json:"domain_routes,omitempty"`
+	ForwardRoutes []DashboardPortForwardRouteInfo `json:"forward_routes,omitempty"`
 }
 
 // ServerConfig contains health server configuration.
@@ -479,7 +481,7 @@ func populateNodeInfo(agent *TopologyAgentInfo, nodeInfo *protocol.NodeInfo) {
 }
 
 // buildLocalAgentInfo constructs TopologyAgentInfo for the local agent.
-func (s *Server) buildLocalAgentInfo(localID identity.AgentID, displayName string, stats Stats, socks5Info SOCKS5Info, udpInfo UDPInfo, tunnelInfo TunnelInfo) TopologyAgentInfo {
+func (s *Server) buildLocalAgentInfo(localID identity.AgentID, displayName string, stats Stats, socks5Info SOCKS5Info, udpInfo UDPInfo, forwardInfo PortForwardInfo) TopologyAgentInfo {
 	agent := TopologyAgentInfo{
 		ID:          localID.String(),
 		ShortID:     localID.ShortString(),
@@ -489,9 +491,9 @@ func (s *Server) buildLocalAgentInfo(localID identity.AgentID, displayName strin
 	}
 	populateNodeInfo(&agent, s.remoteProvider.GetLocalNodeInfo())
 
-	hasTunnelListeners := len(tunnelInfo.ListenerKeys) > 0
-	hasTunnelEndpoints := len(tunnelInfo.EndpointKeys) > 0
-	agent.Roles = s.buildAgentRoles(true, stats.SOCKS5Running, stats.ExitHandlerRun, hasTunnelListeners, hasTunnelEndpoints)
+	hasForwardListeners := len(forwardInfo.ListenerKeys) > 0
+	hasForwardEndpoints := len(forwardInfo.EndpointKeys) > 0
+	agent.Roles = s.buildAgentRoles(true, stats.SOCKS5Running, stats.ExitHandlerRun, hasForwardListeners, hasForwardEndpoints)
 
 	if socks5Info.Enabled {
 		agent.SOCKS5Addr = socks5Info.Address
@@ -499,11 +501,11 @@ func (s *Server) buildLocalAgentInfo(localID identity.AgentID, displayName strin
 	if udpInfo.Enabled {
 		agent.UDPEnabled = true
 	}
-	if hasTunnelListeners {
-		agent.TunnelListeners = tunnelInfo.ListenerKeys
+	if hasForwardListeners {
+		agent.ForwardListeners = forwardInfo.ListenerKeys
 	}
-	if hasTunnelEndpoints {
-		agent.TunnelEndpoints = tunnelInfo.EndpointKeys
+	if hasForwardEndpoints {
+		agent.ForwardEndpoints = forwardInfo.EndpointKeys
 	}
 	return agent
 }
@@ -1185,10 +1187,10 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 
 	socks5Info := s.remoteProvider.GetSOCKS5Info()
 	udpInfo := s.remoteProvider.GetUDPInfo()
-	tunnelInfo := s.remoteProvider.GetTunnelInfo()
+	forwardInfo := s.remoteProvider.GetPortForwardInfo()
 
 	// Build base local agent info
-	localAgent := s.buildLocalAgentInfo(localID, localName, localStats, socks5Info, udpInfo, tunnelInfo)
+	localAgent := s.buildLocalAgentInfo(localID, localName, localStats, socks5Info, udpInfo, forwardInfo)
 
 	// If management key encryption is enabled but we can't decrypt,
 	// only return local agent info (no peers, routes, or other agents)
@@ -1208,12 +1210,12 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 	// Get route details for determining exit roles
 	routeDetails := s.remoteProvider.GetRouteDetails()
 	domainRouteDetails := s.remoteProvider.GetDomainRouteDetails()
-	tunnelRouteDetails := s.remoteProvider.GetTunnelRouteDetails()
+	forwardRouteDetails := s.remoteProvider.GetPortForwardRouteDetails()
 
-	// Build maps of exit routes, domain routes, and tunnel endpoints per agent (by origin)
+	// Build maps of exit routes, domain routes, and forward endpoints per agent (by origin)
 	exitRoutesPerAgent := make(map[string][]string)
 	domainRoutesPerAgent := make(map[string][]string)
-	tunnelEndpointsPerAgent := make(map[string][]string)
+	forwardEndpointsPerAgent := make(map[string][]string)
 	for _, route := range routeDetails {
 		originID := route.Origin.String()
 		exitRoutesPerAgent[originID] = append(exitRoutesPerAgent[originID], route.Network)
@@ -1222,9 +1224,9 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		originID := route.Origin.String()
 		domainRoutesPerAgent[originID] = append(domainRoutesPerAgent[originID], route.Pattern)
 	}
-	for _, route := range tunnelRouteDetails {
+	for _, route := range forwardRouteDetails {
 		originID := route.Origin.String()
-		tunnelEndpointsPerAgent[originID] = append(tunnelEndpointsPerAgent[originID], route.Key)
+		forwardEndpointsPerAgent[originID] = append(forwardEndpointsPerAgent[originID], route.Key)
 	}
 
 	// Add exit routes to local agent
@@ -1328,6 +1330,63 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Add all agents from NODE_INFO advertisements to the topology
+	// This ensures we see all known agents, not just those with routes
+	for agentID, nodeInfo := range allNodeInfo {
+		if _, exists := agentMap[agentID.String()]; !exists {
+			displayName := displayNames[agentID]
+			if displayName == "" {
+				displayName = agentID.ShortString()
+			}
+			agentMap[agentID.String()] = TopologyAgentInfo{
+				ID:          agentID.String(),
+				ShortID:     agentID.ShortString(),
+				DisplayName: displayName,
+				IsLocal:     false,
+				IsConnected: peerSet[agentID],
+			}
+		}
+
+		// Add connections from this agent's peer list
+		if nodeInfo != nil {
+			for _, peer := range nodeInfo.Peers {
+				var peerAgentID identity.AgentID
+				copy(peerAgentID[:], peer.PeerID[:])
+
+				// Add the peer agent if not already in the map
+				if _, exists := agentMap[peerAgentID.String()]; !exists {
+					peerDisplayName := displayNames[peerAgentID]
+					if peerDisplayName == "" {
+						peerDisplayName = peerAgentID.ShortString()
+					}
+					agentMap[peerAgentID.String()] = TopologyAgentInfo{
+						ID:          peerAgentID.String(),
+						ShortID:     peerAgentID.ShortString(),
+						DisplayName: peerDisplayName,
+						IsLocal:     false,
+						IsConnected: peerSet[peerAgentID],
+					}
+				}
+
+				// Add the connection if not already tracked
+				connKey := agentID.ShortString() + "->" + peerAgentID.ShortString()
+				reverseKey := peerAgentID.ShortString() + "->" + agentID.ShortString()
+				if _, exists := connectionSet[connKey]; !exists {
+					if _, reverseExists := connectionSet[reverseKey]; !reverseExists {
+						connectionSet[connKey] = TopologyConnection{
+							FromAgent:    agentID.ShortString(),
+							ToAgent:      peerAgentID.ShortString(),
+							IsDirect:     false,
+							Transport:    peer.Transport,
+							RTTMs:        peer.RTTMs,
+							Unresponsive: peer.RTTMs > 60000,
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Populate node info for all agents in the map
 	for agentID, nodeInfo := range allNodeInfo {
 		if existing, ok := agentMap[agentID.String()]; ok {
@@ -1336,7 +1395,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Populate exit routes, domain routes, and tunnel endpoints for all agents, and determine roles
+	// Populate exit routes, domain routes, and forward endpoints for all agents, and determine roles
 	for agentID, existing := range agentMap {
 		if existing.IsLocal {
 			continue // Already handled above
@@ -1353,17 +1412,17 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 			hasExitRoutes = true
 		}
 
-		// Check if agent has tunnel endpoints (makes it a tunnel_exit node)
-		hasTunnelEndpoints := false
-		if endpoints, ok := tunnelEndpointsPerAgent[agentID]; ok {
-			existing.TunnelEndpoints = endpoints
-			hasTunnelEndpoints = true
+		// Check if agent has forward endpoints (makes it a forward_exit node)
+		hasForwardEndpoints := false
+		if endpoints, ok := forwardEndpointsPerAgent[agentID]; ok {
+			existing.ForwardEndpoints = endpoints
+			hasForwardEndpoints = true
 		}
 
 		// Build roles for remote agents
-		// Note: We can't know if remote agents have SOCKS5 or tunnel listeners without protocol changes
-		// For now, we only know exit and tunnel_exit status from routes
-		existing.Roles = s.buildAgentRoles(false, false, hasExitRoutes, false, hasTunnelEndpoints)
+		// Note: We can't know if remote agents have SOCKS5 or forward listeners without protocol changes
+		// For now, we only know exit and forward_exit status from routes
+		existing.Roles = s.buildAgentRoles(false, false, hasExitRoutes, false, hasForwardEndpoints)
 
 		agentMap[agentID] = existing
 	}
@@ -1388,7 +1447,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 
 // buildAgentRoles constructs the roles array based on agent capabilities.
 // All agents can act as transit, but we only include it if they're not ingress or exit.
-func (s *Server) buildAgentRoles(isLocal bool, hasSOCKS5 bool, hasExitRoutes bool, hasTunnelListeners bool, hasTunnelEndpoints bool) []string {
+func (s *Server) buildAgentRoles(isLocal bool, hasSOCKS5 bool, hasExitRoutes bool, hasForwardListeners bool, hasForwardEndpoints bool) []string {
 	var roles []string
 	if hasSOCKS5 {
 		roles = append(roles, "ingress")
@@ -1396,11 +1455,11 @@ func (s *Server) buildAgentRoles(isLocal bool, hasSOCKS5 bool, hasExitRoutes boo
 	if hasExitRoutes {
 		roles = append(roles, "exit")
 	}
-	if hasTunnelListeners {
-		roles = append(roles, "tunnel_ingress")
+	if hasForwardListeners {
+		roles = append(roles, "forward_ingress")
 	}
-	if hasTunnelEndpoints {
-		roles = append(roles, "tunnel_exit")
+	if hasForwardEndpoints {
+		roles = append(roles, "forward_exit")
 	}
 	// If no specific roles, mark as transit
 	if len(roles) == 0 {
@@ -1560,38 +1619,39 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return domainRoutes[i].OriginID < domainRoutes[j].OriginID
 	})
 
-	// Build tunnel routes
-	tunnelRouteDetails := s.remoteProvider.GetTunnelRouteDetails()
-	tunnelRoutes := make([]DashboardTunnelRouteInfo, 0, len(tunnelRouteDetails))
-	for _, route := range tunnelRouteDetails {
+	// Build port forward routes
+	forwardRouteDetails := s.remoteProvider.GetPortForwardRouteDetails()
+	forwardRoutes := make([]DashboardPortForwardRouteInfo, 0, len(forwardRouteDetails))
+	for _, route := range forwardRouteDetails {
 		pathDisplay, pathIDs := buildPath(route.Path)
-		tunnelRoutes = append(tunnelRoutes, DashboardTunnelRouteInfo{
-			Key:         route.Key,
-			Target:      route.Target,
-			Origin:      getDisplayName(route.Origin),
-			OriginID:    route.Origin.ShortString(),
-			HopCount:    route.HopCount,
-			PathDisplay: pathDisplay,
-			PathIDs:     pathIDs,
-			IsLocal:     route.IsLocal,
+		forwardRoutes = append(forwardRoutes, DashboardPortForwardRouteInfo{
+			Key:             route.Key,
+			ListenerAddress: route.ListenerAddress,
+			Target:          route.Target,
+			Origin:          getDisplayName(route.Origin),
+			OriginID:        route.Origin.ShortString(),
+			HopCount:        route.HopCount,
+			PathDisplay:     pathDisplay,
+			PathIDs:         pathIDs,
+			IsLocal:         route.IsLocal,
 		})
 	}
 
-	// Sort tunnel routes by key, then by origin
-	sort.Slice(tunnelRoutes, func(i, j int) bool {
-		if tunnelRoutes[i].Key != tunnelRoutes[j].Key {
-			return tunnelRoutes[i].Key < tunnelRoutes[j].Key
+	// Sort port forward routes by key, then by origin
+	sort.Slice(forwardRoutes, func(i, j int) bool {
+		if forwardRoutes[i].Key != forwardRoutes[j].Key {
+			return forwardRoutes[i].Key < forwardRoutes[j].Key
 		}
-		return tunnelRoutes[i].OriginID < tunnelRoutes[j].OriginID
+		return forwardRoutes[i].OriginID < forwardRoutes[j].OriginID
 	})
 
 	writeJSON(w, http.StatusOK, DashboardResponse{
-		Agent:        localAgentInfo,
-		Stats:        stats,
-		Peers:        peers,
-		Routes:       routes,
-		DomainRoutes: domainRoutes,
-		TunnelRoutes: tunnelRoutes,
+		Agent:         localAgentInfo,
+		Stats:         stats,
+		Peers:         peers,
+		Routes:        routes,
+		DomainRoutes:  domainRoutes,
+		ForwardRoutes: forwardRoutes,
 	})
 }
 

@@ -1,4 +1,4 @@
-package tunnel
+package forward
 
 import (
 	"context"
@@ -272,8 +272,8 @@ func TestHandler_HandleStreamOpen_UnknownKey(t *testing.T) {
 		t.Fatalf("expected 1 error, got %d", len(errors))
 	}
 
-	if errors[0].ErrorCode != protocol.ErrTunnelNotFound {
-		t.Errorf("expected error code %d, got %d", protocol.ErrTunnelNotFound, errors[0].ErrorCode)
+	if errors[0].ErrorCode != protocol.ErrForwardNotFound {
+		t.Errorf("expected error code %d, got %d", protocol.ErrForwardNotFound, errors[0].ErrorCode)
 	}
 
 	if errors[0].StreamID != 1 {

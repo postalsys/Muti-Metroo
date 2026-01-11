@@ -1,4 +1,4 @@
-// Package routing implements tunnel-based routing for Muti Metroo mesh network.
+// Package routing implements port forward routing for Muti Metroo mesh network.
 package routing
 
 import (
@@ -11,12 +11,12 @@ import (
 	"github.com/postalsys/muti-metroo/internal/protocol"
 )
 
-// TunnelRoute represents a single tunnel route entry.
-type TunnelRoute struct {
-	// Key is the routing key that identifies this tunnel (e.g., "my-web-server")
+// ForwardRoute represents a single port forward route entry.
+type ForwardRoute struct {
+	// Key is the routing key that identifies this port forward (e.g., "my-web-server")
 	Key string
 
-	// Target is the fixed destination host:port for tunneled connections.
+	// Target is the fixed destination host:port for forwarded connections.
 	// This is only set on the origin agent; transit nodes don't know the target.
 	Target string
 
@@ -42,15 +42,15 @@ type TunnelRoute struct {
 	LastUpdate time.Time
 }
 
-// String returns a human-readable representation of the tunnel route.
-func (r *TunnelRoute) String() string {
-	return fmt.Sprintf("TunnelRoute{%s via %s, metric=%d, origin=%s}",
+// String returns a human-readable representation of the port forward route.
+func (r *ForwardRoute) String() string {
+	return fmt.Sprintf("ForwardRoute{%s via %s, metric=%d, origin=%s}",
 		r.Key, r.NextHop.ShortString(), r.Metric, r.OriginAgent.ShortString())
 }
 
-// Clone creates a deep copy of the tunnel route.
-func (r *TunnelRoute) Clone() *TunnelRoute {
-	clone := &TunnelRoute{
+// Clone creates a deep copy of the port forward route.
+func (r *ForwardRoute) Clone() *ForwardRoute {
+	clone := &ForwardRoute{
 		Key:         r.Key,
 		Target:      r.Target,
 		NextHop:     r.NextHop,
@@ -73,29 +73,29 @@ func (r *TunnelRoute) Clone() *TunnelRoute {
 	return clone
 }
 
-// TunnelTable is a thread-safe tunnel routing table.
-type TunnelTable struct {
+// ForwardTable is a thread-safe port forward routing table.
+type ForwardTable struct {
 	mu sync.RWMutex
 
-	// routes maps tunnel key to route entries
-	// Key: tunnel routing key (e.g., "my-web-server")
-	routes map[string][]*TunnelRoute
+	// routes maps forward key to route entries
+	// Key: forward routing key (e.g., "my-web-server")
+	routes map[string][]*ForwardRoute
 
 	// localID is this agent's ID (for loop detection)
 	localID identity.AgentID
 }
 
-// NewTunnelTable creates a new tunnel routing table.
-func NewTunnelTable(localID identity.AgentID) *TunnelTable {
-	return &TunnelTable{
-		routes:  make(map[string][]*TunnelRoute),
+// NewForwardTable creates a new port forward routing table.
+func NewForwardTable(localID identity.AgentID) *ForwardTable {
+	return &ForwardTable{
+		routes:  make(map[string][]*ForwardRoute),
 		localID: localID,
 	}
 }
 
-// AddRoute adds or updates a tunnel route in the table.
+// AddRoute adds or updates a port forward route in the table.
 // Returns true if the route was added/updated, false if rejected (e.g., loop detected).
-func (t *TunnelTable) AddRoute(route *TunnelRoute) bool {
+func (t *ForwardTable) AddRoute(route *ForwardRoute) bool {
 	if route == nil || route.Key == "" {
 		return false
 	}
@@ -137,15 +137,15 @@ func (t *TunnelTable) AddRoute(route *TunnelRoute) bool {
 }
 
 // sortRoutes sorts routes for a key by metric (lowest first).
-func (t *TunnelTable) sortRoutes(key string) {
+func (t *ForwardTable) sortRoutes(key string) {
 	routes := t.routes[key]
 	sort.Slice(routes, func(i, j int) bool {
 		return routes[i].Metric < routes[j].Metric
 	})
 }
 
-// RemoveRoute removes a tunnel route from a specific origin.
-func (t *TunnelTable) RemoveRoute(key string, originAgent identity.AgentID) bool {
+// RemoveRoute removes a port forward route from a specific origin.
+func (t *ForwardTable) RemoveRoute(key string, originAgent identity.AgentID) bool {
 	if key == "" {
 		return false
 	}
@@ -166,8 +166,8 @@ func (t *TunnelTable) RemoveRoute(key string, originAgent identity.AgentID) bool
 	return false
 }
 
-// RemoveRoutesFromPeer removes all tunnel routes learned from a specific peer.
-func (t *TunnelTable) RemoveRoutesFromPeer(peerID identity.AgentID) int {
+// RemoveRoutesFromPeer removes all port forward routes learned from a specific peer.
+func (t *ForwardTable) RemoveRoutesFromPeer(peerID identity.AgentID) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -190,8 +190,8 @@ func (t *TunnelTable) RemoveRoutesFromPeer(peerID identity.AgentID) int {
 	return count
 }
 
-// Lookup finds the best tunnel route for a routing key.
-func (t *TunnelTable) Lookup(key string) *TunnelRoute {
+// Lookup finds the best port forward route for a routing key.
+func (t *ForwardTable) Lookup(key string) *ForwardRoute {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -201,12 +201,12 @@ func (t *TunnelTable) Lookup(key string) *TunnelRoute {
 	return nil
 }
 
-// GetAllRoutes returns all tunnel routes in the table.
-func (t *TunnelTable) GetAllRoutes() []*TunnelRoute {
+// GetAllRoutes returns all port forward routes in the table.
+func (t *ForwardTable) GetAllRoutes() []*ForwardRoute {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	var all []*TunnelRoute
+	var all []*ForwardRoute
 	for _, routes := range t.routes {
 		for _, r := range routes {
 			all = append(all, r.Clone())
@@ -215,12 +215,12 @@ func (t *TunnelTable) GetAllRoutes() []*TunnelRoute {
 	return all
 }
 
-// GetRoutesFromAgent returns all tunnel routes originating from a specific agent.
-func (t *TunnelTable) GetRoutesFromAgent(agentID identity.AgentID) []*TunnelRoute {
+// GetRoutesFromAgent returns all port forward routes originating from a specific agent.
+func (t *ForwardTable) GetRoutesFromAgent(agentID identity.AgentID) []*ForwardRoute {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	var matching []*TunnelRoute
+	var matching []*ForwardRoute
 	for _, routes := range t.routes {
 		for _, r := range routes {
 			if r.OriginAgent == agentID {
@@ -231,15 +231,15 @@ func (t *TunnelTable) GetRoutesFromAgent(agentID identity.AgentID) []*TunnelRout
 	return matching
 }
 
-// Size returns the number of unique tunnel keys in the table.
-func (t *TunnelTable) Size() int {
+// Size returns the number of unique port forward keys in the table.
+func (t *ForwardTable) Size() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return len(t.routes)
 }
 
-// TotalRoutes returns the total number of tunnel route entries.
-func (t *TunnelTable) TotalRoutes() int {
+// TotalRoutes returns the total number of port forward route entries.
+func (t *ForwardTable) TotalRoutes() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -250,15 +250,15 @@ func (t *TunnelTable) TotalRoutes() int {
 	return count
 }
 
-// Clear removes all tunnel routes from the table.
-func (t *TunnelTable) Clear() {
+// Clear removes all port forward routes from the table.
+func (t *ForwardTable) Clear() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.routes = make(map[string][]*TunnelRoute)
+	t.routes = make(map[string][]*ForwardRoute)
 }
 
-// HasRoute checks if a tunnel route exists for the given key and origin.
-func (t *TunnelTable) HasRoute(key string, originAgent identity.AgentID) bool {
+// HasRoute checks if a port forward route exists for the given key and origin.
+func (t *ForwardTable) HasRoute(key string, originAgent identity.AgentID) bool {
 	if key == "" {
 		return false
 	}
@@ -274,10 +274,10 @@ func (t *TunnelTable) HasRoute(key string, originAgent identity.AgentID) bool {
 	return false
 }
 
-// CleanupStaleRoutes removes tunnel routes that haven't been updated within maxAge.
+// CleanupStaleRoutes removes port forward routes that haven't been updated within maxAge.
 // Local routes (where OriginAgent == localID) are never removed.
 // Returns the number of routes removed.
-func (t *TunnelTable) CleanupStaleRoutes(maxAge time.Duration) int {
+func (t *ForwardTable) CleanupStaleRoutes(maxAge time.Duration) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -285,7 +285,7 @@ func (t *TunnelTable) CleanupStaleRoutes(maxAge time.Duration) int {
 	removed := 0
 
 	for key, routes := range t.routes {
-		var kept []*TunnelRoute
+		var kept []*ForwardRoute
 		for _, r := range routes {
 			if r.OriginAgent == t.localID || now.Sub(r.LastUpdate) <= maxAge {
 				kept = append(kept, r)
@@ -302,15 +302,15 @@ func (t *TunnelTable) CleanupStaleRoutes(maxAge time.Duration) int {
 	return removed
 }
 
-// LocalTunnelRoute represents a locally-announced tunnel route.
-type LocalTunnelRoute struct {
+// LocalForwardRoute represents a locally-announced port forward route.
+type LocalForwardRoute struct {
 	Key    string // Routing key
 	Target string // Fixed target host:port
 	Metric uint16
 }
 
-// TunnelRouteChange represents a tunnel route update.
-type TunnelRouteChange struct {
+// ForwardRouteChange represents a port forward route update.
+type ForwardRouteChange struct {
 	Type  RouteChangeType
-	Route *TunnelRoute
+	Route *ForwardRoute
 }

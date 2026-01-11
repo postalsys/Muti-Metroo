@@ -573,82 +573,82 @@ func TestBuildAgentRoles(t *testing.T) {
 	s := NewServer(cfg, nil)
 
 	tests := []struct {
-		name               string
-		isLocal            bool
-		hasSOCKS5          bool
-		hasExitRoutes      bool
-		hasTunnelListeners bool
-		hasTunnelEndpoints bool
-		expected           []string
+		name                string
+		isLocal             bool
+		hasSOCKS5           bool
+		hasExitRoutes       bool
+		hasForwardListeners bool
+		hasForwardEndpoints bool
+		expected            []string
 	}{
 		{
-			name:               "transit only",
-			isLocal:            false,
-			hasSOCKS5:          false,
-			hasExitRoutes:      false,
-			hasTunnelListeners: false,
-			hasTunnelEndpoints: false,
-			expected:           []string{"transit"},
+			name:                "transit only",
+			isLocal:             false,
+			hasSOCKS5:           false,
+			hasExitRoutes:       false,
+			hasForwardListeners: false,
+			hasForwardEndpoints: false,
+			expected:            []string{"transit"},
 		},
 		{
-			name:               "ingress only",
-			isLocal:            true,
-			hasSOCKS5:          true,
-			hasExitRoutes:      false,
-			hasTunnelListeners: false,
-			hasTunnelEndpoints: false,
-			expected:           []string{"ingress"},
+			name:                "ingress only",
+			isLocal:             true,
+			hasSOCKS5:           true,
+			hasExitRoutes:       false,
+			hasForwardListeners: false,
+			hasForwardEndpoints: false,
+			expected:            []string{"ingress"},
 		},
 		{
-			name:               "exit only",
-			isLocal:            false,
-			hasSOCKS5:          false,
-			hasExitRoutes:      true,
-			hasTunnelListeners: false,
-			hasTunnelEndpoints: false,
-			expected:           []string{"exit"},
+			name:                "exit only",
+			isLocal:             false,
+			hasSOCKS5:           false,
+			hasExitRoutes:       true,
+			hasForwardListeners: false,
+			hasForwardEndpoints: false,
+			expected:            []string{"exit"},
 		},
 		{
-			name:               "ingress and exit",
-			isLocal:            true,
-			hasSOCKS5:          true,
-			hasExitRoutes:      true,
-			hasTunnelListeners: false,
-			hasTunnelEndpoints: false,
-			expected:           []string{"ingress", "exit"},
+			name:                "ingress and exit",
+			isLocal:             true,
+			hasSOCKS5:           true,
+			hasExitRoutes:       true,
+			hasForwardListeners: false,
+			hasForwardEndpoints: false,
+			expected:            []string{"ingress", "exit"},
 		},
 		{
-			name:               "tunnel ingress only",
-			isLocal:            true,
-			hasSOCKS5:          false,
-			hasExitRoutes:      false,
-			hasTunnelListeners: true,
-			hasTunnelEndpoints: false,
-			expected:           []string{"tunnel_ingress"},
+			name:                "forward ingress only",
+			isLocal:             true,
+			hasSOCKS5:           false,
+			hasExitRoutes:       false,
+			hasForwardListeners: true,
+			hasForwardEndpoints: false,
+			expected:            []string{"forward_ingress"},
 		},
 		{
-			name:               "tunnel exit only",
-			isLocal:            false,
-			hasSOCKS5:          false,
-			hasExitRoutes:      false,
-			hasTunnelListeners: false,
-			hasTunnelEndpoints: true,
-			expected:           []string{"tunnel_exit"},
+			name:                "forward exit only",
+			isLocal:             false,
+			hasSOCKS5:           false,
+			hasExitRoutes:       false,
+			hasForwardListeners: false,
+			hasForwardEndpoints: true,
+			expected:            []string{"forward_exit"},
 		},
 		{
-			name:               "all roles",
-			isLocal:            true,
-			hasSOCKS5:          true,
-			hasExitRoutes:      true,
-			hasTunnelListeners: true,
-			hasTunnelEndpoints: true,
-			expected:           []string{"ingress", "exit", "tunnel_ingress", "tunnel_exit"},
+			name:                "all roles",
+			isLocal:             true,
+			hasSOCKS5:           true,
+			hasExitRoutes:       true,
+			hasForwardListeners: true,
+			hasForwardEndpoints: true,
+			expected:            []string{"ingress", "exit", "forward_ingress", "forward_exit"},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			roles := s.buildAgentRoles(tc.isLocal, tc.hasSOCKS5, tc.hasExitRoutes, tc.hasTunnelListeners, tc.hasTunnelEndpoints)
+			roles := s.buildAgentRoles(tc.isLocal, tc.hasSOCKS5, tc.hasExitRoutes, tc.hasForwardListeners, tc.hasForwardEndpoints)
 
 			if len(roles) != len(tc.expected) {
 				t.Errorf("roles len = %d, want %d", len(roles), len(tc.expected))
@@ -889,13 +889,13 @@ type mockRemoteStatusProvider struct {
 	peerDetails         []PeerDetails
 	routeDetails        []RouteDetails
 	domainRoutesList    []DomainRouteDetails
-	tunnelRoutesList    []TunnelRouteDetails
+	forwardRoutesList    []PortForwardRouteDetails
 	displayNames        map[identity.AgentID]string
 	allNodeInfo         map[identity.AgentID]*protocol.NodeInfo
 	localNodeInfo       *protocol.NodeInfo
 	socks5Info          SOCKS5Info
 	udpInfo             UDPInfo
-	tunnelInfo          TunnelInfo
+	forwardInfo          PortForwardInfo
 }
 
 func (m *mockRemoteStatusProvider) ID() identity.AgentID {
@@ -954,12 +954,12 @@ func (m *mockRemoteStatusProvider) GetUDPInfo() UDPInfo {
 	return m.udpInfo
 }
 
-func (m *mockRemoteStatusProvider) GetTunnelInfo() TunnelInfo {
-	return m.tunnelInfo
+func (m *mockRemoteStatusProvider) GetPortForwardInfo() PortForwardInfo {
+	return m.forwardInfo
 }
 
-func (m *mockRemoteStatusProvider) GetTunnelRouteDetails() []TunnelRouteDetails {
-	return m.tunnelRoutesList
+func (m *mockRemoteStatusProvider) GetPortForwardRouteDetails() []PortForwardRouteDetails {
+	return m.forwardRoutesList
 }
 
 func (m *mockRemoteStatusProvider) UploadFile(ctx context.Context, targetID identity.AgentID, localPath, remotePath string, opts TransferOptions, progress FileTransferProgress) error {
@@ -1360,12 +1360,12 @@ func TestServer_buildLocalAgentInfo(t *testing.T) {
 	udpInfo := UDPInfo{
 		Enabled: true,
 	}
-	tunnelInfo := TunnelInfo{
+	forwardInfo := PortForwardInfo{
 		ListenerKeys: []string{"web"},
 		EndpointKeys: []string{"api"},
 	}
 
-	agent := s.buildLocalAgentInfo(localID, "test-agent", stats, socks5Info, udpInfo, tunnelInfo)
+	agent := s.buildLocalAgentInfo(localID, "test-agent", stats, socks5Info, udpInfo, forwardInfo)
 
 	if agent.ID != localID.String() {
 		t.Errorf("ID = %q, want %q", agent.ID, localID.String())
@@ -1385,16 +1385,16 @@ func TestServer_buildLocalAgentInfo(t *testing.T) {
 	if !agent.UDPEnabled {
 		t.Error("expected UDPEnabled to be true")
 	}
-	// Should have ingress, exit, tunnel_ingress, and tunnel_exit roles
+	// Should have ingress, exit, forward_ingress, and forward_exit roles
 	if len(agent.Roles) != 4 {
 		t.Errorf("expected 4 roles, got %d: %v", len(agent.Roles), agent.Roles)
 	}
-	// Check tunnel info
-	if len(agent.TunnelListeners) != 1 || agent.TunnelListeners[0] != "web" {
-		t.Errorf("TunnelListeners = %v, want [web]", agent.TunnelListeners)
+	// Check port forward info
+	if len(agent.ForwardListeners) != 1 || agent.ForwardListeners[0] != "web" {
+		t.Errorf("ForwardListeners = %v, want [web]", agent.ForwardListeners)
 	}
-	if len(agent.TunnelEndpoints) != 1 || agent.TunnelEndpoints[0] != "api" {
-		t.Errorf("TunnelEndpoints = %v, want [api]", agent.TunnelEndpoints)
+	if len(agent.ForwardEndpoints) != 1 || agent.ForwardEndpoints[0] != "api" {
+		t.Errorf("ForwardEndpoints = %v, want [api]", agent.ForwardEndpoints)
 	}
 }
 

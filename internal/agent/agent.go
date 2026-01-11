@@ -37,7 +37,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/stream"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/transport"
-	"github.com/postalsys/muti-metroo/internal/tunnel"
+	"github.com/postalsys/muti-metroo/internal/forward"
 	"github.com/postalsys/muti-metroo/internal/udp"
 )
 
@@ -119,9 +119,9 @@ type Agent struct {
 	// UDP relay (for exit nodes)
 	udpHandler *udp.Handler
 
-	// Tunnel (port forwarding)
-	tunnelHandler   *tunnel.Handler
-	tunnelListeners []*tunnel.Listener
+	// Port forwarding
+	forwardHandler   *forward.Handler
+	forwardListeners []*forward.Listener
 
 	// Relay stream tracking
 	relayMu           sync.RWMutex
@@ -386,41 +386,41 @@ func (a *Agent) initComponents() error {
 		a.socks5Srv.SetUDPHandler(a)
 	}
 
-	// Initialize tunnel exit handler if endpoints are configured
-	if len(a.cfg.Tunnel.Endpoints) > 0 {
-		endpoints := make([]tunnel.Endpoint, len(a.cfg.Tunnel.Endpoints))
-		for i, ep := range a.cfg.Tunnel.Endpoints {
-			endpoints[i] = tunnel.Endpoint{
+	// Initialize forward exit handler if endpoints are configured
+	if len(a.cfg.Forward.Endpoints) > 0 {
+		endpoints := make([]forward.Endpoint, len(a.cfg.Forward.Endpoints))
+		for i, ep := range a.cfg.Forward.Endpoints {
+			endpoints[i] = forward.Endpoint{
 				Key:    ep.Key,
 				Target: ep.Target,
 			}
 		}
 
-		handlerCfg := tunnel.HandlerConfig{
+		handlerCfg := forward.HandlerConfig{
 			Endpoints:      endpoints,
 			ConnectTimeout: 30 * time.Second,
 			IdleTimeout:    a.cfg.Connections.IdleThreshold,
 			MaxConnections: a.cfg.Limits.MaxStreamsTotal,
 			Logger:         a.logger,
 		}
-		a.tunnelHandler = tunnel.NewHandler(handlerCfg, a.id, a)
+		a.forwardHandler = forward.NewHandler(handlerCfg, a.id, a)
 
-		// Register local tunnel routes
-		for _, ep := range a.cfg.Tunnel.Endpoints {
-			a.routeMgr.AddLocalTunnelRoute(ep.Key, ep.Target, 0)
+		// Register local forward routes
+		for _, ep := range a.cfg.Forward.Endpoints {
+			a.routeMgr.AddLocalForwardRoute(ep.Key, ep.Target, 0)
 		}
 	}
 
-	// Initialize tunnel listeners
-	for _, lisCfg := range a.cfg.Tunnel.Listeners {
-		cfg := tunnel.ListenerConfig{
+	// Initialize forward listeners
+	for _, lisCfg := range a.cfg.Forward.Listeners {
+		cfg := forward.ListenerConfig{
 			Key:            lisCfg.Key,
 			Address:        lisCfg.Address,
 			MaxConnections: lisCfg.MaxConnections,
 			Logger:         a.logger,
 		}
-		listener := tunnel.NewListener(cfg, a)
-		a.tunnelListeners = append(a.tunnelListeners, listener)
+		listener := forward.NewListener(cfg, a)
+		a.forwardListeners = append(a.forwardListeners, listener)
 	}
 
 	return nil
@@ -514,23 +514,23 @@ func (a *Agent) Start() error {
 			"domain_routes", len(a.cfg.Exit.DomainRoutes))
 	}
 
-	// Start tunnel handler if enabled
-	if a.tunnelHandler != nil {
-		a.tunnelHandler.Start()
-		a.logger.Info("tunnel handler started",
-			"endpoints", len(a.cfg.Tunnel.Endpoints))
+	// Start forward handler if enabled
+	if a.forwardHandler != nil {
+		a.forwardHandler.Start()
+		a.logger.Info("forward handler started",
+			"endpoints", len(a.cfg.Forward.Endpoints))
 	}
 
-	// Start tunnel listeners
-	for _, listener := range a.tunnelListeners {
+	// Start forward listeners
+	for _, listener := range a.forwardListeners {
 		if err := listener.Start(); err != nil {
-			a.logger.Error("failed to start tunnel listener",
+			a.logger.Error("failed to start forward listener",
 				"key", listener.Key(),
 				logging.KeyError, err)
 			a.running.Store(false)
-			return fmt.Errorf("start tunnel listener %s: %w", listener.Key(), err)
+			return fmt.Errorf("start forward listener %s: %w", listener.Key(), err)
 		}
-		a.logger.Info("tunnel listener started",
+		a.logger.Info("forward listener started",
 			"key", listener.Key(),
 			"address", listener.Address().String())
 	}
@@ -538,7 +538,7 @@ func (a *Agent) Start() error {
 	// Start route advertisement loop and announce initial routes
 	a.wg.Add(1)
 	go a.routeAdvertiseLoop()
-	if a.cfg.Exit.Enabled || len(a.cfg.Tunnel.Endpoints) > 0 {
+	if a.cfg.Exit.Enabled || len(a.cfg.Forward.Endpoints) > 0 {
 		a.flooder.AnnounceLocalRoutes() // Initial announcement
 	}
 
@@ -959,7 +959,7 @@ func (a *Agent) Stop() error {
 		close(a.stopCh)
 
 		// Withdraw routes before shutdown
-		if a.cfg.Exit.Enabled || len(a.cfg.Tunnel.Endpoints) > 0 {
+		if a.cfg.Exit.Enabled || len(a.cfg.Forward.Endpoints) > 0 {
 			a.flooder.WithdrawLocalRoutes()
 		}
 
@@ -968,14 +968,14 @@ func (a *Agent) Stop() error {
 			a.healthServer.Stop()
 		}
 
-		// Stop tunnel listeners
-		for _, listener := range a.tunnelListeners {
+		// Stop forward listeners
+		for _, listener := range a.forwardListeners {
 			listener.Stop()
 		}
 
-		// Stop tunnel handler
-		if a.tunnelHandler != nil {
-			a.tunnelHandler.Stop()
+		// Stop forward handler
+		if a.forwardHandler != nil {
+			a.forwardHandler.Stop()
 		}
 
 		if a.exitHandler != nil {
@@ -1235,18 +1235,18 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 				a.handleShellStreamOpen(peerID, frame.StreamID, open.RequestID, true, open.EphemeralPubKey)
 				return
 			}
-			// Tunnel streams
-			if strings.HasPrefix(destAddr, protocol.TunnelStreamPrefix) {
-				key := strings.TrimPrefix(destAddr, protocol.TunnelStreamPrefix)
-				if a.tunnelHandler != nil {
+			// Forward streams (port forwarding)
+			if strings.HasPrefix(destAddr, protocol.ForwardStreamPrefix) {
+				key := strings.TrimPrefix(destAddr, protocol.ForwardStreamPrefix)
+				if a.forwardHandler != nil {
 					ctx := context.Background()
-					a.tunnelHandler.HandleStreamOpen(ctx, frame.StreamID, open.RequestID, peerID, key, open.EphemeralPubKey)
+					a.forwardHandler.HandleStreamOpen(ctx, frame.StreamID, open.RequestID, peerID, key, open.EphemeralPubKey)
 				} else {
-					// No tunnel handler - send error
+					// No forward handler - send error
 					errPayload := &protocol.StreamOpenErr{
 						RequestID: open.RequestID,
-						ErrorCode: protocol.ErrTunnelNotFound,
-						Message:   "tunnel key not configured",
+						ErrorCode: protocol.ErrForwardNotFound,
+						Message:   "forward key not configured",
 					}
 					errFrame := &protocol.Frame{
 						Type:     protocol.FrameStreamOpenErr,
@@ -1483,9 +1483,9 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 		return
 	}
 
-	// Check if this is a tunnel handler stream
-	if a.tunnelHandler != nil {
-		if err := a.tunnelHandler.HandleStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags); err == nil {
+	// Check if this is a forward handler stream
+	if a.forwardHandler != nil {
+		if err := a.forwardHandler.HandleStreamData(peerID, frame.StreamID, frame.Payload, frame.Flags); err == nil {
 			return
 		}
 	}
@@ -1562,9 +1562,9 @@ func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame
 		return
 	}
 
-	// Check if this is a tunnel handler stream
-	if a.tunnelHandler != nil {
-		a.tunnelHandler.HandleStreamClose(peerID, frame.StreamID)
+	// Check if this is a forward handler stream
+	if a.forwardHandler != nil {
+		a.forwardHandler.HandleStreamClose(peerID, frame.StreamID)
 	}
 
 	// Check if this is a file transfer stream
@@ -1639,9 +1639,9 @@ func (a *Agent) handleStreamReset(peerID identity.AgentID, frame *protocol.Frame
 		return
 	}
 
-	// Check if this is a tunnel handler stream
-	if a.tunnelHandler != nil {
-		a.tunnelHandler.HandleStreamReset(peerID, frame.StreamID, reset.ErrorCode)
+	// Check if this is a forward handler stream
+	if a.forwardHandler != nil {
+		a.forwardHandler.HandleStreamReset(peerID, frame.StreamID, reset.ErrorCode)
 	}
 
 	// Check if this is a file transfer stream
@@ -2405,13 +2405,13 @@ func (a *Agent) dialViaDomainRouteWithContext(ctx context.Context, network, host
 	}, nil
 }
 
-// DialTunnel implements tunnel.TunnelDialer for tunnel connections.
-// This routes connections through the mesh network to a tunnel endpoint.
-func (a *Agent) DialTunnel(ctx context.Context, key string) (net.Conn, error) {
-	// Look up tunnel route
-	route := a.routeMgr.LookupTunnel(key)
+// DialForward implements forward.ForwardDialer for port forward connections.
+// This routes connections through the mesh network to a forward endpoint.
+func (a *Agent) DialForward(ctx context.Context, key string) (net.Conn, error) {
+	// Look up forward route
+	route := a.routeMgr.LookupForward(key)
 	if route == nil {
-		return nil, fmt.Errorf("no route for tunnel: %s", key)
+		return nil, fmt.Errorf("no route for forward: %s", key)
 	}
 
 	// Get next hop connection
@@ -2430,11 +2430,11 @@ func (a *Agent) DialTunnel(ctx context.Context, key string) (net.Conn, error) {
 	// Generate stream ID
 	streamID := conn.NextStreamID()
 
-	// Build tunnel address (domain type with "tunnel:" prefix)
-	tunnelAddr := protocol.TunnelStreamPrefix + key
-	addrBytes := make([]byte, 1+len(tunnelAddr))
-	addrBytes[0] = byte(len(tunnelAddr))
-	copy(addrBytes[1:], tunnelAddr)
+	// Build forward address (domain type with "forward:" prefix)
+	forwardAddr := protocol.ForwardStreamPrefix + key
+	addrBytes := make([]byte, 1+len(forwardAddr))
+	addrBytes[0] = byte(len(forwardAddr))
+	copy(addrBytes[1:], forwardAddr)
 
 	// Generate ephemeral keypair for E2E encryption key exchange
 	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
@@ -2442,18 +2442,18 @@ func (a *Agent) DialTunnel(ctx context.Context, key string) (net.Conn, error) {
 		return nil, fmt.Errorf("generate ephemeral key: %w", err)
 	}
 
-	// Create the stream in stream manager (port 0 for tunnel connections)
-	pending := a.streamMgr.OpenStream(streamID, route.NextHop, tunnelAddr, 0, 30*time.Second)
+	// Create the stream in stream manager (port 0 for forward connections)
+	pending := a.streamMgr.OpenStream(streamID, route.NextHop, forwardAddr, 0, 30*time.Second)
 
 	// Store ephemeral keys in pending request for later key derivation
 	a.streamMgr.SetPendingEphemeralKeys(pending.RequestID, ephPriv, ephPub)
 
-	// Build and send STREAM_OPEN with tunnel address
+	// Build and send STREAM_OPEN with forward address
 	openPayload := &protocol.StreamOpen{
 		RequestID:       pending.RequestID,
 		AddressType:     protocol.AddrTypeDomain,
 		Address:         addrBytes,
-		Port:            0, // Not used for tunnels
+		Port:            0, // Not used for forwards
 		RemainingPath:   remainingPath,
 		EphemeralPubKey: ephPub,
 	}
@@ -2512,19 +2512,19 @@ func (a *Agent) DialTunnel(ctx context.Context, key string) (net.Conn, error) {
 			IP:   result.BoundIP,
 			Port: int(result.BoundPort),
 		},
-		remoteAddr: &tunnelAddr_{
+		remoteAddr: &forwardAddr_{
 			key: key,
 		},
 	}, nil
 }
 
-// tunnelAddr_ implements net.Addr for tunnel connections.
-type tunnelAddr_ struct {
+// forwardAddr_ implements net.Addr for port forward connections.
+type forwardAddr_ struct {
 	key string
 }
 
-func (t *tunnelAddr_) Network() string { return "tcp" }
-func (t *tunnelAddr_) String() string  { return "tunnel:" + t.key }
+func (t *forwardAddr_) Network() string { return "tcp" }
+func (t *forwardAddr_) String() string  { return "forward:" + t.key }
 
 // domainAddr implements net.Addr for domain-based connections.
 type domainAddr struct {
@@ -2918,62 +2918,73 @@ func (a *Agent) GetUDPInfo() health.UDPInfo {
 	}
 }
 
-// GetTunnelInfo returns tunnel configuration info for the dashboard.
-func (a *Agent) GetTunnelInfo() health.TunnelInfo {
-	info := health.TunnelInfo{}
+// GetPortForwardInfo returns port forward configuration info for the dashboard.
+func (a *Agent) GetPortForwardInfo() health.PortForwardInfo {
+	info := health.PortForwardInfo{}
 
 	// Get listener keys and addresses
-	for _, listener := range a.tunnelListeners {
+	for _, listener := range a.forwardListeners {
 		info.ListenerKeys = append(info.ListenerKeys, listener.Key())
 		if addr := listener.Address(); addr != nil {
 			info.ListenerAddresses = append(info.ListenerAddresses, addr.String())
 		}
 	}
 
-	// Get endpoint keys from tunnel handler
-	if a.tunnelHandler != nil {
-		info.EndpointKeys = a.tunnelHandler.GetKeys()
+	// Get endpoint keys from forward handler
+	if a.forwardHandler != nil {
+		info.EndpointKeys = a.forwardHandler.GetKeys()
 	}
 
 	return info
 }
 
-// GetTunnelRouteDetails returns detailed tunnel route information for the dashboard.
-func (a *Agent) GetTunnelRouteDetails() []health.TunnelRouteDetails {
+// GetPortForwardRouteDetails returns detailed port forward route information for the dashboard.
+func (a *Agent) GetPortForwardRouteDetails() []health.PortForwardRouteDetails {
 	localID := a.ID()
-	var details []health.TunnelRouteDetails
+	var details []health.PortForwardRouteDetails
 
-	// Add local tunnel endpoints (this agent is the exit)
-	if a.tunnelHandler != nil {
-		for _, key := range a.tunnelHandler.GetKeys() {
-			target, _ := a.tunnelHandler.GetTarget(key)
-			details = append(details, health.TunnelRouteDetails{
-				Key:      key,
-				Target:   target,
-				NextHop:  localID,
-				Origin:   localID,
-				Metric:   0,
-				HopCount: 0,
-				Path:     []identity.AgentID{},
-				IsLocal:  true,
+	// Build a map of local listener addresses by key
+	listenerAddrs := make(map[string]string)
+	for _, listener := range a.forwardListeners {
+		if addr := listener.Address(); addr != nil {
+			listenerAddrs[listener.Key()] = addr.String()
+		}
+	}
+
+	// Add local forward endpoints (this agent is the exit)
+	if a.forwardHandler != nil {
+		for _, key := range a.forwardHandler.GetKeys() {
+			target, _ := a.forwardHandler.GetTarget(key)
+			details = append(details, health.PortForwardRouteDetails{
+				Key:             key,
+				ListenerAddress: listenerAddrs[key], // Include listener if we have one
+				Target:          target,
+				NextHop:         localID,
+				Origin:          localID,
+				Metric:          0,
+				HopCount:        0,
+				Path:            []identity.AgentID{},
+				IsLocal:         true,
 			})
 		}
 	}
 
-	// Add remote tunnel routes from route table
-	for _, route := range a.routeMgr.TunnelTable().GetAllRoutes() {
+	// Add remote forward routes from route table
+	for _, route := range a.routeMgr.ForwardTable().GetAllRoutes() {
 		// Skip local routes (already handled above)
 		if route.OriginAgent == localID {
 			continue
 		}
-		details = append(details, health.TunnelRouteDetails{
-			Key:      route.Key,
-			NextHop:  route.NextHop,
-			Origin:   route.OriginAgent,
-			Metric:   int(route.Metric),
-			HopCount: len(route.Path),
-			Path:     route.Path,
-			IsLocal:  false,
+		details = append(details, health.PortForwardRouteDetails{
+			Key:             route.Key,
+			ListenerAddress: listenerAddrs[route.Key], // Include listener if we have one
+			Target:          route.Target,             // Target is now propagated in advertisements
+			NextHop:         route.NextHop,
+			Origin:          route.OriginAgent,
+			Metric:          int(route.Metric),
+			HopCount:        len(route.Path),
+			Path:            route.Path,
+			IsLocal:         false,
 		})
 	}
 

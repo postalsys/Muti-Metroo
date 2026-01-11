@@ -49,10 +49,10 @@ type Manager struct {
 	localID      identity.AgentID
 	table        *Table
 	domainTable  *DomainTable // Domain-based routing table
-	tunnelTable  *TunnelTable // Tunnel-based routing table
+	forwardTable  *ForwardTable // Port forward routing table
 	localRoutes  map[string]*LocalRoute
 	localDomains map[string]*LocalDomainRoute        // Local domain routes
-	localTunnels map[string]*LocalTunnelRoute        // Local tunnel routes
+	localForwards map[string]*LocalForwardRoute        // Local port forward routes
 	displayNames map[identity.AgentID]string         // Agent ID -> Display Name mapping
 	nodeInfos    map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
 	sequence     uint64
@@ -69,10 +69,10 @@ func NewManager(localID identity.AgentID) *Manager {
 		localID:      localID,
 		table:        NewTable(localID),
 		domainTable:  NewDomainTable(localID),
-		tunnelTable:  NewTunnelTable(localID),
+		forwardTable:  NewForwardTable(localID),
 		localRoutes:  make(map[string]*LocalRoute),
 		localDomains: make(map[string]*LocalDomainRoute),
-		localTunnels: make(map[string]*LocalTunnelRoute),
+		localForwards: make(map[string]*LocalForwardRoute),
 		displayNames: make(map[identity.AgentID]string),
 		nodeInfos:    make(map[identity.AgentID]*NodeInfoEntry),
 	}
@@ -741,13 +741,13 @@ func (m *Manager) TotalDomainRoutes() int {
 	return m.domainTable.TotalRoutes()
 }
 
-// TunnelTable returns the underlying tunnel routing table.
-func (m *Manager) TunnelTable() *TunnelTable {
-	return m.tunnelTable
+// ForwardTable returns the underlying port forward routing table.
+func (m *Manager) ForwardTable() *ForwardTable {
+	return m.forwardTable
 }
 
-// AddLocalTunnelRoute adds a locally-originated tunnel route.
-func (m *Manager) AddLocalTunnelRoute(key, target string, metric uint16) bool {
+// AddLocalForwardRoute adds a locally-originated port forward route.
+func (m *Manager) AddLocalForwardRoute(key, target string, metric uint16) bool {
 	if key == "" || target == "" {
 		return false
 	}
@@ -756,15 +756,15 @@ func (m *Manager) AddLocalTunnelRoute(key, target string, metric uint16) bool {
 	m.sequence++
 	seq := m.sequence
 
-	m.localTunnels[key] = &LocalTunnelRoute{
+	m.localForwards[key] = &LocalForwardRoute{
 		Key:    key,
 		Target: target,
 		Metric: metric,
 	}
 	m.mu.Unlock()
 
-	// Add to tunnel table with ourselves as origin
-	route := &TunnelRoute{
+	// Add to forward table with ourselves as origin
+	route := &ForwardRoute{
 		Key:         key,
 		Target:      target,
 		NextHop:     m.localID, // Local route
@@ -774,35 +774,35 @@ func (m *Manager) AddLocalTunnelRoute(key, target string, metric uint16) bool {
 		Sequence:    seq,
 	}
 
-	return m.tunnelTable.AddRoute(route)
+	return m.forwardTable.AddRoute(route)
 }
 
-// RemoveLocalTunnelRoute removes a locally-originated tunnel route.
-func (m *Manager) RemoveLocalTunnelRoute(key string) bool {
+// RemoveLocalForwardRoute removes a locally-originated port forward route.
+func (m *Manager) RemoveLocalForwardRoute(key string) bool {
 	if key == "" {
 		return false
 	}
 
 	m.mu.Lock()
-	_, exists := m.localTunnels[key]
+	_, exists := m.localForwards[key]
 	if !exists {
 		m.mu.Unlock()
 		return false
 	}
-	delete(m.localTunnels, key)
+	delete(m.localForwards, key)
 	m.mu.Unlock()
 
-	return m.tunnelTable.RemoveRoute(key, m.localID)
+	return m.forwardTable.RemoveRoute(key, m.localID)
 }
 
-// GetLocalTunnelRoutes returns all locally-originated tunnel routes.
-func (m *Manager) GetLocalTunnelRoutes() []*LocalTunnelRoute {
+// GetLocalForwardRoutes returns all locally-originated port forward routes.
+func (m *Manager) GetLocalForwardRoutes() []*LocalForwardRoute {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	routes := make([]*LocalTunnelRoute, 0, len(m.localTunnels))
-	for _, r := range m.localTunnels {
-		routes = append(routes, &LocalTunnelRoute{
+	routes := make([]*LocalForwardRoute, 0, len(m.localForwards))
+	for _, r := range m.localForwards {
+		routes = append(routes, &LocalForwardRoute{
 			Key:    r.Key,
 			Target: r.Target,
 			Metric: r.Metric,
@@ -811,33 +811,34 @@ func (m *Manager) GetLocalTunnelRoutes() []*LocalTunnelRoute {
 	return routes
 }
 
-// LookupTunnel finds the best tunnel route for a routing key.
-func (m *Manager) LookupTunnel(key string) *TunnelRoute {
-	return m.tunnelTable.Lookup(key)
+// LookupForward finds the best port forward route for a routing key.
+func (m *Manager) LookupForward(key string) *ForwardRoute {
+	return m.forwardTable.Lookup(key)
 }
 
-// TunnelRouteEntry is a simplified tunnel route for advertisements.
-type TunnelRouteEntry struct {
+// ForwardRouteEntry is a simplified port forward route for advertisements.
+type ForwardRouteEntry struct {
 	Key    string
+	Target string // Target address (host:port)
 	Metric uint16
 }
 
-// ProcessTunnelRouteAdvertise processes incoming tunnel route advertisements.
+// ProcessForwardRouteAdvertise processes incoming port forward route advertisements.
 // Returns the list of routes that were added/updated.
-func (m *Manager) ProcessTunnelRouteAdvertise(
+func (m *Manager) ProcessForwardRouteAdvertise(
 	fromPeer identity.AgentID,
 	originAgent identity.AgentID,
 	sequence uint64,
-	routes []TunnelRouteEntry,
+	routes []ForwardRouteEntry,
 	path []identity.AgentID,
 	encPath *protocol.EncryptedData,
-) []*TunnelRoute {
-	var accepted []*TunnelRoute
+) []*ForwardRoute {
+	var accepted []*ForwardRoute
 
 	for _, entry := range routes {
-		route := &TunnelRoute{
+		route := &ForwardRoute{
 			Key:         entry.Key,
-			Target:      "", // Target is not shared in advertisements
+			Target:      entry.Target,
 			NextHop:     fromPeer,
 			OriginAgent: originAgent,
 			Metric:      entry.Metric + 1, // Increment metric
@@ -846,7 +847,7 @@ func (m *Manager) ProcessTunnelRouteAdvertise(
 			Sequence:    sequence,
 		}
 
-		if m.tunnelTable.AddRoute(route) {
+		if m.forwardTable.AddRoute(route) {
 			accepted = append(accepted, route.Clone())
 		}
 	}
@@ -854,23 +855,23 @@ func (m *Manager) ProcessTunnelRouteAdvertise(
 	return accepted
 }
 
-// HandlePeerDisconnectTunnel removes all tunnel routes learned from a disconnected peer.
-func (m *Manager) HandlePeerDisconnectTunnel(peerID identity.AgentID) int {
-	return m.tunnelTable.RemoveRoutesFromPeer(peerID)
+// HandlePeerDisconnectForward removes all port forward routes learned from a disconnected peer.
+func (m *Manager) HandlePeerDisconnectForward(peerID identity.AgentID) int {
+	return m.forwardTable.RemoveRoutesFromPeer(peerID)
 }
 
-// CleanupStaleTunnelRoutes removes tunnel routes that haven't been updated within maxAge.
+// CleanupStaleForwardRoutes removes port forward routes that haven't been updated within maxAge.
 // Local routes are never removed. Returns the number of routes removed.
-func (m *Manager) CleanupStaleTunnelRoutes(maxAge time.Duration) int {
-	return m.tunnelTable.CleanupStaleRoutes(maxAge)
+func (m *Manager) CleanupStaleForwardRoutes(maxAge time.Duration) int {
+	return m.forwardTable.CleanupStaleRoutes(maxAge)
 }
 
-// TunnelSize returns the number of unique tunnel keys in the routing table.
-func (m *Manager) TunnelSize() int {
-	return m.tunnelTable.Size()
+// ForwardSize returns the number of unique port forward keys in the routing table.
+func (m *Manager) ForwardSize() int {
+	return m.forwardTable.Size()
 }
 
-// TotalTunnelRoutes returns the total number of tunnel route entries.
-func (m *Manager) TotalTunnelRoutes() int {
-	return m.tunnelTable.TotalRoutes()
+// TotalForwardRoutes returns the total number of port forward route entries.
+func (m *Manager) TotalForwardRoutes() int {
+	return m.forwardTable.TotalRoutes()
 }

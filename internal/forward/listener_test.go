@@ -1,4 +1,4 @@
-package tunnel
+package forward
 
 import (
 	"context"
@@ -17,7 +17,7 @@ type mockDialer struct {
 	calls    atomic.Int64
 }
 
-func (m *mockDialer) DialTunnel(ctx context.Context, key string) (net.Conn, error) {
+func (m *mockDialer) DialForward(ctx context.Context, key string) (net.Conn, error) {
 	m.calls.Add(1)
 	if m.dialFunc != nil {
 		return m.dialFunc(ctx, key)

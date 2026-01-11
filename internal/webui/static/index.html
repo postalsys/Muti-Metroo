@@ -83,12 +83,12 @@
                         <span>Transit</span>
                     </div>
                     <div class="legend-item">
-                        <span class="legend-ring tunnel_ingress"></span>
-                        <span>Tunnel Ingress</span>
+                        <span class="legend-ring forward_ingress"></span>
+                        <span>Port Forward Entry</span>
                     </div>
                     <div class="legend-item">
-                        <span class="legend-ring tunnel_exit"></span>
-                        <span>Tunnel Exit</span>
+                        <span class="legend-ring forward_exit"></span>
+                        <span>Port Forward Exit</span>
                     </div>
                 </div>
             </div>
@@ -113,20 +113,21 @@
             </div>
         </section>
 
-        <section id="tunnel-routes-section" style="display: none;">
-            <h2>Tunnel Routes</h2>
+        <section id="forward-routes-section" style="display: none;">
+            <h2>Port Forward Routes</h2>
             <div class="table-container">
-                <table id="tunnel-routes-table">
+                <table id="forward-routes-table">
                     <thead>
                         <tr>
                             <th>Key</th>
+                            <th>Listener</th>
                             <th>Target</th>
                             <th>Exit Node</th>
                             <th>Hops</th>
                         </tr>
                     </thead>
-                    <tbody id="tunnel-routes-tbody">
-                        <tr><td colspan="4" class="no-data">No tunnel routes</td></tr>
+                    <tbody id="forward-routes-tbody">
+                        <tr><td colspan="5" class="no-data">No port forward routes</td></tr>
                     </tbody>
                 </table>
             </div>
