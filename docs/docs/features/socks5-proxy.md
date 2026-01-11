@@ -76,12 +76,23 @@ curl -x socks5://localhost:1080 https://example.com
 
 # With auth
 curl -x socks5://user1:password@localhost:1080 https://example.com
+
+# With hostname resolution at proxy (socks5h)
+curl -x socks5h://localhost:1080 https://internal.corp.local
 ```
+
+:::tip socks5 vs socks5h
+Use `socks5h://` (note the `h`) when the destination hostname should be resolved by the exit agent rather than locally. This is essential for accessing internal DNS names that aren't resolvable from your machine.
+:::
 
 ### SSH
 
 ```bash
+# Using netcat (nc)
 ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
+
+# Using ncat (from nmap)
+ssh -o ProxyCommand='ncat --proxy localhost:1080 --proxy-type socks5 %h %p' user@remote-host
 ```
 
 ### Firefox
@@ -90,6 +101,88 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 2. SOCKS Host: localhost, Port: 1080
 3. SOCKS v5
 4. Username/password if auth enabled
+
+### Git
+
+```bash
+# Clone via SOCKS5
+git -c http.proxy=socks5://localhost:1080 clone https://github.com/repo/name
+
+# Configure globally
+git config --global http.proxy socks5://localhost:1080
+
+# Remove global config
+git config --global --unset http.proxy
+```
+
+### Python
+
+```python
+import socks
+import socket
+
+# Configure default socket to use SOCKS5
+socks.set_default_proxy(socks.SOCKS5, "localhost", 1080)
+socket.socket = socks.socksocket
+
+# Now all socket connections go through the proxy
+import urllib.request
+urllib.request.urlopen("https://example.com")
+```
+
+Requires [PySocks](https://pypi.org/project/PySocks/): `pip install pysocks`
+
+### proxychains
+
+Configure `/etc/proxychains.conf` or `~/.proxychains/proxychains.conf`:
+
+```ini
+[ProxyList]
+socks5 127.0.0.1 1080
+```
+
+Run any application through the proxy:
+
+```bash
+proxychains4 curl https://example.com
+proxychains4 nmap -sT -Pn 192.168.1.0/24
+proxychains4 sqlmap -u "http://target/page?id=1"
+```
+
+## Bind Address Options
+
+Control who can connect to the SOCKS5 proxy:
+
+| Address | Access | Use Case |
+|---------|--------|----------|
+| `127.0.0.1:1080` | Local only | Most secure - only local applications |
+| `0.0.0.0:1080` | All interfaces | Share proxy with other machines |
+| `192.168.1.10:1080` | Specific interface | Limit to one network |
+
+:::warning Network Binding
+When binding to `0.0.0.0` or a network interface, always enable authentication to prevent unauthorized access.
+:::
+
+## Connection Limits
+
+Prevent resource exhaustion with connection limits:
+
+```yaml
+socks5:
+  max_connections: 1000    # Maximum concurrent connections (0 = unlimited)
+```
+
+## Security Considerations
+
+1. **Bind to localhost** when possible to prevent unauthorized access
+2. **Enable authentication** when binding to network interfaces
+3. **Use strong passwords** with bcrypt hashing (cost 10+)
+4. **Monitor connections** via the HTTP API health endpoints
+5. **Set connection limits** to prevent resource exhaustion
+
+## Transparent Proxying
+
+For applications that don't support SOCKS5, use [Mutiauk](/mutiauk) (Linux only) to create a TUN interface that transparently routes traffic through the proxy. This enables tools like `nmap` to work without SOCKS configuration.
 
 ## UDP Support
 
