@@ -82,9 +82,10 @@ Maintain connectivity through redundant paths with automatic failover and reconn
 
 This manual is organized into the following parts:
 
-- **Part I: Getting Started** - Installation, setup, and quick start
+- **Part I: Getting Started** - Installation, setup wizard, and quick start
 - **Part II: Core Configuration** - Certificates, configuration, roles, and transports
-- **Part III: Features** - SOCKS5, exit routing, shell, file transfer, and more
-- **Part IV: Deployment** - Service installation and management
-- **Part V: Security and Operations** - OPSEC and management keys
-- **Part VI: Reference** - Troubleshooting, quick reference, and Mutiauk TUN interface
+- **Part III: Traffic Ingress** - SOCKS5 proxy and TUN interface for client traffic
+- **Part IV: Routing & Features** - Exit routing, remote shell, file transfer, and more
+- **Part V: Monitoring & Management** - HTTP API, dashboard, and service installation
+- **Part VI: Security** - OPSEC configuration and management keys
+- **Part VII: Reference** - Troubleshooting and quick reference

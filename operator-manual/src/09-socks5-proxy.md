@@ -163,3 +163,7 @@ proxychains4 dig @8.8.8.8 example.com
 3. **Use strong passwords** with bcrypt hashing
 4. **Monitor connections** via HTTP API health endpoints
 5. **Limit max_connections** to prevent DoS
+
+## Alternative: TUN Interface
+
+For transparent proxying without application configuration, see [TUN Interface (Mutiauk)](10-tun-interface.md) (Linux only). The TUN interface captures all IP traffic, enabling any application to use the mesh without SOCKS5 support.

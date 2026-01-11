@@ -1,8 +1,10 @@
-# Mutiauk TUN Interface
+# TUN Interface (Mutiauk)
 
-Mutiauk is a companion tool that provides transparent Layer 3 traffic interception using a TUN interface, forwarding traffic through Muti Metroo's SOCKS5 proxy.
+Mutiauk is the TUN interface companion tool for Muti Metroo, providing transparent Layer 3 traffic interception on Linux systems.
 
 **Platform**: Linux only (requires root privileges)
+
+> **SOCKS5 vs TUN Interface**: The SOCKS5 proxy (Chapter 9) requires applications to support SOCKS5 proxying. The TUN interface captures all IP traffic transparently, enabling any application to use the mesh without modification. Choose SOCKS5 for cross-platform support or TUN for transparent routing on Linux.
 
 ## Overview
 
