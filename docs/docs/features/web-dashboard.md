@@ -41,6 +41,22 @@ open http://localhost:8080/ui/
 - **Stats**: Peer count, stream count, route count
 - **Peers**: Connected peer list
 - **Routes**: Advertised and learned routes
+- **Port Forward Routes**: Ingress-exit pairs for port forwarding
+
+### Port Forward Routes Table
+
+When port forwarding is configured in your mesh, the dashboard displays all active ingress-exit pairs:
+
+| Column | Description |
+|--------|-------------|
+| **Key** | The routing key that links ingress listeners to exit endpoints |
+| **Ingress** | Agent running the listener (where clients connect) |
+| **Listener** | The listen address on the ingress agent |
+| **Exit** | Agent running the endpoint (where connections are forwarded) |
+| **Target** | The target service address on the exit agent |
+| **Hops** | Number of hops from ingress to exit agent |
+
+This view shows all possible routes through the mesh. If multiple ingress agents have listeners for the same key, or multiple exit agents have endpoints, all combinations are displayed.
 
 ## API Endpoints
 

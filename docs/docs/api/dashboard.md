@@ -66,9 +66,42 @@ Dashboard overview data.
       "hop_count": 2,
       "path_display": ["My Agent", "Transit", "Exit Node"]
     }
+  ],
+  "forward_routes": [
+    {
+      "key": "web-server",
+      "ingress_agent": "Ingress Node",
+      "ingress_agent_id": "ingr1234",
+      "listener_address": ":9080",
+      "exit_agent": "Exit Node",
+      "exit_agent_id": "exit1234",
+      "target": "localhost:3000",
+      "hop_count": 2,
+      "path_display": ["Ingress Node", "Exit Node"],
+      "path_ids": ["ingr1234", "exit1234"]
+    }
   ]
 }
 ```
+
+### Forward Routes Fields
+
+The `forward_routes` array contains ingress-exit pairs for port forwarding:
+
+| Field | Description |
+|-------|-------------|
+| `key` | Routing key linking listeners to endpoints |
+| `ingress_agent` | Display name of the ingress agent |
+| `ingress_agent_id` | Short ID of the ingress agent |
+| `listener_address` | Listen address on the ingress agent |
+| `exit_agent` | Display name of the exit agent |
+| `exit_agent_id` | Short ID of the exit agent |
+| `target` | Target service address on the exit |
+| `hop_count` | Hops from ingress to exit agent |
+| `path_display` | Agent names in the path |
+| `path_ids` | Short IDs for path highlighting |
+
+When multiple ingress agents have listeners for the same key, or multiple exit agents have endpoints, all combinations are returned.
 
 ## GET /api/topology
 

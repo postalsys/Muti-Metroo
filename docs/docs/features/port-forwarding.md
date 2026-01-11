@@ -141,6 +141,27 @@ forward:
 
 - **Configuration Only**: No CLI commands exist for port forwarding - all setup is via config files, leaving no command history.
 
+## Monitoring
+
+View all active port forward routes in the [Web Dashboard](/features/web-dashboard):
+
+| Column | Description |
+|--------|-------------|
+| **Key** | Routing key linking listeners to endpoints |
+| **Ingress** | Agent running the listener |
+| **Listener** | Listen address on ingress |
+| **Exit** | Agent running the endpoint |
+| **Target** | Service address on exit |
+| **Hops** | Number of mesh hops |
+
+The table shows all ingress-exit combinations. If multiple agents have listeners or endpoints for the same key, all pairings are displayed.
+
+You can also query the data programmatically:
+
+```bash
+curl http://localhost:8080/api/dashboard | jq '.forward_routes'
+```
+
 ## Limitations
 
 - **TCP only**: UDP is not supported for port forwarding
