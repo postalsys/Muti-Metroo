@@ -18,6 +18,10 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 
 This guide gives you full control over the configuration. For a guided experience, use the [Interactive Setup Wizard](/getting-started/interactive-setup) instead.
 
+:::info No TLS Setup Required
+Muti Metroo auto-generates TLS certificates at startup. E2E encryption (X25519 + ChaCha20-Poly1305) secures all traffic. For strict TLS verification, see [TLS Configuration](/configuration/tls-certificates).
+:::
+
 ## Step 1: Initialize Agent Identity
 
 Each agent needs a unique identity. Create one:
@@ -36,37 +40,7 @@ Agent ID: a1b2c3d4e5f6789012345678901234ab
 Save this Agent ID - you will need it when connecting other agents to this one.
 :::
 
-## Step 2: Generate TLS Certificates
-
-All peer connections require TLS. Generate a Certificate Authority and agent certificates:
-
-```bash
-# Create Certificate Authority
-muti-metroo cert ca --cn "My Mesh CA" -o ./certs
-
-# Generate agent certificate (signed by the CA)
-muti-metroo cert agent --cn "my-agent" \
-  --ca ./certs/ca.crt \
-  --ca-key ./certs/ca.key \
-  --dns "agent1.example.com" \
-  --ip "192.168.1.10" \
-  -o ./certs
-
-# Verify the certificate
-muti-metroo cert info ./certs/my-agent.crt
-```
-
-Output files:
-- `./certs/ca.crt` - CA certificate (share with peers)
-- `./certs/ca.key` - CA private key (keep secure!)
-- `./certs/my-agent.crt` - Agent certificate (named after common name)
-- `./certs/my-agent.key` - Agent private key
-
-:::warning
-Keep `ca.key` secure. Anyone with access to it can create valid certificates for your mesh.
-:::
-
-## Step 3: Create Configuration File
+## Step 2: Create Configuration File
 
 Create `config.yaml` with your agent settings:
 
@@ -79,16 +53,10 @@ agent:
   log_level: "info"
   log_format: "text"
 
-# Global TLS configuration
-tls:
-  cert: "./certs/my-agent.crt"
-  key: "./certs/my-agent.key"
-
 # Listen for peer connections
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    # Uses global TLS settings
 
 # SOCKS5 proxy (ingress role)
 socks5:
@@ -101,7 +69,7 @@ http:
   address: ":8080"
 ```
 
-## Step 4: Run the Agent
+## Step 3: Run the Agent
 
 Start your agent:
 
@@ -120,7 +88,7 @@ INFO  HTTP server started on :8080
 INFO  Agent ready
 ```
 
-## Step 5: Verify the Agent
+## Step 4: Verify the Agent
 
 In another terminal, test your agent:
 
@@ -134,7 +102,7 @@ curl http://localhost:8080/healthz
 # Output: {"status":"healthy","agent_id":"a1b2c3d4...","peers":0,"streams":0,"routes":0}
 ```
 
-## Step 6: Test SOCKS5 Proxy
+## Step 5: Test SOCKS5 Proxy
 
 With no exit routes configured, SOCKS5 connections will fail with "no route". But you can verify the proxy is working:
 
@@ -192,14 +160,9 @@ agent:
   log_level: "info"
   log_format: "text"
 
-tls:
-  cert: "./certs/my-agent.crt"
-  key: "./certs/my-agent.key"
-
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    # Uses global TLS settings
 
 socks5:
   enabled: true
@@ -248,7 +211,9 @@ ls -la ./certs/
 muti-metroo run -c ./config.yaml
 ```
 
-### Certificate errors
+### Certificate errors (strict TLS only)
+
+If you enabled [strict TLS verification](/configuration/tls-certificates):
 
 ```bash
 # Verify certificate

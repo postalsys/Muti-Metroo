@@ -41,43 +41,11 @@ flowchart LR
 - Two machines or terminals (can use same machine with different ports)
 - Network connectivity between agents
 
-## Step 1: Generate Shared CA
+:::info Automatic TLS
+No certificate setup required. Agents auto-generate TLS certificates and E2E encryption secures all traffic. For strict verification, see [TLS/mTLS](/security/tls-mtls).
+:::
 
-Both agents will use certificates signed by the same CA:
-
-```bash
-# On Agent A's machine (or shared location)
-muti-metroo cert ca --cn "My Mesh CA" -o ./certs
-
-# Copy ca.crt and ca.key to Agent B
-# (or generate Agent B's cert using the same CA)
-```
-
-## Step 2: Generate Agent Certificates
-
-### Agent A Certificate
-
-```bash
-muti-metroo cert agent --cn "agent-a" \
-  --ip "192.168.1.10" \
-  --dns "agent-a.local" \
-  -o ./certs \
-  --ca ./certs/ca.crt \
-  --ca-key ./certs/ca.key
-```
-
-### Agent B Certificate
-
-```bash
-muti-metroo cert agent --cn "agent-b" \
-  --ip "192.168.1.20" \
-  --dns "agent-b.local" \
-  -o ./certs-b \
-  --ca ./certs/ca.crt \
-  --ca-key ./certs/ca.key
-```
-
-## Step 3: Initialize Agent Identities
+## Step 1: Initialize Agent Identities
 
 ### Agent A
 
@@ -93,7 +61,7 @@ muti-metroo init -d ./data-b
 # Note the Agent ID: bbbb2222....
 ```
 
-## Step 4: Configure Agent B (Exit Node)
+## Step 2: Configure Agent B (Exit Node)
 
 Create `config-b.yaml`:
 
@@ -104,18 +72,10 @@ agent:
   data_dir: "./data-b"
   log_level: "info"
 
-# Global TLS configuration
-tls:
-  ca: "./certs/ca.crt"           # CA for verifying client certs (mTLS)
-  cert: "./certs-b/agent-b.crt"  # Agent certificate
-  key: "./certs-b/agent-b.key"   # Agent private key
-  mtls: true                     # Require valid client certificates
-
 # Listen for peer connections
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
-    # Uses global TLS settings
 
 # Exit node - open connections to internet
 exit:
@@ -141,7 +101,7 @@ muti-metroo run -c ./config-b.yaml
 
 Note the Agent ID from the output (e.g., `bbbb2222333344445555666677778888`).
 
-## Step 5: Configure Agent A (Ingress Node)
+## Step 3: Configure Agent A (Ingress Node)
 
 Create `config-a.yaml` with Agent B's ID:
 
@@ -152,24 +112,16 @@ agent:
   data_dir: "./data-a"
   log_level: "info"
 
-# Global TLS configuration
-tls:
-  ca: "./certs/ca.crt"           # CA for verifying peers
-  cert: "./certs/agent-a.crt"    # Agent certificate
-  key: "./certs/agent-a.key"     # Agent private key
-
 # Listen for peer connections (optional, for other agents)
 listeners:
   - transport: quic
     address: "0.0.0.0:4434"    # Different port if on same machine
-    # Uses global TLS settings
 
 # Connect to Agent B
 peers:
   - id: "bbbb2222333344445555666677778888"  # Agent B's ID
     transport: quic
     address: "192.168.1.20:4433"            # Agent B's address
-    # Uses global CA and cert/key
 
 # SOCKS5 proxy for client connections
 socks5:
@@ -188,7 +140,7 @@ Start Agent A:
 muti-metroo run -c ./config-a.yaml
 ```
 
-## Step 6: Verify Connection
+## Step 4: Verify Connection
 
 ### Check Agent A's Peers
 
@@ -223,7 +175,7 @@ Agent B should show:
 INFO  Accepted peer connection peer_id=aaaa1111... addr=192.168.1.10:xxxxx
 ```
 
-## Step 7: Test the Mesh
+## Step 5: Test the Mesh
 
 Now test that traffic flows through the mesh:
 
@@ -246,7 +198,7 @@ INFO  Stream open request stream_id=1 dest=example.com:443
 INFO  Exit connection established dest=93.184.216.34:443
 ```
 
-## Step 8: Test More Applications
+## Step 6: Test More Applications
 
 ### SSH Through the Mesh
 
@@ -308,23 +260,15 @@ agent:
   data_dir: "./data-c"
   log_level: "info"
 
-# Global TLS configuration
-tls:
-  ca: "./certs/ca.crt"
-  cert: "./certs-c/agent-c.crt"
-  key: "./certs-c/agent-c.key"
-
 listeners:
   - transport: quic
     address: "0.0.0.0:4435"
-    # Uses global TLS settings
 
 # Connect to Agent B
 peers:
   - id: "bbbb2222..."
     transport: quic
     address: "192.168.1.20:4433"
-    # Uses global CA and cert/key
 
 # No socks5 or exit - pure transit
 http:
@@ -339,7 +283,6 @@ peers:
   - id: "cccc3333..."     # Agent C's ID
     transport: quic
     address: "192.168.1.30:4435"
-    # Uses global CA from tls section
 ```
 
 Routes will propagate: Agent A learns about Agent B's 0.0.0.0/0 route through Agent C.
@@ -366,7 +309,9 @@ Error: connection refused
 - Check firewall rules
 - Verify TLS certificates
 
-### Certificate Error
+### Certificate Error (strict TLS only)
+
+If you enabled [strict TLS verification](/security/tls-mtls):
 
 ```
 Error: certificate verify failed

@@ -106,16 +106,14 @@ curl -x socks5://user:password@localhost:1080 https://example.com
 
 For reference, here is a minimal standalone configuration (ingress + exit):
 
+> **Note:** TLS certificates are auto-generated. E2E encryption secures all traffic by default.
+
 ```yaml
 agent:
   id: "auto"
   display_name: "Standalone Agent"
   data_dir: "./data"
   log_level: "info"
-
-tls:
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
 
 listeners:
   - transport: quic
