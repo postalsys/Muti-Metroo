@@ -2128,8 +2128,8 @@ muti-metroo service status
 │  │ Transport       │ TLS Implementation                                  │  │
 │  ├─────────────────┼─────────────────────────────────────────────────────┤  │
 │  │ QUIC            │ TLS 1.3 (mandatory, built into QUIC)                │  │
-│  │ HTTP/2          │ TLS 1.2+ (required in practice)                     │  │
-│  │ WebSocket       │ TLS 1.2+ (WSS)                                      │  │
+│  │ HTTP/2          │ TLS 1.3 (MinVersion enforced)                       │  │
+│  │ WebSocket       │ TLS 1.3 (WSS, MinVersion enforced)                  │  │
 │  └─────────────────┴─────────────────────────────────────────────────────┘  │
 │                                                                             │
 │  Strict mode (tls.strict: true):                                            │

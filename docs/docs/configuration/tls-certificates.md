@@ -100,12 +100,13 @@ Use the setup wizard to generate and embed certificates in config:
 muti-metroo init --wizard
 ```
 
-The wizard offers:
-1. **Auto-generate on startup** - No certificates in config
-2. **Generate and embed now** - Creates cert_pem/key_pem in config
-3. **Paste existing certificates** - Embed your own certs as PEM
-4. **Use certificate files** - Reference external files
-5. **Strict TLS with CA** - Full PKI setup with verification
+The wizard offers two certificate setup options:
+
+1. **Self-signed certificates (Recommended)** - Auto-generate on startup, no certificates needed in config. Traffic is still encrypted with TLS 1.3.
+
+2. **Strict TLS with CA verification (Advanced)** - Enable CA-based certificate verification. The wizard then offers:
+   - Paste CA certificate, agent certificate, and key
+   - Generate from CA private key (wizard derives CA cert and generates agent cert)
 
 ### Option 3: File-Based Certificates
 
