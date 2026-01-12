@@ -2114,6 +2114,15 @@ muti-metroo service status
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         TRANSPORT SECURITY                                  │
 │                                                                             │
+│  Layered Security Model:                                                    │
+│  • Primary: E2E encryption (X25519 + ChaCha20-Poly1305) protects payloads   │
+│  • Secondary: TLS 1.3 encrypts transport (defense-in-depth)                 │
+│                                                                             │
+│  Default behavior (no TLS config):                                          │
+│  • Auto-generate self-signed ECDSA certificate on startup                   │
+│  • No certificate verification (safe because E2E protects payload)          │
+│  • Certificates regenerated each startup (ephemeral)                        │
+│                                                                             │
 │  All transports use TLS:                                                    │
 │                                                                             │
 │  ┌─────────────────┬─────────────────────────────────────────────────────┐  │
@@ -2124,7 +2133,7 @@ muti-metroo service status
 │  │ WebSocket       │ TLS 1.2+ (WSS)                                      │  │
 │  └─────────────────┴─────────────────────────────────────────────────────┘  │
 │                                                                             │
-│  Certificate validation options:                                            │
+│  Strict mode (tls.strict: true):                                            │
 │  • CA-based: Validate against trusted CA certificate                        │
 │  • Pinning: Validate against specific certificate fingerprint               │
 │  • Mutual TLS: Both sides present and validate certificates                 │
@@ -2140,7 +2149,7 @@ muti-metroo service status
 │                                                                             │
 │  Direct trust:                                                              │
 │  • Agent trusts directly connected peers                                    │
-│  • Verified via TLS and AgentID                                             │
+│  • Verified via AgentID handshake (TLS verification optional)               │
 │                                                                             │
 │  Transitive trust:                                                          │
 │  • Agent trusts route advertisements from direct peers                      │
@@ -2395,7 +2404,26 @@ muti-metroo setup
 
 ## 17. Certificate Management
 
-### 17.1 Certificate Types
+### 17.1 Default Behavior
+
+By default, TLS certificates are auto-generated and verification is disabled:
+
+- Agent generates self-signed ECDSA (P-256) certificate on startup
+- Certificates are ephemeral (regenerated each startup)
+- No CA required, no certificate verification
+- Safe because E2E encryption (X25519 + ChaCha20-Poly1305) protects payload
+
+**Config for strict TLS:**
+```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  strict: true   # Enable certificate verification
+  mtls: true     # Optional: require client certificates
+```
+
+### 17.2 Certificate Types
 
 | Type       | Usage                                     | Default Validity |
 | ---------- | ----------------------------------------- | ---------------- |
@@ -2403,7 +2431,7 @@ muti-metroo setup
 | Agent/Peer | Server + client auth for mesh connections | 90 days          |
 | Client     | Client authentication only                | 90 days          |
 
-### 17.2 Certificate Generation
+### 17.3 Certificate Generation
 
 ```bash
 # Generate CA
@@ -2430,7 +2458,7 @@ muti-metroo cert client \
 muti-metroo cert info ./certs/agent-1.crt
 ```
 
-### 17.3 Certificate Details
+### 17.4 Certificate Details
 
 **Algorithm:** ECDSA P-256
 

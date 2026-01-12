@@ -22,21 +22,33 @@ agent:
 
 # ------------------------------------------------------------------------------
 # Global TLS Configuration
-# Single CA and agent certificate used for all connections
+# -----------------------
+# By default, Muti Metroo auto-generates self-signed certificates and does NOT
+# verify peer certificates. This is safe because the E2E encryption layer
+# (X25519 + ChaCha20-Poly1305) provides confidentiality and integrity.
+#
+# For higher trust environments, enable strict mode and/or use CA-signed certs.
 # ------------------------------------------------------------------------------
 tls:
-  # CA certificate for verifying peers and client certificates (mTLS)
-  ca: "./certs/ca.crt"
+  # Strict TLS verification (default: false)
+  # When true, peer certificates are verified against the CA
+  # Requires 'ca' or 'ca_pem' to be configured
+  # strict: true
+
+  # CA certificate for verifying peer certificates and client certs (mTLS)
+  # Required when: strict mode enabled, mTLS enabled
+  # ca: "./certs/ca.crt"
   # Or inline PEM (takes precedence over file path):
   # ca_pem: |
   #   -----BEGIN CERTIFICATE-----
   #   ...
   #   -----END CERTIFICATE-----
 
-  # Agent's identity certificate (used by listeners and peer connections)
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-  # Or inline PEM:
+  # Agent's identity certificate (optional - auto-generated if not set)
+  # Auto-generated certs are regenerated on each startup (ephemeral)
+  # cert: "./certs/agent.crt"
+  # key: "./certs/agent.key"
+  # Or inline PEM (wizard can embed these):
   # cert_pem: |
   #   -----BEGIN CERTIFICATE-----
   #   ...
@@ -47,7 +59,8 @@ tls:
   #   -----END PRIVATE KEY-----
 
   # Enable mutual TLS on listeners (require client certificates)
-  mtls: true
+  # Requires 'ca' or 'ca_pem' to be configured
+  # mtls: true
 
 # ------------------------------------------------------------------------------
 # Protocol Identifiers (OPSEC Customization)
@@ -107,13 +120,14 @@ listeners:
 # Connect to other agents in the mesh
 # ------------------------------------------------------------------------------
 peers:
-  # Example QUIC peer (uses global CA and cert for mTLS)
+  # Example QUIC peer
   # - id: "abc123def456789012345678901234ab"
   #   transport: quic
   #   address: "192.168.1.50:4433"
-  #   # Optional per-peer overrides:
+  #   # Optional per-peer TLS overrides:
   #   # tls:
   #   #   ca: "./certs/other-ca.crt"  # Override global CA
+  #   #   strict: true                # Enable cert verification for this peer
   #   #   fingerprint: "sha256:ab12cd34..."  # Certificate pinning
 
   # Example WebSocket peer through corporate proxy

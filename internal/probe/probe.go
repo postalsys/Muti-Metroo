@@ -31,8 +31,9 @@ type Options struct {
 	// Timeout for the entire probe operation
 	Timeout time.Duration
 
-	// InsecureSkipVerify skips TLS certificate verification
-	InsecureSkipVerify bool
+	// StrictVerify enables TLS certificate verification (default: false).
+	// When false (default), certificate verification is skipped.
+	StrictVerify bool
 
 	// CACert is the path to a CA certificate file for TLS verification
 	CACert string
@@ -117,12 +118,12 @@ func Probe(ctx context.Context, opts Options) *Result {
 
 	// Build dial options
 	dialOpts := transport.DialOptions{
-		TLSConfig:          tlsConfig,
-		InsecureSkipVerify: opts.InsecureSkipVerify,
-		Timeout:            opts.Timeout,
-		ALPNProtocol:       opts.ALPNProtocol,
-		HTTPHeader:         opts.HTTPHeader,
-		WSSubprotocol:      opts.WSSubprotocol,
+		TLSConfig:     tlsConfig,
+		StrictVerify:  opts.StrictVerify,
+		Timeout:       opts.Timeout,
+		ALPNProtocol:  opts.ALPNProtocol,
+		HTTPHeader:    opts.HTTPHeader,
+		WSSubprotocol: opts.WSSubprotocol,
 	}
 
 	// For HTTP-based transports, format as full URL with path
@@ -264,7 +265,8 @@ func createTransport(transportType string) (transport.Transport, error) {
 // buildTLSConfig creates a TLS config from the options.
 func buildTLSConfig(opts Options) (*tls.Config, error) {
 	config := &tls.Config{
-		InsecureSkipVerify: opts.InsecureSkipVerify,
+		InsecureSkipVerify: !opts.StrictVerify, // Invert: strict=true means verify
+		MinVersion:         tls.VersionTLS13,
 	}
 
 	// Load CA certificate if provided

@@ -805,20 +805,25 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		alpn = transport.DefaultALPNProtocol
 	}
 
+	// Determine effective strict TLS setting (per-peer override or global)
+	strictVerify := a.cfg.GetEffectiveStrict(&cfg.TLS)
+
 	// Build DialOptions from peer config with protocol identifiers
 	dialOpts := &transport.DialOptions{
-		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
-		Timeout:            a.cfg.Connections.Timeout,
-		ALPNProtocol:       a.cfg.Protocol.ALPN,
-		HTTPHeader:         a.cfg.Protocol.HTTPHeader,
-		WSSubprotocol:      a.cfg.Protocol.WSSubprotocol,
+		StrictVerify:  strictVerify,
+		Timeout:       a.cfg.Connections.Timeout,
+		ALPNProtocol:  a.cfg.Protocol.ALPN,
+		HTTPHeader:    a.cfg.Protocol.HTTPHeader,
+		WSSubprotocol: a.cfg.Protocol.WSSubprotocol,
 	}
 
 	// Build TLS config for peer connection
+	// Default (strictVerify=false) skips verification, which is safe because
+	// the E2E encryption layer provides security
 	tlsConfig := &tls.Config{
 		MinVersion:         tls.VersionTLS13,
 		NextProtos:         []string{alpn},
-		InsecureSkipVerify: cfg.TLS.InsecureSkipVerify,
+		InsecureSkipVerify: !strictVerify,
 	}
 
 	// Load CA certificate for peer verification (per-peer override or global)
@@ -831,7 +836,8 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 	}
 	if caPEM != nil {
 		// Validate EC-only for CA (skip for proxied WebSocket - external server may use RSA)
-		if !isProxiedWS && !cfg.TLS.InsecureSkipVerify {
+		// Also validate when strict mode is enabled (otherwise we're not verifying anyway)
+		if !isProxiedWS && strictVerify {
 			if err := certutil.ValidateECCertificate(caPEM); err != nil {
 				a.logger.Error("CA EC validation failed",
 					logging.KeyPeerID, cfg.ID,

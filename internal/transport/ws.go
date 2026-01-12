@@ -456,16 +456,15 @@ func parseWebSocketURL(addr string) string {
 }
 
 // buildHTTPClient creates an HTTP client with optional TLS and proxy settings.
-// Returns nil if TLS config is required but not provided.
 func buildHTTPClient(opts DialOptions) (*http.Client, error) {
 	tlsConfig := opts.TLSConfig
 	if tlsConfig == nil {
-		if !opts.InsecureSkipVerify {
-			return nil, fmt.Errorf("TLS config required; set InsecureSkipVerify=true for development only")
-		}
-		// Create insecure TLS config only when explicitly requested
+		// Create TLS config based on strict setting
+		// Default (StrictVerify=false) skips verification, which is safe because
+		// the E2E encryption layer provides security
 		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: !opts.StrictVerify,
+			MinVersion:         tls.VersionTLS13,
 		}
 	}
 

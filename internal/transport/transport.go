@@ -95,10 +95,12 @@ type DialOptions struct {
 	// TLSConfig is the TLS configuration for the connection.
 	TLSConfig *tls.Config
 
-	// InsecureSkipVerify allows skipping TLS certificate verification.
-	// WARNING: Only use this for development/testing. In production, always
-	// provide a proper TLSConfig with certificate verification enabled.
-	InsecureSkipVerify bool
+	// StrictVerify enables TLS certificate verification (default: false).
+	// When false (default), certificate verification is skipped, which is safe
+	// because Muti Metroo uses an E2E encryption layer (X25519 + ChaCha20-Poly1305)
+	// that provides confidentiality and integrity.
+	// When true, peer certificates must be signed by a trusted CA.
+	StrictVerify bool
 
 	// Timeout is the connection timeout.
 	Timeout time.Duration

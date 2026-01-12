@@ -9,49 +9,154 @@ sidebar_position: 7
 
 # TLS Certificate Configuration
 
-Make agents trust each other. Create a CA once, generate certificates for each agent, and they'll automatically authenticate when connecting.
+Muti Metroo handles TLS automatically - just run the agent and it works. Certificates are auto-generated and verification is disabled by default.
 
-**Quick setup:**
+**Why is this safe?** Muti Metroo uses an end-to-end encryption layer (X25519 + ChaCha20-Poly1305) that protects all traffic regardless of transport security. TLS is defense-in-depth, not the primary security mechanism.
+
+**Minimal config (auto-generated certs):**
+```yaml
+# TLS section can be omitted entirely - agent auto-generates self-signed certs
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+```
+
+**Strict mode with PKI (for high-trust environments):**
 ```yaml
 tls:
   ca: "./certs/ca.crt"         # Shared across all agents
   cert: "./certs/agent.crt"    # This agent's identity
   key: "./certs/agent.key"
+  strict: true                 # Enable certificate verification
   mtls: true                   # Require mutual authentication
 ```
 
-## Overview
+## Default Behavior
 
-Muti Metroo uses a PKI (Public Key Infrastructure) model with centralized TLS configuration:
+When no TLS configuration is provided:
 
-1. **Certificate Authority (CA)**: Signs all certificates, configured once globally
-2. **Agent Certificate**: Used for both server and client authentication
-3. **Global mTLS Setting**: Enable/disable mutual TLS with a simple boolean
+1. **Auto-generated certificates**: Agent creates a self-signed ECDSA (P-256) certificate on startup
+2. **No verification**: Peer certificates are not verified (safe due to E2E encryption)
+3. **Ephemeral**: Certificates are regenerated each startup (not persisted)
+4. **No mTLS**: Client certificates are not required
+
+This allows agents to connect immediately without certificate setup.
+
+## When to Use Strict Mode
+
+Enable `strict: true` when you need:
+
+- **Defense-in-depth**: Additional security layer beyond E2E encryption
+- **Network-level authentication**: Verify peer identity at transport layer
+- **Compliance requirements**: Environments requiring PKI-based authentication
+- **Zero-trust networks**: Where TLS verification is mandatory
 
 ## Global TLS Configuration
 
-TLS settings are configured once in the global `tls:` section:
+TLS settings in the global `tls:` section apply to all connections:
 
 ```yaml
 tls:
+  # Enable strict certificate verification (default: false)
+  # When true, peer certificates are verified against the CA
+  strict: true
+
   # CA certificate for verifying peers and clients
+  # Required when: strict mode or mTLS enabled
   ca: "./certs/ca.crt"
 
-  # Agent's identity certificate (used by listeners and peer connections)
+  # Agent's identity certificate (optional - auto-generated if not set)
   cert: "./certs/agent.crt"
   key: "./certs/agent.key"
 
   # Enable mutual TLS on listeners (require client certificates)
+  # Requires CA to be configured
   mtls: true
 ```
 
-This single configuration is used by:
-- All listeners (for server TLS and optional mTLS)
-- All peer connections (for client certificate presentation)
+## Setup Options
+
+### Option 1: Automatic (Recommended for Development)
+
+Leave TLS unconfigured - agent handles everything:
+
+```yaml
+agent:
+  id: "auto"
+  data_dir: "./data"
+
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+
+# No tls: section needed
+```
+
+### Option 2: Embedded Certificates (Recommended for Production)
+
+Use the setup wizard to generate and embed certificates in config:
+
+```bash
+muti-metroo init --wizard
+```
+
+The wizard offers:
+1. **Auto-generate on startup** - No certificates in config
+2. **Generate and embed now** - Creates cert_pem/key_pem in config
+3. **Paste existing certificates** - Embed your own certs as PEM
+4. **Use certificate files** - Reference external files
+5. **Strict TLS with CA** - Full PKI setup with verification
+
+### Option 3: File-Based Certificates
+
+Reference certificate files:
+
+```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  strict: true
+```
+
+### Option 4: Inline PEM Certificates
+
+Embed certificates directly in config (useful for Kubernetes secrets):
+
+```yaml
+tls:
+  ca_pem: |
+    -----BEGIN CERTIFICATE-----
+    MIIBkTCB+wIJAKi...
+    -----END CERTIFICATE-----
+  cert_pem: |
+    -----BEGIN CERTIFICATE-----
+    MIIBkTCB+wIJAKi...
+    -----END CERTIFICATE-----
+  key_pem: |
+    -----BEGIN EC PRIVATE KEY-----
+    MIIEvQIBADANBg...
+    -----END EC PRIVATE KEY-----
+  strict: true
+```
+
+Inline PEM takes precedence over file paths.
+
+### Option 5: Environment Variables
+
+Use environment variables for secrets:
+
+```yaml
+tls:
+  ca_pem: "${TLS_CA}"
+  cert_pem: "${TLS_CERT}"
+  key_pem: "${TLS_KEY}"
+  strict: true
+```
 
 ## Certificate Requirements
 
-**Important**: Muti Metroo only accepts EC (Elliptic Curve) certificates. RSA certificates are not supported for the mesh CA and agent certificates.
+**Important**: When providing your own certificates, Muti Metroo only accepts EC (Elliptic Curve) certificates. RSA certificates are not supported for the mesh CA and agent certificates.
 
 The only exception is when connecting through a WebSocket proxy to an external server - in this case, the external server may use any certificate type since mTLS is not available through proxies.
 
@@ -99,71 +204,23 @@ openssl x509 -req -in agent.csr -CA ca.crt -CAkey ca.key \
   -CAcreateserial -out agent.crt -days 365 -sha256
 ```
 
-## Configuration Options
-
-### File-Based Certificates
-
-Standard approach using file paths:
-
-```yaml
-tls:
-  ca: "./certs/ca.crt"
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-  mtls: true
-```
-
-### Inline PEM Certificates
-
-Embed certificates directly in config (useful for Kubernetes secrets):
-
-```yaml
-tls:
-  ca_pem: |
-    -----BEGIN CERTIFICATE-----
-    MIIBkTCB+wIJAKi...
-    -----END CERTIFICATE-----
-  cert_pem: |
-    -----BEGIN CERTIFICATE-----
-    MIIBkTCB+wIJAKi...
-    -----END CERTIFICATE-----
-  key_pem: |
-    -----BEGIN EC PRIVATE KEY-----
-    MIIEvQIBADANBg...
-    -----END EC PRIVATE KEY-----
-  mtls: true
-```
-
-Inline PEM takes precedence over file paths.
-
-### Environment Variables
-
-Use environment variables for secrets:
-
-```yaml
-tls:
-  ca_pem: "${TLS_CA}"
-  cert_pem: "${TLS_CERT}"
-  key_pem: "${TLS_KEY}"
-  mtls: true
-```
-
 ## Mutual TLS (mTLS)
 
-mTLS requires both sides to present certificates. With the global configuration, enabling mTLS is simple:
+mTLS requires both sides to present certificates:
 
 ```yaml
 tls:
   ca: "./certs/ca.crt"
   cert: "./certs/agent.crt"
   key: "./certs/agent.key"
-  mtls: true    # Enable mTLS on all listeners
+  strict: true    # Verify peer certificates
+  mtls: true      # Require client certificates on listeners
 ```
 
 When `mtls: true`:
 - Listeners require connecting peers to present valid client certificates
-- The global CA is used to verify client certificates
-- The global agent certificate is automatically used by peers as their client certificate
+- The CA is used to verify client certificates
+- The agent certificate is automatically used by peers as their client certificate
 
 ### Benefits of mTLS
 
@@ -181,6 +238,7 @@ tls:
   ca: "./certs/ca.crt"
   cert: "./certs/agent.crt"
   key: "./certs/agent.key"
+  strict: true
   mtls: true
 
 listeners:
@@ -217,7 +275,7 @@ tls:
   ca: "./certs/ca.crt"
   cert: "./certs/agent.crt"
   key: "./certs/agent.key"
-  mtls: true
+  strict: true
 
 peers:
   # Uses global CA and cert
@@ -232,8 +290,15 @@ peers:
     tls:
       ca: "./certs/external-ca.crt"
 
-  # Certificate pinning
+  # Override: enable strict verification for specific peer
   - id: "ghi789..."
+    transport: quic
+    address: "trusted.example.com:4433"
+    tls:
+      strict: true
+
+  # Certificate pinning (alternative to CA verification)
+  - id: "jkl012..."
     transport: quic
     address: "pinned.example.com:4433"
     tls:
@@ -326,6 +391,7 @@ Error: x509: certificate signed by unknown authority
 
 - Verify CA certificate is correct
 - Check CA was used to sign agent certificate
+- If using default (no verification), this error indicates `strict: true` is set
 
 ### Certificate Expired
 
@@ -369,37 +435,57 @@ Error: certificate must use ECDSA, got RSA
 
 ## Best Practices
 
-1. **Use EC certificates**: RSA is not supported
-2. **Protect CA private key**: Use hardware security module or secure vault
-3. **Use short validity**: 90-365 days for agent certs
-4. **Use SANs**: Include all hostnames and IPs
-5. **Enable mTLS**: Especially in production
-6. **Automate rotation**: Before certificates expire
-7. **Monitor expiration**: Alert before expiry
+1. **Start simple**: Use auto-generated certs unless you need strict verification
+2. **Use EC certificates**: RSA is not supported
+3. **Protect CA private key**: Use hardware security module or secure vault
+4. **Use short validity**: 90-365 days for agent certs
+5. **Use SANs**: Include all hostnames and IPs
+6. **Enable strict mode in production**: When defense-in-depth is required
+7. **Automate rotation**: Before certificates expire
+8. **Monitor expiration**: Alert before expiry
 
 ## Examples
 
-### Development
+### Development (Simplest)
+
+```yaml
+agent:
+  id: "auto"
+  data_dir: "./data"
+
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+
+# TLS auto-configured with self-signed cert, no verification
+```
+
+### Development with Embedded Cert
 
 ```yaml
 tls:
-  ca: "./dev-certs/ca.crt"
-  cert: "./dev-certs/agent.crt"
-  key: "./dev-certs/agent.key"
-  mtls: false    # Relax for development
+  cert_pem: |
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
+  key_pem: |
+    -----BEGIN EC PRIVATE KEY-----
+    ...
+    -----END EC PRIVATE KEY-----
 
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
 ```
 
-### Production with mTLS
+### Production with Strict TLS
 
 ```yaml
 tls:
   ca: "/etc/muti-metroo/certs/ca.crt"
   cert: "/etc/muti-metroo/certs/agent.crt"
   key: "/etc/muti-metroo/certs/agent.key"
+  strict: true
   mtls: true
 
 listeners:
@@ -419,6 +505,7 @@ tls:
   ca_pem: "${CA_CRT}"
   cert_pem: "${TLS_CRT}"
   key_pem: "${TLS_KEY}"
+  strict: true
   mtls: true
 
 listeners:

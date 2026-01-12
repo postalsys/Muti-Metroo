@@ -69,7 +69,7 @@ func (t *H2Transport) Dial(ctx context.Context, addr string, opts DialOptions) (
 	// dialCancel is called after RoundTrip completes (success or failure)
 
 	// Create HTTP/2 client with TLS
-	tlsConfig, err := prepareTLSConfigForDial(opts.TLSConfig, opts.InsecureSkipVerify, []string{"h2"})
+	tlsConfig, err := prepareTLSConfigForDial(opts.TLSConfig, opts.StrictVerify, []string{"h2"})
 	if err != nil {
 		connCancel()
 		dialCancel()

@@ -96,19 +96,32 @@ type ProtocolConfig struct {
 // GlobalTLSConfig defines global TLS settings shared across all connections.
 // The CA is used for both verifying peer certificates and client certificate
 // verification when mTLS is enabled on listeners.
+//
+// By default, TLS certificate verification is disabled (Strict: false) because
+// Muti Metroo uses an additional E2E encryption layer (X25519 + ChaCha20-Poly1305)
+// that provides confidentiality and integrity regardless of transport security.
+// Self-signed certificates are auto-generated if none are configured.
 type GlobalTLSConfig struct {
 	// CA certificate for verifying peer certificates and client certs (mTLS)
 	CA    string `yaml:"ca"`     // CA certificate file path
 	CAPEM string `yaml:"ca_pem"` // CA certificate PEM content (takes precedence)
 
 	// Agent's identity certificate used for listeners and peer connections
+	// If not configured, a self-signed certificate is auto-generated at startup
 	Cert    string `yaml:"cert"`     // Certificate file path
 	Key     string `yaml:"key"`      // Private key file path
 	CertPEM string `yaml:"cert_pem"` // Certificate PEM content (takes precedence)
 	KeyPEM  string `yaml:"key_pem"`  // Private key PEM content (takes precedence)
 
 	// MTLS enables mutual TLS on listeners (require client certificates)
+	// Requires CA to be configured
 	MTLS bool `yaml:"mtls"`
+
+	// Strict enables TLS certificate verification (default: false)
+	// When false (default), peer certificates are not validated, which is safe
+	// because the E2E layer provides security. When true, peer certificates
+	// must be signed by the configured CA.
+	Strict bool `yaml:"strict"`
 }
 
 // GetCAPEM returns the CA certificate PEM content, reading from file if necessary.
@@ -229,9 +242,13 @@ type TLSConfig struct {
 	// Use pointer to distinguish "not set" from "false"
 	MTLS *bool `yaml:"mtls,omitempty"`
 
-	// Other options
-	Fingerprint        string `yaml:"fingerprint"`          // Certificate fingerprint for pinning
-	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"` // Skip verification (dev only)
+	// Strict override (optional - peer connections only, uses global if nil)
+	// When true, peer certificates must be validated against CA
+	Strict *bool `yaml:"strict,omitempty"`
+
+	// Certificate pinning (peer connections only)
+	// Validates peer certificate fingerprint regardless of strict mode
+	Fingerprint string `yaml:"fingerprint"`
 }
 
 // GetCertPEM returns the certificate PEM content, reading from file if necessary.
@@ -295,6 +312,18 @@ func (c *Config) GetEffectiveCAPEM(override *TLSConfig) ([]byte, error) {
 	}
 	// Fall back to global
 	return c.TLS.GetCAPEM()
+}
+
+// GetEffectiveStrict returns the effective strict TLS verification setting,
+// preferring per-connection override over global config.
+// Default is false (no certificate verification) because the E2E layer provides security.
+func (c *Config) GetEffectiveStrict(override *TLSConfig) bool {
+	// Check per-connection override first
+	if override != nil && override.Strict != nil {
+		return *override.Strict
+	}
+	// Fall back to global
+	return c.TLS.Strict
 }
 
 // ProxyAuth defines proxy authentication.
@@ -794,6 +823,11 @@ func (c *Config) validateGlobalTLS() error {
 		return fmt.Errorf("tls.ca is required when tls.mtls is enabled")
 	}
 
+	// Check for strict mode without CA (warning: peer verification won't work)
+	if c.TLS.Strict && !c.TLS.HasCA() {
+		return fmt.Errorf("tls.ca is required when tls.strict is enabled (for peer certificate verification)")
+	}
+
 	// Check for partial cert/key configuration
 	if c.TLS.HasCert() != c.TLS.HasKey() {
 		return fmt.Errorf("tls.cert and tls.key must both be specified or both be empty")
@@ -918,11 +952,12 @@ func (c *Config) validateListener(l ListenerConfig, index int) error {
 		return nil
 	}
 
-	// Check if cert/key is available (from listener override or global)
+	// Note: cert/key is no longer required - if not configured, a self-signed
+	// certificate will be auto-generated at startup. Only validate if partially configured.
 	hasCert := l.TLS.HasCert() || c.TLS.HasCert()
 	hasKey := l.TLS.HasKey() || c.TLS.HasKey()
-	if !hasCert || !hasKey {
-		return fmt.Errorf("tls certificate and key are required (specify in global tls section or per-listener)")
+	if hasCert != hasKey {
+		return fmt.Errorf("tls certificate and key must both be specified or both be empty (auto-generated if empty)")
 	}
 
 	// Determine effective mTLS setting
@@ -954,6 +989,13 @@ func (c *Config) validatePeer(p PeerConfig, index int) error {
 	// Check for partial cert/key override
 	if p.TLS.HasCert() != p.TLS.HasKey() {
 		return fmt.Errorf("tls cert and key must both be specified or both be empty")
+	}
+
+	// Check for strict mode without CA
+	effectiveStrict := c.GetEffectiveStrict(&p.TLS)
+	hasCA := p.TLS.HasCA() || c.TLS.HasCA()
+	if effectiveStrict && !hasCA {
+		return fmt.Errorf("tls.ca is required when strict mode is enabled (for peer certificate verification)")
 	}
 
 	return nil

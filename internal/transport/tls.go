@@ -45,11 +45,14 @@ func LoadTLSConfig(certFile, keyFile string) (*tls.Config, error) {
 }
 
 // LoadClientTLSConfig loads a TLS configuration for client connections.
-func LoadClientTLSConfig(caFile string, insecureSkipVerify bool) (*tls.Config, error) {
+// If strictVerify is true, peer certificates are validated against the CA.
+// If strictVerify is false (default), certificate verification is skipped because
+// Muti Metroo uses an E2E encryption layer that provides security.
+func LoadClientTLSConfig(caFile string, strictVerify bool) (*tls.Config, error) {
 	config := &tls.Config{
 		MinVersion:         tls.VersionTLS13,
 		NextProtos:         []string{ALPNProtocol},
-		InsecureSkipVerify: insecureSkipVerify,
+		InsecureSkipVerify: !strictVerify, // Invert: strict=true means verify, strict=false means skip
 	}
 
 	if caFile != "" {
@@ -192,16 +195,16 @@ func CloneTLSConfig(cfg *tls.Config) *tls.Config {
 }
 
 // prepareTLSConfigForDial prepares a TLS config for dialing.
-// If tlsConfig is nil and insecureSkipVerify is true, creates an insecure config.
-// If tlsConfig is nil and insecureSkipVerify is false, returns an error.
+// If tlsConfig is nil, creates a config based on strictVerify setting.
+// If strictVerify is false (default), certificate verification is skipped.
 // The nextProtos parameter specifies the ALPN protocols to use.
-func prepareTLSConfigForDial(tlsConfig *tls.Config, insecureSkipVerify bool, nextProtos []string) (*tls.Config, error) {
+func prepareTLSConfigForDial(tlsConfig *tls.Config, strictVerify bool, nextProtos []string) (*tls.Config, error) {
 	if tlsConfig == nil {
-		if !insecureSkipVerify {
-			return nil, fmt.Errorf("TLS config required; set InsecureSkipVerify=true for development only")
-		}
+		// No TLS config provided - create one based on strict setting
+		// Default (strictVerify=false) skips verification, which is safe because
+		// the E2E encryption layer provides security
 		return &tls.Config{
-			InsecureSkipVerify: true,
+			InsecureSkipVerify: !strictVerify,
 			NextProtos:         nextProtos,
 			MinVersion:         tls.VersionTLS13,
 		}, nil

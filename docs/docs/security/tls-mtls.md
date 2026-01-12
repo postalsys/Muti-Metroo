@@ -9,38 +9,67 @@ sidebar_position: 2
 
 # TLS and Mutual TLS
 
-Control which agents can connect to your mesh. With basic TLS, agents verify they're connecting to the right server. With mutual TLS (mTLS), both sides verify each other - unauthorized agents can't connect at all.
+## Security Model
+
+Muti Metroo uses a **layered security model**:
+
+1. **End-to-End Encryption (Primary)**: X25519 key exchange + ChaCha20-Poly1305 encrypts all stream data. Transit agents cannot decrypt traffic - only ingress and exit agents can read the payload.
+
+2. **Transport TLS (Defense-in-depth)**: TLS 1.3 encrypts the transport layer. This provides an additional encryption layer but is not the primary security mechanism.
+
+Because of the E2E encryption layer, **TLS certificate verification is optional by default**. Agents auto-generate self-signed certificates and don't verify peer certificates. This allows quick deployment without PKI setup while maintaining strong security guarantees.
 
 **Quick decision:**
-- Development/testing: TLS without mTLS is fine
-- Production: Always enable mTLS - only agents with valid certificates can connect
+- Most deployments: Default settings are secure (E2E encryption protects traffic)
+- High-trust/compliance: Enable `strict: true` for TLS verification, `mtls: true` for mutual authentication
 
 ## TLS Basics
 
-All connections between agents are encrypted with TLS 1.3. Traffic between agents cannot be read by network observers.
+All connections between agents are encrypted with TLS 1.3, even with default settings. The difference is whether certificates are verified:
 
-## Global TLS Configuration
+| Mode | Certificate Source | Verification | Use Case |
+|------|-------------------|--------------|----------|
+| Default | Auto-generated | None | Quick deployment, development |
+| Strict | User-provided | CA-based | Production, compliance |
+| Strict + mTLS | User-provided | Mutual | Zero-trust, high-security |
 
-TLS is configured once in the global `tls:` section and automatically used by all listeners and peer connections:
+## Default Behavior (No Verification)
+
+By default, Muti Metroo:
+- Auto-generates self-signed ECDSA certificates on startup
+- Does NOT verify peer certificates
+- Traffic is still encrypted (TLS 1.3) and protected by E2E encryption
 
 ```yaml
-tls:
-  ca: "./certs/ca.crt"        # CA for verifying peers and clients
-  cert: "./certs/agent.crt"   # Agent's identity certificate
-  key: "./certs/agent.key"    # Agent's private key
-  mtls: true                  # Enable mutual TLS on listeners
+# Minimal config - TLS handled automatically
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+
+peers:
+  - id: "abc123..."
+    transport: quic
+    address: "peer.example.com:4433"
 ```
 
-## Server Authentication (TLS)
+### Why Default No-Verification is Safe
 
-Basic TLS validates the server's certificate. With `mtls: false`, listeners accept any connecting peer:
+1. **E2E Encryption**: Stream data is encrypted with ChaCha20-Poly1305 using keys derived from X25519 exchange. Even if a MITM intercepts TLS, they cannot decrypt stream content.
+
+2. **Agent ID Verification**: Peers verify each other's Agent ID during handshake. This is independent of TLS certificates.
+
+3. **Double Encryption**: Traffic is encrypted twice - once at the E2E layer, once at TLS. A MITM would need to break both.
+
+## Strict Mode (CA Verification)
+
+Enable `strict: true` to verify peer certificates against a CA:
 
 ```yaml
 tls:
   ca: "./certs/ca.crt"
   cert: "./certs/agent.crt"
   key: "./certs/agent.key"
-  mtls: false                  # Don't require client certs
+  strict: true                 # Enable certificate verification
 
 listeners:
   - transport: quic
@@ -50,38 +79,48 @@ peers:
   - id: "abc123..."
     transport: quic
     address: "peer.example.com:4433"
-    # Uses global CA to validate server, global cert as client cert
 ```
 
-### What You Get
+With strict mode:
+- Peer certificates are verified against the configured CA
+- Invalid certificates are rejected at the TLS layer
+- Requires all peers to have CA-signed certificates
 
-- You know you're connecting to the right agent (not an imposter)
-- Traffic is encrypted between agents
-- But: any client with network access can connect to listeners
+### When to Use Strict Mode
+
+- **Defense-in-depth**: Additional validation beyond E2E encryption
+- **Network access control**: Reject connections from agents without valid certs
+- **Compliance**: Environments requiring PKI-based authentication
+- **Detection of compromise**: TLS verification can detect MITM attempts earlier
 
 ## Mutual TLS (mTLS)
 
-mTLS requires both sides to present valid certificates. Enable it globally:
+mTLS requires both sides to present valid certificates:
 
 ```yaml
 tls:
   ca: "./certs/ca.crt"
   cert: "./certs/agent.crt"
   key: "./certs/agent.key"
-  mtls: true                   # Require client certs on listeners
+  strict: true
+  mtls: true                   # Require client certificates
+
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
 ```
 
 With mTLS enabled:
 - Listeners require connecting peers to present valid certificates
-- The global CA is used to verify client certificates
-- Peers automatically use the global agent certificate as their client certificate
+- The CA is used to verify client certificates
+- Unauthorized agents are rejected before handshake completes
 
-### What You Get with mTLS
+### Benefits of mTLS
 
-- Only agents with valid certificates can connect
-- Both sides verify each other - no anonymous connections
-- Unauthorized agents are rejected before they can do anything
-- You control who's in your mesh by controlling who has certificates
+- **Mutual authentication**: Both sides verify each other
+- **Network-level access control**: Only agents with valid certs can connect
+- **Early rejection**: Unauthorized connections rejected at TLS, before protocol handshake
+- **Zero-trust compliance**: Required for many security frameworks
 
 ## EC-Only Certificates
 
@@ -132,18 +171,38 @@ Features:
 
 ## Configuration Examples
 
-### Development (mTLS Disabled)
+### Development (Default - No Verification)
 
 ```yaml
-tls:
-  ca: "./dev-certs/ca.crt"
-  cert: "./dev-certs/agent.crt"
-  key: "./dev-certs/agent.key"
-  mtls: false                  # Disable for easier development
+agent:
+  id: "auto"
+  data_dir: "./data"
 
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
+
+# TLS auto-configured, no verification
+# Still secure due to E2E encryption
+```
+
+### Strict TLS (CA Verification)
+
+```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  strict: true
+
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+
+peers:
+  - id: "abc123..."
+    transport: quic
+    address: "peer.example.com:4433"
 ```
 
 ### Production (Full mTLS)
@@ -153,6 +212,7 @@ tls:
   ca: "/etc/muti-metroo/certs/ca.crt"
   cert: "/etc/muti-metroo/certs/agent.crt"
   key: "/etc/muti-metroo/certs/agent.key"
+  strict: true
   mtls: true
 
 listeners:
@@ -165,27 +225,29 @@ peers:
     address: "peer.example.com:4433"
 ```
 
-### Per-Listener Override
+### Per-Peer Strict Override
 
-Disable mTLS for a specific listener:
+Enable strict verification for specific peers:
 
 ```yaml
 tls:
-  ca: "./certs/ca.crt"
+  # Global: no verification
   cert: "./certs/agent.crt"
   key: "./certs/agent.key"
-  mtls: true                   # Global default
 
-listeners:
-  # Uses global mTLS setting
-  - transport: quic
-    address: "0.0.0.0:4433"
+peers:
+  # Default: no verification
+  - id: "abc123..."
+    transport: quic
+    address: "internal.example.com:4433"
 
-  # Override: disable mTLS for this listener
-  - transport: h2
-    address: "0.0.0.0:8443"
+  # Override: strict verification for this peer
+  - id: "def456..."
+    transport: quic
+    address: "external.example.com:4433"
     tls:
-      mtls: false
+      ca: "./certs/external-ca.crt"
+      strict: true
 ```
 
 ### Kubernetes (Inline Certs)
@@ -195,6 +257,7 @@ tls:
   ca_pem: "${CA_CRT}"
   cert_pem: "${TLS_CRT}"
   key_pem: "${TLS_KEY}"
+  strict: true
   mtls: true
 
 listeners:
@@ -202,7 +265,25 @@ listeners:
     address: "0.0.0.0:4433"
 ```
 
-## Certificate Validation
+## Certificate Pinning
+
+Alternative to CA verification - pin specific certificate fingerprints:
+
+```yaml
+peers:
+  - id: "abc123..."
+    transport: quic
+    address: "pinned.example.com:4433"
+    tls:
+      fingerprint: "sha256:ab12cd34ef56..."
+```
+
+Certificate pinning:
+- Works without a CA
+- Validates exact certificate match
+- Must update config when certificate changes
+
+## Certificate Validation (Strict Mode)
 
 ### What's Validated
 
@@ -212,7 +293,7 @@ listeners:
 4. Key usage (appropriate for server/client)
 5. Key type (must be ECDSA)
 
-### Peer ID Validation
+### Additional Protections
 
 In addition to TLS, Muti Metroo validates the peer's Agent ID:
 
@@ -231,6 +312,7 @@ This provides defense-in-depth: even if an attacker has a valid certificate, the
 Error: x509: certificate signed by unknown authority
 ```
 
+- You likely have `strict: true` enabled
 - Verify CA certificate is correct
 - Check CA was used to sign the certificate:
   ```bash
@@ -285,14 +367,14 @@ Error: tls: client didn't provide a certificate
 
 ## Best Practices
 
-1. **Always use mTLS in production**
-2. **Use EC certificates only** (RSA is not supported)
-3. **Protect CA private key** (HSM, vault, or encrypted storage)
-4. **Use short certificate validity** (90-365 days)
-5. **Automate certificate rotation**
-6. **Include all necessary SANs** when generating certs
-7. **Monitor certificate expiration**
-8. **Revoke compromised certificates** immediately
+1. **Start with defaults**: E2E encryption provides strong security without PKI
+2. **Enable strict mode for production**: When defense-in-depth is needed
+3. **Use mTLS for zero-trust**: When network-level authentication required
+4. **Use EC certificates only**: RSA is not supported
+5. **Protect CA private key**: HSM, vault, or encrypted storage
+6. **Use short certificate validity**: 90-365 days
+7. **Automate certificate rotation**
+8. **Monitor certificate expiration**
 
 ## Next Steps
 

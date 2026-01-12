@@ -19,6 +19,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/probe"
 	"github.com/postalsys/muti-metroo/internal/service"
+	"github.com/postalsys/muti-metroo/internal/transport"
 	"github.com/postalsys/muti-metroo/internal/wizard/prompt"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
@@ -427,13 +428,15 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.GlobalTLSConfig, err error) {
 	certsDir = filepath.Join(dataDir, "certs")
 
-	prompt.PrintHeader("TLS Configuration", "TLS is required for secure communication.\nYou can generate new certificates or use existing ones.")
+	prompt.PrintHeader("TLS Configuration", "Muti Metroo uses E2E encryption (X25519 + ChaCha20-Poly1305) for security.\nTransport TLS is optional - certificates are auto-generated if not configured.")
 
-	// Certificate setup choice
+	// Certificate setup choice - auto-generate is now the default
 	tlsOptions := []string{
-		"Generate new self-signed certificates (Recommended for testing)",
+		"Auto-generate on startup (Recommended)",
+		"Generate certificate now and embed in config",
 		"Paste certificate and key content",
 		"Use existing certificate files",
+		"Configure strict TLS with CA (Advanced)",
 	}
 
 	idx, err := prompt.Select("Certificate Setup", tlsOptions, 0)
@@ -441,32 +444,50 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 		return
 	}
 
-	certsDir, err = prompt.ReadLine("Certificates Directory", certsDir)
-	if err != nil {
-		return
-	}
-
-	enableMTLS, err := prompt.Confirm("Enable mTLS (mutual TLS)?", true)
-	if err != nil {
-		return
-	}
-
-	// Ensure certs directory exists
-	if err = os.MkdirAll(certsDir, 0700); err != nil {
-		return certsDir, tlsConfig, fmt.Errorf("failed to create certs directory: %w", err)
-	}
-
 	switch idx {
-	case 0: // generate
-		tlsConfig, err = w.generateCertificates(certsDir)
-	case 1: // paste
-		tlsConfig, err = w.pasteCertificates(certsDir)
-	case 2: // existing
+	case 0: // auto-generate at startup (default)
+		// Return empty config - agent will auto-generate at startup
+		fmt.Println("\n[OK] TLS certificates will be auto-generated at startup")
+		return certsDir, config.GlobalTLSConfig{}, nil
+
+	case 1: // generate and embed
+		tlsConfig, err = w.generateSelfSignedCert()
+		if err != nil {
+			return
+		}
+
+	case 2: // paste
+		tlsConfig, err = w.pasteCertificatesEmbedded()
+		if err != nil {
+			return
+		}
+
+	case 3: // existing files
+		certsDir, err = prompt.ReadLine("Certificates Directory", certsDir)
+		if err != nil {
+			return
+		}
 		tlsConfig, err = w.useExistingCertificates(certsDir)
+		if err != nil {
+			return
+		}
+
+	case 4: // strict TLS with CA
+		tlsConfig, err = w.setupStrictTLS()
+		if err != nil {
+			return
+		}
 	}
 
-	// Set mTLS preference
-	tlsConfig.MTLS = enableMTLS
+	// Ask about mTLS only for non-auto modes that have certs configured
+	if tlsConfig.HasCert() || tlsConfig.HasCA() {
+		enableMTLS, mErr := prompt.Confirm("Enable mTLS (mutual TLS)?", false)
+		if mErr != nil {
+			err = mErr
+			return
+		}
+		tlsConfig.MTLS = enableMTLS
+	}
 
 	return
 }
@@ -598,6 +619,153 @@ func (w *Wizard) pasteCertificates(certsDir string) (config.GlobalTLSConfig, err
 	return tlsConfig, nil
 }
 
+// generateSelfSignedCert generates a self-signed certificate and embeds it in the config.
+// No CA is generated - just a simple self-signed cert for transport encryption.
+func (w *Wizard) generateSelfSignedCert() (config.GlobalTLSConfig, error) {
+	prompt.PrintHeader("Generate Certificate", "A self-signed certificate will be generated and embedded in your config.")
+
+	commonName, err := prompt.ReadLine("Common Name", "muti-metroo")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	validDaysStr, err := prompt.ReadLineValidated("Validity (days)", "365", func(s string) error {
+		if s == "" {
+			return nil
+		}
+		d, err := strconv.Atoi(s)
+		if err != nil || d < 1 {
+			return fmt.Errorf("must be a positive number")
+		}
+		return nil
+	})
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	validDays := 365
+	if d, err := strconv.Atoi(validDaysStr); err == nil && d > 0 {
+		validDays = d
+	}
+
+	// Generate self-signed certificate using transport helper
+	validFor := time.Duration(validDays) * 24 * time.Hour
+	certPEM, keyPEM, err := transport.GenerateSelfSignedCert(commonName, validFor)
+	if err != nil {
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate certificate: %w", err)
+	}
+
+	fmt.Println("\n[OK] Certificate generated and will be embedded in config")
+
+	return config.GlobalTLSConfig{
+		CertPEM: string(certPEM),
+		KeyPEM:  string(keyPEM),
+	}, nil
+}
+
+// pasteCertificatesEmbedded stores pasted certificates as embedded PEM in config.
+func (w *Wizard) pasteCertificatesEmbedded() (config.GlobalTLSConfig, error) {
+	prompt.PrintHeader("Paste Certificate", "Paste your PEM-encoded certificate content.\nCertificates will be embedded in the config file.")
+
+	fmt.Println("Certificate (PEM) - paste server certificate:")
+	certContent, err := prompt.ReadMultiLine("Certificate (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+	if !strings.Contains(certContent, "-----BEGIN CERTIFICATE-----") {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid certificate format")
+	}
+
+	fmt.Println("Private Key (PEM) - paste private key:")
+	keyContent, err := prompt.ReadMultiLine("Private Key (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+	if !strings.Contains(keyContent, "-----BEGIN") || !strings.Contains(keyContent, "PRIVATE KEY-----") {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid private key format")
+	}
+
+	fmt.Println("CA Certificate (PEM) - optional, for strict TLS verification and mTLS:")
+	caContent, err := prompt.ReadMultiLine("CA Certificate (PEM) - Optional")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	tlsConfig := config.GlobalTLSConfig{
+		CertPEM: certContent,
+		KeyPEM:  keyContent,
+	}
+
+	if caContent != "" && strings.Contains(caContent, "-----BEGIN CERTIFICATE-----") {
+		tlsConfig.CAPEM = caContent
+	}
+
+	fmt.Println("\n[OK] Certificates will be embedded in config")
+
+	return tlsConfig, nil
+}
+
+// setupStrictTLS generates a CA and agent certificate for strict TLS verification.
+func (w *Wizard) setupStrictTLS() (config.GlobalTLSConfig, error) {
+	prompt.PrintHeader("Strict TLS Setup", "This will generate a CA and agent certificate for strict TLS verification.\nPeer certificates will be validated against the CA.")
+
+	commonName, err := prompt.ReadLine("Common Name", "muti-metroo")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	validDaysStr, err := prompt.ReadLineValidated("Validity (days)", "365", func(s string) error {
+		if s == "" {
+			return nil
+		}
+		d, err := strconv.Atoi(s)
+		if err != nil || d < 1 {
+			return fmt.Errorf("must be a positive number")
+		}
+		return nil
+	})
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	validDays := 365
+	if d, err := strconv.Atoi(validDaysStr); err == nil && d > 0 {
+		validDays = d
+	}
+
+	// Generate CA
+	validFor := time.Duration(validDays) * 24 * time.Hour
+	ca, err := certutil.GenerateCA(commonName+" CA", validFor)
+	if err != nil {
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate CA: %w", err)
+	}
+
+	// Generate agent certificate signed by CA
+	opts := certutil.DefaultPeerOptions(commonName)
+	opts.ValidFor = validFor
+	opts.ParentCert = ca.Certificate
+	opts.ParentKey = ca.PrivateKey
+	opts.DNSNames = append(opts.DNSNames, "localhost")
+	opts.IPAddresses = append(opts.IPAddresses, net.ParseIP("127.0.0.1"))
+
+	cert, err := certutil.GenerateCert(opts)
+	if err != nil {
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate certificate: %w", err)
+	}
+
+	fmt.Println("\n[OK] CA and agent certificate generated")
+	fmt.Printf("  CA Fingerprint: %s\n", ca.Fingerprint())
+	fmt.Printf("  Agent Fingerprint: %s\n", cert.Fingerprint())
+	fmt.Println("  Certificates will be embedded in config with strict mode enabled")
+
+	return config.GlobalTLSConfig{
+		CAPEM:   string(ca.CertPEM()),
+		CertPEM: string(cert.CertPEM()),
+		KeyPEM:  string(cert.KeyPEM()),
+		Strict:  true,
+	}, nil
+}
+
 func (w *Wizard) useExistingCertificates(certsDir string) (config.GlobalTLSConfig, error) {
 	prompt.PrintHeader("Existing Certificates", "Specify paths to your existing certificate files.")
 
@@ -706,15 +874,21 @@ func (w *Wizard) askPeerConnections(transport string) ([]config.PeerConfig, erro
 
 // testPeerConnectivity tests if a peer is reachable.
 func (w *Wizard) testPeerConnectivity(peer config.PeerConfig) error {
+	// Determine strict verify - default to false (skip verification)
+	strictVerify := false
+	if peer.TLS.Strict != nil {
+		strictVerify = *peer.TLS.Strict
+	}
+
 	opts := probe.Options{
-		Transport:          peer.Transport,
-		Address:            peer.Address,
-		Path:               peer.Path,
-		Timeout:            10 * time.Second,
-		InsecureSkipVerify: peer.TLS.InsecureSkipVerify,
-		CACert:             peer.TLS.CA,
-		ClientCert:         peer.TLS.Cert,
-		ClientKey:          peer.TLS.Key,
+		Transport:    peer.Transport,
+		Address:      peer.Address,
+		Path:         peer.Path,
+		Timeout:      10 * time.Second,
+		StrictVerify: strictVerify,
+		CACert:       peer.TLS.CA,
+		ClientCert:   peer.TLS.Cert,
+		ClientKey:    peer.TLS.Key,
 	}
 
 	// Set default path if not specified
@@ -780,11 +954,16 @@ func (w *Wizard) askSinglePeer(defaultTransport string, peerNum int) (config.Pee
 	}
 	peer.Transport = transportValues[idx]
 
-	useInsecure, err := prompt.Confirm("Skip TLS verification? (only for testing with self-signed certs)", false)
+	// Note: Certificate verification is OFF by default because E2E encryption provides security.
+	// Only ask about strict mode for advanced users who want additional CA-based verification.
+	enableStrict, err := prompt.Confirm("Enable strict TLS verification? (requires CA-signed certs)", false)
 	if err != nil {
 		return peer, err
 	}
-	peer.TLS.InsecureSkipVerify = useInsecure
+	if enableStrict {
+		strictVal := true
+		peer.TLS.Strict = &strictVal
+	}
 
 	// Ask for path if HTTP transport
 	if peer.Transport == "h2" || peer.Transport == "ws" {

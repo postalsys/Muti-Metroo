@@ -49,7 +49,7 @@ func (t *QUICTransport) Dial(ctx context.Context, addr string, opts DialOptions)
 		alpn = DefaultALPNProtocol
 	}
 
-	tlsConfig, err := prepareTLSConfigForDial(opts.TLSConfig, opts.InsecureSkipVerify, []string{alpn})
+	tlsConfig, err := prepareTLSConfigForDial(opts.TLSConfig, opts.StrictVerify, []string{alpn})
 	if err != nil {
 		return nil, err
 	}
