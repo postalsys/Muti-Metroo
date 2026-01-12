@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.2.0...muti-metroo-v2.3.0) (2026-01-12)
+
+
+### Features
+
+* **dns:** use system resolver by default instead of public DNS ([baeb18b](https://github.com/postalsys/Muti-Metroo/commit/baeb18bd45c8913e7898ef07a35b415b250e9de6))
+
 ## [2.2.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.1.0...muti-metroo-v2.2.0) (2026-01-12)
 
 
