@@ -60,6 +60,16 @@ For containerized deployments, see the **Docker guide**:
 
 [Go to Docker Deployment](/deployment/docker)
 
+**Quick try-out:** Clone the repo and run a 4-agent demo in seconds:
+
+```bash
+git clone https://github.com/postalsys/Muti-Metroo.git
+cd Muti-Metroo/examples/docker-tryout
+docker compose up -d
+# Access dashboard: http://localhost:18080/ui/
+# Test proxy: curl -x socks5h://localhost:11080 https://httpbin.org/ip
+```
+
 ## What You Will Accomplish
 
 By the end of these guides, you will be able to:

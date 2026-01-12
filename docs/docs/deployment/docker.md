@@ -122,6 +122,8 @@ Build your image first with `docker build -t muti-metroo .` before running docke
 
 ### Multi-Agent Testbed
 
+For a ready-to-run 4-agent example with SOCKS5 proxy, split exit routing, remote shell, and file transfer, see [`examples/docker-tryout/`](https://github.com/postalsys/Muti-Metroo/tree/master/examples/docker-tryout) in the repository.
+
 ```yaml
 # docker-compose.yml
 version: "3.8"

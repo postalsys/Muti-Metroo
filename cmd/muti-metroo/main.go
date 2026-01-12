@@ -642,14 +642,14 @@ The probe does not require a running agent - it operates standalone.`,
 
 			// Build probe options
 			opts := probe.Options{
-				Transport:          transport,
-				Address:            address,
-				Path:               path,
-				Timeout:            timeoutDuration,
-				InsecureSkipVerify: insecure,
-				CACert:             caCert,
-				ClientCert:         clientCert,
-				ClientKey:          clientKey,
+				Transport:    transport,
+				Address:      address,
+				Path:         path,
+				Timeout:      timeoutDuration,
+				StrictVerify: !insecure,
+				CACert:       caCert,
+				ClientCert:   clientCert,
+				ClientKey:    clientKey,
 			}
 
 			// Run probe

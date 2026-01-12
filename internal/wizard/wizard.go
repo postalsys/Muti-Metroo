@@ -595,9 +595,9 @@ func (w *Wizard) generateFromCAKey() (config.GlobalTLSConfig, error) {
 	fmt.Println("    Certificates will be embedded in config with strict mode enabled")
 
 	return config.GlobalTLSConfig{
-		CAPEM:   string(ca.CertPEM()),
-		CertPEM: string(agentCert.CertPEM()),
-		KeyPEM:  string(agentCert.KeyPEM()),
+		CAPEM:   string(ca.CertPEM),
+		CertPEM: string(agentCert.CertPEM),
+		KeyPEM:  string(agentCert.KeyPEM),
 		Strict:  true,
 	}, nil
 }
@@ -869,9 +869,9 @@ func (w *Wizard) setupStrictTLS() (config.GlobalTLSConfig, error) {
 	fmt.Println("  Certificates will be embedded in config with strict mode enabled")
 
 	return config.GlobalTLSConfig{
-		CAPEM:   string(ca.CertPEM()),
-		CertPEM: string(cert.CertPEM()),
-		KeyPEM:  string(cert.KeyPEM()),
+		CAPEM:   string(ca.CertPEM),
+		CertPEM: string(cert.CertPEM),
+		KeyPEM:  string(cert.KeyPEM),
 		Strict:  true,
 	}, nil
 }
