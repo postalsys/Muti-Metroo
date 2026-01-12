@@ -245,10 +245,6 @@ type TLSConfig struct {
 	// Strict override (optional - peer connections only, uses global if nil)
 	// When true, peer certificates must be validated against CA
 	Strict *bool `yaml:"strict,omitempty"`
-
-	// Certificate pinning (peer connections only)
-	// Validates peer certificate fingerprint regardless of strict mode
-	Fingerprint string `yaml:"fingerprint"`
 }
 
 // GetCertPEM returns the certificate PEM content, reading from file if necessary.

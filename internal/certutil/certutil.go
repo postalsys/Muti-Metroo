@@ -570,3 +570,98 @@ func CreateCertPoolFromFiles(certPaths ...string) (*x509.CertPool, error) {
 	}
 	return pool, nil
 }
+
+// ParsePrivateKeyPEM parses an EC private key from PEM data.
+func ParsePrivateKeyPEM(pemData []byte) (*ecdsa.PrivateKey, error) {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode private key PEM")
+	}
+
+	switch block.Type {
+	case "EC PRIVATE KEY":
+		return x509.ParseECPrivateKey(block.Bytes)
+	case "PRIVATE KEY":
+		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse PKCS#8 private key: %w", err)
+		}
+		ecKey, ok := key.(*ecdsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("private key is not ECDSA")
+		}
+		return ecKey, nil
+	case "RSA PRIVATE KEY":
+		return nil, fmt.Errorf("RSA private keys are not supported; use EC (ECDSA) keys")
+	default:
+		return nil, fmt.Errorf("unsupported private key type: %s", block.Type)
+	}
+}
+
+// GenerateCACertFromKey generates a self-signed CA certificate from an existing private key.
+func GenerateCACertFromKey(key *ecdsa.PrivateKey, commonName string, validityDays int) (*GeneratedCert, error) {
+	// Generate serial number
+	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate serial number: %w", err)
+	}
+
+	validFor := time.Duration(validityDays) * 24 * time.Hour
+	now := time.Now()
+
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName:   commonName,
+			Organization: []string{"Muti Metroo"},
+		},
+		NotBefore:             now,
+		NotAfter:              now.Add(validFor),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+		MaxPathLen:            1,
+	}
+
+	// Self-signed: parent is the template itself
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create certificate: %w", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	certPEM := EncodeCertPEM(cert)
+	keyPEM := EncodeKeyPEM(key)
+
+	return &GeneratedCert{
+		Certificate: cert,
+		PrivateKey:  key,
+		CertPEM:     certPEM,
+		KeyPEM:      keyPEM,
+	}, nil
+}
+
+// EncodeCertPEM encodes a certificate to PEM format.
+func EncodeCertPEM(cert *x509.Certificate) []byte {
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: cert.Raw,
+	})
+}
+
+// EncodeKeyPEM encodes an EC private key to PEM format.
+func EncodeKeyPEM(key *ecdsa.PrivateKey) []byte {
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		// This should never happen for valid keys
+		return nil
+	}
+	return pem.EncodeToMemory(&pem.Block{
+		Type:  "EC PRIVATE KEY",
+		Bytes: keyDER,
+	})
+}

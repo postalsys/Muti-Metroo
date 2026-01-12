@@ -296,13 +296,6 @@ peers:
     address: "trusted.example.com:4433"
     tls:
       strict: true
-
-  # Certificate pinning (alternative to CA verification)
-  - id: "jkl012..."
-    transport: quic
-    address: "pinned.example.com:4433"
-    tls:
-      fingerprint: "sha256:ab12cd34..."
 ```
 
 ## Certificate Validity

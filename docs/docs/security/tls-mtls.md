@@ -250,6 +250,44 @@ peers:
       strict: true
 ```
 
+### Mixed TLS Environments (Public Proxy)
+
+When using strict TLS with your internal CA but connecting through a public proxy (like nginx with Let's Encrypt), disable strict verification for that specific peer:
+
+```yaml
+tls:
+  # Global: strict verification with internal CA
+  ca_pem: |
+    -----BEGIN CERTIFICATE-----
+    ... your internal CA ...
+    -----END CERTIFICATE-----
+  cert_pem: |
+    -----BEGIN CERTIFICATE-----
+    ... agent cert signed by internal CA ...
+    -----END CERTIFICATE-----
+  key_pem: |
+    -----BEGIN PRIVATE KEY-----
+    ... agent private key ...
+    -----END PRIVATE KEY-----
+  strict: true
+
+peers:
+  # Internal peers: use global strict settings
+  - id: "abc123..."
+    transport: quic
+    address: "192.168.1.10:4433"
+    # No tls override = verified against internal CA
+
+  # WebSocket through nginx with Let's Encrypt
+  - id: "def456..."
+    transport: ws
+    address: "wss://relay.example.com:443/mesh"
+    tls:
+      strict: false   # Skip TLS verification for public proxy
+```
+
+**Why this is safe:** The E2E encryption layer (X25519 + ChaCha20-Poly1305) protects all traffic regardless of TLS verification. Even if TLS is not verified, the actual mesh traffic remains encrypted end-to-end.
+
 ### Kubernetes (Inline Certs)
 
 ```yaml
@@ -264,24 +302,6 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
 ```
-
-## Certificate Pinning
-
-Alternative to CA verification - pin specific certificate fingerprints:
-
-```yaml
-peers:
-  - id: "abc123..."
-    transport: quic
-    address: "pinned.example.com:4433"
-    tls:
-      fingerprint: "sha256:ab12cd34ef56..."
-```
-
-Certificate pinning:
-- Works without a CA
-- Validates exact certificate match
-- Must update config when certificate changes
 
 ## Certificate Validation (Strict Mode)
 

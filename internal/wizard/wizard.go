@@ -430,13 +430,10 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 
 	prompt.PrintHeader("TLS Configuration", "Muti Metroo uses E2E encryption (X25519 + ChaCha20-Poly1305) for security.\nTransport TLS is optional - certificates are auto-generated if not configured.")
 
-	// Certificate setup choice - auto-generate is now the default
+	// Simplified certificate setup: 2 options only
 	tlsOptions := []string{
-		"Auto-generate on startup (Recommended)",
-		"Generate certificate now and embed in config",
-		"Paste certificate and key content",
-		"Use existing certificate files",
-		"Configure strict TLS with CA (Advanced)",
+		"Self-signed certificates (Recommended)",
+		"Strict TLS with CA verification (Advanced)",
 	}
 
 	idx, err := prompt.Select("Certificate Setup", tlsOptions, 0)
@@ -445,51 +442,164 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 	}
 
 	switch idx {
-	case 0: // auto-generate at startup (default)
-		// Return empty config - agent will auto-generate at startup
+	case 0: // self-signed (auto-generate at startup)
 		fmt.Println("\n[OK] TLS certificates will be auto-generated at startup")
+		fmt.Println("    E2E encryption provides security - TLS verification is optional.")
 		return certsDir, config.GlobalTLSConfig{}, nil
 
-	case 1: // generate and embed
-		tlsConfig, err = w.generateSelfSignedCert()
+	case 1: // strict TLS with CA
+		tlsConfig, err = w.askStrictTLSSetup()
 		if err != nil {
 			return
 		}
-
-	case 2: // paste
-		tlsConfig, err = w.pasteCertificatesEmbedded()
-		if err != nil {
-			return
-		}
-
-	case 3: // existing files
-		certsDir, err = prompt.ReadLine("Certificates Directory", certsDir)
-		if err != nil {
-			return
-		}
-		tlsConfig, err = w.useExistingCertificates(certsDir)
-		if err != nil {
-			return
-		}
-
-	case 4: // strict TLS with CA
-		tlsConfig, err = w.setupStrictTLS()
-		if err != nil {
-			return
-		}
-	}
-
-	// Ask about mTLS only for non-auto modes that have certs configured
-	if tlsConfig.HasCert() || tlsConfig.HasCA() {
-		enableMTLS, mErr := prompt.Confirm("Enable mTLS (mutual TLS)?", false)
-		if mErr != nil {
-			err = mErr
-			return
-		}
-		tlsConfig.MTLS = enableMTLS
 	}
 
 	return
+}
+
+// askStrictTLSSetup prompts for strict TLS configuration with CA verification.
+func (w *Wizard) askStrictTLSSetup() (config.GlobalTLSConfig, error) {
+	prompt.PrintHeader("Strict TLS Setup", "Configure CA-based TLS verification.\nAll certificates will be embedded in the config file.")
+
+	strictOptions := []string{
+		"Paste CA certificate, agent certificate, and key",
+		"Generate from CA private key",
+	}
+
+	idx, err := prompt.Select("Setup method", strictOptions, 0)
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	switch idx {
+	case 0:
+		return w.pasteCACertAndAgentCert()
+	case 1:
+		return w.generateFromCAKey()
+	}
+
+	return config.GlobalTLSConfig{}, nil
+}
+
+// pasteCACertAndAgentCert prompts user to paste CA cert, agent cert, and key.
+func (w *Wizard) pasteCACertAndAgentCert() (config.GlobalTLSConfig, error) {
+	prompt.PrintHeader("Paste Certificates", "Paste your PEM-encoded CA certificate, agent certificate, and private key.\nAll will be embedded in the config file with strict mode enabled.")
+
+	fmt.Println("CA Certificate (PEM):")
+	caPEM, err := prompt.ReadMultiLine("CA Certificate (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+	if !strings.Contains(caPEM, "-----BEGIN CERTIFICATE-----") {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid CA certificate format - must be PEM")
+	}
+
+	fmt.Println("\nAgent Certificate (PEM):")
+	certPEM, err := prompt.ReadMultiLine("Agent Certificate (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+	if !strings.Contains(certPEM, "-----BEGIN CERTIFICATE-----") {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid agent certificate format - must be PEM")
+	}
+
+	fmt.Println("\nAgent Private Key (PEM):")
+	keyPEM, err := prompt.ReadMultiLine("Agent Private Key (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+	if !strings.Contains(keyPEM, "-----BEGIN") || !strings.Contains(keyPEM, "PRIVATE KEY-----") {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid private key format - must be PEM")
+	}
+
+	// Validate the key is EC (not RSA)
+	if _, err := certutil.ParsePrivateKeyPEM([]byte(keyPEM)); err != nil {
+		return config.GlobalTLSConfig{}, fmt.Errorf("invalid private key: %w", err)
+	}
+
+	fmt.Println("\n[OK] Certificates validated and will be embedded in config with strict mode enabled")
+
+	return config.GlobalTLSConfig{
+		CAPEM:   caPEM,
+		CertPEM: certPEM,
+		KeyPEM:  keyPEM,
+		Strict:  true,
+	}, nil
+}
+
+// generateFromCAKey generates CA cert and agent cert from a CA private key.
+func (w *Wizard) generateFromCAKey() (config.GlobalTLSConfig, error) {
+	prompt.PrintHeader("Generate from CA Private Key", "Paste your CA private key (ECDSA P-256).\nThe wizard will derive the CA certificate and generate an agent certificate.")
+
+	fmt.Println("CA Private Key (PEM):")
+	caKeyPEM, err := prompt.ReadMultiLine("CA Private Key (PEM)")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	// Parse the CA private key
+	caKey, err := certutil.ParsePrivateKeyPEM([]byte(caKeyPEM))
+	if err != nil {
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to parse CA private key: %w", err)
+	}
+
+	// Ask for validity period
+	validDaysStr, err := prompt.ReadLineValidated("Validity period (days)", "365", func(s string) error {
+		if s == "" {
+			return nil
+		}
+		d, err := strconv.Atoi(s)
+		if err != nil || d < 1 {
+			return fmt.Errorf("must be a positive number")
+		}
+		return nil
+	})
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	validDays := 365
+	if d, err := strconv.Atoi(validDaysStr); err == nil && d > 0 {
+		validDays = d
+	}
+
+	// Ask for common name
+	commonName, err := prompt.ReadLine("Agent Common Name", "muti-metroo")
+	if err != nil {
+		return config.GlobalTLSConfig{}, err
+	}
+
+	// Generate CA certificate from private key
+	ca, err := certutil.GenerateCACertFromKey(caKey, commonName+" CA", validDays)
+	if err != nil {
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate CA certificate: %w", err)
+	}
+
+	// Generate agent certificate signed by CA
+	validFor := time.Duration(validDays) * 24 * time.Hour
+	opts := certutil.DefaultPeerOptions(commonName)
+	opts.ValidFor = validFor
+	opts.ParentCert = ca.Certificate
+	opts.ParentKey = ca.PrivateKey
+	opts.DNSNames = append(opts.DNSNames, "localhost")
+	opts.IPAddresses = append(opts.IPAddresses, net.ParseIP("127.0.0.1"))
+
+	agentCert, err := certutil.GenerateCert(opts)
+	if err != nil {
+		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate agent certificate: %w", err)
+	}
+
+	fmt.Println("\n[OK] Certificates generated from CA key")
+	fmt.Printf("    CA Fingerprint:    %s\n", ca.Fingerprint())
+	fmt.Printf("    Agent Fingerprint: %s\n", agentCert.Fingerprint())
+	fmt.Println("    Certificates will be embedded in config with strict mode enabled")
+
+	return config.GlobalTLSConfig{
+		CAPEM:   string(ca.CertPEM()),
+		CertPEM: string(agentCert.CertPEM()),
+		KeyPEM:  string(agentCert.KeyPEM()),
+		Strict:  true,
+	}, nil
 }
 
 func (w *Wizard) generateCertificates(certsDir string) (config.GlobalTLSConfig, error) {

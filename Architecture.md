@@ -1895,8 +1895,7 @@ peers:
     address: "192.168.1.50:4433"
     tls:
       ca: "./certs/peer-ca.crt"
-      # Or use pinning:
-      # fingerprint: "sha256:ab12cd34..."
+      strict: true  # Enable CA verification
 
   # WebSocket peer through proxy
   - id: "ghi789..."
@@ -2135,7 +2134,6 @@ muti-metroo service status
 │                                                                             │
 │  Strict mode (tls.strict: true):                                            │
 │  • CA-based: Validate against trusted CA certificate                        │
-│  • Pinning: Validate against specific certificate fingerprint               │
 │  • Mutual TLS: Both sides present and validate certificates                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘

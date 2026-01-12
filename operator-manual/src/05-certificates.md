@@ -198,6 +198,39 @@ peers:
       strict: true  # Enable strict mode for this peer only
 ```
 
+### Mixed Environments: Public Proxy with Internal CA
+
+When using strict TLS internally but connecting through a public proxy (nginx, Cloudflare, etc.) with a public CA (Let's Encrypt), disable strict verification for that specific connection:
+
+```yaml
+tls:
+  # Global: strict verification with your internal CA
+  ca_pem: |
+    -----BEGIN CERTIFICATE-----
+    ... your internal CA ...
+    -----END CERTIFICATE-----
+  cert_pem: |
+    ... agent cert ...
+  key_pem: |
+    ... agent key ...
+  strict: true
+
+peers:
+  # Internal peers: verified against internal CA
+  - id: "abc123..."
+    transport: quic
+    address: "192.168.1.10:4433"
+
+  # Public proxy (nginx with Let's Encrypt): skip TLS verification
+  - id: "def456..."
+    transport: ws
+    address: "wss://relay.example.com:443/mesh"
+    tls:
+      strict: false   # Override global strict for this peer
+```
+
+**Security note:** This is safe because E2E encryption (X25519 + ChaCha20-Poly1305) protects all mesh traffic regardless of TLS verification. The public proxy cannot read or modify the encrypted stream data.
+
 ## Mutual TLS (mTLS)
 
 Enable mTLS to require client certificates on listeners:
@@ -239,30 +272,14 @@ tls:
 
 Inline PEM takes precedence over file paths if both are specified.
 
-## Certificate Pinning
-
-Pin specific certificate fingerprints for peer connections:
-
-```yaml
-peers:
-  - id: "abc123..."
-    transport: quic
-    address: "pinned.example.com:4433"
-    tls:
-      fingerprint: "sha256:ab12cd34..."
-```
-
-Certificate pinning validates exact certificate match without needing a CA.
-
 ## Setup Wizard Options
 
 The setup wizard (`muti-metroo init --wizard`) offers these TLS options:
 
-1. **Auto-generate on startup (Recommended)** - No TLS config, agent handles everything
-2. **Generate certificate now and embed in config** - Creates embedded `cert_pem`/`key_pem`
-3. **Paste certificate and key content** - Embed your own certs
-4. **Use existing certificate files** - Reference file paths
-5. **Configure strict TLS with CA** - Full PKI setup with CA, cert, and `strict: true`
+1. **Self-signed certificates (Recommended)** - Auto-generate at startup, no config needed
+2. **Strict TLS with CA verification (Advanced)** - CA-based verification with options:
+   - Paste CA certificate, agent certificate, and key
+   - Generate from CA private key (wizard derives CA cert and generates agent cert)
 
 ## Certificate Rotation
 

@@ -128,7 +128,6 @@ peers:
   #   # tls:
   #   #   ca: "./certs/other-ca.crt"  # Override global CA
   #   #   strict: true                # Enable cert verification for this peer
-  #   #   fingerprint: "sha256:ab12cd34..."  # Certificate pinning
 
   # Example WebSocket peer through corporate proxy
   # Note: mTLS not available through proxy (external server may use RSA)

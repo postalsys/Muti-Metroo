@@ -59,7 +59,7 @@ peers:
     address: "192.168.1.10:4433"
     tls:
       ca: "./certs/other-ca.crt"       # Override global CA (rare)
-      fingerprint: "sha256:ab12cd34..."  # Certificate pinning
+      strict: true                      # Enable verification for this peer
     reconnect:
       initial_delay: 1s
       max_delay: 60s
@@ -180,20 +180,44 @@ peers:
     transport: quic
     address: "192.168.1.10:4433"
 
-  # Override: different CA
+  # Override: different CA with strict verification
   - id: "..."
     transport: quic
     address: "external.example.com:4433"
     tls:
       ca: "./certs/external-ca.crt"
-
-  # Certificate pinning
-  - id: "..."
-    transport: quic
-    address: "pinned.example.com:4433"
-    tls:
-      fingerprint: "sha256:ab12cd34..."
+      strict: true
 ```
+
+### Public Proxy with Different CA
+
+When connecting through a public proxy (like nginx with Let's Encrypt) while using strict TLS for internal peers:
+
+```yaml
+tls:
+  ca_pem: |
+    ... internal CA ...
+  cert_pem: |
+    ... agent cert ...
+  key_pem: |
+    ... agent key ...
+  strict: true   # Global: verify against internal CA
+
+peers:
+  # Internal peer: uses global strict verification
+  - id: "abc123..."
+    transport: quic
+    address: "192.168.1.10:4433"
+
+  # Public proxy: disable strict verification
+  - id: "def456..."
+    transport: ws
+    address: "wss://relay.example.com:443/mesh"
+    tls:
+      strict: false   # Skip verification for this peer
+```
+
+This is safe because E2E encryption protects all traffic regardless of TLS verification.
 
 ### Inline Certificates
 
