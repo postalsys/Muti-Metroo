@@ -16,9 +16,11 @@ type DNSConfig struct {
 }
 
 // DefaultDNSConfig returns sensible defaults.
+// By default, no servers are configured which means the system resolver is used.
+// This allows resolution of local domains (e.g., printer.local) that public DNS cannot resolve.
 func DefaultDNSConfig() DNSConfig {
 	return DNSConfig{
-		Servers: []string{"8.8.8.8:53", "1.1.1.1:53"},
+		Servers: []string{}, // Empty = use system resolver
 		Timeout: 5 * time.Second,
 	}
 }
@@ -37,10 +39,8 @@ type cacheEntry struct {
 }
 
 // NewResolver creates a new DNS resolver.
+// If no servers are configured, the system resolver is used.
 func NewResolver(cfg DNSConfig) *Resolver {
-	if len(cfg.Servers) == 0 {
-		cfg.Servers = DefaultDNSConfig().Servers
-	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = DefaultDNSConfig().Timeout
 	}
@@ -66,26 +66,33 @@ func (r *Resolver) Resolve(ctx context.Context, domain string) (net.IP, error) {
 		return ip, nil
 	}
 
-	// Create a custom resolver with our configured servers
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			// Try each server until one works
-			var lastErr error
-			for _, server := range r.cfg.Servers {
-				conn, err := r.dialer.DialContext(ctx, "udp", server)
-				if err == nil {
-					return conn, nil
-				}
-				lastErr = err
-			}
-			return nil, lastErr
-		},
-	}
-
 	// Set timeout
 	resolveCtx, cancel := context.WithTimeout(ctx, r.cfg.Timeout)
 	defer cancel()
+
+	var resolver *net.Resolver
+
+	if len(r.cfg.Servers) > 0 {
+		// Use explicitly configured DNS servers
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				// Try each server until one works
+				var lastErr error
+				for _, server := range r.cfg.Servers {
+					conn, err := r.dialer.DialContext(ctx, "udp", server)
+					if err == nil {
+						return conn, nil
+					}
+					lastErr = err
+				}
+				return nil, lastErr
+			},
+		}
+	} else {
+		// Use system default resolver (supports local domains like .local)
+		resolver = net.DefaultResolver
+	}
 
 	// Resolve
 	addrs, err := resolver.LookupIPAddr(resolveCtx, domain)

@@ -170,9 +170,7 @@ Domain routes are ideal for:
 DNS resolution location depends on the route type:
 
 - **CIDR routes**: Domain names are resolved at the **ingress agent** using the system's DNS resolver. The exit node receives IP addresses.
-- **Domain routes**: Domain names are passed to the **exit node** for resolution using the configured DNS servers below.
-
-If you use domain routes, configure the `dns` section to specify which DNS servers the exit node should use.
+- **Domain routes**: Domain names are passed to the **exit node** for resolution. By default, the exit node uses the system resolver (which supports local domains like `.local`). You can optionally configure explicit DNS servers.
 :::
 
 ### Public DNS
@@ -240,19 +238,25 @@ exit:
 
 Not currently supported. Use standard DNS.
 
-### No DNS
+### Default (System Resolver)
 
-If you only use CIDR routes (not domain routes), the `dns` section can be omitted since DNS resolution happens at the ingress agent:
+The `dns` section is always optional. When omitted, the exit node uses the system resolver, which:
+
+- Resolves local domains (e.g., `printer.local`, `server.internal`)
+- Uses `/etc/hosts` entries
+- Respects system DNS configuration
 
 ```yaml
 exit:
   enabled: true
   routes:
     - "10.0.0.0/8"
-  # dns section is optional when using only CIDR routes
+  domain_routes:
+    - "*.internal"      # Resolved using system DNS
+  # dns section omitted - uses system resolver
 ```
 
-If you use domain routes, you should configure DNS servers for the exit node to resolve domains.
+Configure explicit DNS servers only when you need to override system DNS (e.g., for public DNS or specific resolvers).
 
 ## Access Control
 

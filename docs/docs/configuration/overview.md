@@ -130,7 +130,7 @@ exit:
   enabled: false
   routes:
     - "10.0.0.0/8"
-  # dns: optional, defaults to Google (8.8.8.8) + Cloudflare (1.1.1.1)
+  # dns: optional, defaults to system resolver
 
 # Routing settings
 routing:

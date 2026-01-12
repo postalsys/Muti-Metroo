@@ -116,7 +116,7 @@ This is useful after configuration changes to speed up route propagation.
 
 ## DNS Configuration
 
-Configure DNS servers for domain resolution at the exit:
+By default, the exit node uses the system resolver, which supports local domains (e.g., `printer.local`). You can optionally configure explicit DNS servers:
 
 ```yaml
 exit:
@@ -127,7 +127,7 @@ exit:
     timeout: 5s
 ```
 
-For internal networks, use internal DNS:
+For internal networks with custom DNS:
 
 ```yaml
 exit:

@@ -580,7 +580,7 @@ func Default() *Config {
 			Enabled: false,
 			Routes:  []string{},
 			DNS: DNSConfig{
-				Servers: []string{"8.8.8.8:53", "1.1.1.1:53"},
+				Servers: []string{}, // Empty = use system resolver (supports .local domains)
 				Timeout: 5 * time.Second,
 			},
 		},
