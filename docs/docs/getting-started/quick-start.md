@@ -127,11 +127,6 @@ exit:
   enabled: true
   routes:
     - "0.0.0.0/0"          # Advertise default route
-  dns:
-    servers:
-      - "8.8.8.8:53"
-      - "1.1.1.1:53"
-    timeout: 5s
 ```
 
 Restart the agent:
@@ -172,10 +167,6 @@ exit:
   enabled: true
   routes:
     - "0.0.0.0/0"
-  dns:
-    servers:
-      - "8.8.8.8:53"
-    timeout: 5s
 
 http:
   enabled: true

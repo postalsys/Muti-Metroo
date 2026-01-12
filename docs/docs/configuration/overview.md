@@ -130,10 +130,7 @@ exit:
   enabled: false
   routes:
     - "10.0.0.0/8"
-  dns:
-    servers:
-      - "8.8.8.8:53"
-    timeout: 5s
+  # dns: optional, defaults to Google (8.8.8.8) + Cloudflare (1.1.1.1)
 
 # Routing settings
 routing:

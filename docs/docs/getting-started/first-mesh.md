@@ -82,10 +82,6 @@ exit:
   enabled: true
   routes:
     - "0.0.0.0/0"              # Default route - all traffic
-  dns:
-    servers:
-      - "8.8.8.8:53"
-    timeout: 5s
 
 # HTTP API
 http:

@@ -37,7 +37,7 @@ exit:
   domain_routes:
     - "api.internal.corp"    # Exact domain match
     - "*.example.com"        # Wildcard match
-  dns:
+  dns:                       # Optional, defaults to Google (8.8.8.8) + Cloudflare (1.1.1.1)
     servers:
       - "8.8.8.8:53"
       - "1.1.1.1:53"
