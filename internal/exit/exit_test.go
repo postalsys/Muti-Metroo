@@ -20,8 +20,9 @@ import (
 func TestDefaultDNSConfig(t *testing.T) {
 	cfg := DefaultDNSConfig()
 
-	if len(cfg.Servers) != 2 {
-		t.Errorf("Servers len = %d, want 2", len(cfg.Servers))
+	// Default is empty servers (uses system resolver for .local domain support)
+	if len(cfg.Servers) != 0 {
+		t.Errorf("Servers len = %d, want 0 (system resolver)", len(cfg.Servers))
 	}
 	if cfg.Timeout != 5*time.Second {
 		t.Errorf("Timeout = %v, want 5s", cfg.Timeout)

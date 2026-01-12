@@ -121,7 +121,6 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 			TLS: config.TLSConfig{
 				Cert:               c.TLSCerts[i].CertFile,
 				Key:                c.TLSCerts[i].KeyFile,
-				InsecureSkipVerify: true,
 			},
 		},
 	}
@@ -137,8 +136,7 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 				Transport: "quic",
 				Address:   c.Addresses[i+1],
 				TLS: config.TLSConfig{
-					InsecureSkipVerify: true,
-				},
+					},
 			},
 		}
 	}

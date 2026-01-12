@@ -204,15 +204,17 @@ listeners:
 			wantError: "invalid transport",
 		},
 		{
-			name: "listener missing TLS",
+			name: "listener partial TLS config",
 			yaml: `
 agent:
   data_dir: "./data"
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
+    tls:
+      cert: "cert.pem"
 `,
-			wantError: "tls certificate and key are required",
+			wantError: "tls certificate and key must both be specified",
 		},
 		{
 			name: "h2 listener missing path",
@@ -860,8 +862,8 @@ listeners:
 	}
 }
 
-func TestListenerConfig_NonPlainTextRequiresTLS(t *testing.T) {
-	// Test that non-plaintext WS still requires TLS
+func TestListenerConfig_NonPlainTextAutoGeneratesTLS(t *testing.T) {
+	// Test that non-plaintext WS auto-generates TLS cert/key
 	yamlConfig := `
 agent:
   data_dir: "./data"
@@ -871,12 +873,36 @@ listeners:
     path: "/mesh"
 `
 
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Errorf("Parse() should succeed for ws without explicit TLS (auto-generated), got: %v", err)
+		return
+	}
+	// Verify TLS is not explicitly set (will be auto-generated at runtime)
+	if cfg.Listeners[0].TLS.HasCert() {
+		t.Error("TLS.HasCert() should be false - cert not specified, will be auto-generated")
+	}
+}
+
+func TestListenerConfig_PartialTLSConfig(t *testing.T) {
+	// Test that partial TLS config (cert without key) fails
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+listeners:
+  - transport: ws
+    address: "127.0.0.1:8080"
+    path: "/mesh"
+    tls:
+      cert: "cert.pem"
+`
+
 	_, err := Parse([]byte(yamlConfig))
 	if err == nil {
-		t.Error("Parse() should fail for ws without plaintext or TLS")
+		t.Error("Parse() should fail for partial TLS config (cert without key)")
 	}
-	if !strings.Contains(err.Error(), "tls certificate and key are required") {
-		t.Errorf("Error = %v, want to contain 'tls certificate and key are required'", err)
+	if !strings.Contains(err.Error(), "tls certificate and key must both be specified") {
+		t.Errorf("Error = %v, want to contain 'tls certificate and key must both be specified'", err)
 	}
 }
 

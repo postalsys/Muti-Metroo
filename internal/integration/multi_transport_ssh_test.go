@@ -111,9 +111,7 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				ID:        "auto",
 				Transport: "quic",
 				Address:   c.Addresses[1],
-				TLS: config.TLSConfig{
-					InsecureSkipVerify: true,
-				},
+				TLS: config.TLSConfig{},
 			},
 		}
 		cfg.SOCKS5.Enabled = true
@@ -125,9 +123,8 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				Transport: "quic",
 				Address:   c.Addresses[1],
 				TLS: config.TLSConfig{
-					Cert:               c.TLSCerts[1].CertFile,
-					Key:                c.TLSCerts[1].KeyFile,
-					InsecureSkipVerify: true,
+					Cert: c.TLSCerts[1].CertFile,
+					Key:  c.TLSCerts[1].KeyFile,
 				},
 			},
 		}
@@ -137,9 +134,7 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				Transport: "h2",
 				Address:   c.Addresses[2],
 				Path:      "/mesh",
-				TLS: config.TLSConfig{
-					InsecureSkipVerify: true,
-				},
+				TLS: config.TLSConfig{},
 			},
 		}
 
@@ -150,9 +145,8 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				Address:   c.Addresses[2],
 				Path:      "/mesh",
 				TLS: config.TLSConfig{
-					Cert:               c.TLSCerts[2].CertFile,
-					Key:                c.TLSCerts[2].KeyFile,
-					InsecureSkipVerify: true,
+					Cert: c.TLSCerts[2].CertFile,
+					Key:  c.TLSCerts[2].KeyFile,
 				},
 			},
 		}
@@ -162,9 +156,7 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				Transport: "ws",
 				Address:   c.Addresses[3],
 				Path:      "/mesh",
-				TLS: config.TLSConfig{
-					InsecureSkipVerify: true,
-				},
+				TLS: config.TLSConfig{},
 			},
 		}
 		// Agent C has 0.0.0.0/0 route (catch-all)
@@ -178,9 +170,8 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				Address:   c.Addresses[3],
 				Path:      "/mesh",
 				TLS: config.TLSConfig{
-					Cert:               c.TLSCerts[3].CertFile,
-					Key:                c.TLSCerts[3].KeyFile,
-					InsecureSkipVerify: true,
+					Cert: c.TLSCerts[3].CertFile,
+					Key:  c.TLSCerts[3].KeyFile,
 				},
 			},
 		}

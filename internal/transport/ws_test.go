@@ -414,8 +414,7 @@ func TestWebSocketTransport_PlainText_Listen(t *testing.T) {
 
 	wsURL := "ws://" + addr + "/mesh"
 	clientConn, err := transport.Dial(ctx, wsURL, DialOptions{
-		InsecureSkipVerify: true, // Still needed to build HTTP client
-		Timeout:            5 * time.Second,
+		Timeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("Dial() error = %v", err)
@@ -505,8 +504,7 @@ func TestWebSocketTransport_PlainText_StreamBidirectional(t *testing.T) {
 
 	wsURL := "ws://" + addr + "/mesh"
 	clientConn, err := transport.Dial(ctx, wsURL, DialOptions{
-		InsecureSkipVerify: true,
-		Timeout:            5 * time.Second,
+		Timeout: 5 * time.Second,
 	})
 	if err != nil {
 		t.Fatalf("Dial() error = %v", err)

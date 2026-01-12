@@ -49,9 +49,8 @@ func TestPeerReconnection(t *testing.T) {
 			Transport: "quic",
 			Address:   addrB,
 			TLS: config.TLSConfig{
-				Cert:               certFileB,
-				Key:                keyFileB,
-				InsecureSkipVerify: true,
+				Cert: certFileB,
+				Key:  keyFileB,
 			},
 		},
 	}
@@ -76,9 +75,7 @@ func TestPeerReconnection(t *testing.T) {
 			ID:        "auto",
 			Transport: "quic",
 			Address:   addrB,
-			TLS: config.TLSConfig{
-				InsecureSkipVerify: true,
-			},
+			TLS: config.TLSConfig{},
 		},
 	}
 
@@ -174,9 +171,7 @@ func TestPeerReconnection_MaxRetries(t *testing.T) {
 			ID:        "auto",
 			Transport: "quic",
 			Address:   "127.0.0.1:39999", // Non-existent
-			TLS: config.TLSConfig{
-				InsecureSkipVerify: true,
-			},
+			TLS: config.TLSConfig{},
 		},
 	}
 
@@ -238,9 +233,8 @@ func TestPeerReconnection_RouteWithdrawal(t *testing.T) {
 			Transport: "quic",
 			Address:   addrB,
 			TLS: config.TLSConfig{
-				Cert:               certFileB,
-				Key:                keyFileB,
-				InsecureSkipVerify: true,
+				Cert: certFileB,
+				Key:  keyFileB,
 			},
 		},
 	}
@@ -260,9 +254,7 @@ func TestPeerReconnection_RouteWithdrawal(t *testing.T) {
 			ID:        "auto",
 			Transport: "quic",
 			Address:   addrB,
-			TLS: config.TLSConfig{
-				InsecureSkipVerify: true,
-			},
+			TLS: config.TLSConfig{},
 		},
 	}
 
@@ -355,9 +347,8 @@ func TestPeerReconnection_MultiHop(t *testing.T) {
 				Transport: "quic",
 				Address:   addrs[i],
 				TLS: config.TLSConfig{
-					Cert:               certFiles[i],
-					Key:                keyFiles[i],
-					InsecureSkipVerify: true,
+					Cert: certFiles[i],
+					Key:  keyFiles[i],
 				},
 			},
 		}
@@ -369,9 +360,7 @@ func TestPeerReconnection_MultiHop(t *testing.T) {
 					ID:        "auto",
 					Transport: "quic",
 					Address:   addrs[i+1],
-					TLS: config.TLSConfig{
-						InsecureSkipVerify: true,
-					},
+					TLS: config.TLSConfig{},
 				},
 			}
 		}
@@ -430,9 +419,8 @@ func TestPeerReconnection_MultiHop(t *testing.T) {
 			Transport: "quic",
 			Address:   addrs[1],
 			TLS: config.TLSConfig{
-				Cert:               certFiles[1],
-				Key:                keyFiles[1],
-				InsecureSkipVerify: true,
+				Cert: certFiles[1],
+				Key:  keyFiles[1],
 			},
 		},
 	}
@@ -441,7 +429,7 @@ func TestPeerReconnection_MultiHop(t *testing.T) {
 			ID:        "auto",
 			Transport: "quic",
 			Address:   addrs[2],
-			TLS:       config.TLSConfig{InsecureSkipVerify: true},
+			TLS:       config.TLSConfig{},
 		},
 	}
 	cfg.Connections.Reconnect.InitialDelay = 100 * time.Millisecond

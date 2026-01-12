@@ -284,7 +284,7 @@ func TestBuildConfig(t *testing.T) {
 					ID:        "peer1",
 					Transport: "quic",
 					Address:   "peer1.example.com:4433",
-					TLS:       config.TLSConfig{InsecureSkipVerify: true},
+					TLS:       config.TLSConfig{},
 				},
 				{
 					ID:        "peer2",
@@ -306,9 +306,6 @@ func TestBuildConfig(t *testing.T) {
 				}
 				if cfg.Peers[0].Address != "peer1.example.com:4433" {
 					t.Errorf("Peers[0].Address = %q, want %q", cfg.Peers[0].Address, "peer1.example.com:4433")
-				}
-				if !cfg.Peers[0].TLS.InsecureSkipVerify {
-					t.Error("Peers[0].TLS.InsecureSkipVerify = false, want true")
 				}
 				if cfg.Peers[1].Path != "/mesh" {
 					t.Errorf("Peers[1].Path = %q, want %q", cfg.Peers[1].Path, "/mesh")
@@ -502,7 +499,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 			peer: config.PeerConfig{
 				Transport: "quic",
 				Address:   "127.0.0.1:59999", // Non-existent port
-				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+				TLS:       config.TLSConfig{},
 			},
 			expectError:   true,
 			errorContains: "", // Can be timeout or refused
@@ -512,7 +509,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 			peer: config.PeerConfig{
 				Transport: "quic",
 				Address:   "invalid-host-that-does-not-exist.local:4433",
-				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+				TLS:       config.TLSConfig{},
 			},
 			expectError:   true,
 			errorContains: "", // DNS or connection error
@@ -523,7 +520,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 				Transport: "h2",
 				Address:   "127.0.0.1:59999",
 				Path:      "", // Should default to /mesh
-				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+				TLS:       config.TLSConfig{},
 			},
 			expectError:   true,
 			errorContains: "", // Connection error expected
@@ -534,7 +531,7 @@ func TestTestPeerConnectivity(t *testing.T) {
 				Transport: "ws",
 				Address:   "127.0.0.1:59999",
 				Path:      "", // Should default to /mesh
-				TLS:       config.TLSConfig{InsecureSkipVerify: true},
+				TLS:       config.TLSConfig{},
 			},
 			expectError:   true,
 			errorContains: "", // Connection error expected

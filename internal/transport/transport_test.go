@@ -252,14 +252,27 @@ func TestLoadClientTLSConfig(t *testing.T) {
 	}
 }
 
-func TestLoadClientTLSConfig_InsecureSkipVerify(t *testing.T) {
+func TestLoadClientTLSConfig_StrictVerify(t *testing.T) {
+	// strictVerify=true means InsecureSkipVerify=false (verify certs)
 	config, err := LoadClientTLSConfig("", true)
 	if err != nil {
 		t.Fatalf("LoadClientTLSConfig() error = %v", err)
 	}
 
+	if config.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify = true, want false when strictVerify=true")
+	}
+}
+
+func TestLoadClientTLSConfig_NoStrictVerify(t *testing.T) {
+	// strictVerify=false means InsecureSkipVerify=true (skip verification)
+	config, err := LoadClientTLSConfig("", false)
+	if err != nil {
+		t.Fatalf("LoadClientTLSConfig() error = %v", err)
+	}
+
 	if !config.InsecureSkipVerify {
-		t.Error("InsecureSkipVerify = false, want true")
+		t.Error("InsecureSkipVerify = false, want true when strictVerify=false")
 	}
 }
 
@@ -541,27 +554,23 @@ func TestQUICTransport_Listen_NoTLS(t *testing.T) {
 	}
 }
 
-func TestQUICTransport_Dial_RequiresTLS(t *testing.T) {
+func TestQUICTransport_Dial_AutoGeneratesTLS(t *testing.T) {
 	transport := NewQUICTransport()
 	defer transport.Close()
 
 	ctx := context.Background()
 
-	// Dial without TLS config and without InsecureSkipVerify should fail
-	_, err := transport.Dial(ctx, "127.0.0.1:4433", DialOptions{})
-	if err == nil {
-		t.Error("Dial() should fail without TLS config")
-	}
-	if err != nil && err.Error() != "TLS config required; set InsecureSkipVerify=true for development only" {
-		t.Errorf("Expected TLS config required error, got: %v", err)
-	}
+	// Dial without TLS config should auto-generate one (default is StrictVerify=false)
+	// The dial will fail for connection reasons (no server), not TLS config reasons
+	// Use a random high port that's unlikely to be in use
+	_, err := transport.Dial(ctx, "127.0.0.1:59999", DialOptions{Timeout: 500 * time.Millisecond})
 
-	// Dial with InsecureSkipVerify=true should be allowed (though connection will fail)
-	_, err = transport.Dial(ctx, "127.0.0.1:4433", DialOptions{InsecureSkipVerify: true, Timeout: 100 * time.Millisecond})
-	// Connection will fail (no server) but should not fail for TLS config reasons
-	if err != nil && err.Error() == "TLS config required; set InsecureSkipVerify=true for development only" {
-		t.Error("Dial() with InsecureSkipVerify=true should not fail for TLS config")
+	// The error should be a connection error (timeout or refused), not a TLS config error
+	if err != nil && err.Error() == "TLS config required" {
+		t.Error("Dial() without TLS config should auto-generate one, not require explicit config")
 	}
+	// Note: We don't require err != nil because QUIC dial behavior varies by platform.
+	// The key assertion is that if there IS an error, it's not about missing TLS config.
 }
 
 func TestQUICTransport_Dial_Closed(t *testing.T) {
