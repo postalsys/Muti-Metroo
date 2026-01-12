@@ -45,6 +45,7 @@ flowchart LR
 | **Multi-Hop Routing** | Automatic route propagation - traffic flows through chains, trees, or full mesh topologies |
 | **SOCKS5 Proxy** | TCP CONNECT and UDP ASSOCIATE with optional authentication |
 | **CIDR and Domain Routes** | Route by IP range or domain pattern with DNS resolution at the exit node |
+| **Port Forwarding** | Expose local services through reverse tunnels - serve tools or receive callbacks from anywhere in the mesh |
 | **File Transfer** | Upload/download files and directories to any agent in the mesh |
 | **Remote Shell** | Execute commands on remote agents with interactive PTY support |
 | **TUN Interface** | Transparent L3 routing with [Mutiauk](/mutiauk) - no per-app configuration |
@@ -124,7 +125,7 @@ The wizard guides you through configuring your first agent, generating TLS certi
 | [Getting Started](/getting-started/overview)      | Installation, setup, and your first mesh          |
 | [Core Concepts](/concepts/architecture)           | Architecture, roles, transports, and routing      |
 | [Configuration](/configuration/overview)          | Complete configuration reference                  |
-| [Features](/features/socks5-proxy)                | SOCKS5, exit routing, file transfer, remote shell |
+| [Features](/features/socks5-proxy)                | SOCKS5, exit routing, port forwarding, file transfer, shell |
 | [Deployment](/deployment/scenarios)               | Docker, Kubernetes, and production deployment     |
 | [Security](/security/overview)                    | TLS, authentication, and best practices           |
 | [CLI Reference](/cli/overview)                    | Command-line interface documentation              |
