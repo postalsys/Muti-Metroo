@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.1.0...muti-metroo-v2.2.0) (2026-01-12)
+
+
+### Features
+
+* **examples:** add Docker tryout 4-agent example ([83d9637](https://github.com/postalsys/Muti-Metroo/commit/83d9637090f6cd5f447b21eef2cc77141f9d294d))
+* **tls:** make certificate verification optional by default ([8552e07](https://github.com/postalsys/Muti-Metroo/commit/8552e072fa6aac059fd9bad5d5035141166e7929))
+* **tls:** remove certificate pinning and simplify wizard ([3ac9831](https://github.com/postalsys/Muti-Metroo/commit/3ac983139e4fb0850a05e393c86e5c18ed7320e4))
+
 ## [2.1.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.0.1...muti-metroo-v2.1.0) (2026-01-11)
 
 
