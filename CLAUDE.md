@@ -142,11 +142,11 @@ Linux and Windows binaries are compressed with UPX for smaller size.
 
 ## User Manual (PDF)
 
-A standalone PDF user manual is maintained in `operator-manual/` for offline distribution.
+A standalone PDF user manual is maintained in `user-manual/` for offline distribution.
 
-**Location**: `operator-manual/`
-**Output**: `operator-manual/build/muti-metroo-user-manual.pdf`
-**Build instructions**: `operator-manual/BUILD.md`
+**Location**: `user-manual/`
+**Output**: `user-manual/build/muti-metroo-user-manual.pdf`
+**Build instructions**: `user-manual/BUILD.md`
 
 **Content scope**: Practical usage - installation, configuration, features, deployment, and Mutiauk TUN interface.
 **NOT included**: Protocol internals, frame formats, code architecture (these belong in Architecture.md).
@@ -154,7 +154,7 @@ A standalone PDF user manual is maintained in `operator-manual/` for offline dis
 **Building locally**:
 
 ```bash
-cd operator-manual
+cd user-manual
 npm install        # Install mermaid-cli for diagram processing
 make pdf           # Build PDF (requires Pandoc + XeLaTeX)
 make html          # Build HTML preview

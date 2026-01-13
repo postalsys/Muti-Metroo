@@ -1,8 +1,8 @@
 {
-  "name": "muti-metroo-operator-manual",
+  "name": "muti-metroo-user-manual",
   "version": "1.0.0",
   "private": true,
-  "description": "Muti Metroo Operator Manual - PDF generation from Markdown",
+  "description": "Muti Metroo User Manual - PDF generation from Markdown",
   "scripts": {
     "build": "make pdf",
     "build:html": "make html",

@@ -48,7 +48,7 @@ sudo apt-get install -y nodejs
 ## Building
 
 ```bash
-cd operator-manual
+cd user-manual
 
 # Install Node dependencies (first time only)
 npm install

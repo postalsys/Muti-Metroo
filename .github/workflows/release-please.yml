@@ -129,11 +129,11 @@ jobs:
           sudo apt-get install -y texlive-xetex texlive-fonts-recommended texlive-fonts-extra
 
       - name: Install npm dependencies
-        working-directory: operator-manual
+        working-directory: user-manual
         run: npm install
 
       - name: Build PDF
-        working-directory: operator-manual
+        working-directory: user-manual
         run: |
           VERSION=${{ needs.release-please.outputs.tag_name }}
           VERSION=${VERSION#v}
@@ -145,7 +145,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ needs.release-please.outputs.tag_name }}" \
-            operator-manual/build/muti-metroo-user-manual.pdf \
+            user-manual/build/muti-metroo-user-manual.pdf \
             --clobber
 
   checksums:
