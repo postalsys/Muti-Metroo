@@ -11,22 +11,6 @@ const sidebars: SidebarsConfig = {
     'mutiauk',
     {
       type: 'category',
-      label: 'Red Team Operations',
-      items: [
-        'red-team/overview',
-        'red-team/opsec-configuration',
-        'red-team/transport-selection',
-        'red-team/c2-capabilities',
-        'red-team/management-keys',
-        'red-team/example-configurations',
-        'red-team/persistence',
-        'red-team/detection-avoidance',
-        'red-team/operational-procedures',
-        'red-team/ligolo-comparison',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Getting Started',
       collapsed: false,
       items: [

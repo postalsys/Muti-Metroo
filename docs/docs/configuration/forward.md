@@ -65,10 +65,10 @@ forward:
 
 ### Routing Key Guidelines
 
-- Use descriptive but not obvious names (avoid "c2", "shell", "hack")
+- Use descriptive names that reflect the service purpose
 - Keys are case-sensitive
 - Must be unique within the mesh (duplicate keys cause routing conflicts)
-- Examples: `"toolserver"`, `"dev-api"`, `"backup-sync"`
+- Examples: `"config-server"`, `"dev-api"`, `"backup-sync"`
 
 ## Listeners
 
@@ -110,45 +110,45 @@ curl -X POST http://localhost:8080/routes/advertise
 
 ## Examples
 
-### Tool Distribution Server
+### Configuration Distribution Server
 
-Serve tools from your machine to field agents:
+Serve configuration files from headquarters to remote sites:
 
 ```yaml
-# Operator machine - runs HTTP server on port 8000
+# Central server - runs HTTP server on port 8000
 forward:
   endpoints:
-    - key: "op-tools"
+    - key: "config-server"
       target: "localhost:8000"
 ```
 
 ```yaml
-# Field agents - accept connections on port 8080
+# Remote site agents - accept connections on port 8080
 forward:
   listeners:
-    - key: "op-tools"
+    - key: "config-server"
       address: "127.0.0.1:8080"
       max_connections: 50
 ```
 
-### C2 Callback Receiver
+### Internal API Access
 
-Receive reverse shells through the mesh:
+Make internal services accessible from remote offices:
 
 ```yaml
-# Operator machine - netcat listener on 4444
+# Headquarters - API server on port 3000
 forward:
   endpoints:
-    - key: "callback"
-      target: "localhost:4444"
+    - key: "internal-api"
+      target: "localhost:3000"
 ```
 
 ```yaml
-# Perimeter agent - exposed on standard port
+# Branch office agents - expose API locally
 forward:
   listeners:
-    - key: "callback"
-      address: "0.0.0.0:443"
+    - key: "internal-api"
+      address: "127.0.0.1:3000"
 ```
 
 ### Multiple Services
@@ -205,9 +205,9 @@ curl http://localhost:8080/healthz | jq '.forward_routes'
 
 ## Security Considerations
 
-- **Use unique keys**: Predictable keys could be guessed by adversaries
+- **Use unique keys**: Predictable keys could be guessed by unauthorized users
 - **Bind to localhost**: Use `127.0.0.1` when external network access isn't needed
-- **Set connection limits**: Prevent resource exhaustion attacks
+- **Set connection limits**: Prevent resource exhaustion
 - **Firewall integration**: Allow listener ports through host firewall only where needed
 
 ## Related

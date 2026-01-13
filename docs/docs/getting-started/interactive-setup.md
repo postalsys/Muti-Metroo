@@ -98,13 +98,13 @@ If exit role is selected:
 
 ### 11. Management Key Encryption
 
-OPSEC protection for red team operations:
+Topology privacy for sensitive environments:
 
-- **Skip**: No encryption (not recommended for red team ops)
+- **Skip**: No encryption (suitable for trusted networks)
 - **Generate new**: Create a new management keypair
 - **Enter existing**: Use an existing public key
 
-When enabled, mesh topology data is encrypted so compromised agents cannot reveal the network structure.
+When enabled, mesh topology data is encrypted so only management nodes can view the network structure.
 
 ### 12. Configuration Delivery
 
@@ -273,14 +273,14 @@ Files are transferred via the control channel.
 Enable file transfer? (requires authentication) [y/N]: n
 
 --------------------------------------------------------------------------------
-Management Key Encryption (OPSEC Protection)
+Management Key Encryption (Topology Privacy)
 --------------------------------------------------------------------------------
-Encrypt mesh topology data so only operators can view it.
-Compromised agents will only see encrypted blobs.
+Encrypt mesh topology data so only management nodes can view it.
+Remote agents will only see encrypted blobs.
 
-This is recommended for red team operations.
+This is recommended for multi-tenant or sensitive environments.
 
-> 1. Skip (not recommended for red team ops)
+> 1. Skip (suitable for trusted networks)
   2. Generate new management keypair
   3. Enter existing public key
 

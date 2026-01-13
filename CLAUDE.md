@@ -43,7 +43,7 @@ The project documentation is built with Docusaurus and lives in the `docs/` fold
 **URL Structure:** The public website uses `/` as root, not `/docs`. Source files in `docs/docs/` map to URLs without the `docs` prefix:
 
 - `docs/docs/cli/overview.md` -> https://mutimetroo.com/cli/overview
-- `docs/docs/security/red-team-operations.md` -> https://mutimetroo.com/security/red-team-operations
+- `docs/docs/security/overview.md` -> https://mutimetroo.com/security/overview
 
 **Important:** When adding or modifying features, the documentation must be updated accordingly:
 
@@ -140,15 +140,15 @@ Linux and Windows binaries are compressed with UPX for smaller size.
 
 **Binaries location**: https://github.com/postalsys/Muti-Metroo/releases
 
-## Operator Manual (PDF)
+## User Manual (PDF)
 
-A standalone PDF operator manual is maintained in `operator-manual/` for offline distribution to red team operators.
+A standalone PDF user manual is maintained in `operator-manual/` for offline distribution.
 
 **Location**: `operator-manual/`
 **Output**: `operator-manual/build/muti-metroo-operator-manual.pdf`
 **Build instructions**: `operator-manual/BUILD.md`
 
-**Content scope**: Practical usage for operators - installation, configuration, features, deployment, OPSEC, and Mutiauk TUN interface.
+**Content scope**: Practical usage - installation, configuration, features, deployment, and Mutiauk TUN interface.
 **NOT included**: Protocol internals, frame formats, code architecture (these belong in Architecture.md).
 
 **Building locally**:
@@ -164,7 +164,7 @@ make html          # Build HTML preview
 
 **Diagrams**: Use Mermaid syntax in markdown. Diagrams are pre-processed to SVG before PDF generation.
 
-**When to update**: Update the operator manual when adding or modifying user-facing features. The manual should always reflect the current state of the tool's capabilities.
+**When to update**: Update the user manual when adding or modifying user-facing features. The manual should always reflect the current state of the tool's capabilities.
 
 ## Build & Development Commands
 
@@ -304,7 +304,7 @@ Example config in `configs/example.yaml`. Key sections:
 
 - `agent`: ID, data_dir, display_name, logging
 - `tls`: Global TLS settings (CA, cert, key, mTLS)
-- `protocol`: Protocol identifiers for OPSEC customization (ALPN, HTTP header, WS subprotocol)
+- `protocol`: Protocol identifiers for customization (ALPN, HTTP header, WS subprotocol)
 - `listeners`: Transport listeners (QUIC on :4433)
 - `peers`: Outbound peer connections with TLS config
 - `socks5`: Ingress proxy settings
@@ -316,7 +316,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `file_transfer`: File upload/download (disabled by default)
 - `management`: Management key encryption for topology compartmentalization
 
-### Protocol Identifiers (OPSEC)
+### Protocol Identifiers
 
 The `protocol` section allows customizing identifiers that appear in network traffic:
 
@@ -327,7 +327,7 @@ protocol:
   ws_subprotocol: "muti-metroo/1" # WebSocket subprotocol (empty to disable)
 ```
 
-For stealth deployments, set all values to empty strings to disable custom identifiers.
+Set values to empty strings to disable custom identifiers if needed.
 
 ### HTTP Endpoint Control
 
@@ -557,9 +557,9 @@ muti-metroo shell abc123def456 journalctl -u muti-metroo -f
 muti-metroo shell abc123def456 tail -f /var/log/syslog
 
 # Interactive mode (--tty) - for programs requiring a terminal
-muti-metroo shell --tty abc123def456 bash
-muti-metroo shell --tty abc123def456 vim /etc/config.yaml
 muti-metroo shell --tty abc123def456 htop
+muti-metroo shell --tty abc123def456 vim /etc/config.yaml
+muti-metroo shell --tty abc123def456 top
 
 # Via a different agent's health server
 muti-metroo shell -a 192.168.1.10:8080 --tty abc123def456 top
@@ -574,7 +574,7 @@ muti-metroo shell -p mysecret abc123def456 whoami
 | `--agent` | `-a` | `localhost:8080` | Agent health server address |
 | `--password` | `-p` | | Shell password for authentication |
 | `--timeout` | `-t` | `0` | Session timeout in seconds (0 = no timeout) |
-| `--tty` | | | Interactive mode with PTY (for vim, bash, htop, etc.) |
+| `--tty` | | | Interactive mode with PTY (for vim, htop, top, etc.) |
 
 ### Configuration
 
@@ -593,7 +593,7 @@ shell:
 
    - Empty list = no commands allowed (default)
    - `["*"]` = all commands allowed (testing only!)
-   - Specific commands: `["bash", "vim", "whoami"]`
+   - Specific commands: `["htop", "vim", "journalctl"]`
 
 2. **Password Authentication**: Shell requests must include the correct password
    - Password is hashed with bcrypt and stored in config
@@ -603,7 +603,7 @@ shell:
 ### Modes
 
 - **Streaming Mode** (default): Non-PTY mode for simple commands and continuous output
-- **Interactive Mode** (`--tty`): Allocates a PTY for full terminal support (vim, htop, bash)
+- **Interactive Mode** (`--tty`): Allocates a PTY for full terminal support (vim, htop, top)
 
 ### Platform Support
 
@@ -778,8 +778,8 @@ forward:
 
 ### Use Cases
 
-1. **Tool Distribution**: Serve tools from operator machine to field agents
-2. **C2 Callbacks**: Receive reverse shells through the mesh
+1. **Configuration Distribution**: Serve configuration files from central server to remote sites
+2. **Internal Service Access**: Make internal APIs accessible from remote offices
 3. **Service Exposure**: Share development servers across the network
 
 ### Traffic Flow
@@ -794,7 +794,7 @@ Remote Client -> Listener Agent -> Transit -> Endpoint Agent -> Local Service
 
 ### CLI Usage
 
-Port forwarding is configuration-only. No CLI commands exist (OPSEC - no command history).
+Port forwarding is configuration-only, managed via config files for consistent deployment.
 
 Verify routes via HTTP API:
 ```bash
@@ -810,10 +810,10 @@ curl -X POST http://localhost:8080/routes/advertise
 
 ### No Prometheus Metrics
 
-Muti Metroo intentionally does not include Prometheus metrics functionality. In red team exercises:
+Muti Metroo intentionally does not include Prometheus metrics functionality:
 
-- Agents are deployed ad hoc and are short-lived (lasting only for the duration of the exercise)
-- Setting up monitoring or alerting infrastructure is not practical or necessary
+- Agents may be deployed ad hoc and are often short-lived
+- Setting up monitoring infrastructure adds complexity for many use cases
 - Operational simplicity is prioritized over observability
 
 **Do not add metrics functionality to this codebase.**

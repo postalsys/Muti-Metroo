@@ -169,12 +169,12 @@ The XOR obfuscation prevents casual inspection of the config but is **not crypto
 
 ## Use Cases
 
-### Red Team Operations
+### IoT and Edge Devices
 
-Single-file deployment is ideal for red team scenarios:
-- Drop a single executable on target
-- No config files to manage or accidentally expose
-- Custom service name for blending in
+Single-file deployment is ideal for resource-constrained devices:
+- Deploy a single executable to edge nodes
+- No config files to manage on limited storage
+- Pre-configured for immediate operation
 - Easy to update config without redeploying binary
 
 ### Air-Gapped Environments
@@ -188,7 +188,7 @@ For environments without network access during deployment:
 
 For distributing pre-configured agents:
 - Build once with embedded config
-- Distribute single file to operators
+- Distribute single file to remote sites
 - No separate config file management
 
 ## Backup Configuration

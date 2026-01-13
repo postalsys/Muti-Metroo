@@ -49,7 +49,7 @@ Guides you through 13 steps:
 8. Advanced options (log level, HTTP API)
 9. Remote shell access (disabled by default)
 10. File transfer (disabled by default)
-11. Management key encryption (OPSEC protection)
+11. Management key encryption (topology privacy)
 12. Configuration delivery (save to file or embed in binary)
 13. Service installation (if root/admin)
 

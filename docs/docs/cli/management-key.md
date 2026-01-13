@@ -5,9 +5,9 @@ sidebar_position: 10
 
 # management-key
 
-Hide your mesh topology from field agents. Generate encryption keys that let operators see which systems are in the mesh while field agents only see opaque IDs.
+Protect your mesh topology from remote agents. Generate encryption keys that let management nodes see which systems are in the mesh while remote agents only see opaque IDs.
 
-**What this protects:** If a field agent is compromised, the attacker learns nothing about your infrastructure - no hostnames, no IP addresses, no OS details. They see only random-looking agent IDs.
+**What this protects:** In multi-tenant or sensitive environments, remote agents only see encrypted topology data - no hostnames, no IP addresses, no OS details. They see only random-looking agent IDs.
 
 **Quick setup:**
 ```bash
@@ -15,7 +15,7 @@ Hide your mesh topology from field agents. Generate encryption keys that let ope
 muti-metroo management-key generate
 
 # Add public key to ALL agents (they can encrypt but not decrypt)
-# Add private key ONLY to operator nodes (they can see topology)
+# Add private key ONLY to management nodes (they can see topology)
 ```
 
 ## Subcommands
@@ -35,16 +35,16 @@ muti-metroo management-key generate
 Public Key (add to ALL agent configs):
   a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
 
-Private Key (add ONLY to operator configs - KEEP SECRET!):
+Private Key (add ONLY to management node configs - KEEP SECRET!):
   e5f6a7b8c9d012345678901234567890123456789012345678901234567890ef
 
 Configuration snippets:
 
-For ALL agents (field agents and operators):
+For ALL agents (remote agents and management nodes):
   management:
     public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
 
-For OPERATOR nodes only (add private key):
+For MANAGEMENT nodes only (add private key):
   management:
     public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
     private_key: "e5f6a7b8c9d012345678901234567890123456789012345678901234567890ef"
@@ -75,7 +75,7 @@ Public Key: a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
 
 ### Initial Setup
 
-1. **Generate keypair** on a secure operator machine:
+1. **Generate keypair** on a management machine:
    ```bash
    muti-metroo management-key generate
    ```
@@ -84,17 +84,17 @@ Public Key: a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
 
 3. **Distribute public key** to all agents via config
 
-4. **Add private key** only to operator nodes that need topology visibility
+4. **Add private key** only to management nodes that need topology visibility
 
 ### Configuration
 
-**Field agents** (encrypt only - cannot view topology):
+**Remote agents** (encrypt only - cannot view topology):
 ```yaml
 management:
   public_key: "a1b2c3d4..."
 ```
 
-**Operator nodes** (can encrypt and decrypt):
+**Management nodes** (can encrypt and decrypt):
 ```yaml
 management:
   public_key: "a1b2c3d4..."
@@ -105,8 +105,8 @@ management:
 
 | Role | Has Public Key | Has Private Key | Can View Topology |
 |------|---------------|-----------------|-------------------|
-| Field Agent | Yes | No | No |
-| Operator | Yes | Yes | Yes |
+| Remote Agent | Yes | No | No |
+| Management Node | Yes | Yes | Yes |
 
 ### What Gets Protected
 
@@ -117,5 +117,4 @@ Without the private key, agents see only opaque 128-bit agent IDs instead of mea
 
 ## Related
 
-- [Management Keys](/red-team/management-keys)
 - [Configuration Overview](/configuration/overview)

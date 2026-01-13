@@ -98,7 +98,7 @@ tls:
   key: "./certs/agent.key"      # Private key
   mtls: false                   # Enable mutual TLS
 
-# Protocol identifiers (OPSEC customization)
+# Protocol identifiers (customization)
 protocol:
   alpn: "muti-metroo/1"         # ALPN for QUIC/TLS (empty to disable)
   http_header: "X-Muti-Metroo-Protocol"  # HTTP header (empty to disable)
@@ -184,10 +184,10 @@ file_transfer:
   allowed_paths: []
   password_hash: ""
 
-# Management key encryption (for red team ops)
+# Management key encryption (topology privacy)
 management:
-  public_key: ""             # 64-char hex, add to ALL agents
-  private_key: ""            # 64-char hex, ONLY on operators
+  public_key: ""             # 64-char hex, add to all agents
+  private_key: ""            # 64-char hex, only on management nodes
 ```
 
 ## Environment Variables

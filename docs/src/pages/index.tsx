@@ -85,14 +85,12 @@ function UseCases(): ReactNode {
           </div>
           <div className="col col--3">
             <div className={styles.useCase}>
-              <Heading as="h3">Red Team Operations</Heading>
+              <Heading as="h3">IoT and Edge Networking</Heading>
               <p>
-                Purpose-built for authorized security assessments. OPSEC-hardened
-                with configurable protocol identifiers and topology encryption.
+                Connect distributed IoT devices and edge nodes through a
+                lightweight mesh. Single binary with no dependencies runs
+                anywhere - from Raspberry Pi to cloud VMs.
               </p>
-              <Link to="/red-team/overview" className={styles.useCaseLink}>
-                Learn more
-              </Link>
             </div>
           </div>
         </div>
