@@ -8,7 +8,6 @@ import (
 
 	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
-	"golang.org/x/net/icmp"
 )
 
 // SessionState represents the state of an ICMP session.
@@ -55,7 +54,7 @@ type Session struct {
 	LastActivity time.Time
 
 	// ICMP socket (only on exit node)
-	Conn *icmp.PacketConn
+	Socket *Socket
 
 	// Encryption
 	SessionKey *crypto.SessionKey
@@ -150,11 +149,11 @@ func (s *Session) Close() error {
 	s.cancel()
 
 	// Close ICMP socket if present
-	if s.Conn != nil {
-		if err := s.Conn.Close(); err != nil {
+	if s.Socket != nil {
+		if err := s.Socket.Close(); err != nil {
 			return err
 		}
-		s.Conn = nil
+		s.Socket = nil
 	}
 
 	// Clear session key reference
@@ -163,20 +162,20 @@ func (s *Session) Close() error {
 	return nil
 }
 
-// SetConn sets the ICMP connection for this session (exit node).
-func (s *Session) SetConn(conn *icmp.PacketConn) {
+// SetSocket sets the ICMP socket for this session (exit node).
+func (s *Session) SetSocket(sock *Socket) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.Conn = conn
+	s.Socket = sock
 }
 
-// GetConn returns the ICMP connection.
-func (s *Session) GetConn() *icmp.PacketConn {
+// GetSocket returns the ICMP socket.
+func (s *Session) GetSocket() *Socket {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.Conn
+	return s.Socket
 }
 
 // SetSessionKey sets the E2E encryption session key.

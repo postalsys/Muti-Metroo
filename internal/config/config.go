@@ -514,7 +514,7 @@ type UDPConfig struct {
 }
 
 // ICMPConfig configures ICMP echo (ping) support for exit nodes.
-// When enabled, agents can send ICMP echo requests to any destination.
+// When enabled, agents can send ICMP echo requests to allowed destinations.
 type ICMPConfig struct {
 	// Enabled controls whether ICMP echo is available on this exit node.
 	Enabled bool `yaml:"enabled"`
@@ -527,6 +527,11 @@ type ICMPConfig struct {
 
 	// EchoTimeout is the timeout for each individual ICMP echo request.
 	EchoTimeout time.Duration `yaml:"echo_timeout"`
+
+	// AllowedCIDRs restricts which destination IPs can be pinged.
+	// Empty list means all destinations are allowed.
+	// Example: ["0.0.0.0/0", "::/0"] allows all, ["10.0.0.0/8"] allows only 10.x.x.x
+	AllowedCIDRs []string `yaml:"allowed_cidrs"`
 }
 
 // ForwardConfig configures TCP port forwarding.

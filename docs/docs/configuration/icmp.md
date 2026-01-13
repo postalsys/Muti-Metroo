@@ -12,6 +12,7 @@ Configure ICMP echo (ping) support on exit agents. When enabled, agents can forw
 ICMP support allows you to ping remote hosts through the mesh network. The feature:
 
 - Uses **unprivileged ICMP sockets** (no root required on most systems)
+- Supports **IPv4 and IPv6** addresses
 - Supports **E2E encryption** for all traffic through the mesh
 - Works with the `muti-metroo ping` CLI command
 
@@ -19,10 +20,12 @@ ICMP support allows you to ping remote hosts through the mesh network. The featu
 
 ```yaml
 icmp:
-  enabled: true            # Enable ICMP echo forwarding (default: true)
-  max_sessions: 100        # Concurrent session limit (0 = unlimited)
-  idle_timeout: 60s        # Session cleanup timeout
-  echo_timeout: 10s        # Per-echo request timeout
+  enabled: true              # Enable ICMP echo forwarding (default: true)
+  max_sessions: 100          # Concurrent session limit (0 = unlimited)
+  idle_timeout: 60s          # Session cleanup timeout
+  echo_timeout: 10s          # Per-echo request timeout
+  allowed_cidrs: []          # Destination CIDR whitelist (empty = all allowed)
+  max_concurrent_replies: 0  # Concurrent reply goroutines (0 = unlimited)
 ```
 
 ### enabled
@@ -65,6 +68,42 @@ Timeout for individual ICMP echo requests.
 
 This is the server-side timeout. The CLI also has its own timeout (`-t` flag) which may be shorter.
 
+### allowed_cidrs
+
+Restrict which destination IPs can be pinged. Accepts a list of CIDR ranges.
+
+| Type | Default |
+|------|---------|
+| []string | `[]` (all allowed) |
+
+When empty, all destinations are allowed. When specified, only destinations matching at least one CIDR will be accepted.
+
+```yaml
+icmp:
+  allowed_cidrs:
+    - "8.8.8.0/24"          # Google DNS range
+    - "1.1.1.0/24"          # Cloudflare DNS range
+    - "192.168.0.0/16"      # Private network
+    - "2001:4860::/32"      # Google IPv6 range
+```
+
+Destinations not in any allowed CIDR will be rejected with "destination not allowed".
+
+### max_concurrent_replies
+
+Limits concurrent goroutines waiting for ICMP replies.
+
+| Type | Default |
+|------|---------|
+| int | `0` (unlimited) |
+
+Each echo request spawns a goroutine to wait for the reply. Under high load, this can consume resources. Set a limit to prevent goroutine exhaustion.
+
+```yaml
+icmp:
+  max_concurrent_replies: 50  # Max 50 concurrent reply waiters
+```
+
 ## Example Configurations
 
 ### Default (Enabled)
@@ -86,6 +125,20 @@ icmp:
   enabled: true
   max_sessions: 500
   idle_timeout: 30s
+  max_concurrent_replies: 100
+```
+
+### Restricted Destinations
+
+Only allow pinging specific networks:
+
+```yaml
+icmp:
+  enabled: true
+  allowed_cidrs:
+    - "10.0.0.0/8"           # Internal network
+    - "172.16.0.0/12"        # Internal network
+    - "192.168.0.0/16"       # Internal network
 ```
 
 ### Disabled
@@ -96,6 +149,23 @@ To disable ICMP echo forwarding:
 icmp:
   enabled: false
 ```
+
+## IPv6 Support
+
+ICMP supports both IPv4 and IPv6 addresses. The agent automatically detects the IP version and uses the appropriate socket type:
+
+- **IPv4**: Uses ICMPv4 (protocol 1) with Echo Request/Reply types 8/0
+- **IPv6**: Uses ICMPv6 (protocol 58) with Echo Request/Reply types 128/129
+
+```bash
+# IPv4 ping
+muti-metroo ping 8.8.8.8
+
+# IPv6 ping
+muti-metroo ping 2001:4860:4860::8888
+```
+
+For IPv6 to work, ensure the destination is reachable via IPv6 from the exit agent.
 
 ## Linux System Requirements
 
@@ -118,7 +188,9 @@ Without this setting, ICMP will fail with permission errors.
 
 1. **E2E encryption**: All ICMP data is encrypted through the mesh
 2. **Session limits**: Use `max_sessions` to prevent resource exhaustion
-3. **No domain resolution**: Only IP addresses are accepted (no DNS)
+3. **CIDR restrictions**: Use `allowed_cidrs` to limit pingable destinations
+4. **Goroutine limits**: Use `max_concurrent_replies` to prevent goroutine exhaustion
+5. **No domain resolution**: Only IP addresses are accepted (no DNS)
 
 ## Usage
 
@@ -130,6 +202,9 @@ muti-metroo ping 8.8.8.8
 
 # Continuous ping
 muti-metroo ping -c 0 192.168.1.1
+
+# IPv6 ping
+muti-metroo ping 2001:4860:4860::8888
 ```
 
 See [ping CLI command](/cli/ping) for full usage details.

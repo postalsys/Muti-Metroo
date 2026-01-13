@@ -2,11 +2,12 @@ package agent
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/health"
@@ -69,8 +70,16 @@ var icmpRelayByDownstream = make(map[uint64]*icmpRelayEntry)
 var icmpIngressMu sync.RWMutex
 var icmpIngressByStream = make(map[uint64]*icmpIngressAssociation)
 
-// icmpNextRequestID is the next request ID for ICMP sessions
-var icmpNextRequestID atomic.Uint64
+// generateICMPRequestID generates a cryptographically random request ID.
+// Using crypto/rand prevents session correlation attacks.
+func generateICMPRequestID() uint64 {
+	var buf [8]byte
+	if _, err := cryptorand.Read(buf[:]); err != nil {
+		// Fallback should never happen, but use time-based ID if it does
+		panic("crypto/rand failed: " + err.Error())
+	}
+	return binary.BigEndian.Uint64(buf[:])
+}
 
 // handleICMPOpen processes an ICMP_OPEN frame.
 func (a *Agent) handleICMPOpen(peerID identity.AgentID, frame *protocol.Frame) {
@@ -620,7 +629,7 @@ func (a *Agent) CreateICMPSession(ctx context.Context, destIP net.IP) (uint64, e
 	}
 
 	streamID := conn.NextStreamID()
-	requestID := icmpNextRequestID.Add(1)
+	requestID := generateICMPRequestID()
 
 	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
 	if err != nil {
@@ -863,7 +872,7 @@ func (a *Agent) OpenICMPSession(ctx context.Context, targetID identity.AgentID, 
 	}
 
 	streamID := conn.NextStreamID()
-	requestID := icmpNextRequestID.Add(1)
+	requestID := generateICMPRequestID()
 
 	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
 	if err != nil {

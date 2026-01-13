@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -42,6 +43,9 @@ type Handler struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// Semaphore for limiting concurrent reply goroutines
+	replySem chan struct{}
 }
 
 // NewHandler creates a new ICMP handler.
@@ -56,6 +60,11 @@ func NewHandler(cfg Config, writer DataWriter, logger *slog.Logger) *Handler {
 		logger:      logger.With(slog.String("component", "icmp")),
 		ctx:         ctx,
 		cancel:      cancel,
+	}
+
+	// Initialize reply semaphore if limit is configured
+	if cfg.MaxConcurrentReplies > 0 {
+		h.replySem = make(chan struct{}, cfg.MaxConcurrentReplies)
 	}
 
 	// Start cleanup goroutine if timeout is configured
@@ -94,6 +103,16 @@ func (h *Handler) HandleICMPOpen(
 		return fmt.Errorf("ICMP echo is disabled")
 	}
 
+	// Check destination against allowed CIDRs
+	if !h.isDestinationAllowed(destIP) {
+		h.writer.WriteICMPOpenErr(peerID, streamID, &protocol.ICMPOpenErr{
+			RequestID: open.RequestID,
+			ErrorCode: protocol.ErrICMPDestNotAllowed,
+			Message:   "ICMP destination not allowed",
+		})
+		return fmt.Errorf("destination %s not in allowed CIDRs", destIP)
+	}
+
 	// Check session limit
 	h.mu.RLock()
 	count := len(h.sessions)
@@ -111,8 +130,8 @@ func (h *Handler) HandleICMPOpen(
 	// Create session
 	session := NewSession(streamID, open.RequestID, peerID, destIP)
 
-	// Create ICMP socket
-	conn, err := NewICMPSocket()
+	// Create ICMP socket for the appropriate IP version
+	sock, err := NewSocket(destIP)
 	if err != nil {
 		h.writer.WriteICMPOpenErr(peerID, streamID, &protocol.ICMPOpenErr{
 			RequestID: open.RequestID,
@@ -122,7 +141,7 @@ func (h *Handler) HandleICMPOpen(
 		return fmt.Errorf("create ICMP socket: %w", err)
 	}
 
-	session.SetConn(conn)
+	session.SetSocket(sock)
 
 	// Perform E2E key exchange if remote provided an ephemeral key
 	var ephPub [protocol.EphemeralKeySize]byte
@@ -131,7 +150,7 @@ func (h *Handler) HandleICMPOpen(
 
 	if hasEncryption {
 		var keyExchangeErr error
-		ephPub, keyExchangeErr = h.performKeyExchange(session, open, remoteEphemeralPub, conn)
+		ephPub, keyExchangeErr = h.performKeyExchange(session, open, remoteEphemeralPub, sock)
 		if keyExchangeErr != nil {
 			return keyExchangeErr
 		}
@@ -243,13 +262,13 @@ func (h *Handler) HandleICMPEcho(peerID identity.AgentID, streamID uint64, echo 
 		return fmt.Errorf("decrypt: %w", err)
 	}
 
-	conn := session.GetConn()
-	if conn == nil {
-		return fmt.Errorf("ICMP connection closed")
+	sock := session.GetSocket()
+	if sock == nil {
+		return fmt.Errorf("ICMP socket closed")
 	}
 
 	// Send echo request
-	if err := SendEchoRequest(conn, session.DestIP, echo.Identifier, echo.Sequence, plaintext); err != nil {
+	if err := sock.SendEchoRequest(session.DestIP, echo.Identifier, echo.Sequence, plaintext); err != nil {
 		return fmt.Errorf("send echo: %w", err)
 	}
 
@@ -267,12 +286,23 @@ func (h *Handler) HandleICMPEcho(peerID identity.AgentID, streamID uint64, echo 
 
 // waitForReply waits for an ICMP echo reply and sends it back through the mesh.
 func (h *Handler) waitForReply(session *Session, identifier, sequence uint16, timeout time.Duration) {
-	conn := session.GetConn()
-	if conn == nil {
+	// Acquire semaphore if configured
+	if h.replySem != nil {
+		select {
+		case h.replySem <- struct{}{}:
+			// Acquired, release when done
+			defer func() { <-h.replySem }()
+		case <-h.ctx.Done():
+			return
+		}
+	}
+
+	sock := session.GetSocket()
+	if sock == nil {
 		return
 	}
 
-	reply, err := ReadEchoReplyFiltered(conn, identifier, timeout)
+	reply, err := sock.ReadEchoReplyFiltered(identifier, timeout)
 	if err != nil {
 		// Timeout or error, don't send anything
 		h.logger.Debug("ICMP reply timeout or error",
@@ -418,4 +448,22 @@ func (h *Handler) cleanupExpired() {
 			h.removeSession(streamID)
 		}
 	}
+}
+
+// isDestinationAllowed checks if the destination IP is in the allowed CIDRs.
+// If AllowedCIDRs is empty, all destinations are allowed.
+func (h *Handler) isDestinationAllowed(destIP net.IP) bool {
+	// Empty list means all destinations are allowed
+	if len(h.config.AllowedCIDRs) == 0 {
+		return true
+	}
+
+	// Check if destination matches any allowed CIDR
+	for _, cidr := range h.config.AllowedCIDRs {
+		if cidr.Contains(destIP) {
+			return true
+		}
+	}
+
+	return false
 }

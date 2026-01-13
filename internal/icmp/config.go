@@ -1,6 +1,7 @@
 package icmp
 
 import (
+	"net"
 	"time"
 )
 
@@ -21,6 +22,14 @@ type Config struct {
 	// EchoTimeout is the timeout for each individual ICMP echo.
 	// Default is 5 seconds.
 	EchoTimeout time.Duration
+
+	// AllowedCIDRs restricts which destination IPs can be pinged.
+	// Empty list means all destinations are allowed.
+	AllowedCIDRs []*net.IPNet
+
+	// MaxConcurrentReplies limits concurrent reply-waiting goroutines.
+	// 0 means unlimited (default).
+	MaxConcurrentReplies int
 }
 
 // DefaultConfig returns a Config with sensible defaults.

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -87,8 +89,15 @@ var udpIngressByExitStream = make(map[uint64]*udpDestLookup)
 // udpNextBaseID is the next base stream ID for SOCKS5 UDP associations
 var udpNextBaseID atomic.Uint64
 
-// udpNextRequestID is the next request ID for UDP associations
-var udpNextRequestID atomic.Uint64
+// generateUDPRequestID generates a cryptographically random request ID.
+// Using crypto/rand prevents session correlation attacks.
+func generateUDPRequestID() uint64 {
+	var buf [8]byte
+	if _, err := cryptorand.Read(buf[:]); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	return binary.BigEndian.Uint64(buf[:])
+}
 
 // UDP relay tracking (for transit nodes)
 var udpRelayMu sync.RWMutex
@@ -226,7 +235,7 @@ func (a *Agent) createDestAssociation(
 	}
 
 	streamID := conn.NextStreamID()
-	requestID := udpNextRequestID.Add(1)
+	requestID := generateUDPRequestID()
 
 	ephPriv, ephPub, err := crypto.GenerateEphemeralKeypair()
 	if err != nil {
