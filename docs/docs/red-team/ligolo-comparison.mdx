@@ -18,7 +18,7 @@ This guide provides a detailed comparison between Muti Metroo and [Ligolo-ng](ht
 | **Traffic Handling** | SOCKS5 proxy (+ optional TUN via [Mutiauk](/mutiauk)) | TUN interface on proxy |
 | **Multi-hop** | Native multi-hop routing | Manual chaining required |
 | **E2E Encryption** | Yes (X25519 + ChaCha20-Poly1305) | TLS transport only |
-| **Protocol Support** | TCP, UDP (via SOCKS5 UDP ASSOCIATE) | TCP, UDP, ICMP echo |
+| **Protocol Support** | TCP, UDP, ICMP echo | TCP, UDP, ICMP echo |
 | **Transport Options** | QUIC, HTTP/2, WebSocket | TCP/TLS only |
 | **Root Required** | No ([Mutiauk](/mutiauk) requires root if used) | Yes (on proxy for TUN) |
 | **C2 Features** | Shell, file transfer, web dashboard | Basic tunnel management |
@@ -101,7 +101,7 @@ Traffic flows through the mesh following advertised routes. Any agent can serve 
 |---------|-------------|-----------|
 | TCP tunneling | Yes (SOCKS5 CONNECT) | Yes (native TUN) |
 | UDP tunneling | Yes (SOCKS5 UDP ASSOCIATE) | Yes (native TUN) |
-| ICMP support | No | Yes (echo only) |
+| ICMP support | Yes (echo via [ping](/cli/ping)) | Yes (echo only) |
 | Application config | SOCKS5 proxy settings | None (transparent TUN) |
 | Transparent mode | Via [Mutiauk](/mutiauk) (Linux only) | Native |
 
@@ -401,7 +401,6 @@ tls:
 
 - You need the simplest possible setup for basic pivoting
 - Your scenario is single-hop only
-- You need native ICMP support (ping)
 - You want transparent routing without SOCKS5 configuration
 - You prefer TUN-based traffic handling over proxy configuration
 - You are already familiar with the tool and have established workflows

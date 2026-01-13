@@ -32,6 +32,13 @@ const (
 	FrameUDPOpenErr  uint8 = 0x32 // Association failed
 	FrameUDPDatagram uint8 = 0x33 // UDP datagram payload
 	FrameUDPClose    uint8 = 0x34 // Close association
+
+	// ICMP frames (for ICMP echo/ping through mesh)
+	FrameICMPOpen    uint8 = 0x40 // Request ICMP echo session
+	FrameICMPOpenAck uint8 = 0x41 // Session established
+	FrameICMPOpenErr uint8 = 0x42 // Session failed
+	FrameICMPEcho    uint8 = 0x43 // Echo request/reply data
+	FrameICMPClose   uint8 = 0x44 // Close session
 )
 
 // Control request types
@@ -93,6 +100,9 @@ const (
 	ErrUDPDisabled        uint16 = 30 // UDP relay is disabled
 	ErrUDPPortNotAllowed  uint16 = 31 // UDP port not in whitelist
 	ErrForwardNotFound    uint16 = 40 // Port forward routing key not configured
+	ErrICMPDisabled       uint16 = 50 // ICMP echo is disabled
+	ErrICMPDestNotAllowed uint16 = 51 // ICMP destination not in allowed CIDRs
+	ErrICMPSessionLimit   uint16 = 52 // Maximum ICMP sessions reached
 )
 
 // Protocol constants
@@ -144,6 +154,19 @@ const (
 	ForwardStreamPrefix = "forward:"
 )
 
+// ICMP stream addresses (used with AddrTypeDomain)
+const (
+	// ICMPEchoSession is the domain address for ICMP echo sessions
+	ICMPEchoSession = "icmp:echo"
+)
+
+// ICMP close reasons
+const (
+	ICMPCloseNormal  uint8 = 0 // Normal close
+	ICMPCloseTimeout uint8 = 1 // Idle timeout
+	ICMPCloseError   uint8 = 2 // Error occurred
+)
+
 // FrameTypeName returns a human-readable name for a frame type.
 func FrameTypeName(t uint8) string {
 	switch t {
@@ -187,6 +210,16 @@ func FrameTypeName(t uint8) string {
 		return "UDP_DATAGRAM"
 	case FrameUDPClose:
 		return "UDP_CLOSE"
+	case FrameICMPOpen:
+		return "ICMP_OPEN"
+	case FrameICMPOpenAck:
+		return "ICMP_OPEN_ACK"
+	case FrameICMPOpenErr:
+		return "ICMP_OPEN_ERR"
+	case FrameICMPEcho:
+		return "ICMP_ECHO"
+	case FrameICMPClose:
+		return "ICMP_CLOSE"
 	default:
 		return "UNKNOWN"
 	}
@@ -247,6 +280,12 @@ func ErrorCodeName(code uint16) string {
 		return "UDP_PORT_NOT_ALLOWED"
 	case ErrForwardNotFound:
 		return "FORWARD_NOT_FOUND"
+	case ErrICMPDisabled:
+		return "ICMP_DISABLED"
+	case ErrICMPDestNotAllowed:
+		return "ICMP_DEST_NOT_ALLOWED"
+	case ErrICMPSessionLimit:
+		return "ICMP_SESSION_LIMIT"
 	default:
 		return "UNKNOWN"
 	}
@@ -270,4 +309,9 @@ func IsControlFrame(t uint8) bool {
 // IsUDPFrame returns true if the frame type is a UDP-related frame.
 func IsUDPFrame(t uint8) bool {
 	return t >= FrameUDPOpen && t <= FrameUDPClose
+}
+
+// IsICMPFrame returns true if the frame type is an ICMP-related frame.
+func IsICMPFrame(t uint8) bool {
+	return t >= FrameICMPOpen && t <= FrameICMPClose
 }

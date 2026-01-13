@@ -508,8 +508,11 @@ Mutiauk operates as a userspace network stack:
 
 - **Linux only**: Uses Linux TUN interface (no macOS/Windows support)
 - **IPv4 only**: IPv6 support planned for future releases
-- **No ICMP**: ICMP traffic (ping) is not forwarded
 - **Requires root**: TUN interface creation requires elevated privileges
+
+:::tip ICMP Support
+Mutiauk supports ICMP echo (ping) forwarding through the Muti Metroo mesh. ICMP echo requests are intercepted and forwarded using a custom SOCKS5 extension. The exit agent must have ICMP enabled - see [ICMP Configuration](/configuration/icmp).
+:::
 
 ## Troubleshooting
 

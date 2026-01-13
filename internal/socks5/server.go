@@ -167,6 +167,12 @@ func (s *Server) SetUDPHandler(handler UDPAssociationHandler) {
 	}
 }
 
+// SetICMPHandler sets the ICMP echo handler.
+// This enables SOCKS5 ICMP ECHO support (custom command 0x04).
+func (s *Server) SetICMPHandler(handler ICMPHandler) {
+	s.handler.SetICMPHandler(handler)
+}
+
 // acceptLoop accepts new connections.
 func (s *Server) acceptLoop() {
 	defer s.wg.Done()

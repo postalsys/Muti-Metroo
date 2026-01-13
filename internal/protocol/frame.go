@@ -1629,6 +1629,206 @@ func DecodeUDPClose(buf []byte) (*UDPClose, error) {
 }
 
 // ============================================================================
+// ICMP frames (for ICMP echo/ping through mesh)
+// ============================================================================
+
+// ICMPOpen is the payload for ICMP_OPEN frames.
+// Requests an ICMP echo session through the mesh network.
+type ICMPOpen struct {
+	RequestID       uint64                 // Stable across hops for correlation
+	DestIP          []byte                 // Destination IP (4 bytes for IPv4)
+	TTL             uint8                  // Hop limit
+	RemainingPath   []identity.AgentID     // Route to exit agent
+	EphemeralPubKey [EphemeralKeySize]byte // Initiator's ephemeral public key for E2E encryption
+}
+
+// Encode serializes ICMPOpen to bytes.
+func (i *ICMPOpen) Encode() []byte {
+	// Format: RequestID(8) + DestIPLen(1) + DestIP + TTL(1) + PathLen(1) + Path + EphemeralPubKey(32)
+	w := newBufferWriter(8 + 1 + len(i.DestIP) + 1 + 1 + len(i.RemainingPath)*16 + EphemeralKeySize)
+	w.writeUint64(i.RequestID)
+	w.writeUint8(uint8(len(i.DestIP)))
+	w.writeBytes(i.DestIP)
+	w.writeUint8(i.TTL)
+	w.writeAgentIDs(i.RemainingPath)
+	w.writeBytes(i.EphemeralPubKey[:])
+
+	return w.bytes()
+}
+
+// DecodeICMPOpen deserializes ICMPOpen from bytes.
+func DecodeICMPOpen(buf []byte) (*ICMPOpen, error) {
+	if len(buf) < 11+EphemeralKeySize { // 8 + 1 + 1 + 1 + 32 minimum (empty IP, no path)
+		return nil, fmt.Errorf("%w: ICMPOpen too short", ErrInvalidFrame)
+	}
+
+	r := newBufferReader(buf, "ICMPOpen")
+	i := &ICMPOpen{
+		RequestID: r.readUint64(),
+	}
+
+	destIPLen := int(r.readUint8())
+	i.DestIP = r.readBytes(destIPLen)
+	i.TTL = r.readUint8()
+	i.RemainingPath = r.readAgentIDs()
+	i.EphemeralPubKey = r.readEphemeralKey()
+
+	if r.err != nil {
+		return nil, r.err
+	}
+	return i, nil
+}
+
+// GetDestinationIP returns the destination IP as net.IP.
+func (i *ICMPOpen) GetDestinationIP() net.IP {
+	return net.IP(i.DestIP)
+}
+
+// ICMPOpenAck is the payload for ICMP_OPEN_ACK frames.
+// Confirms the ICMP echo session is established.
+type ICMPOpenAck struct {
+	RequestID       uint64                 // Correlation ID
+	EphemeralPubKey [EphemeralKeySize]byte // Responder's ephemeral public key for E2E encryption
+}
+
+// Encode serializes ICMPOpenAck to bytes.
+func (i *ICMPOpenAck) Encode() []byte {
+	w := newBufferWriter(8 + EphemeralKeySize)
+	w.writeUint64(i.RequestID)
+	w.writeBytes(i.EphemeralPubKey[:])
+
+	return w.bytes()
+}
+
+// DecodeICMPOpenAck deserializes ICMPOpenAck from bytes.
+func DecodeICMPOpenAck(buf []byte) (*ICMPOpenAck, error) {
+	if len(buf) < 8+EphemeralKeySize {
+		return nil, fmt.Errorf("%w: ICMPOpenAck too short", ErrInvalidFrame)
+	}
+
+	r := newBufferReader(buf, "ICMPOpenAck")
+	i := &ICMPOpenAck{
+		RequestID:       r.readUint64(),
+		EphemeralPubKey: r.readEphemeralKey(),
+	}
+
+	if r.err != nil {
+		return nil, r.err
+	}
+	return i, nil
+}
+
+// ICMPOpenErr is the payload for ICMP_OPEN_ERR frames.
+// Indicates failure to establish the ICMP echo session.
+type ICMPOpenErr struct {
+	RequestID uint64 // Correlation ID
+	ErrorCode uint16 // Error code (ErrICMPDisabled, etc.)
+	Message   string // Human-readable error message
+}
+
+// Encode serializes ICMPOpenErr to bytes.
+func (i *ICMPOpenErr) Encode() []byte {
+	msg := i.Message
+	if len(msg) > 255 {
+		msg = msg[:255]
+	}
+
+	w := newBufferWriter(8 + 2 + 1 + len(msg))
+	w.writeUint64(i.RequestID)
+	w.writeUint16(i.ErrorCode)
+	w.writeString(msg)
+
+	return w.bytes()
+}
+
+// DecodeICMPOpenErr deserializes ICMPOpenErr from bytes.
+func DecodeICMPOpenErr(buf []byte) (*ICMPOpenErr, error) {
+	if len(buf) < 11 { // 8 + 2 + 1
+		return nil, fmt.Errorf("%w: ICMPOpenErr too short", ErrInvalidFrame)
+	}
+
+	r := newBufferReader(buf, "ICMPOpenErr")
+	i := &ICMPOpenErr{
+		RequestID: r.readUint64(),
+		ErrorCode: r.readUint16(),
+		Message:   r.readString(),
+	}
+
+	if r.err != nil {
+		return nil, r.err
+	}
+	return i, nil
+}
+
+// ICMPEcho is the payload for ICMP_ECHO frames.
+// Carries ICMP echo request/reply data through the mesh.
+type ICMPEcho struct {
+	Identifier uint16 // Original ICMP identifier
+	Sequence   uint16 // ICMP sequence number
+	IsReply    bool   // false = echo request, true = echo reply
+	Data       []byte // Echo payload (encrypted with E2E session key)
+}
+
+// MaxICMPEchoDataSize is the maximum ICMP echo payload size.
+const MaxICMPEchoDataSize = 1472
+
+// Encode serializes ICMPEcho to bytes.
+func (i *ICMPEcho) Encode() []byte {
+	// Format: Identifier(2) + Sequence(2) + IsReply(1) + DataLen(2) + Data
+	w := newBufferWriter(2 + 2 + 1 + 2 + len(i.Data))
+	w.writeUint16(i.Identifier)
+	w.writeUint16(i.Sequence)
+	w.writeBool(i.IsReply)
+	w.writeUint16(uint16(len(i.Data)))
+	w.writeBytes(i.Data)
+
+	return w.bytes()
+}
+
+// DecodeICMPEcho deserializes ICMPEcho from bytes.
+func DecodeICMPEcho(buf []byte) (*ICMPEcho, error) {
+	if len(buf) < 7 { // 2 + 2 + 1 + 2 minimum (empty data)
+		return nil, fmt.Errorf("%w: ICMPEcho too short", ErrInvalidFrame)
+	}
+
+	r := newBufferReader(buf, "ICMPEcho")
+	i := &ICMPEcho{
+		Identifier: r.readUint16(),
+		Sequence:   r.readUint16(),
+		IsReply:    r.readBool(),
+	}
+
+	dataLen := int(r.readUint16())
+	i.Data = r.readBytes(dataLen)
+
+	if r.err != nil {
+		return nil, r.err
+	}
+	return i, nil
+}
+
+// ICMPClose is the payload for ICMP_CLOSE frames.
+// Terminates an ICMP echo session.
+type ICMPClose struct {
+	Reason uint8 // Close reason code (ICMPCloseNormal, ICMPCloseTimeout, ICMPCloseError)
+}
+
+// Encode serializes ICMPClose to bytes.
+func (i *ICMPClose) Encode() []byte {
+	return []byte{i.Reason}
+}
+
+// DecodeICMPClose deserializes ICMPClose from bytes.
+func DecodeICMPClose(buf []byte) (*ICMPClose, error) {
+	if len(buf) < 1 {
+		return nil, fmt.Errorf("%w: ICMPClose too short", ErrInvalidFrame)
+	}
+	return &ICMPClose{
+		Reason: buf[0],
+	}, nil
+}
+
+// ============================================================================
 // Frame Reader/Writer
 // ============================================================================
 

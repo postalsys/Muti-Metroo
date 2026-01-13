@@ -22,6 +22,7 @@ const (
 	CmdConnect      = 0x01
 	CmdBind         = 0x02
 	CmdUDPAssociate = 0x03
+	CmdICMPEcho     = 0x04 // Custom command for ICMP echo
 )
 
 // Address types.
@@ -71,6 +72,11 @@ type Handler struct {
 	udpBindIP       net.IP // IP to bind UDP relay sockets (inherited from SOCKS5 listener)
 	udpAssocMu      sync.Mutex
 	udpAssociations map[uint64]*UDPAssociation
+
+	// ICMP support
+	icmpHandler      ICMPHandler
+	icmpAssocMu      sync.Mutex
+	icmpAssociations map[uint64]*ICMPAssociation
 }
 
 // Dialer interface for making outbound connections.
@@ -104,9 +110,10 @@ func NewHandler(auths []Authenticator, dialer Dialer) *Handler {
 		auths = []Authenticator{&NoAuthAuthenticator{}}
 	}
 	return &Handler{
-		authenticators:  auths,
-		dialer:          dialer,
-		udpAssociations: make(map[uint64]*UDPAssociation),
+		authenticators:   auths,
+		dialer:           dialer,
+		udpAssociations:  make(map[uint64]*UDPAssociation),
+		icmpAssociations: make(map[uint64]*ICMPAssociation),
 	}
 }
 
@@ -120,6 +127,12 @@ func (h *Handler) SetUDPHandler(handler UDPAssociationHandler) {
 // This should match the SOCKS5 TCP listener's bind address.
 func (h *Handler) SetUDPBindIP(ip net.IP) {
 	h.udpBindIP = ip
+}
+
+// SetICMPHandler sets the ICMP echo handler.
+// This must be called before handling ICMP ECHO requests.
+func (h *Handler) SetICMPHandler(handler ICMPHandler) {
+	h.icmpHandler = handler
 }
 
 // Handle processes a SOCKS5 connection.
@@ -142,6 +155,8 @@ func (h *Handler) Handle(conn net.Conn) error {
 		return h.handleConnect(conn, req)
 	case CmdUDPAssociate:
 		return h.handleUDPAssociate(conn, req)
+	case CmdICMPEcho:
+		return h.handleICMPEcho(conn, req)
 	default:
 		h.sendReply(conn, ReplyCmdNotSupported, nil, 0)
 		return fmt.Errorf("unsupported command: %d", req.Command)
@@ -321,6 +336,74 @@ func (h *Handler) handleUDPAssociate(conn net.Conn, req *Request) error {
 
 	assoc.Close()
 	return nil
+}
+
+// handleICMPEcho handles ICMP ECHO commands (custom command 0x04).
+// Creates an ICMP session through the mesh for ping operations.
+func (h *Handler) handleICMPEcho(conn net.Conn, req *Request) error {
+	// Check if ICMP is enabled
+	if h.icmpHandler == nil || !h.icmpHandler.IsICMPEnabled() {
+		h.sendReply(conn, ReplyCmdNotSupported, nil, 0)
+		return ErrICMPDisabled
+	}
+
+	// The destination must be an IP address for ICMP
+	if req.DestIP == nil || req.DestIP.IsUnspecified() {
+		h.sendReply(conn, ReplyAddrNotSupported, nil, 0)
+		return fmt.Errorf("ICMP requires IP address destination")
+	}
+
+	// Create ICMP association
+	assoc, err := NewICMPAssociation(conn, h.icmpHandler, req.DestIP)
+	if err != nil {
+		h.sendReply(conn, ReplyServerFailure, nil, 0)
+		return fmt.Errorf("create ICMP association: %w", err)
+	}
+
+	// Create association in mesh (get stream ID and perform key exchange)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	streamID, err := h.icmpHandler.CreateICMPSession(ctx, req.DestIP)
+	if err != nil {
+		assoc.Close()
+		h.sendReply(conn, ReplyServerFailure, nil, 0)
+		return fmt.Errorf("create mesh ICMP session: %w", err)
+	}
+	assoc.SetStreamID(streamID)
+
+	// Link the SOCKS5 association to the ingress stream for responses
+	h.icmpHandler.SetSOCKS5ICMPAssociation(streamID, assoc)
+
+	// Track the association
+	h.icmpAssocMu.Lock()
+	h.icmpAssociations[streamID] = assoc
+	h.icmpAssocMu.Unlock()
+
+	// Send success reply
+	h.sendReply(conn, ReplySucceeded, nil, 0)
+
+	// Clear deadlines
+	conn.SetDeadline(time.Time{})
+
+	// Start ICMP echo relay loop
+	// Reads echo requests from client, forwards through mesh
+	err = assoc.RelayLoop()
+
+	// Clean up
+	h.icmpAssocMu.Lock()
+	delete(h.icmpAssociations, streamID)
+	h.icmpAssocMu.Unlock()
+
+	assoc.Close()
+	return err
+}
+
+// GetICMPAssociation returns an ICMP association by stream ID.
+func (h *Handler) GetICMPAssociation(streamID uint64) *ICMPAssociation {
+	h.icmpAssocMu.Lock()
+	defer h.icmpAssocMu.Unlock()
+	return h.icmpAssociations[streamID]
 }
 
 // GetUDPAssociation returns a UDP association by stream ID.

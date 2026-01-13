@@ -38,6 +38,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/transport"
 	"github.com/postalsys/muti-metroo/internal/forward"
+	"github.com/postalsys/muti-metroo/internal/icmp"
 	"github.com/postalsys/muti-metroo/internal/udp"
 )
 
@@ -118,6 +119,9 @@ type Agent struct {
 
 	// UDP relay (for exit nodes)
 	udpHandler *udp.Handler
+
+	// ICMP echo (for exit nodes)
+	icmpHandler *icmp.Handler
 
 	// Port forwarding
 	forwardHandler   *forward.Handler
@@ -347,6 +351,7 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetRouteAdvertiseTrigger(a) // Enable route advertisement trigger
 		a.healthServer.SetSealedBox(a.sealedBox)   // Enable management key decrypt checks
 		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
+		a.healthServer.SetICMPProvider(a)          // Enable ICMP ping via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -381,9 +386,30 @@ func (a *Agent) initComponents() error {
 		a.udpHandler = udp.NewHandler(udpCfg, a, a.logger)
 	}
 
+	// Initialize ICMP handler for exit nodes
+	if a.cfg.ICMP.Enabled {
+		cidrs, err := icmp.ParseCIDRs(a.cfg.ICMP.AllowedCIDRs)
+		if err != nil {
+			return fmt.Errorf("parse ICMP allowed CIDRs: %w", err)
+		}
+		icmpCfg := icmp.Config{
+			Enabled:      a.cfg.ICMP.Enabled,
+			AllowedCIDRs: cidrs,
+			MaxSessions:  a.cfg.ICMP.MaxSessions,
+			IdleTimeout:  a.cfg.ICMP.IdleTimeout,
+			EchoTimeout:  a.cfg.ICMP.EchoTimeout,
+		}
+		a.icmpHandler = icmp.NewHandler(icmpCfg, a, a.logger)
+	}
+
 	// Set UDP handler on SOCKS5 server (for ingress UDP ASSOCIATE)
 	if a.socks5Srv != nil {
 		a.socks5Srv.SetUDPHandler(a)
+	}
+
+	// Set ICMP handler on SOCKS5 server (for ingress ICMP ECHO)
+	if a.socks5Srv != nil && a.icmpHandler != nil {
+		a.socks5Srv.SetICMPHandler(a)
 	}
 
 	// Initialize forward exit handler if endpoints are configured
@@ -1206,6 +1232,17 @@ func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
 		a.handleUDPDatagram(peerID, frame)
 	case protocol.FrameUDPClose:
 		a.handleUDPClose(peerID, frame)
+	// ICMP frames
+	case protocol.FrameICMPOpen:
+		a.handleICMPOpen(peerID, frame)
+	case protocol.FrameICMPOpenAck:
+		a.handleICMPOpenAck(peerID, frame)
+	case protocol.FrameICMPOpenErr:
+		a.handleICMPOpenErr(peerID, frame)
+	case protocol.FrameICMPEcho:
+		a.handleICMPEcho(peerID, frame)
+	case protocol.FrameICMPClose:
+		a.handleICMPClose(peerID, frame)
 	}
 }
 

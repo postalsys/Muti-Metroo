@@ -417,6 +417,7 @@ type Server struct {
 	remoteProvider RemoteStatusProvider
 	routeTrigger   RouteAdvertiseTrigger
 	shellProvider  ShellProvider     // For shell WebSocket sessions
+	icmpProvider   ICMPProvider      // For ICMP WebSocket sessions
 	sealedBox      *crypto.SealedBox // For checking decrypt capability
 	server         *http.Server
 	listener       net.Listener
@@ -811,6 +812,9 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 			return
 		case parts[1] == "shell":
 			s.handleShellWebSocket(w, r, targetID)
+			return
+		case parts[1] == "icmp":
+			s.handleICMPWebSocket(w, r, targetID)
 			return
 		}
 	}

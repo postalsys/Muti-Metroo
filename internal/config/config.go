@@ -73,6 +73,7 @@ type Config struct {
 	FileTransfer FileTransferConfig `yaml:"file_transfer"`
 	Shell        ShellConfig        `yaml:"shell"`
 	UDP          UDPConfig          `yaml:"udp"`
+	ICMP         ICMPConfig         `yaml:"icmp"`
 	Forward      ForwardConfig      `yaml:"forward"`
 }
 
@@ -512,6 +513,27 @@ type UDPConfig struct {
 	MaxDatagramSize int `yaml:"max_datagram_size"`
 }
 
+// ICMPConfig configures ICMP echo (ping) support for exit nodes.
+// When enabled, agents can send ICMP echo requests to allowed destinations.
+type ICMPConfig struct {
+	// Enabled controls whether ICMP echo is available on this exit node.
+	Enabled bool `yaml:"enabled"`
+
+	// AllowedCIDRs is a list of CIDR ranges that can be pinged.
+	// Empty list = no destinations allowed (effectively disabled).
+	// Use ["0.0.0.0/0"] to allow all IPv4 destinations.
+	AllowedCIDRs []string `yaml:"allowed_cidrs"`
+
+	// MaxSessions limits concurrent ICMP sessions (0 = unlimited).
+	MaxSessions int `yaml:"max_sessions"`
+
+	// IdleTimeout is the timeout for inactive ICMP sessions.
+	IdleTimeout time.Duration `yaml:"idle_timeout"`
+
+	// EchoTimeout is the timeout for each individual ICMP echo request.
+	EchoTimeout time.Duration `yaml:"echo_timeout"`
+}
+
 // ForwardConfig configures TCP port forwarding.
 // This enables ngrok/localtunnel-style reverse port forwarding where local services
 // can be exposed through the mesh network using named routing keys.
@@ -629,6 +651,13 @@ func Default() *Config {
 			MaxAssociations: 1000,            // Default limit
 			IdleTimeout:     5 * time.Minute, // Same as connection idle threshold
 			MaxDatagramSize: 1472,            // MTU - IP/UDP headers
+		},
+		ICMP: ICMPConfig{
+			Enabled:      false,             // Disabled by default
+			AllowedCIDRs: []string{},        // Empty = no destinations allowed
+			MaxSessions:  100,               // Default limit
+			IdleTimeout:  60 * time.Second,  // Session idle timeout
+			EchoTimeout:  5 * time.Second,   // Per-echo timeout
 		},
 		Forward: ForwardConfig{
 			Endpoints: []ForwardEndpoint{},
@@ -776,6 +805,13 @@ func (c *Config) Validate() error {
 	for i, pattern := range c.Exit.DomainRoutes {
 		if err := isValidDomainPattern(pattern); err != nil {
 			errs = append(errs, fmt.Sprintf("exit.domain_routes[%d]: %v", i, err))
+		}
+	}
+
+	// Validate ICMP allowed CIDRs
+	for i, cidr := range c.ICMP.AllowedCIDRs {
+		if !isValidCIDR(cidr) {
+			errs = append(errs, fmt.Sprintf("icmp.allowed_cidrs[%d]: invalid CIDR: %s", i, cidr))
 		}
 	}
 

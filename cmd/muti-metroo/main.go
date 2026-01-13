@@ -31,6 +31,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/shell"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/wizard"
+	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
@@ -114,6 +115,10 @@ root privileges.`,
 	download := downloadCmd()
 	download.GroupID = "remote"
 	rootCmd.AddCommand(download)
+
+	pingC := pingCmd()
+	pingC.GroupID = "remote"
+	rootCmd.AddCommand(pingC)
 
 	// Administration commands
 	svc := serviceCmd()
@@ -2068,6 +2073,235 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 				humanize.Bytes(uint64(written)), localPath,
 				elapsed.Seconds(), humanize.Bytes(uint64(speed)))
 		}
+	}
+
+	return nil
+}
+
+func pingCmd() *cobra.Command {
+	var (
+		agentAddr   string
+		count       int
+		intervalStr string
+		timeoutStr  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "ping [flags] <target-agent-id> <destination>",
+		Short: "Send ICMP echo requests through a remote agent",
+		Long: `Send ICMP echo (ping) requests through a remote agent.
+
+The <target-agent-id> is the exit agent that sends the actual ICMP packets.
+The --agent flag specifies which gateway agent to connect through.
+
+The destination must be an IP address (domain names are not supported for ICMP).
+
+Note: The exit agent must have ICMP enabled in its configuration:
+  icmp:
+    enabled: true
+    allowed_cidrs:
+      - "0.0.0.0/0"
+
+Examples:
+  # Ping through a remote agent
+  muti-metroo ping abc123def456 8.8.8.8
+
+  # Via a different gateway
+  muti-metroo ping -a 192.168.1.10:8080 abc123def456 1.1.1.1
+
+  # Custom count and interval
+  muti-metroo ping -c 10 -i 500ms abc123def456 8.8.8.8
+
+  # Continuous ping
+  muti-metroo ping -c 0 abc123def456 8.8.8.8`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetID := args[0]
+			destination := args[1]
+
+			// Validate destination is an IP address
+			destIP := net.ParseIP(destination)
+			if destIP == nil {
+				return fmt.Errorf("destination must be a valid IP address: %s", destination)
+			}
+
+			// Parse interval
+			interval, err := time.ParseDuration(intervalStr)
+			if err != nil {
+				return fmt.Errorf("invalid interval: %w", err)
+			}
+
+			// Parse timeout
+			timeout, err := time.ParseDuration(timeoutStr)
+			if err != nil {
+				return fmt.Errorf("invalid timeout: %w", err)
+			}
+
+			// Resolve short agent ID prefix to full ID
+			resolvedID, err := resolveAgentID(targetID, agentAddr)
+			if err != nil {
+				return err
+			}
+
+			// Validate target agent ID
+			if _, err := identity.ParseAgentID(resolvedID); err != nil {
+				return fmt.Errorf("invalid agent ID '%s': %w", resolvedID, err)
+			}
+
+			// Run ping
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Handle interrupt signals
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+			go func() {
+				<-sigCh
+				cancel()
+			}()
+
+			return runPing(ctx, agentAddr, resolvedID, destIP, count, interval, timeout)
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Gateway agent API address")
+	cmd.Flags().IntVarP(&count, "count", "c", 4, "Number of echo requests to send (0 = infinite)")
+	cmd.Flags().StringVarP(&intervalStr, "interval", "i", "1s", "Interval between requests")
+	cmd.Flags().StringVarP(&timeoutStr, "timeout", "t", "5s", "Per-echo timeout")
+
+	return cmd
+}
+
+func runPing(ctx context.Context, agentAddr, targetID string, destIP net.IP, count int, interval, timeout time.Duration) error {
+	// Build WebSocket URL
+	wsURL := fmt.Sprintf("ws://%s/agents/%s/icmp", agentAddr, targetID)
+
+	// Connect to WebSocket
+	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return fmt.Errorf("failed to connect to ICMP endpoint: %s", string(body))
+		}
+		return fmt.Errorf("failed to connect to ICMP endpoint: %w", err)
+	}
+	defer conn.Close()
+
+	fmt.Printf("PING %s via %s\n", destIP, targetID[:12])
+
+	// Statistics
+	var sent, received int
+	var rttMin, rttMax, rttSum time.Duration
+
+	// Send initial request with destination
+	initMsg := map[string]interface{}{
+		"type":    "init",
+		"dest_ip": destIP.String(),
+	}
+	if err := conn.WriteJSON(initMsg); err != nil {
+		return fmt.Errorf("failed to send init message: %w", err)
+	}
+
+	// Read init response
+	var initResp struct {
+		Type    string `json:"type"`
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+	if err := conn.ReadJSON(&initResp); err != nil {
+		return fmt.Errorf("failed to read init response: %w", err)
+	}
+	if !initResp.Success {
+		return fmt.Errorf("ICMP session failed: %s", initResp.Error)
+	}
+
+	// Ping loop
+	seq := 1
+	for count == 0 || sent < count {
+		select {
+		case <-ctx.Done():
+			goto done
+		default:
+		}
+
+		// Send echo request
+		startTime := time.Now()
+		echoMsg := map[string]interface{}{
+			"type":     "echo",
+			"sequence": seq,
+			"payload":  fmt.Sprintf("muti-metroo ping seq=%d", seq),
+		}
+		if err := conn.WriteJSON(echoMsg); err != nil {
+			fmt.Printf("seq=%d: send failed: %v\n", seq, err)
+			sent++
+			seq++
+			time.Sleep(interval)
+			continue
+		}
+		sent++
+
+		// Set read deadline for timeout
+		conn.SetReadDeadline(time.Now().Add(timeout))
+
+		// Wait for reply
+		var reply struct {
+			Type     string `json:"type"`
+			Sequence int    `json:"sequence"`
+			RTTMS    float64 `json:"rtt_ms,omitempty"`
+			Error    string `json:"error,omitempty"`
+		}
+		if err := conn.ReadJSON(&reply); err != nil {
+			if ctx.Err() != nil {
+				goto done
+			}
+			fmt.Printf("seq=%d: timeout\n", seq)
+			seq++
+			time.Sleep(interval)
+			continue
+		}
+
+		if reply.Type == "error" {
+			fmt.Printf("seq=%d: error: %s\n", seq, reply.Error)
+		} else if reply.Type == "reply" {
+			rtt := time.Since(startTime)
+			received++
+			rttSum += rtt
+			if rttMin == 0 || rtt < rttMin {
+				rttMin = rtt
+			}
+			if rtt > rttMax {
+				rttMax = rtt
+			}
+			fmt.Printf("Reply from %s: seq=%d time=%.1fms\n", destIP, reply.Sequence, float64(rtt.Microseconds())/1000)
+		}
+
+		seq++
+
+		// Wait for interval before next ping
+		if count == 0 || sent < count {
+			select {
+			case <-ctx.Done():
+				goto done
+			case <-time.After(interval):
+			}
+		}
+	}
+
+done:
+	// Print statistics
+	fmt.Printf("\n--- %s ping statistics ---\n", destIP)
+	lossPercent := 0.0
+	if sent > 0 {
+		lossPercent = float64(sent-received) / float64(sent) * 100
+	}
+	fmt.Printf("%d packets transmitted, %d received, %.0f%% packet loss\n", sent, received, lossPercent)
+	if received > 0 {
+		avgRTT := rttSum / time.Duration(received)
+		fmt.Printf("rtt min/avg/max = %.1f/%.1f/%.1f ms\n",
+			float64(rttMin.Microseconds())/1000,
+			float64(avgRTT.Microseconds())/1000,
+			float64(rttMax.Microseconds())/1000)
 	}
 
 	return nil

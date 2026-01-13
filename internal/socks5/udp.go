@@ -17,6 +17,9 @@ var (
 
 	// ErrUDPDisabled is returned when UDP relay is disabled.
 	ErrUDPDisabled = errors.New("UDP relay is disabled")
+
+	// ErrICMPDisabled is returned when ICMP echo is disabled.
+	ErrICMPDisabled = errors.New("ICMP echo is disabled")
 )
 
 // UDPAssociationHandler is the interface for handling UDP associations.

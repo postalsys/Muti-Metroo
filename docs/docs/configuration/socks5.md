@@ -255,8 +255,8 @@ Muti Metroo supports:
 
 See [UDP Relay](/features/udp-relay) for UDP ASSOCIATE configuration and usage.
 
-:::note ICMP Not Supported
-SOCKS5 only supports TCP and UDP protocols. ICMP traffic (ping, traceroute) cannot be tunneled through SOCKS5 and will not work through Muti Metroo. Use TCP-based connectivity tests instead (e.g., `nc -zv`, `curl`).
+:::tip ICMP Support
+Muti Metroo supports ICMP echo (ping) through a custom SOCKS5 extension. ICMP is handled separately from the standard SOCKS5 proxy and requires configuration on the exit agent. See [ICMP Configuration](/configuration/icmp) and the [ping CLI command](/cli/ping) for details.
 :::
 
 ## Examples
