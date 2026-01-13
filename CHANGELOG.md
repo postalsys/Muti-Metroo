@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.4.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.3.0...muti-metroo-v2.4.0) (2026-01-13)
+
+
+### Features
+
+* add ICMP echo (ping) support ([bdd164b](https://github.com/postalsys/Muti-Metroo/commit/bdd164bf136df3590176599724c6fbd00a8fa927))
+* **icmp:** add IPv6 support, CIDR validation, and security improvements ([db86b52](https://github.com/postalsys/Muti-Metroo/commit/db86b52b90ef8788ffadf033b7e34cb6b9b51fae))
+
+
+### Bug Fixes
+
+* **chaos:** use sync.Once to prevent double-close panic in MockStream ([a1d7bcf](https://github.com/postalsys/Muti-Metroo/commit/a1d7bcf762b3269a537b3e5f1f307124037534b8))
+* **tests:** update tests for TLS and DNS configuration changes ([b7260c5](https://github.com/postalsys/Muti-Metroo/commit/b7260c51f5755819df1e0912c363bb8907ebe2ec))
+
 ## [2.3.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.2.0...muti-metroo-v2.3.0) (2026-01-12)
 
 
