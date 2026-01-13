@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.4.0...muti-metroo-v2.4.1) (2026-01-13)
+
+
+### Bug Fixes
+
+* trigger release for user manual rename ([bee727f](https://github.com/postalsys/Muti-Metroo/commit/bee727f11969b31c2765983e27080e27dac51376))
+
 ## [2.4.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.3.0...muti-metroo-v2.4.0) (2026-01-13)
 
 
