@@ -263,6 +263,7 @@ An agent can serve multiple roles simultaneously:
 | `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |
 | `forward`      | Port forwarding (reverse tunnel) - endpoints expose local services, listeners accept remote |
 | `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
+| `icmp`         | ICMP echo (ping) - exit handler, unprivileged sockets, session management with E2E encryption |
 | `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
 | `integration`  | Integration tests for multi-agent mesh scenarios                                            |
 | `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
@@ -314,6 +315,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `http`: HTTP API server with granular endpoint control (health, metrics, dashboard, remote APIs, CLI)
 - `shell`: Remote shell access (disabled by default)
 - `file_transfer`: File upload/download (disabled by default)
+- `icmp`: ICMP echo (ping) settings - allowed CIDRs, session limits
 - `management`: Management key encryption for topology compartmentalization
 
 ### Protocol Identifiers

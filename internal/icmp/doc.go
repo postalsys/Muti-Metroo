@@ -26,12 +26,10 @@
 //
 // # Configuration
 //
-// ICMP is disabled by default. Enable it in the agent configuration:
+// ICMP is enabled by default. To disable or customize:
 //
 //	icmp:
 //	  enabled: true
-//	  allowed_cidrs:
-//	    - "0.0.0.0/0"  # Allow all destinations
 //	  max_sessions: 100
 //	  idle_timeout: 60s
 //	  echo_timeout: 5s
@@ -40,7 +38,4 @@
 //
 // All echo payloads are encrypted with ChaCha20-Poly1305. Transit nodes cannot
 // decrypt the payload; they only relay encrypted ICMP_ECHO frames.
-//
-// The allowed_cidrs configuration restricts which destinations can be pinged,
-// preventing abuse of the exit node.
 package icmp

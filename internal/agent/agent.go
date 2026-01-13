@@ -388,16 +388,11 @@ func (a *Agent) initComponents() error {
 
 	// Initialize ICMP handler for exit nodes
 	if a.cfg.ICMP.Enabled {
-		cidrs, err := icmp.ParseCIDRs(a.cfg.ICMP.AllowedCIDRs)
-		if err != nil {
-			return fmt.Errorf("parse ICMP allowed CIDRs: %w", err)
-		}
 		icmpCfg := icmp.Config{
-			Enabled:      a.cfg.ICMP.Enabled,
-			AllowedCIDRs: cidrs,
-			MaxSessions:  a.cfg.ICMP.MaxSessions,
-			IdleTimeout:  a.cfg.ICMP.IdleTimeout,
-			EchoTimeout:  a.cfg.ICMP.EchoTimeout,
+			Enabled:     a.cfg.ICMP.Enabled,
+			MaxSessions: a.cfg.ICMP.MaxSessions,
+			IdleTimeout: a.cfg.ICMP.IdleTimeout,
+			EchoTimeout: a.cfg.ICMP.EchoTimeout,
 		}
 		a.icmpHandler = icmp.NewHandler(icmpCfg, a, a.logger)
 	}

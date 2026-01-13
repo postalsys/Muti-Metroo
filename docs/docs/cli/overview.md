@@ -20,6 +20,7 @@ Everything you need to set up agents, manage certificates, transfer files, and r
 | Generate a password hash | `muti-metroo hash` |
 | Run a command on a remote agent | `muti-metroo shell <agent-id> <command>` |
 | Transfer files | `muti-metroo upload` / `muti-metroo download` |
+| Ping a host through the mesh | `muti-metroo ping <target>` |
 | Test if a listener is reachable | `muti-metroo probe <address>` |
 | Install as a system service | `muti-metroo service install` |
 
@@ -72,6 +73,7 @@ Available for all commands:
 | `status` | Show agent status via HTTP API |
 | `peers` | List connected peers via HTTP API |
 | `routes` | List route table via HTTP API |
+| `ping` | Send ICMP echo requests through the mesh |
 | `probe` | Test connectivity to a listener (standalone) |
 | `shell` | Interactive or streaming remote shell |
 | `upload` | Upload file to remote agent |
@@ -109,6 +111,10 @@ muti-metroo peers
 
 # List route table
 muti-metroo routes
+
+# Ping a host through the mesh
+muti-metroo ping 10.0.0.1
+muti-metroo ping -c 5 192.168.1.1
 
 # Execute remote command
 muti-metroo shell agent123 whoami

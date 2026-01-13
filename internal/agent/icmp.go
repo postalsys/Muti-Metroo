@@ -211,7 +211,7 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 			// Zero out private key immediately
 			crypto.ZeroKey(&ingress.EphemeralPrivKey)
 
-			// Derive session key (we are initiator, so isResponder=false)
+			// Derive session key (we are initiator, so isInitiator=true)
 			sessionKey := crypto.DeriveSessionKey(sharedSecret, ack.RequestID, ingress.EphemeralPubKey, ack.EphemeralPubKey, true)
 			crypto.ZeroKey(&sharedSecret)
 
@@ -253,7 +253,7 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 		// Zero out private key immediately
 		crypto.ZeroKey(&wsSession.EphemeralPrivKey)
 
-		// Derive session key (we are initiator, so isResponder=false)
+		// Derive session key (we are initiator, so isInitiator=true)
 		sessionKey := crypto.DeriveSessionKey(sharedSecret, ack.RequestID, wsSession.EphemeralPubKey, ack.EphemeralPubKey, true)
 		crypto.ZeroKey(&sharedSecret)
 

@@ -287,10 +287,19 @@ file_transfer:
 # Enable UDP relay for SOCKS5 UDP ASSOCIATE (RFC 1928)
 # ------------------------------------------------------------------------------
 udp:
-  enabled: false               # Disabled by default
+  enabled: true
   max_associations: 1000       # Max concurrent UDP associations
   idle_timeout: 5m             # Association timeout after inactivity
   max_datagram_size: 1472      # Max UDP payload (MTU - IP/UDP headers)
+
+# ------------------------------------------------------------------------------
+# ICMP Echo (Ping) Configuration
+# Allow sending ICMP echo requests through the mesh to test connectivity
+# ------------------------------------------------------------------------------
+icmp:
+  enabled: true
+  max_sessions: 100            # Max concurrent ICMP sessions
+  session_timeout: 30s         # Session timeout for waiting on replies
 
 # ------------------------------------------------------------------------------
 # Port Forwarding

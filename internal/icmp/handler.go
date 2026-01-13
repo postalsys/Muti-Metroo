@@ -94,16 +94,6 @@ func (h *Handler) HandleICMPOpen(
 		return fmt.Errorf("ICMP echo is disabled")
 	}
 
-	// Check destination is allowed
-	if !h.config.IsDestinationAllowed(destIP) {
-		h.writer.WriteICMPOpenErr(peerID, streamID, &protocol.ICMPOpenErr{
-			RequestID: open.RequestID,
-			ErrorCode: protocol.ErrICMPDestNotAllowed,
-			Message:   "destination not in allowed CIDRs",
-		})
-		return fmt.Errorf("destination %s not allowed", destIP)
-	}
-
 	// Check session limit
 	h.mu.RLock()
 	count := len(h.sessions)

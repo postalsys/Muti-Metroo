@@ -46,13 +46,11 @@ muti-metroo ping [flags] <target-agent-id> <destination>
 
 ## Requirements
 
-The exit agent must have ICMP enabled in its configuration:
+The exit agent must have ICMP enabled in its configuration (enabled by default):
 
 ```yaml
 icmp:
   enabled: true
-  allowed_cidrs:
-    - "0.0.0.0/0"  # Allow all IPv4 destinations
 ```
 
 See [ICMP Configuration](/configuration/icmp) for details.
@@ -136,7 +134,6 @@ The statistics summary shows:
 |-------|-------|
 | `destination must be a valid IP address` | Use IP address, not domain name |
 | `ICMP session failed: icmp not enabled` | Exit agent doesn't have ICMP enabled |
-| `ICMP session failed: destination not allowed` | IP not in allowed_cidrs list |
 | `timeout` | No reply within timeout period |
 
 ## How It Works

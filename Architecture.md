@@ -15,6 +15,7 @@
 6. [Frame Protocol](#6-frame-protocol)
    - [6.5 UDP Relay Protocol](#65-udp-relay-protocol)
    - [6.6 Port Forwarding](#66-port-forwarding-reverse-tunnel)
+   - [6.7 ICMP Echo Protocol](#67-icmp-echo-protocol)
 7. [Stream Management](#7-stream-management)
 8. [Routing System](#8-routing-system)
 9. [Flood Protocol](#9-flood-protocol)
@@ -716,6 +717,14 @@ All communication uses a consistent framing protocol:
 │  • "file:upload" - Upload file to remote agent                              │
 │  • "file:download" - Download file from remote agent                        │
 │                                                                             │
+│  ICMP Frames (for ping through mesh):                                       │
+│  ┌──────┬────────────────────┬─────────────┬─────────────────────────────┐  │
+│  │ Type │ Name               │ Direction   │ Purpose                     │  │
+│  ├──────┼────────────────────┼─────────────┼─────────────────────────────┤  │
+│  │ 0x40 │ ICMP_ECHO          │ Forward     │ ICMP echo request (ping)    │  │
+│  │ 0x41 │ ICMP_ECHO_REPLY    │ Backward    │ ICMP echo reply (pong)      │  │
+│  └──────┴────────────────────┴─────────────┴─────────────────────────────┘  │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1150,6 +1159,139 @@ internal/forward/
 ├── listener.go       # TCP listener (accepts connections, calls DialForward)
 ├── handler_test.go   # Handler unit tests
 └── listener_test.go  # Listener unit tests
+```
+
+---
+
+## 6.7 ICMP Echo Protocol
+
+The ICMP echo (ping) feature allows sending ICMP echo requests through the mesh network to test connectivity to remote hosts. Unlike TCP streams, ICMP echo uses dedicated frame types and unprivileged ICMP sockets.
+
+### Architecture
+
+**Components:**
+
+- **Ingress** (`internal/agent/icmp.go`): Receives ping requests via SOCKS5 or WebSocket, creates ICMP sessions
+- **Handler** (`internal/icmp/handler.go`): Exit node ICMP processing, sends echo requests, waits for replies
+- **Session** (`internal/icmp/session.go`): Per-ping session state with E2E encryption
+- **Socket** (`internal/icmp/socket.go`): Platform-specific unprivileged ICMP socket operations
+
+**Traffic Flow:**
+
+```
+CLI: muti-metroo ping <target>
+    |
+    | SOCKS5 or WebSocket (via HTTP API)
+    |
+    v
+Ingress Agent
+    |
+    | ICMP_ECHO frame (E2E encrypted)
+    | Route lookup for target IP
+    |
+    v
+Transit Agent(s)
+    |
+    | Frame relay
+    |
+    v
+Exit Agent (icmp.handler)
+    |
+    | Unprivileged ICMP socket
+    | (no root required)
+    |
+    v
+Target Host
+    |
+    | ICMP echo reply
+    |
+    v
+Exit Agent
+    |
+    | ICMP_ECHO_REPLY frame
+    |
+    v
+Ingress Agent -> CLI output
+```
+
+### Frame Protocol
+
+**ICMP_ECHO (0x40):**
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ SessionID       │ 4      │ uint32 session identifier                │
+│ TargetIP        │ 4/16   │ IPv4 or IPv6 target address              │
+│ Identifier      │ 2      │ uint16 ICMP identifier                   │
+│ Sequence        │ 2      │ uint16 ICMP sequence number              │
+│ PayloadSize     │ 2      │ uint16 payload size                      │
+│ EphemeralPubKey │ 32     │ X25519 public key for E2E encryption     │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+**ICMP_ECHO_REPLY (0x41):**
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ SessionID       │ 4      │ uint32 session identifier (matches echo) │
+│ Success         │ 1      │ 0x01 = success, 0x00 = failure           │
+│ RTT             │ 8      │ int64 round-trip time (nanoseconds)      │
+│ TTL             │ 1      │ uint8 TTL from reply (if available)      │
+│ ErrorCode       │ 1      │ Error code if Success=0x00               │
+│ EphemeralPubKey │ 32     │ X25519 public key (for key exchange)     │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+### E2E Encryption
+
+ICMP echo uses the same E2E encryption as TCP streams:
+
+1. Ingress generates ephemeral X25519 keypair
+2. `ICMP_ECHO` includes ingress public key
+3. Exit generates ephemeral keypair, derives shared secret
+4. `ICMP_ECHO_REPLY` includes exit public key
+5. Session key derived: `DeriveSessionKey(sharedSecret, ingressPub, exitPub, isInitiator)`
+
+### Unprivileged ICMP Sockets
+
+The implementation uses unprivileged ICMP sockets (no root required):
+
+- **Linux**: `SOCK_DGRAM` with `IPPROTO_ICMP` (requires `net.ipv4.ping_group_range`)
+- **macOS/BSD**: `SOCK_DGRAM` ICMP available by default
+- **Windows**: Uses ICMP.dll `IcmpSendEcho2` API
+
+Each ICMP session gets its own socket. Reply filtering by expected ID is not needed because each session's socket only receives its own replies.
+
+### Configuration
+
+```yaml
+icmp:
+  enabled: true
+  max_sessions: 100
+  session_timeout: 30s
+```
+
+### Error Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| 1 | Timeout | No reply within timeout |
+| 2 | Unreachable | Destination unreachable |
+
+### Package Structure
+
+```
+internal/icmp/
+├── handler.go      # Exit node ICMP processing
+├── socket.go       # Platform-specific ICMP socket operations
+├── session.go      # Session state management
+├── config.go       # CIDR validation
+├── config_test.go  # Config tests
+└── session_test.go # Session tests
 ```
 
 ---
@@ -2578,6 +2720,14 @@ muti-metroo/
 │   │   ├── association.go          # UDP association lifecycle management
 │   │   ├── config.go               # UDP configuration
 │   │   └── doc.go                  # Package documentation
+│   │
+│   ├── icmp/
+│   │   ├── handler.go              # ICMP echo (ping) handler at exit node
+│   │   ├── socket.go               # Platform-specific ICMP socket operations
+│   │   ├── session.go              # ICMP session state management
+│   │   ├── config.go               # ICMP CIDR validation and configuration
+│   │   ├── config_test.go          # Config tests
+│   │   └── session_test.go         # Session tests
 │   │
 │   ├── probe/
 │   │   └── probe.go                # Connectivity testing for listeners
