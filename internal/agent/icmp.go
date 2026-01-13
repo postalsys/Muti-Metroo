@@ -81,6 +81,35 @@ func generateICMPRequestID() uint64 {
 	return binary.BigEndian.Uint64(buf[:])
 }
 
+// deriveICMPSessionKey performs ECDH key exchange and derives a session key for ICMP sessions.
+// The ephPrivKey is zeroed after use.
+// Returns nil if the remote key is zero (encryption disabled), or an error if ECDH fails.
+func deriveICMPSessionKey(
+	ephPrivKey *[32]byte,
+	ephPubKey [32]byte,
+	remotePubKey [32]byte,
+	requestID uint64,
+) (*crypto.SessionKey, error) {
+	var zeroKey [protocol.EphemeralKeySize]byte
+	if remotePubKey == zeroKey {
+		return nil, nil
+	}
+
+	sharedSecret, err := crypto.ComputeECDH(*ephPrivKey, remotePubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Zero out private key immediately
+	crypto.ZeroKey(ephPrivKey)
+
+	// Derive session key (caller is initiator)
+	sessionKey := crypto.DeriveSessionKey(sharedSecret, requestID, ephPubKey, remotePubKey, true)
+	crypto.ZeroKey(&sharedSecret)
+
+	return sessionKey, nil
+}
+
 // handleICMPOpen processes an ICMP_OPEN frame.
 func (a *Agent) handleICMPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 	open, err := protocol.DecodeICMPOpen(frame.Payload)
@@ -208,29 +237,18 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 			return
 		}
 
-		// Compute session key from the ephemeral keys
-		var zeroKey [protocol.EphemeralKeySize]byte
-		if ack.EphemeralPubKey != zeroKey {
-			sharedSecret, err := crypto.ComputeECDH(ingress.EphemeralPrivKey, ack.EphemeralPubKey)
-			if err != nil {
-				ingress.closePendingOpen(err)
-				return
-			}
+		sessionKey, err := deriveICMPSessionKey(&ingress.EphemeralPrivKey, ingress.EphemeralPubKey, ack.EphemeralPubKey, ack.RequestID)
+		if err != nil {
+			ingress.closePendingOpen(err)
+			return
+		}
 
-			// Zero out private key immediately
-			crypto.ZeroKey(&ingress.EphemeralPrivKey)
-
-			// Derive session key (we are initiator, so isInitiator=true)
-			sessionKey := crypto.DeriveSessionKey(sharedSecret, ack.RequestID, ingress.EphemeralPubKey, ack.EphemeralPubKey, true)
-			crypto.ZeroKey(&sharedSecret)
-
-			// Store session key
+		if sessionKey != nil {
 			ingress.mu.Lock()
 			ingress.SessionKey = sessionKey
 			ingress.mu.Unlock()
 		}
 
-		// Mark as successful
 		ingress.closePendingOpen(nil)
 		return
 	}
@@ -250,29 +268,18 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 		return
 	}
 
-	// Compute session key from the ephemeral keys
-	var zeroKey [protocol.EphemeralKeySize]byte
-	if ack.EphemeralPubKey != zeroKey {
-		sharedSecret, err := crypto.ComputeECDH(wsSession.EphemeralPrivKey, ack.EphemeralPubKey)
-		if err != nil {
-			wsSession.closePendingOpenWS(err)
-			return
-		}
+	sessionKey, err := deriveICMPSessionKey(&wsSession.EphemeralPrivKey, wsSession.EphemeralPubKey, ack.EphemeralPubKey, ack.RequestID)
+	if err != nil {
+		wsSession.closePendingOpenWS(err)
+		return
+	}
 
-		// Zero out private key immediately
-		crypto.ZeroKey(&wsSession.EphemeralPrivKey)
-
-		// Derive session key (we are initiator, so isInitiator=true)
-		sessionKey := crypto.DeriveSessionKey(sharedSecret, ack.RequestID, wsSession.EphemeralPubKey, ack.EphemeralPubKey, true)
-		crypto.ZeroKey(&sharedSecret)
-
-		// Store session key
+	if sessionKey != nil {
 		wsSession.mu.Lock()
 		wsSession.SessionKey = sessionKey
 		wsSession.mu.Unlock()
 	}
 
-	// Mark as successful
 	wsSession.closePendingOpenWS(nil)
 }
 

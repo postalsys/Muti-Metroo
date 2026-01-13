@@ -10,6 +10,11 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+// newICMPSocket creates a new unprivileged IPv4 ICMP socket for testing.
+func newICMPSocket() (*icmp.PacketConn, error) {
+	return icmp.ListenPacket("udp4", "0.0.0.0")
+}
+
 func TestEchoReply_Fields(t *testing.T) {
 	reply := &EchoReply{
 		ID:      1234,
@@ -38,17 +43,17 @@ func TestNewICMPSocket(t *testing.T) {
 		t.Skip("Skipping socket test on Windows")
 	}
 
-	conn, err := NewICMPSocket()
+	conn, err := newICMPSocket()
 	if err != nil {
 		// This is expected to fail on systems without net.ipv4.ping_group_range configured
 		// or when running as non-root without proper permissions
-		t.Skipf("NewICMPSocket() failed (may need sysctl configuration): %v", err)
+		t.Skipf("newICMPSocket() failed (may need sysctl configuration): %v", err)
 	}
 	defer conn.Close()
 
 	// Verify we got a valid connection
 	if conn == nil {
-		t.Fatal("NewICMPSocket() returned nil without error")
+		t.Fatal("newICMPSocket() returned nil without error")
 	}
 }
 
@@ -108,15 +113,15 @@ func TestReadEchoReply_Timeout(t *testing.T) {
 		t.Skip("Skipping socket test on Windows")
 	}
 
-	conn, err := NewICMPSocket()
+	sock, err := NewSocketV4()
 	if err != nil {
-		t.Skipf("NewICMPSocket() failed: %v", err)
+		t.Skipf("NewSocketV4() failed: %v", err)
 	}
-	defer conn.Close()
+	defer sock.Close()
 
 	// Read with a very short timeout - should timeout quickly
 	start := time.Now()
-	_, err = ReadEchoReply(conn, 10*time.Millisecond)
+	_, err = sock.ReadEchoReply(10 * time.Millisecond)
 	elapsed := time.Since(start)
 
 	// Should have timed out
@@ -135,26 +140,20 @@ func TestReadEchoReplyFiltered_Timeout(t *testing.T) {
 		t.Skip("Skipping socket test on Windows")
 	}
 
-	conn, err := NewICMPSocket()
+	sock, err := NewSocketV4()
 	if err != nil {
-		t.Skipf("NewICMPSocket() failed: %v", err)
+		t.Skipf("NewSocketV4() failed: %v", err)
 	}
-	defer conn.Close()
+	defer sock.Close()
 
 	// Read with a very short timeout - should timeout quickly
 	start := time.Now()
-	_, err = ReadEchoReplyFiltered(conn, 1234, 10*time.Millisecond)
+	_, err = sock.ReadEchoReplyFiltered(1234, 10*time.Millisecond)
 	elapsed := time.Since(start)
 
 	// Should have timed out
 	if err == nil {
 		t.Error("ReadEchoReplyFiltered() should timeout with no incoming packets")
-	}
-
-	// Error should mention timeout
-	if err.Error() != "timeout waiting for echo reply" {
-		// Could also be a read timeout from the socket
-		t.Logf("Error: %v (may be acceptable)", err)
 	}
 
 	// Verify it didn't take too long
@@ -163,70 +162,16 @@ func TestReadEchoReplyFiltered_Timeout(t *testing.T) {
 	}
 }
 
-func TestSendEchoRequest_IPv4Address(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping socket test on Windows")
-	}
-
-	conn, err := NewICMPSocket()
-	if err != nil {
-		t.Skipf("NewICMPSocket() failed: %v", err)
-	}
-	defer conn.Close()
-
-	// Test with valid IPv4 address
-	destIP := net.ParseIP("127.0.0.1")
-	err = SendEchoRequest(conn, destIP, 1, 1, []byte("test"))
-
-	// May fail if not configured for unprivileged ICMP to localhost
-	// but the function call itself should not panic
-	if err != nil {
-		t.Logf("SendEchoRequest() error (may be expected): %v", err)
-	}
-}
-
-func TestSendEchoRequest_IPv6Address_Fails(t *testing.T) {
-	// This test documents the current behavior: IPv6 addresses fail
-	// because the socket is IPv4-only
-
-	if runtime.GOOS == "windows" {
-		t.Skip("Skipping socket test on Windows")
-	}
-
-	conn, err := NewICMPSocket()
-	if err != nil {
-		t.Skipf("NewICMPSocket() failed: %v", err)
-	}
-	defer conn.Close()
-
-	// Test with IPv6 address - should fail because socket is IPv4-only
-	destIP := net.ParseIP("::1")
-	err = SendEchoRequest(conn, destIP, 1, 1, []byte("test"))
-
-	// Currently, this may:
-	// 1. Return error because destIP.To4() returns nil
-	// 2. Or panic (which we should fix)
-	// The test documents expected behavior after IPv6 support is added
-
-	// For now, IPv6 is expected to fail in some way
-	if err == nil {
-		// If it succeeds, that's unexpected with current IPv4-only code
-		t.Log("SendEchoRequest() with IPv6 unexpectedly succeeded")
-	} else {
-		t.Logf("SendEchoRequest() with IPv6 failed as expected: %v", err)
-	}
-}
-
 func TestSendEchoRequest_PayloadSizes(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Skipping socket test on Windows")
 	}
 
-	conn, err := NewICMPSocket()
+	sock, err := NewSocketV4()
 	if err != nil {
-		t.Skipf("NewICMPSocket() failed: %v", err)
+		t.Skipf("NewSocketV4() failed: %v", err)
 	}
-	defer conn.Close()
+	defer sock.Close()
 
 	destIP := net.ParseIP("127.0.0.1")
 
@@ -243,7 +188,7 @@ func TestSendEchoRequest_PayloadSizes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := SendEchoRequest(conn, destIP, 1, 1, tc.payload)
+			err := sock.SendEchoRequest(destIP, 1, 1, tc.payload)
 			if err != nil {
 				// Errors are OK for testing marshaling
 				t.Logf("SendEchoRequest() with %s payload: %v", tc.name, err)
