@@ -148,9 +148,9 @@ const config: Config = {
       ],
     },
     algolia: {
-      appId: '8LJDT3DP7Q',
-      apiKey: '50fa5489f9e83f97cac8e51d09fd59b7',
-      indexName: 'Muti Metroo',
+      appId: 'K8T97B38W9',
+      apiKey: 'd7ef6cf65e7a8983d31212d9bc5df749',
+      indexName: 'Muti Docs',
       contextualSearch: true,
     },
     footer: {
