@@ -50,3 +50,9 @@ internal/licenses/third_party/
 
 # Local notes and reviews
 notes/
+
+# Docker Compose local overrides
+docker-compose.override.yml
+
+# Root binary (built outside build/)
+muti-metroo
