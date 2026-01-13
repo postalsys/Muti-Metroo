@@ -1,8 +1,8 @@
 # Legal Notice
 
-This documentation is intended for authorized security professionals conducting legitimate penetration tests, red team exercises, or security research.
+This documentation is intended for network administrators, IT professionals, and developers building secure network connectivity solutions.
 
-**Always ensure you have proper written authorization before deploying Muti Metroo in any environment.**
+**Always ensure you have proper authorization before deploying Muti Metroo in any environment you do not own or administer.**
 
 Unauthorized use of this software to access computer systems or networks without permission is illegal and punishable by law in most jurisdictions.
 

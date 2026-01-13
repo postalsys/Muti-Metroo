@@ -171,81 +171,81 @@ Note:         Not routed through Mutiauk
 
 ## Use Cases
 
-### Red Team Multi-Network Pivot
+### Multi-Site Corporate Connectivity
 
-This example demonstrates a realistic red team deployment where operators use Mutiauk to transparently access a segmented corporate network through multiple pivot points.
+This example demonstrates how IT administrators use Mutiauk to transparently access multiple office locations through a cloud relay.
 
 **Scenario:**
 
-- Multiple red team operators running Kali Linux with Mutiauk
-- Single red team-controlled entry server running Muti Metroo ingress
-- Target corporate network with three segments:
-  - **Public Web** (192.168.0.0/16) - compromised web server
-  - **Office** (10.12.0.0/16) - database server bridges public and office
-  - **Backend Infra** (10.20.0.0/16) - SCADA systems, accessed via office workstation
+- IT administrators at headquarters with Mutiauk
+- Cloud relay server running Muti Metroo ingress
+- Corporate network with three office sites:
+  - **Headquarters** (192.168.0.0/16) - main office with cloud connectivity
+  - **Branch Office** (10.12.0.0/16) - regional office connected via headquarters
+  - **Data Center** (10.20.0.0/16) - infrastructure services accessed via branch office
 
 ```mermaid
 flowchart LR
-    subgraph Operators["Red Team"]
-        K1["Kali 1 + Mutiauk"]
-        K2["Kali 2 + Mutiauk"]
-        K3["Kali 3 + Mutiauk"]
+    subgraph Admins["IT Administrators"]
+        A1["Admin 1 + Mutiauk"]
+        A2["Admin 2 + Mutiauk"]
+        A3["Admin 3 + Mutiauk"]
     end
 
-    subgraph Entry["Entry Server"]
+    subgraph Cloud["Cloud Relay"]
         Ingress["MM Ingress<br/>SOCKS5"]
     end
 
-    subgraph Corporate["Corporate Network"]
-        subgraph Public["Public Net 192.168.0.0/16"]
-            Web["Web Server<br/>+ MM Agent"]
+    subgraph Sites["Corporate Sites"]
+        subgraph HQ["Headquarters 192.168.0.0/16"]
+            GW["Gateway Server<br/>+ MM Agent"]
         end
 
-        subgraph Office["Office Net 10.12.0.0/16"]
-            DB["DB Server<br/>+ MM Agent"]
-            WS["Workstation<br/>+ MM Agent"]
+        subgraph Branch["Branch Office 10.12.0.0/16"]
+            App["App Server<br/>+ MM Agent"]
+            Jump["Jump Host<br/>+ MM Agent"]
         end
 
-        subgraph Backend["Backend 10.20.0.0/16"]
-            SCADA["SCADA<br/>10.20.120.11"]
+        subgraph DC["Data Center 10.20.0.0/16"]
+            DB["Database<br/>10.20.120.11"]
         end
     end
 
-    K1 & K2 & K3 -->|TUN| Ingress
-    Ingress <-->|QUIC| Web
-    Web <-->|Mesh| DB
-    DB <-->|Mesh| WS
-    WS -.->|TCP| SCADA
+    A1 & A2 & A3 -->|TUN| Ingress
+    Ingress <-->|QUIC| GW
+    GW <-->|Mesh| App
+    App <-->|Mesh| Jump
+    Jump -.->|TCP| DB
 ```
 
-**Connection Flow to SCADA (10.20.120.11):**
+**Connection Flow to Database (10.20.120.11):**
 
-1. Operator runs `nmap -sT -Pn 10.20.120.11` on Kali
+1. Administrator runs `psql -h 10.20.120.11` on their workstation
 2. Traffic to 10.20.0.0/16 is captured by Mutiauk TUN interface
-3. Mutiauk forwards to local Muti Metroo ingress via SOCKS5
-4. Ingress agent routes through mesh: WebServer -> DBServer -> Workstation
-5. Workstation agent (exit for 10.20.0.0/16) opens TCP connection to SCADA
+3. Mutiauk forwards to cloud Muti Metroo ingress via SOCKS5
+4. Ingress agent routes through mesh: Gateway -> AppServer -> JumpHost
+5. JumpHost agent (exit for 10.20.0.0/16) opens TCP connection to database
 
-**Operator Kali Configuration:**
+**Administrator Workstation Configuration:**
 
 ```yaml
 # /etc/mutiauk/config.yaml
 socks5:
-  server: entry-server.redteam.local:1080
+  server: relay.company.com:1080
 
 routes:
   - destination: 192.168.0.0/16
-    comment: "Corporate public network"
+    comment: "Headquarters network"
   - destination: 10.12.0.0/16
-    comment: "Corporate office network"
+    comment: "Branch office network"
   - destination: 10.20.0.0/16
-    comment: "Corporate backend/SCADA"
+    comment: "Data center network"
 ```
 
 **Mesh Agent Configurations:**
 
 ```yaml
-# Web Server (192.168.1.10) - Entry point from internet
+# Gateway Server (192.168.1.10) - Headquarters entry point
 listeners:
   - transport: quic
     address: "0.0.0.0:4433"
@@ -254,7 +254,7 @@ exit:
   routes:
     - "192.168.0.0/16"
 
-# Database Server - Bridges public and office
+# App Server - Bridges headquarters and branch office
 peers:
   - address: "192.168.1.10:4433"
 exit:
@@ -262,7 +262,7 @@ exit:
   routes:
     - "10.12.0.0/16"
 
-# Workstation - Bridges office and backend
+# Jump Host - Bridges branch office and data center
 peers:
   - address: "10.12.1.20:4433"
 exit:

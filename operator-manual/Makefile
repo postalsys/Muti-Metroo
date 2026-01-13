@@ -5,7 +5,7 @@ SRC_DIR := src
 BUILD_DIR := build
 PROCESSED_DIR := $(BUILD_DIR)/processed
 ASSETS_DIR := assets
-OUTPUT_PDF := $(BUILD_DIR)/muti-metroo-operator-manual.pdf
+OUTPUT_PDF := $(BUILD_DIR)/muti-metroo-user-manual.pdf
 OUTPUT_HTML := $(BUILD_DIR)/manual.html
 
 # Version and build date (can be overridden via environment or command line)
@@ -66,7 +66,7 @@ $(BUILD_DIR)/combined.md: mermaid
 		-e 's/!\[diagram\](\.\/07-agent-roles-2/![Bidirectional stream flow between agents](\.\/07-agent-roles-2/g' \
 		-e 's/!\[diagram\](\.\/08-transports-1/![Mixed transport mesh topology](\.\/08-transports-1/g' \
 		-e 's/!\[diagram\](\.\/10-tun-interface-1/![TUN interface traffic flow](\.\/10-tun-interface-1/g' \
-		-e 's/!\[diagram\](\.\/10-tun-interface-2/![Red team multi-network pivot topology](\.\/10-tun-interface-2/g' \
+		-e 's/!\[diagram\](\.\/10-tun-interface-2/![Multi-site network topology](\.\/10-tun-interface-2/g' \
 		-e 's/!\[diagram\](\.\/15-port-forwarding-1/![SOCKS5 vs port forwarding traffic direction](\.\/15-port-forwarding-1/g' \
 		$@ && rm -f $@.bak
 	@# Copy diagram files to build dir so pandoc can find them
@@ -113,7 +113,7 @@ pdf: $(BUILD_DIR)/combined.md
 		-V linkcolor=blue \
 		-V urlcolor=blue \
 		-V toccolor=black \
-		-o muti-metroo-operator-manual.pdf
+		-o muti-metroo-user-manual.pdf
 	@echo "PDF built: $(OUTPUT_PDF)"
 
 # Clean build artifacts
@@ -123,7 +123,7 @@ clean:
 
 # Help
 help:
-	@echo "Muti Metroo Operator Manual - Build Targets"
+	@echo "Muti Metroo User Manual - Build Targets"
 	@echo ""
 	@echo "  make pdf          - Build PDF (default)"
 	@echo "  make html         - Build HTML preview"

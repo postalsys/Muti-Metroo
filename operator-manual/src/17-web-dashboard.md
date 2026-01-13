@@ -56,7 +56,7 @@ http:
   dashboard: true            # Enable web dashboard
 ```
 
-To disable (for OPSEC):
+To disable:
 
 ```yaml
 http:
@@ -101,15 +101,15 @@ curl http://localhost:8080/api/nodes | jq
 
 ## Security Considerations
 
-The dashboard exposes topology information that may be sensitive in red team operations:
+The dashboard exposes topology information that may be sensitive:
 
 1. **Bind to localhost**: Use `127.0.0.1:8080` instead of `0.0.0.0:8080`
-2. **Disable in production**: Set `dashboard: false` for field agents
+2. **Disable in production**: Set `dashboard: false` for remote agents
 3. **Use management keys**: Encrypt node info with management key encryption
 
-### OPSEC Configuration
+### Minimal Configuration
 
-For field agents, disable the dashboard:
+For remote agents, disable the dashboard:
 
 ```yaml
 http:
@@ -118,7 +118,7 @@ http:
   minimal: true              # Only health endpoints
 ```
 
-For operator stations, enable full dashboard:
+For management stations, enable full dashboard:
 
 ```yaml
 http:
@@ -166,7 +166,7 @@ management:
 
 ### Encrypted Node Info
 
-If using management keys, field agents without the private key will show limited information. Configure the private key on operator nodes:
+If using management keys, remote agents without the private key will show limited information. Configure the private key on operator nodes:
 
 ```yaml
 management:

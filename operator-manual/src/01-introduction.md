@@ -88,5 +88,5 @@ This manual is organized into the following parts:
 - **Part III: Traffic Ingress** - SOCKS5 proxy and TUN interface for client traffic
 - **Part IV: Routing & Features** - Exit routing, remote shell, file transfer, and more
 - **Part V: Monitoring & Management** - HTTP API, dashboard, and service installation
-- **Part VI: Security** - OPSEC configuration and management keys
+- **Part VI: Security** - Privacy configuration and management keys
 - **Part VII: Reference** - Troubleshooting and quick reference

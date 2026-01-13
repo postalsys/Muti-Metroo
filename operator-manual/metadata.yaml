@@ -1,6 +1,6 @@
 ---
-title: "Muti Metroo Operator Manual"
-subtitle: "Userspace Mesh Networking for Red Team Operations"
+title: "Muti Metroo User Manual"
+subtitle: "Userspace Mesh Networking Agent"
 author: "Postal Systems OÜ"
 date: "2026"
 lang: en
@@ -44,5 +44,5 @@ header-includes:
   - \usepackage{fancyhdr}
   - \pagestyle{fancy}
   - \fancyhead[L]{\leftmark}
-  - \fancyhead[R]{Muti Metroo Operator Manual}
+  - \fancyhead[R]{Muti Metroo User Manual}
   - \fancyfoot[C]{\thepage}

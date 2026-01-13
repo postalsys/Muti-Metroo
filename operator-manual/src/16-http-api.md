@@ -187,9 +187,9 @@ http:
   remote_api: true
 ```
 
-### OPSEC Configuration
+### Minimal Configuration
 
-For maximum stealth:
+For production deployments with reduced exposure:
 
 ```yaml
 http:

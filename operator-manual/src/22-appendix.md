@@ -117,7 +117,7 @@ exit:
       - "8.8.8.8:53"
 ```
 
-### OPSEC Mode
+### Minimal Configuration
 
 ```yaml
 protocol:

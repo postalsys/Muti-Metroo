@@ -108,7 +108,7 @@ jobs:
           BINARY_NAME="muti-metroo-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
           gh release upload "${{ needs.release-please.outputs.tag_name }}" "$BINARY_NAME" --clobber
 
-  operator-manual:
+  user-manual:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
@@ -145,11 +145,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ needs.release-please.outputs.tag_name }}" \
-            operator-manual/build/muti-metroo-operator-manual.pdf \
+            operator-manual/build/muti-metroo-user-manual.pdf \
             --clobber
 
   checksums:
-    needs: [release-please, build, operator-manual]
+    needs: [release-please, build, user-manual]
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:

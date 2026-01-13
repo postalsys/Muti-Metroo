@@ -28,7 +28,7 @@ tls:
   key: "./certs/agent.key"      # Private key
   mtls: false                   # Enable mutual TLS
 
-# Protocol identifiers (OPSEC)
+# Protocol identifiers (customizable)
 protocol:
   alpn: "muti-metroo/1"         # ALPN for QUIC/TLS
   http_header: "X-Muti-Metroo-Protocol"

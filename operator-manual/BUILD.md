@@ -1,6 +1,6 @@
-# Building the Operator Manual
+# Building the User Manual
 
-This document describes how to build the Muti Metroo Operator Manual PDF from source.
+This document describes how to build the Muti Metroo User Manual PDF from source.
 
 ## Overview
 
@@ -70,7 +70,7 @@ make install-deps
 
 | File | Description |
 |------|-------------|
-| `build/muti-metroo-operator-manual.pdf` | Final PDF output |
+| `build/muti-metroo-user-manual.pdf` | Final PDF output |
 | `build/manual.html` | HTML preview (for quick review) |
 | `build/processed/` | Intermediate files (Mermaid-processed markdown) |
 | `build/combined.md` | Combined markdown (all chapters) |
@@ -83,7 +83,7 @@ The manual is automatically built and attached to GitHub releases:
 - PDF is uploaded as a release asset
 
 To manually trigger a build without creating a release:
-1. Go to Actions > "Operator Manual" workflow
+1. Go to Actions > "User Manual" workflow
 2. Click "Run workflow"
 3. Download the artifact from the workflow run
 

@@ -2,20 +2,20 @@
 
 Management key encryption provides cryptographic compartmentalization of mesh topology information. When enabled, sensitive node information (hostnames, OS, IPs, peer lists) is encrypted so only operators with the private key can view topology details.
 
-## Threat Model
+## Security Model
 
 ### Protected Against
 
-- Blue team captures agent, enables dashboard - sees encrypted blobs only
-- Blue team dumps agent memory - no private key present
-- Blue team analyzes network traffic - NodeInfo encrypted
-- Compromised field agent - cannot expose other agents' details
+- Unauthorized access to agent, enables dashboard - sees encrypted blobs only
+- Memory dump of remote agent - no private key present
+- Network traffic analysis - NodeInfo encrypted
+- Isolated agent - cannot expose other agents' details
 
 ### Not Protected Against
 
 - Traffic analysis (connection patterns visible)
 - Agent ID correlation (IDs remain plaintext for routing)
-- Compromise of operator machine with private key
+- Compromise of management machine with private key
 
 ## Key Generation
 
@@ -38,14 +38,14 @@ IMPORTANT: Store the private key securely!
 
 ## Deployment Configuration
 
-### Field Agents (Encrypt Only)
+### Remote Agents (Encrypt Only)
 
-Field agents get the **public key only** - they can encrypt but not decrypt:
+Remote agents get the **public key only** - they can encrypt but not decrypt:
 
 ```yaml
 management:
   public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
-  # NO private_key - field agents cannot decrypt
+  # NO private_key - remote agents cannot decrypt
 ```
 
 ### Operator Nodes (Can Decrypt)
@@ -71,9 +71,9 @@ management:
 
 ## API Behavior
 
-### Without Private Key (Field Agent)
+### Without Private Key (Remote Agent)
 
-When accessing dashboard APIs on a field agent:
+When accessing dashboard APIs on a remote agent:
 
 ```bash
 curl http://field-agent:8080/api/dashboard
@@ -134,14 +134,14 @@ muti-metroo management-key generate > keys.txt
 cat keys.txt
 ```
 
-### Step 2: Deploy Field Agents
+### Step 2: Deploy Remote Agents
 
-Copy only the public key to field agent configs:
+Copy only the public key to remote agent configs:
 
 ```yaml
 # field-agent-config.yaml
 agent:
-  display_name: "Field Agent 1"
+  display_name: "Remote Agent 1"
 
 management:
   public_key: "a1b2c3d4..."
@@ -163,7 +163,7 @@ management:
 
 ### Step 4: Verify
 
-On field agent (should show limited info):
+On remote agent (should show limited info):
 
 ```bash
 curl http://localhost:8080/api/nodes | jq '.nodes | length'
@@ -180,7 +180,7 @@ curl http://localhost:8080/api/nodes | jq '.nodes | length'
 ## Key Management Best Practices
 
 1. **Generate keys offline** on a secure machine
-2. **Never store private keys** on field agents
+2. **Never store private keys** on remote agents
 3. **Limit operator access** to authorized personnel only
 4. **Rotate keys periodically** for long-running operations
 5. **Destroy keys** after operation concludes

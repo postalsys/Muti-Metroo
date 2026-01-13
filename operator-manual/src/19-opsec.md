@@ -1,10 +1,10 @@
-# OPSEC Configuration
+# Privacy & Security Configuration
 
-This chapter covers operational security configuration options for minimizing detection signatures during red team operations.
+This chapter covers configuration options for enhancing privacy, reducing network fingerprint, and securing your deployment.
 
 ## Protocol Identifier Customization
 
-By default, Muti Metroo uses identifiable protocol strings. Disable or customize all identifiers for stealth:
+By default, Muti Metroo uses identifiable protocol strings. You can customize or disable these identifiers for compatibility with corporate policies or firewall rules:
 
 ```yaml
 protocol:
@@ -21,9 +21,9 @@ protocol:
 | HTTP Header | `X-Muti-Metroo-Protocol` | HTTP/2 headers |
 | WS Subprotocol | `muti-metroo/1` | WebSocket upgrade request |
 
-### ALPN Impersonation
+### ALPN Compatibility
 
-Instead of disabling ALPN, set it to mimic legitimate applications:
+Set ALPN to match standard protocols for firewall compatibility:
 
 ```yaml
 protocol:
@@ -41,11 +41,11 @@ protocol:
 | `grpc` | gRPC microservices |
 | `dot` | DNS over TLS (port 853) |
 
-Choose an ALPN value that matches services expected on your target network.
+Choose an ALPN value that matches your network environment.
 
-## HTTP Endpoint Hardening
+## HTTP Endpoint Security
 
-The HTTP API can leak operational information. Minimize exposure:
+The HTTP API exposes operational information. Minimize exposure based on your security requirements:
 
 ### Minimal Mode
 
@@ -62,16 +62,16 @@ http:
 http:
   enabled: true
   address: "127.0.0.1:8080"
-  pprof: false       # NEVER enable in operations
-  dashboard: false   # Exposes topology
-  remote_api: false  # Exposes agent list
+  pprof: false       # Disable debug endpoints in production
+  dashboard: false   # Disable topology visualization
+  remote_api: false  # Disable agent list access
 ```
 
 Disabled endpoints return HTTP 404 (indistinguishable from non-existent paths).
 
 ## Environment Variable Substitution
 
-Use environment variables for credential separation - no filesystem artifacts:
+Use environment variables for secrets management - avoids storing credentials in configuration files:
 
 ```yaml
 socks5:
@@ -103,19 +103,19 @@ agent:
   log_format: "json"   # Structured for parsing
 ```
 
-### Log to Null
+### Minimal Logging
 
-For maximum stealth (not recommended for debugging):
+For production deployments where log storage is limited:
 
 ```bash
 muti-metroo run -c config.yaml 2>/dev/null
 ```
 
-## Network Fingerprint Reduction
+## Network Configuration
 
 ### Connection Timing
 
-Add jitter to keepalive to avoid beacon pattern detection:
+Add jitter to keepalive to distribute network load:
 
 ```yaml
 connections:
@@ -126,13 +126,15 @@ connections:
 
 | Scenario | Recommended Transport | Reason |
 |----------|----------------------|--------|
-| Blending with web traffic | WebSocket on 443 | Standard HTTPS port |
-| Corporate environment | HTTP/2 on 443 | Normal HTTPS traffic |
-| Quick data center setup | QUIC on 443 | Looks like HTTPS/3 |
+| Standard deployment | QUIC on 443 | Modern, efficient |
+| Corporate environment | HTTP/2 on 443 | Compatible with proxies |
+| Legacy firewall | WebSocket on 443 | Widely supported |
 
-## Example OPSEC Configuration
+## Example Configurations
 
-### Field Agent (Maximum Stealth)
+### Minimal Configuration
+
+Reduced footprint for production deployments:
 
 ```yaml
 agent:
@@ -160,12 +162,14 @@ management:
   public_key: "${MGMT_PUBKEY}"
 ```
 
-### Operator Station (Full Visibility)
+### Full Management Configuration
+
+Full visibility for administration:
 
 ```yaml
 agent:
   id: "auto"
-  display_name: "Operator Console"
+  display_name: "Management Console"
   data_dir: "./data"
   log_level: "info"
 
@@ -185,14 +189,14 @@ management:
   private_key: "${MGMT_PRIVKEY}"
 ```
 
-## Checklist
+## Deployment Checklist
 
 Before deployment, verify:
 
-- [ ] Protocol identifiers customized or disabled
+- [ ] Protocol identifiers configured appropriately
 - [ ] HTTP API bound to localhost or disabled
-- [ ] Dashboard disabled on field agents
-- [ ] pprof disabled everywhere
+- [ ] Dashboard disabled on remote agents
+- [ ] pprof disabled in production
 - [ ] Credentials passed via environment variables
 - [ ] Keepalive jitter configured
 - [ ] Log level set appropriately

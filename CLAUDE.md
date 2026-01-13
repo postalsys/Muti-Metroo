@@ -145,7 +145,7 @@ Linux and Windows binaries are compressed with UPX for smaller size.
 A standalone PDF user manual is maintained in `operator-manual/` for offline distribution.
 
 **Location**: `operator-manual/`
-**Output**: `operator-manual/build/muti-metroo-operator-manual.pdf`
+**Output**: `operator-manual/build/muti-metroo-user-manual.pdf`
 **Build instructions**: `operator-manual/BUILD.md`
 
 **Content scope**: Practical usage - installation, configuration, features, deployment, and Mutiauk TUN interface.
