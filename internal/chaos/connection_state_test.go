@@ -58,11 +58,12 @@ func (s ConnectionTestState) String() string {
 
 // MockStream represents a simplified stream for chaos testing.
 type MockStream struct {
-	id     uint64
-	state  atomic.Int32
-	conn   *MockConnection
-	data   chan []byte
-	closed chan struct{}
+	id        uint64
+	state     atomic.Int32
+	conn      *MockConnection
+	data      chan []byte
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // StreamTestState represents stream states for testing.
@@ -236,13 +237,10 @@ func (c *MockConnection) StreamCount() int {
 
 // Close closes the stream.
 func (s *MockStream) Close() {
-	select {
-	case <-s.closed:
-		return
-	default:
+	s.closeOnce.Do(func() {
 		close(s.closed)
 		s.state.Store(int32(TestStreamClosed))
-	}
+	})
 }
 
 // State returns the stream state.
