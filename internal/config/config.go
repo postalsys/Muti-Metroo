@@ -59,22 +59,22 @@ func parseHexKey(hexStr, keyName string, expectedSize int) ([KeySize]byte, error
 // Config represents the complete agent configuration.
 type Config struct {
 	Agent        AgentConfig        `yaml:"agent"`
-	Protocol     ProtocolConfig     `yaml:"protocol"`
-	TLS          GlobalTLSConfig    `yaml:"tls"`
-	Management   ManagementConfig   `yaml:"management"`
-	Listeners    []ListenerConfig   `yaml:"listeners"`
-	Peers        []PeerConfig       `yaml:"peers"`
-	SOCKS5       SOCKS5Config       `yaml:"socks5"`
-	Exit         ExitConfig         `yaml:"exit"`
-	Routing      RoutingConfig      `yaml:"routing"`
-	Connections  ConnectionsConfig  `yaml:"connections"`
-	Limits       LimitsConfig       `yaml:"limits"`
-	HTTP         HTTPConfig         `yaml:"http"`
-	FileTransfer FileTransferConfig `yaml:"file_transfer"`
-	Shell        ShellConfig        `yaml:"shell"`
-	UDP          UDPConfig          `yaml:"udp"`
-	ICMP         ICMPConfig         `yaml:"icmp"`
-	Forward      ForwardConfig      `yaml:"forward"`
+	Protocol     ProtocolConfig     `yaml:"protocol,omitempty"`
+	TLS          GlobalTLSConfig    `yaml:"tls,omitempty"`
+	Management   ManagementConfig   `yaml:"management,omitempty"`
+	Listeners    []ListenerConfig   `yaml:"listeners,omitempty"`
+	Peers        []PeerConfig       `yaml:"peers,omitempty"`
+	SOCKS5       SOCKS5Config       `yaml:"socks5,omitempty"`
+	Exit         ExitConfig         `yaml:"exit,omitempty"`
+	Routing      RoutingConfig      `yaml:"routing,omitempty"`
+	Connections  ConnectionsConfig  `yaml:"connections,omitempty"`
+	Limits       LimitsConfig       `yaml:"limits,omitempty"`
+	HTTP         HTTPConfig         `yaml:"http,omitempty"`
+	FileTransfer FileTransferConfig `yaml:"file_transfer,omitempty"`
+	Shell        ShellConfig        `yaml:"shell,omitempty"`
+	UDP          UDPConfig          `yaml:"udp,omitempty"`
+	ICMP         ICMPConfig         `yaml:"icmp,omitempty"`
+	Forward      ForwardConfig      `yaml:"forward,omitempty"`
 }
 
 // ProtocolConfig defines protocol identifiers used for transport negotiation.
@@ -83,15 +83,15 @@ type ProtocolConfig struct {
 	// ALPN is the Application-Layer Protocol Negotiation identifier.
 	// Used for QUIC and TLS connections. Default: "muti-metroo/1"
 	// Set to empty string "" to use no custom ALPN (uses transport defaults like "h2").
-	ALPN string `yaml:"alpn"`
+	ALPN string `yaml:"alpn,omitempty"`
 
 	// HTTPHeader is the custom header name for HTTP/2 transport protocol identification.
 	// Default: "X-Muti-Metroo-Protocol". Set to empty string "" to disable custom header.
-	HTTPHeader string `yaml:"http_header"`
+	HTTPHeader string `yaml:"http_header,omitempty"`
 
 	// WSSubprotocol is the WebSocket subprotocol identifier.
 	// Default: "muti-metroo/1". Set to empty string "" to disable subprotocol negotiation.
-	WSSubprotocol string `yaml:"ws_subprotocol"`
+	WSSubprotocol string `yaml:"ws_subprotocol,omitempty"`
 }
 
 // GlobalTLSConfig defines global TLS settings shared across all connections.
@@ -104,25 +104,25 @@ type ProtocolConfig struct {
 // Self-signed certificates are auto-generated if none are configured.
 type GlobalTLSConfig struct {
 	// CA certificate for verifying peer certificates and client certs (mTLS)
-	CA    string `yaml:"ca"`     // CA certificate file path
-	CAPEM string `yaml:"ca_pem"` // CA certificate PEM content (takes precedence)
+	CA    string `yaml:"ca,omitempty"`     // CA certificate file path
+	CAPEM string `yaml:"ca_pem,omitempty"` // CA certificate PEM content (takes precedence)
 
 	// Agent's identity certificate used for listeners and peer connections
 	// If not configured, a self-signed certificate is auto-generated at startup
-	Cert    string `yaml:"cert"`     // Certificate file path
-	Key     string `yaml:"key"`      // Private key file path
-	CertPEM string `yaml:"cert_pem"` // Certificate PEM content (takes precedence)
-	KeyPEM  string `yaml:"key_pem"`  // Private key PEM content (takes precedence)
+	Cert    string `yaml:"cert,omitempty"`     // Certificate file path
+	Key     string `yaml:"key,omitempty"`      // Private key file path
+	CertPEM string `yaml:"cert_pem,omitempty"` // Certificate PEM content (takes precedence)
+	KeyPEM  string `yaml:"key_pem,omitempty"`  // Private key PEM content (takes precedence)
 
 	// MTLS enables mutual TLS on listeners (require client certificates)
 	// Requires CA to be configured
-	MTLS bool `yaml:"mtls"`
+	MTLS bool `yaml:"mtls,omitempty"`
 
 	// Strict enables TLS certificate verification (default: false)
 	// When false (default), peer certificates are not validated, which is safe
 	// because the E2E layer provides security. When true, peer certificates
 	// must be signed by the configured CA.
-	Strict bool `yaml:"strict"`
+	Strict bool `yaml:"strict,omitempty"`
 }
 
 // GetCAPEM returns the CA certificate PEM content, reading from file if necessary.
@@ -163,12 +163,12 @@ type ManagementConfig struct {
 	// PublicKey is the management public key (hex-encoded, 64 characters).
 	// When set, NodeInfo and route paths are encrypted before flooding.
 	// All agents in the mesh should have the same public key.
-	PublicKey string `yaml:"public_key"`
+	PublicKey string `yaml:"public_key,omitempty"`
 
 	// PrivateKey is the management private key (hex-encoded, 64 characters).
 	// Only set on operator/management nodes that need to view topology.
 	// NEVER distribute to field agents.
-	PrivateKey string `yaml:"private_key"`
+	PrivateKey string `yaml:"private_key,omitempty"`
 }
 
 // KeySize is the size of X25519 keys in bytes.
@@ -198,31 +198,31 @@ func (c *Config) CanDecryptManagement() bool {
 
 // AgentConfig contains agent identity settings.
 type AgentConfig struct {
-	ID          string `yaml:"id"`           // "auto" or hex string
-	DisplayName string `yaml:"display_name"` // Human-readable name (Unicode allowed)
-	DataDir     string `yaml:"data_dir"`     // Directory for persistent state
-	LogLevel    string `yaml:"log_level"`    // debug, info, warn, error
-	LogFormat   string `yaml:"log_format"`   // text, json
+	ID          string `yaml:"id,omitempty"`           // "auto" or hex string
+	DisplayName string `yaml:"display_name,omitempty"` // Human-readable name (Unicode allowed)
+	DataDir     string `yaml:"data_dir"`               // Directory for persistent state (required)
+	LogLevel    string `yaml:"log_level,omitempty"`    // debug, info, warn, error
+	LogFormat   string `yaml:"log_format,omitempty"`   // text, json
 }
 
 // ListenerConfig defines a transport listener.
 type ListenerConfig struct {
-	Transport string    `yaml:"transport"` // quic, h2, ws
-	Address   string    `yaml:"address"`   // listen address
-	Path      string    `yaml:"path"`      // HTTP path for h2/ws
-	PlainText bool      `yaml:"plaintext"` // Allow plain WebSocket without TLS (for reverse proxy)
-	TLS       TLSConfig `yaml:"tls"`
+	Transport string    `yaml:"transport"`           // quic, h2, ws (required)
+	Address   string    `yaml:"address"`             // listen address (required)
+	Path      string    `yaml:"path,omitempty"`      // HTTP path for h2/ws
+	PlainText bool      `yaml:"plaintext,omitempty"` // Allow plain WebSocket without TLS (for reverse proxy)
+	TLS       TLSConfig `yaml:"tls,omitempty"`
 }
 
 // PeerConfig defines a peer connection.
 type PeerConfig struct {
-	ID        string    `yaml:"id"`         // Expected peer AgentID
-	Transport string    `yaml:"transport"`  // quic, h2, ws
-	Address   string    `yaml:"address"`    // peer address
-	Path      string    `yaml:"path"`       // HTTP path for h2/ws
-	Proxy     string    `yaml:"proxy"`      // HTTP proxy for ws
-	ProxyAuth ProxyAuth `yaml:"proxy_auth"` // Proxy authentication
-	TLS       TLSConfig `yaml:"tls"`
+	ID        string    `yaml:"id,omitempty"`         // Expected peer AgentID
+	Transport string    `yaml:"transport"`            // quic, h2, ws (required)
+	Address   string    `yaml:"address"`              // peer address (required)
+	Path      string    `yaml:"path,omitempty"`       // HTTP path for h2/ws
+	Proxy     string    `yaml:"proxy,omitempty"`      // HTTP proxy for ws
+	ProxyAuth ProxyAuth `yaml:"proxy_auth,omitempty"` // Proxy authentication
+	TLS       TLSConfig `yaml:"tls,omitempty"`
 }
 
 // TLSConfig defines per-connection TLS settings that can override global settings.
@@ -230,14 +230,14 @@ type PeerConfig struct {
 // If both are provided, inline PEM takes precedence.
 type TLSConfig struct {
 	// Override global cert/key (optional - uses global if not set)
-	Cert    string `yaml:"cert"`     // Certificate file path
-	Key     string `yaml:"key"`      // Private key file path
-	CertPEM string `yaml:"cert_pem"` // Certificate PEM content
-	KeyPEM  string `yaml:"key_pem"`  // Private key PEM content
+	Cert    string `yaml:"cert,omitempty"`     // Certificate file path
+	Key     string `yaml:"key,omitempty"`      // Private key file path
+	CertPEM string `yaml:"cert_pem,omitempty"` // Certificate PEM content
+	KeyPEM  string `yaml:"key_pem,omitempty"`  // Private key PEM content
 
 	// Override global CA (optional - peer connections only)
-	CA    string `yaml:"ca"`     // CA certificate file path
-	CAPEM string `yaml:"ca_pem"` // CA certificate PEM content
+	CA    string `yaml:"ca,omitempty"`     // CA certificate file path
+	CAPEM string `yaml:"ca_pem,omitempty"` // CA certificate PEM content
 
 	// mTLS override (optional - listener only, uses global if nil)
 	// Use pointer to distinguish "not set" from "false"
@@ -325,27 +325,27 @@ func (c *Config) GetEffectiveStrict(override *TLSConfig) bool {
 
 // ProxyAuth defines proxy authentication.
 type ProxyAuth struct {
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	Username string `yaml:"username,omitempty"`
+	Password string `yaml:"password,omitempty"`
 }
 
 // SOCKS5Config defines SOCKS5 server settings.
 type SOCKS5Config struct {
-	Enabled        bool             `yaml:"enabled"`
-	Address        string           `yaml:"address"`
-	Auth           SOCKS5AuthConfig `yaml:"auth"`
-	MaxConnections int              `yaml:"max_connections"`
+	Enabled        bool             `yaml:"enabled,omitempty"`
+	Address        string           `yaml:"address,omitempty"`
+	Auth           SOCKS5AuthConfig `yaml:"auth,omitempty"`
+	MaxConnections int              `yaml:"max_connections,omitempty"`
 }
 
 // SOCKS5AuthConfig defines SOCKS5 authentication settings.
 type SOCKS5AuthConfig struct {
-	Enabled bool               `yaml:"enabled"`
-	Users   []SOCKS5UserConfig `yaml:"users"`
+	Enabled bool               `yaml:"enabled,omitempty"`
+	Users   []SOCKS5UserConfig `yaml:"users,omitempty"`
 }
 
 // SOCKS5UserConfig defines a SOCKS5 user.
 type SOCKS5UserConfig struct {
-	Username string `yaml:"username"`
+	Username string `yaml:"username,omitempty"`
 	// Password is the plaintext password (deprecated, use PasswordHash).
 	Password string `yaml:"password,omitempty"`
 	// PasswordHash is the bcrypt hash of the password (recommended).
@@ -355,69 +355,69 @@ type SOCKS5UserConfig struct {
 
 // ExitConfig defines exit node settings.
 type ExitConfig struct {
-	Enabled      bool      `yaml:"enabled"`
-	Routes       []string  `yaml:"routes"`        // CIDR routes to advertise
-	DomainRoutes []string  `yaml:"domain_routes"` // Domain patterns to advertise (exact or *.wildcard)
-	DNS          DNSConfig `yaml:"dns"`
+	Enabled      bool      `yaml:"enabled,omitempty"`
+	Routes       []string  `yaml:"routes,omitempty"`        // CIDR routes to advertise
+	DomainRoutes []string  `yaml:"domain_routes,omitempty"` // Domain patterns to advertise (exact or *.wildcard)
+	DNS          DNSConfig `yaml:"dns,omitempty"`
 }
 
 // DNSConfig defines DNS settings for exit nodes.
 type DNSConfig struct {
-	Servers []string      `yaml:"servers"`
-	Timeout time.Duration `yaml:"timeout"`
+	Servers []string      `yaml:"servers,omitempty"`
+	Timeout time.Duration `yaml:"timeout,omitempty"`
 }
 
 // RoutingConfig defines routing parameters.
 type RoutingConfig struct {
-	AdvertiseInterval time.Duration `yaml:"advertise_interval"`
-	NodeInfoInterval  time.Duration `yaml:"node_info_interval"` // Defaults to AdvertiseInterval if not set
-	RouteTTL          time.Duration `yaml:"route_ttl"`
-	MaxHops           int           `yaml:"max_hops"`
+	AdvertiseInterval time.Duration `yaml:"advertise_interval,omitempty"`
+	NodeInfoInterval  time.Duration `yaml:"node_info_interval,omitempty"` // Defaults to AdvertiseInterval if not set
+	RouteTTL          time.Duration `yaml:"route_ttl,omitempty"`
+	MaxHops           int           `yaml:"max_hops,omitempty"`
 }
 
 // ConnectionsConfig defines connection tuning parameters.
 type ConnectionsConfig struct {
-	IdleThreshold   time.Duration   `yaml:"idle_threshold"`
-	Timeout         time.Duration   `yaml:"timeout"`
-	KeepaliveJitter float64         `yaml:"keepalive_jitter"` // Jitter fraction for keepalive timing (0.0-1.0)
-	Reconnect       ReconnectConfig `yaml:"reconnect"`
+	IdleThreshold   time.Duration   `yaml:"idle_threshold,omitempty"`
+	Timeout         time.Duration   `yaml:"timeout,omitempty"`
+	KeepaliveJitter float64         `yaml:"keepalive_jitter,omitempty"` // Jitter fraction for keepalive timing (0.0-1.0)
+	Reconnect       ReconnectConfig `yaml:"reconnect,omitempty"`
 }
 
 // ReconnectConfig defines reconnection behavior.
 type ReconnectConfig struct {
-	InitialDelay time.Duration `yaml:"initial_delay"`
-	MaxDelay     time.Duration `yaml:"max_delay"`
-	Multiplier   float64       `yaml:"multiplier"`
-	Jitter       float64       `yaml:"jitter"`
-	MaxRetries   int           `yaml:"max_retries"` // 0 = infinite
+	InitialDelay time.Duration `yaml:"initial_delay,omitempty"`
+	MaxDelay     time.Duration `yaml:"max_delay,omitempty"`
+	Multiplier   float64       `yaml:"multiplier,omitempty"`
+	Jitter       float64       `yaml:"jitter,omitempty"`
+	MaxRetries   int           `yaml:"max_retries,omitempty"` // 0 = infinite
 }
 
 // LimitsConfig defines resource limits.
 type LimitsConfig struct {
-	MaxStreamsPerPeer int           `yaml:"max_streams_per_peer"`
-	MaxStreamsTotal   int           `yaml:"max_streams_total"`
-	MaxPendingOpens   int           `yaml:"max_pending_opens"`
-	StreamOpenTimeout time.Duration `yaml:"stream_open_timeout"`
-	BufferSize        int           `yaml:"buffer_size"`
+	MaxStreamsPerPeer int           `yaml:"max_streams_per_peer,omitempty"`
+	MaxStreamsTotal   int           `yaml:"max_streams_total,omitempty"`
+	MaxPendingOpens   int           `yaml:"max_pending_opens,omitempty"`
+	StreamOpenTimeout time.Duration `yaml:"stream_open_timeout,omitempty"`
+	BufferSize        int           `yaml:"buffer_size,omitempty"`
 }
 
 // HTTPConfig defines HTTP API server settings.
 type HTTPConfig struct {
-	Enabled      bool          `yaml:"enabled"`
-	Address      string        `yaml:"address"`
-	ReadTimeout  time.Duration `yaml:"read_timeout"`
-	WriteTimeout time.Duration `yaml:"write_timeout"`
+	Enabled      bool          `yaml:"enabled,omitempty"`
+	Address      string        `yaml:"address,omitempty"`
+	ReadTimeout  time.Duration `yaml:"read_timeout,omitempty"`
+	WriteTimeout time.Duration `yaml:"write_timeout,omitempty"`
 
 	// Minimal mode - only enable /health, /healthz, /ready endpoints.
 	// When true, overrides all other endpoint flags to false.
-	Minimal bool `yaml:"minimal"`
+	Minimal bool `yaml:"minimal,omitempty"`
 
 	// Endpoint group controls. All default to true when http.enabled=true.
 	// Use pointer types to distinguish between "not set" (nil = use default) and "explicitly false".
 	// Disabled endpoints return 404 and log access attempts.
-	Pprof     *bool `yaml:"pprof"`      // /debug/pprof/* - Go profiling endpoints
-	Dashboard *bool `yaml:"dashboard"`  // /ui/*, /api/* - Web dashboard and API
-	RemoteAPI *bool `yaml:"remote_api"` // /agents/* - Distributed mesh APIs
+	Pprof     *bool `yaml:"pprof,omitempty"`      // /debug/pprof/* - Go profiling endpoints
+	Dashboard *bool `yaml:"dashboard,omitempty"`  // /ui/*, /api/* - Web dashboard and API
+	RemoteAPI *bool `yaml:"remote_api,omitempty"` // /agents/* - Distributed mesh APIs
 }
 
 // PprofEnabled returns whether the /debug/pprof/* endpoints are enabled.
@@ -447,11 +447,11 @@ func (h HTTPConfig) RemoteAPIEnabled() bool {
 // FileTransferConfig defines file transfer settings.
 type FileTransferConfig struct {
 	// Enabled controls whether file transfer is available on this agent.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty"`
 
 	// MaxFileSize is the maximum allowed file size in bytes.
 	// Default is 500MB (500 * 1024 * 1024).
-	MaxFileSize int64 `yaml:"max_file_size"`
+	MaxFileSize int64 `yaml:"max_file_size,omitempty"`
 
 	// AllowedPaths controls which paths are allowed for file operations.
 	// This works consistently with RPC whitelist:
@@ -466,67 +466,67 @@ type FileTransferConfig struct {
 	//   - "/home/*/uploads": Pattern matching - allows /home/alice/uploads
 	//
 	// Example: ["/tmp", "/home/*/uploads"]
-	AllowedPaths []string `yaml:"allowed_paths"`
+	AllowedPaths []string `yaml:"allowed_paths,omitempty"`
 
 	// PasswordHash is the bcrypt hash of the file transfer password.
 	// If set, all file transfer requests must include the correct password.
 	// Generate with: htpasswd -bnBC 10 "" <password> | tr -d ':\n'
-	PasswordHash string `yaml:"password_hash"`
+	PasswordHash string `yaml:"password_hash,omitempty"`
 }
 
 // ShellConfig defines remote shell settings.
 type ShellConfig struct {
 	// Enabled controls whether shell is available on this agent.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty"`
 
 	// Whitelist contains allowed commands. Empty list = no commands allowed.
 	// Use ["*"] to allow all commands (for testing only!).
 	// Commands should be base names only (e.g., "whoami", "ls", "bash").
-	Whitelist []string `yaml:"whitelist"`
+	Whitelist []string `yaml:"whitelist,omitempty"`
 
 	// PasswordHash is the bcrypt hash of the shell password.
 	// If set, all shell requests must include the correct password.
 	// Generate with: muti-metroo hash
-	PasswordHash string `yaml:"password_hash"`
+	PasswordHash string `yaml:"password_hash,omitempty"`
 
 	// Timeout is the optional command timeout (0 = no timeout).
-	Timeout time.Duration `yaml:"timeout"`
+	Timeout time.Duration `yaml:"timeout,omitempty"`
 
 	// MaxSessions limits concurrent shell sessions (0 = unlimited).
-	MaxSessions int `yaml:"max_sessions"`
+	MaxSessions int `yaml:"max_sessions,omitempty"`
 }
 
 // UDPConfig configures UDP relay support for exit nodes.
 // UDP relay enables SOCKS5 UDP ASSOCIATE for tunneling UDP traffic through the mesh.
 type UDPConfig struct {
 	// Enabled controls whether UDP relay is available on this exit node.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty"`
 
 	// MaxAssociations limits concurrent UDP associations (0 = unlimited).
-	MaxAssociations int `yaml:"max_associations"`
+	MaxAssociations int `yaml:"max_associations,omitempty"`
 
 	// IdleTimeout is the timeout for inactive UDP associations.
-	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	IdleTimeout time.Duration `yaml:"idle_timeout,omitempty"`
 
 	// MaxDatagramSize is the maximum UDP payload size in bytes.
 	// Default is 1472 (Ethernet MTU minus IP and UDP headers).
-	MaxDatagramSize int `yaml:"max_datagram_size"`
+	MaxDatagramSize int `yaml:"max_datagram_size,omitempty"`
 }
 
 // ICMPConfig configures ICMP echo (ping) support for exit nodes.
 // When enabled, agents can send ICMP echo requests to allowed destinations.
 type ICMPConfig struct {
 	// Enabled controls whether ICMP echo is available on this exit node.
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enabled,omitempty"`
 
 	// MaxSessions limits concurrent ICMP sessions (0 = unlimited).
-	MaxSessions int `yaml:"max_sessions"`
+	MaxSessions int `yaml:"max_sessions,omitempty"`
 
 	// IdleTimeout is the timeout for inactive ICMP sessions.
-	IdleTimeout time.Duration `yaml:"idle_timeout"`
+	IdleTimeout time.Duration `yaml:"idle_timeout,omitempty"`
 
 	// EchoTimeout is the timeout for each individual ICMP echo request.
-	EchoTimeout time.Duration `yaml:"echo_timeout"`
+	EchoTimeout time.Duration `yaml:"echo_timeout,omitempty"`
 }
 
 // ForwardConfig configures TCP port forwarding.
@@ -536,12 +536,12 @@ type ForwardConfig struct {
 	// Endpoints define port forward exit points - where forwarded connections terminate.
 	// Each endpoint maps a routing key to a fixed target host:port.
 	// The agent advertises these routing keys through the mesh.
-	Endpoints []ForwardEndpoint `yaml:"endpoints"`
+	Endpoints []ForwardEndpoint `yaml:"endpoints,omitempty"`
 
 	// Listeners define port forward ingress points - where external connections enter.
 	// Each listener binds to a local address and forwards connections to the
 	// agent with the matching routing key.
-	Listeners []ForwardListener `yaml:"listeners"`
+	Listeners []ForwardListener `yaml:"listeners,omitempty"`
 }
 
 // ForwardEndpoint defines a port forward exit point configuration.
@@ -549,11 +549,11 @@ type ForwardConfig struct {
 type ForwardEndpoint struct {
 	// Key is the routing key that identifies this port forward endpoint.
 	// Must be unique within the mesh. Example: "my-web-server"
-	Key string `yaml:"key"`
+	Key string `yaml:"key,omitempty"`
 
 	// Target is the fixed destination host:port for forwarded connections.
 	// Example: "localhost:3000" or "192.168.1.10:8080"
-	Target string `yaml:"target"`
+	Target string `yaml:"target,omitempty"`
 }
 
 // ForwardListener defines a port forward ingress point configuration.
@@ -562,14 +562,14 @@ type ForwardEndpoint struct {
 type ForwardListener struct {
 	// Key is the routing key to look up in the mesh.
 	// Must match a ForwardEndpoint.Key on some agent.
-	Key string `yaml:"key"`
+	Key string `yaml:"key,omitempty"`
 
 	// Address is the local address to listen on.
 	// Example: ":8080" or "127.0.0.1:8080"
-	Address string `yaml:"address"`
+	Address string `yaml:"address,omitempty"`
 
 	// MaxConnections limits concurrent connections (0 = unlimited).
-	MaxConnections int `yaml:"max_connections"`
+	MaxConnections int `yaml:"max_connections,omitempty"`
 }
 
 // Default returns a Config with default values.

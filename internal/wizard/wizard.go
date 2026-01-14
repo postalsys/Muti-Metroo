@@ -104,7 +104,7 @@ func (w *Wizard) Run() (*Result, error) {
 	}
 
 	// Step 3: Network configuration
-	transport, listenAddr, listenPath, err := w.askNetworkConfig()
+	transport, listenAddr, listenPath, plainText, err := w.askNetworkConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (w *Wizard) Run() (*Result, error) {
 
 	// Build configuration
 	cfg := w.buildConfig(
-		dataDir, displayName, transport, listenAddr, listenPath,
+		dataDir, displayName, transport, listenAddr, listenPath, plainText,
 		tlsConfig, peers, socks5Config, exitConfig,
 		healthEnabled, logLevel, shellConfig, fileTransferConfig, managementConfig,
 	)
@@ -363,7 +363,7 @@ func (w *Wizard) askAgentRoles() ([]string, error) {
 	}
 }
 
-func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err error) {
+func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, plainText bool, err error) {
 	transport = "quic"
 	listenAddr = "0.0.0.0:4433"
 	path = "/mesh"
@@ -376,6 +376,7 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 		if l.Path != "" {
 			path = l.Path
 		}
+		plainText = l.PlainText
 	}
 
 	prompt.PrintHeader("Network Configuration", "Configure how this agent listens for connections.")
@@ -419,6 +420,21 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, err err
 		})
 		if err != nil {
 			return
+		}
+	}
+
+	// Ask about reverse proxy for WebSocket transport
+	if transport == "ws" {
+		plainText, err = prompt.Confirm(
+			"Behind reverse proxy (TLS handled by Nginx/Caddy/Apache)?",
+			plainText,
+		)
+		if err != nil {
+			return
+		}
+		if plainText {
+			fmt.Println("\n[OK] Listener will accept plain WebSocket (no TLS)")
+			fmt.Println("    Your reverse proxy should handle TLS termination.")
 		}
 	}
 
@@ -1621,6 +1637,7 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 
 func (w *Wizard) buildConfig(
 	dataDir, displayName, transport, listenAddr, listenPath string,
+	plainText bool,
 	tlsConfig config.GlobalTLSConfig,
 	peers []config.PeerConfig,
 	socks5Config config.SOCKS5Config,
@@ -1645,6 +1662,7 @@ func (w *Wizard) buildConfig(
 	listener := config.ListenerConfig{
 		Transport: transport,
 		Address:   listenAddr,
+		PlainText: plainText,
 	}
 	if transport == "h2" || transport == "ws" {
 		listener.Path = listenPath
