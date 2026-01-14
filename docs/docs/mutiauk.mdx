@@ -61,6 +61,7 @@ flowchart LR
 | **Transparent Proxying** | No application changes required |
 | **TCP Support** | Full TCP connection forwarding |
 | **UDP Support** | UDP datagram forwarding via SOCKS5 UDP ASSOCIATE |
+| **ICMP Support** | Ping forwarding via Muti Metroo ICMP relay |
 | **Route-Based** | Only intercept traffic for configured destinations |
 | **Autoroutes** | Automatically fetch routes from Muti Metroo API |
 | **Route Persistence** | Save routes to config with `--persist` flag |
@@ -140,6 +141,7 @@ Mutiauk uses a YAML configuration file (default: `/etc/mutiauk/config.yaml`).
 daemon:
   pid_file: /var/run/mutiauk.pid
   socket_path: /var/run/mutiauk.sock
+  health_port: 0  # HTTP health port (0 = disabled)
 
 tun:
   name: tun0
@@ -166,10 +168,15 @@ nat:
   table_size: 65536
   tcp_timeout: 1h
   udp_timeout: 5m
+  gc_interval: 1m
 
 logging:
-  level: info
-  format: json
+  level: info       # debug, info, warn, error
+  format: json      # json or console
+  output: stdout    # stdout, stderr, or file path
+  max_size: 100     # Max file size in MB (for file output)
+  max_backups: 3    # Max backup files (for file output)
+  max_age: 30       # Max age in days (for file output)
 ```
 
 ### Automatic Routes (Autoroutes)
@@ -507,7 +514,6 @@ Mutiauk operates as a userspace network stack:
 ## Limitations
 
 - **Linux only**: Uses Linux TUN interface (no macOS/Windows support)
-- **IPv4 only**: IPv6 support planned for future releases
 - **Requires root**: TUN interface creation requires elevated privileges
 
 :::tip ICMP Support
@@ -530,11 +536,11 @@ Error: failed to create TUN interface: operation not permitted
 
 - Verify Muti Metroo SOCKS5 is running: `curl -x socks5://127.0.0.1:1080 https://example.com`
 - Check routes are correctly specified
-- Verify TUN interface is up: `ip addr show mutiauk0`
+- Verify TUN interface is up: `ip addr show tun0`
 
 ### DNS Not Working
 
-- Use `--dns` to specify a DNS server reachable through the mesh
+- Use a DNS server reachable through the mesh
 - Or configure system DNS to use a server in the routed network
 
 ## Related

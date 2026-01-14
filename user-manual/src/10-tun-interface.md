@@ -35,6 +35,7 @@ flowchart LR
 | **Transparent Proxying** | No application changes required |
 | **TCP Support** | Full TCP connection forwarding |
 | **UDP Support** | UDP via SOCKS5 UDP ASSOCIATE |
+| **ICMP Support** | Ping forwarding via ICMP relay |
 | **Route-Based** | Only intercept configured destinations |
 | **Autoroutes** | Fetch routes from Muti Metroo API |
 | **Route Persistence** | Save routes to config with `--persist` |
@@ -76,17 +77,20 @@ Default config file: `/etc/mutiauk/config.yaml`
 daemon:
   pid_file: /var/run/mutiauk.pid
   socket_path: /var/run/mutiauk.sock
+  health_port: 0            # HTTP health port (0 = disabled)
 
 tun:
   name: tun0
   mtu: 1400
   address: 10.200.200.1/24
+  address6: fd00:200::1/64  # Optional IPv6
 
 socks5:
   server: 127.0.0.1:1080
   username: ""              # Optional auth
   password: ""
   timeout: 30s
+  keepalive: 60s
 
 routes:
   - destination: 10.0.0.0/8
@@ -96,9 +100,16 @@ routes:
     comment: "Private network"
     enabled: true
 
+nat:
+  table_size: 65536
+  tcp_timeout: 1h
+  udp_timeout: 5m
+  gc_interval: 1m
+
 logging:
-  level: info
-  format: json
+  level: info               # debug, info, warn, error
+  format: json              # json or console
+  output: stdout            # stdout, stderr, or file path
 ```
 
 ### Autoroutes
@@ -283,12 +294,11 @@ routes:
 ```
 
 ```bash
-# Any TCP/UDP application now transparently uses the mesh
+# Any TCP/UDP/ICMP traffic now transparently uses the mesh
 ssh user@10.10.5.100
 curl http://10.10.5.100
+ping 10.10.5.100
 ```
-
-**Note:** ICMP (ping) is not forwarded through the tunnel. Use TCP-based connectivity tests instead.
 
 ### Network Scanning with Nmap
 
@@ -304,8 +314,42 @@ nmap -sT -sV -Pn 192.168.50.1
 
 **Nmap tips:**
 - Use `-sT` (TCP Connect) instead of `-sS` (SYN scan) - raw sockets bypass TUN
-- Use `-Pn` to skip host discovery (ICMP not forwarded)
-- UDP scans show `open|filtered` (ICMP unreachable not received)
+- Use `-Pn` to skip host discovery - nmap uses raw ICMP which bypasses TUN
+- Normal `ping` command works (uses TUN), but nmap's built-in ping does not
+- UDP scans show `open|filtered` (ICMP port unreachable not forwarded)
+
+### Using Ping
+
+Mutiauk supports ICMP echo (ping) forwarding through the mesh network via a custom SOCKS5 extension.
+
+```bash
+# Standard ping works transparently
+ping 10.10.5.100
+
+# Ping with specific count
+ping -c 4 192.168.50.1
+```
+
+**Requirements:**
+- Exit agent must have ICMP enabled (default: enabled)
+- Linux exit agents need `ping_group_range` configured:
+  ```bash
+  sudo sysctl -w net.ipv4.ping_group_range="0 65535"
+  ```
+
+**Limitations:**
+- Only ICMP echo (ping) is supported
+- Other ICMP types (port unreachable, TTL exceeded) are not forwarded
+- Traceroute does not work (relies on TTL-exceeded messages)
+- Raw socket ping (e.g., from nmap) bypasses TUN - use `-Pn` with nmap
+
+**Tip:** If ping fails, verify ICMP is enabled on the exit agent:
+
+```yaml
+# Exit agent config
+icmp:
+  enabled: true
+```
 
 ## Deployment Workflow
 
@@ -355,7 +399,8 @@ ip addr show tun0
 # Verify route
 ip route | grep tun0
 
-# Test connectivity (use TCP, not ping - ICMP is not forwarded)
+# Test connectivity
+ping -c 3 10.10.5.100
 nc -zv 10.10.5.100 22
 curl http://10.10.5.100
 ```
@@ -363,8 +408,6 @@ curl http://10.10.5.100
 ## Limitations
 
 - **Linux only**: No macOS/Windows support
-- **IPv4 only**: IPv6 support planned
-- **No ICMP**: Ping traffic not forwarded
 - **Requires root**: TUN interface creation needs privileges
 
 ## Troubleshooting
