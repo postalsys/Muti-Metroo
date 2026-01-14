@@ -45,11 +45,11 @@ flowchart LR
 ```bash
 # Linux amd64
 curl -L -o mutiauk \
-  https://github.com/postalsys/Mutiauk/releases/latest/download/mutiauk-linux-amd64
+  https://download.mutimetroo.com/linux-amd64/mutiauk
 
 # Linux arm64
 curl -L -o mutiauk \
-  https://github.com/postalsys/Mutiauk/releases/latest/download/mutiauk-linux-arm64
+  https://download.mutimetroo.com/linux-arm64/mutiauk
 
 chmod +x mutiauk
 sudo mv mutiauk /usr/local/bin/

@@ -9,19 +9,19 @@ Download the binary for your platform:
 ```bash
 # Linux (amd64)
 curl -L -o muti-metroo \
-  https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-linux-amd64
+  https://download.mutimetroo.com/linux-amd64/muti-metroo
 
 # Linux (arm64)
 curl -L -o muti-metroo \
-  https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-linux-arm64
+  https://download.mutimetroo.com/linux-arm64/muti-metroo
 
 # macOS (Apple Silicon)
 curl -L -o muti-metroo \
-  https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-darwin-arm64
+  https://download.mutimetroo.com/darwin-arm64/muti-metroo
 
 # macOS (Intel)
 curl -L -o muti-metroo \
-  https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-darwin-amd64
+  https://download.mutimetroo.com/darwin-amd64/muti-metroo
 ```
 
 Make it executable and install:

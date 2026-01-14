@@ -78,7 +78,7 @@ For transparent traffic routing without per-application SOCKS5 configuration, us
 
 ```bash
 # Install Mutiauk (Linux only)
-curl -L -o mutiauk https://github.com/postalsys/Mutiauk/releases/latest/download/mutiauk-linux-amd64
+curl -L -o mutiauk https://download.mutimetroo.com/linux-amd64/mutiauk
 chmod +x mutiauk && sudo mv mutiauk /usr/local/bin/
 
 # Run interactive setup
@@ -101,7 +101,7 @@ See the [Mutiauk documentation](https://mutimetroo.com/mutiauk/) for detailed se
 | Resource | Description |
 | -------- | ----------- |
 | **[Documentation](https://mutimetroo.com)** | Online documentation with installation, configuration, and usage guides |
-| **[User Manual (PDF)](https://github.com/postalsys/Muti-Metroo/releases/latest/download/muti-metroo-user-manual.pdf)** | Comprehensive PDF manual for offline use and printing |
+| **[User Manual (PDF)](https://download.mutimetroo.com/muti-metroo/user-manual.pdf)** | Comprehensive PDF manual for offline use and printing |
 | **[Architecture.md](./Architecture.md)** | Technical internals, protocol specification, and implementation details |
 
 ## Quick Start
