@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.2](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.4.1...muti-metroo-v2.4.2) (2026-01-13)
+
+
+### Bug Fixes
+
+* trigger release for gitignore and header updates ([acd3d1c](https://github.com/postalsys/Muti-Metroo/commit/acd3d1c2730baf40ee40a177c8b6ac0a7efc3e27))
+
 ## [2.4.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.4.0...muti-metroo-v2.4.1) (2026-01-13)
 
 
