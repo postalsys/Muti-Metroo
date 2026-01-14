@@ -721,8 +721,11 @@ All communication uses a consistent framing protocol:
 │  ┌──────┬────────────────────┬─────────────┬─────────────────────────────┐  │
 │  │ Type │ Name               │ Direction   │ Purpose                     │  │
 │  ├──────┼────────────────────┼─────────────┼─────────────────────────────┤  │
-│  │ 0x40 │ ICMP_ECHO          │ Forward     │ ICMP echo request (ping)    │  │
-│  │ 0x41 │ ICMP_ECHO_REPLY    │ Backward    │ ICMP echo reply (pong)      │  │
+│  │ 0x40 │ ICMP_OPEN          │ Forward     │ Request ICMP echo session   │  │
+│  │ 0x41 │ ICMP_OPEN_ACK      │ Backward    │ Session established         │  │
+│  │ 0x42 │ ICMP_OPEN_ERR      │ Backward    │ Session failed              │  │
+│  │ 0x43 │ ICMP_ECHO          │ Both        │ Echo request/reply payload  │  │
+│  │ 0x44 │ ICMP_CLOSE         │ Both        │ Close ICMP session          │  │
 │  └──────┴────────────────────┴─────────────┴─────────────────────────────┘  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -734,18 +737,21 @@ All communication uses a consistent framing protocol:
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              FRAME FLAGS                                    │
 │                                                                             │
-│   Bit   │ Name          │ Applicable To      │ Meaning                      │
-│  ───────┼───────────────┼────────────────────┼───────────────────────────── │
-│    0    │ FIN_WRITE     │ STREAM_CLOSE       │ Sender is done writing       │
-│    1    │ FIN_READ      │ STREAM_CLOSE       │ Sender is done reading       │
-│    2    │ (reserved)    │                    │                              │
-│    3    │ (reserved)    │                    │                              │
-│   4-7   │ (reserved)    │                    │                              │
+│   Bit   │ Name          │ Applicable To          │ Meaning                  │
+│  ───────┼───────────────┼────────────────────────┼───────────────────────── │
+│    0    │ FIN_WRITE     │ STREAM_DATA/CLOSE      │ Sender is done writing   │
+│    1    │ FIN_READ      │ STREAM_CLOSE           │ Sender is done reading   │
+│    2    │ (reserved)    │                        │                          │
+│    3    │ (reserved)    │                        │                          │
+│   4-7   │ (reserved)    │                        │                          │
 │                                                                             │
-│   STREAM_CLOSE flag combinations:                                           │
-│   0x01 = FIN_WRITE only    → Half-close (done sending)                      │
-│   0x02 = FIN_READ only     → Half-close (done receiving)                    │
-│   0x03 = FIN_WRITE|READ    → Full close                                     │
+│   FIN_WRITE can be set on STREAM_DATA to signal half-close with final data  │
+│   or on STREAM_CLOSE for half-close without additional data.                │
+│                                                                             │
+│   Flag combinations on STREAM_CLOSE:                                        │
+│   0x01 = FIN_WRITE only    -> Half-close (done sending)                     │
+│   0x02 = FIN_READ only     -> Half-close (done receiving)                   │
+│   0x03 = FIN_WRITE|READ    -> Full close                                    │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -888,7 +894,9 @@ All communication uses a consistent framing protocol:
 │   │ 17    │ WRITE_FAILED         │ Write operation failed             │     │
 │   │ 18    │ GENERAL_FAILURE      │ General error (e.g., key exchange) │     │
 │   │ 30    │ UDP_DISABLED         │ UDP relay is disabled              │     │
-│   │ 31    │ UDP_PORT_NOT_ALLOWED │ UDP port not in whitelist          │     │
+│   │ 50    │ ICMP_DISABLED        │ ICMP feature is disabled           │     │
+│   │ 51    │ ICMP_DEST_NOT_ALLOWED│ Destination not in allowed CIDRs   │     │
+│   │ 52    │ ICMP_SESSION_LIMIT   │ Max concurrent sessions reached    │     │
 │   └───────┴──────────────────────┴────────────────────────────────────┘     │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -994,7 +1002,8 @@ SOCKS5 UDP ASSOCIATE (RFC 1928) enables tunneling UDP traffic through the mesh n
 │ AddressType     │ 1      │ Target address type                      │
 │ Address         │ varies │ Target IP or domain                      │
 │ Port            │ 2      │ Target port                              │
-│ Data            │ varies │ UDP payload (max ~1400 bytes)            │
+│ DataLen         │ 2      │ Length of encrypted data                 │
+│ Data            │ varies │ Encrypted UDP payload (E2E ChaCha20)     │
 └─────────────────┴────────┴──────────────────────────────────────────┘
 ```
 
@@ -1004,7 +1013,12 @@ SOCKS5 UDP ASSOCIATE (RFC 1928) enables tunneling UDP traffic through the mesh n
 ┌─────────────────┬────────┬──────────────────────────────────────────┐
 │ Field           │ Size   │ Description                              │
 ├─────────────────┼────────┼──────────────────────────────────────────┤
-│ Reason          │ 1      │ Close reason (0=normal, 1+=error)        │
+│ Reason          │ 1      │ Close reason:                            │
+│                 │        │   0 = Normal termination                 │
+│                 │        │   1 = Idle timeout                       │
+│                 │        │   2 = Error occurred                     │
+│                 │        │   3 = TCP control connection closed      │
+│                 │        │   4 = Administrative close               │
 └─────────────────┴────────┴──────────────────────────────────────────┘
 ```
 
@@ -1013,7 +1027,7 @@ SOCKS5 UDP ASSOCIATE (RFC 1928) enables tunneling UDP traffic through the mesh n
 - **Fragmentation**: Not supported. Datagrams with frag > 0 are rejected.
 - **Max Datagram Size**: 1472 bytes (MTU - IP/UDP headers)
 - **Association Lifetime**: Tied to TCP control connection. When TCP closes, UDP association terminates.
-- **Port Whitelist**: Exit nodes can restrict allowed UDP ports via configuration.
+- **Access Control**: Uses CIDR-based exit routes (same as TCP streams).
 - **Authentication**: Uses existing SOCKS5 authentication (not separate password).
 
 ---
@@ -1165,84 +1179,134 @@ internal/forward/
 
 ## 6.7 ICMP Echo Protocol
 
-The ICMP echo (ping) feature allows sending ICMP echo requests through the mesh network to test connectivity to remote hosts. Unlike TCP streams, ICMP echo uses dedicated frame types and unprivileged ICMP sockets.
+The ICMP echo (ping) feature allows sending ICMP echo requests through the mesh network to test connectivity to remote hosts. Unlike TCP streams which open connections directly, ICMP uses a session-based model with dedicated frame types and unprivileged ICMP sockets.
 
 ### Architecture
 
 **Components:**
 
-- **Ingress** (`internal/agent/icmp.go`): Receives ping requests via SOCKS5 or WebSocket, creates ICMP sessions
-- **Handler** (`internal/icmp/handler.go`): Exit node ICMP processing, sends echo requests, waits for replies
-- **Session** (`internal/icmp/session.go`): Per-ping session state with E2E encryption
+- **Handler** (`internal/icmp/handler.go`): Exit node ICMP processing, session management, sends real echo requests
+- **Session** (`internal/icmp/session.go`): Per-session state with E2E encryption keys
 - **Socket** (`internal/icmp/socket.go`): Platform-specific unprivileged ICMP socket operations
+- **Config** (`internal/icmp/config.go`): Configuration and CIDR validation
 
-**Traffic Flow:**
+### Session Lifecycle
+
+ICMP uses a session model similar to TCP streams:
 
 ```
-CLI: muti-metroo ping <target>
-    |
-    | SOCKS5 or WebSocket (via HTTP API)
-    |
-    v
-Ingress Agent
-    |
-    | ICMP_ECHO frame (E2E encrypted)
-    | Route lookup for target IP
-    |
-    v
-Transit Agent(s)
-    |
-    | Frame relay
-    |
-    v
-Exit Agent (icmp.handler)
-    |
-    | Unprivileged ICMP socket
-    | (no root required)
-    |
-    v
-Target Host
-    |
-    | ICMP echo reply
-    |
-    v
-Exit Agent
-    |
-    | ICMP_ECHO_REPLY frame
-    |
-    v
-Ingress Agent -> CLI output
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        ICMP SESSION LIFECYCLE                                │
+│                                                                              │
+│  Client              Ingress              Transit             Exit           │
+│    │                    │                    │                  │            │
+│    │  Ping request      │                    │                  │            │
+│    │───────────────────>│                    │                  │            │
+│    │                    │                    │                  │            │
+│    │                    │    ICMP_OPEN       │                  │            │
+│    │                    │───────────────────>│   ICMP_OPEN      │            │
+│    │                    │                    │─────────────────>│            │
+│    │                    │                    │                  │            │
+│    │                    │                    │   ICMP_OPEN_ACK  │            │
+│    │                    │   ICMP_OPEN_ACK    │<─────────────────│            │
+│    │                    │<───────────────────│                  │            │
+│    │                    │                    │                  │            │
+│    │                    │    ICMP_ECHO       │   ICMP_ECHO      │ Real ICMP  │
+│    │                    │~~~~~~~~~~~~~~~~~~~>│~~~~~~~~~~~~~~~~~>│~~~~~~~~~~~>│
+│    │                    │                    │                  │            │
+│    │                    │    ICMP_ECHO       │   ICMP_ECHO      │ Real reply │
+│    │  Ping response     │<~~~~~~~~~~~~~~~~~~~│<~~~~~~~~~~~~~~~~~│<~~~~~~~~~~~│
+│    │<───────────────────│                    │                  │            │
+│    │                    │                    │                  │            │
+│    │                    │    ICMP_CLOSE      │   ICMP_CLOSE     │            │
+│    │                    │───────────────────>│─────────────────>│            │
+│                                                                              │
+│  Legend: ───> = Control frames  ~~~> = Echo data frames                      │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Session States:**
+- `StateOpening`: Session being established, awaiting ICMP_OPEN_ACK
+- `StateOpen`: Active session, can relay echo packets bidirectionally
+- `StateClosed`: Session terminated
 
 ### Frame Protocol
 
-**ICMP_ECHO (0x40):**
+#### ICMP_OPEN (0x40)
+
+Request to establish an ICMP echo session to a target IP.
 
 ```
 ┌─────────────────┬────────┬──────────────────────────────────────────┐
 │ Field           │ Size   │ Description                              │
 ├─────────────────┼────────┼──────────────────────────────────────────┤
-│ SessionID       │ 4      │ uint32 session identifier                │
-│ TargetIP        │ 4/16   │ IPv4 or IPv6 target address              │
-│ Identifier      │ 2      │ uint16 ICMP identifier                   │
-│ Sequence        │ 2      │ uint16 ICMP sequence number              │
-│ PayloadSize     │ 2      │ uint16 payload size                      │
+│ RequestID       │ 8      │ Stable correlation ID across hops        │
+│ DestIPLen       │ 1      │ Destination IP length (4=IPv4, 16=IPv6)  │
+│ DestIP          │ 4/16   │ Target IPv4 or IPv6 address              │
+│ TTL             │ 1      │ Hop limit (decremented each hop)         │
+│ PathLen         │ 1      │ Number of remaining hops in path         │
+│ RemainingPath   │ 16*N   │ AgentIDs for remaining path              │
 │ EphemeralPubKey │ 32     │ X25519 public key for E2E encryption     │
 └─────────────────┴────────┴──────────────────────────────────────────┘
 ```
 
-**ICMP_ECHO_REPLY (0x41):**
+#### ICMP_OPEN_ACK (0x41)
+
+Confirms ICMP session established at exit node.
 
 ```
 ┌─────────────────┬────────┬──────────────────────────────────────────┐
 │ Field           │ Size   │ Description                              │
 ├─────────────────┼────────┼──────────────────────────────────────────┤
-│ SessionID       │ 4      │ uint32 session identifier (matches echo) │
-│ Success         │ 1      │ 0x01 = success, 0x00 = failure           │
-│ RTT             │ 8      │ int64 round-trip time (nanoseconds)      │
-│ TTL             │ 1      │ uint8 TTL from reply (if available)      │
-│ ErrorCode       │ 1      │ Error code if Success=0x00               │
-│ EphemeralPubKey │ 32     │ X25519 public key (for key exchange)     │
+│ RequestID       │ 8      │ Matches RequestID from ICMP_OPEN         │
+│ EphemeralPubKey │ 32     │ Exit's X25519 public key for E2E         │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+#### ICMP_OPEN_ERR (0x42)
+
+ICMP session establishment failed.
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ RequestID       │ 8      │ Matches RequestID from ICMP_OPEN         │
+│ ErrorCode       │ 2      │ Error code (50, 51, 52, or 18)           │
+│ MessageLen      │ 1      │ Length of error message (max 255)        │
+│ Message         │ N      │ Human-readable error description         │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+#### ICMP_ECHO (0x43)
+
+Carries ICMP echo request or reply data. Used bidirectionally.
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ Identifier      │ 2      │ ICMP echo identifier                     │
+│ Sequence        │ 2      │ ICMP sequence number                     │
+│ IsReply         │ 1      │ 0 = request, 1 = reply                   │
+│ DataLen         │ 2      │ Length of encrypted payload              │
+│ Data            │ N      │ Encrypted echo payload (max 1472 bytes)  │
+└─────────────────┴────────┴──────────────────────────────────────────┘
+```
+
+#### ICMP_CLOSE (0x44)
+
+Terminates an ICMP session.
+
+```
+┌─────────────────┬────────┬──────────────────────────────────────────┐
+│ Field           │ Size   │ Description                              │
+├─────────────────┼────────┼──────────────────────────────────────────┤
+│ Reason          │ 1      │ Close reason:                            │
+│                 │        │   0 = Normal termination                 │
+│                 │        │   1 = Idle timeout                       │
+│                 │        │   2 = Error occurred                     │
 └─────────────────┴────────┴──────────────────────────────────────────┘
 ```
 
@@ -1251,47 +1315,72 @@ Ingress Agent -> CLI output
 ICMP echo uses the same E2E encryption as TCP streams:
 
 1. Ingress generates ephemeral X25519 keypair
-2. `ICMP_ECHO` includes ingress public key
-3. Exit generates ephemeral keypair, derives shared secret
-4. `ICMP_ECHO_REPLY` includes exit public key
-5. Session key derived: `DeriveSessionKey(sharedSecret, ingressPub, exitPub, isInitiator)`
+2. `ICMP_OPEN` includes ingress ephemeral public key
+3. Exit generates ephemeral keypair, performs ECDH key exchange
+4. `ICMP_OPEN_ACK` includes exit's ephemeral public key
+5. Both sides derive session key: `DeriveSessionKey(sharedSecret, requestID, ingressPub, exitPub, isInitiator)`
+6. `ICMP_ECHO` data payloads encrypted with ChaCha20-Poly1305
+
+Transit agents relay encrypted frames without decryption capability.
+
+### Access Control
+
+Exit nodes can restrict which destinations are allowed for ICMP:
+
+```yaml
+icmp:
+  enabled: true
+  allowed_cidrs:
+    - "10.0.0.0/8"       # Internal network
+    - "172.16.0.0/12"    # Private range
+    - "8.8.8.0/24"       # Google DNS
+```
+
+**Rules:**
+- Empty `allowed_cidrs` list = allow all destinations (default)
+- Non-empty list = only destinations matching a CIDR are allowed
+- Requests to disallowed destinations return `ICMP_OPEN_ERR` with code 51
 
 ### Unprivileged ICMP Sockets
 
 The implementation uses unprivileged ICMP sockets (no root required):
 
-- **Linux**: `SOCK_DGRAM` with `IPPROTO_ICMP` (requires `net.ipv4.ping_group_range`)
-- **macOS/BSD**: `SOCK_DGRAM` ICMP available by default
-- **Windows**: Uses ICMP.dll `IcmpSendEcho2` API
-
-Each ICMP session gets its own socket. Reply filtering by expected ID is not needed because each session's socket only receives its own replies.
+- **Linux**: Uses `udp4`/`udp6` network with `golang.org/x/net/icmp` package
+  - Requires sysctl: `net.ipv4.ping_group_range="0 65535"`
+- **macOS/BSD**: Unprivileged ICMP available by default
+- **Windows**: Uses ICMP echo API via Go's icmp package
 
 ### Configuration
 
 ```yaml
 icmp:
-  enabled: true
-  max_sessions: 100
-  session_timeout: 30s
+  enabled: true              # Enable/disable ICMP feature
+  max_sessions: 100          # Max concurrent sessions (0=unlimited)
+  idle_timeout: 60s          # Session cleanup timeout
+  echo_timeout: 5s           # Per-echo reply timeout
+  allowed_cidrs:             # Destination whitelist (empty=allow all)
+    - "10.0.0.0/8"
 ```
 
 ### Error Codes
 
-| Code | Name | Description |
-|------|------|-------------|
-| 1 | Timeout | No reply within timeout |
-| 2 | Unreachable | Destination unreachable |
+| Code | Name                  | Description                           |
+|------|-----------------------|---------------------------------------|
+| 50   | ICMP_DISABLED         | ICMP feature is disabled              |
+| 51   | ICMP_DEST_NOT_ALLOWED | Destination not in allowed CIDRs      |
+| 52   | ICMP_SESSION_LIMIT    | Max concurrent sessions reached       |
+| 18   | GENERAL_FAILURE       | Socket creation or key exchange error |
 
 ### Package Structure
 
 ```
 internal/icmp/
-├── handler.go      # Exit node ICMP processing
-├── socket.go       # Platform-specific ICMP socket operations
-├── session.go      # Session state management
-├── config.go       # CIDR validation
-├── config_test.go  # Config tests
-└── session_test.go # Session tests
+├── handler.go       # Exit node ICMP processing, session management
+├── session.go       # Session state and lifecycle
+├── socket.go        # Platform-specific ICMP socket operations
+├── config.go        # Configuration structure
+├── handler_test.go  # Handler unit tests
+└── session_test.go  # Session unit tests
 ```
 
 ---
