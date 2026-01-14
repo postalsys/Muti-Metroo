@@ -219,15 +219,6 @@ const config: Config = {
             },
           ],
         },
-        {
-          title: 'Contact',
-          items: [
-            {
-              label: 'Support',
-              href: 'mailto:support@postalsys.com',
-            },
-          ],
-        },
       ],
       copyright: `Copyright © ${new Date().getFullYear()} Postal Systems OÜ. All rights reserved.`,
     },
