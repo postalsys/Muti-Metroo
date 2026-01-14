@@ -5,6 +5,10 @@
   width: 100%;
 }
 
+.featureCol {
+  margin-bottom: 1.5rem;
+}
+
 .featureImage {
   height: 140px;
   width: auto;

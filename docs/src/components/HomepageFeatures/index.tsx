@@ -90,7 +90,7 @@ const FeatureList: FeatureItem[] = [
 
 function Feature({title, image, imageAlt, description, link}: FeatureItem) {
   return (
-    <div className={clsx('col col--4')}>
+    <div className={clsx('col col--4', styles.featureCol)}>
       <Link to={link} className={styles.featureLink}>
         <div className={styles.featureCard}>
           <div className="text--center padding-vert--md">
