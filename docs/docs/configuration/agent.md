@@ -29,12 +29,16 @@ agent:
   # Human-readable name
   display_name: "My Agent"      # Shown in dashboard and logs
 
-  # Data directory
-  data_dir: "./data"            # For agent_id file
+  # Data directory (optional when identity is in config)
+  data_dir: "./data"            # For agent_id and keypair files
 
   # Logging
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text, json
+
+  # X25519 keypair for E2E encryption (optional - for single-file deployment)
+  private_key: ""               # 64-character hex string
+  public_key: ""                # Optional, derived from private_key
 ```
 
 ## Agent ID
@@ -115,6 +119,21 @@ agent:
 
 Contents:
 - `agent_id` - Agent identity file
+- `agent_key` - X25519 private key
+- `agent_key.pub` - X25519 public key
+
+### When Data Directory is Optional
+
+The data directory becomes **optional** when you specify identity directly in config:
+
+```yaml
+agent:
+  id: "a1b2c3d4e5f6789012345678901234ab"
+  private_key: "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+  # data_dir not needed - identity is fully in config
+```
+
+This enables single-file deployments where the agent can run without any external files.
 
 ### Permissions
 
@@ -127,6 +146,69 @@ chmod 700 ./data
 ### Shared Storage Warning
 
 Do not share `data_dir` between multiple agents - each agent needs its own identity.
+
+## Identity Keypair
+
+Each agent has an X25519 keypair for end-to-end encryption.
+
+### File-Based Identity (Default)
+
+By default, keys are stored in `data_dir`:
+
+```yaml
+agent:
+  data_dir: "./data"
+```
+
+Keys are auto-generated on first run and stored as:
+- `{data_dir}/agent_key` - Private key (permissions 0600)
+- `{data_dir}/agent_key.pub` - Public key (permissions 0644)
+
+### Config-Based Identity
+
+For single-file deployments, specify keys directly:
+
+```yaml
+agent:
+  id: "a1b2c3d4e5f6789012345678901234ab"
+  private_key: "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+```
+
+The `public_key` field is optional - it's automatically derived from `private_key`.
+
+### Generating Keys
+
+To generate a keypair for config:
+
+```bash
+# Generate keys in a temporary directory
+muti-metroo init -d /tmp/keys
+
+# View the private key
+cat /tmp/keys/agent_key
+
+# View the public key
+cat /tmp/keys/agent_key.pub
+
+# Clean up
+rm -rf /tmp/keys
+```
+
+### Single-File Deployment
+
+When using the setup wizard with embedded config, identity is automatically embedded:
+
+```bash
+muti-metroo setup
+# Choose "Embed in binary" for configuration delivery
+```
+
+The wizard automatically:
+1. Sets `agent.id` to the generated ID
+2. Sets `agent.private_key` to the generated private key
+3. Clears `agent.data_dir`
+
+The resulting binary can run without any external files.
 
 ## Logging
 

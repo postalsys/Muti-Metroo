@@ -1146,3 +1146,304 @@ management:
 		}
 	})
 }
+
+// Tests for agent identity keypair configuration
+
+func TestAgentConfig_HasIdentityKeypair(t *testing.T) {
+	tests := []struct {
+		name       string
+		privateKey string
+		want       bool
+	}{
+		{"empty", "", false},
+		{"with_private_key", "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &AgentConfig{PrivateKey: tt.privateKey}
+			if got := cfg.HasIdentityKeypair(); got != tt.want {
+				t.Errorf("HasIdentityKeypair() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIdentityKeypair_ValidPrivateKey(t *testing.T) {
+	// Valid 64-character hex string (32 bytes)
+	validPrivateKey := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  private_key: "` + validPrivateKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Should have identity keypair
+	if !cfg.Agent.HasIdentityKeypair() {
+		t.Error("HasIdentityKeypair() = false, want true")
+	}
+
+	// Should parse private key successfully
+	privKey, err := cfg.Agent.GetIdentityPrivateKey()
+	if err != nil {
+		t.Fatalf("GetIdentityPrivateKey() failed: %v", err)
+	}
+	if privKey[0] != 0x48 || privKey[1] != 0xbb {
+		t.Errorf("GetIdentityPrivateKey() first bytes = %x %x, want 48 bb", privKey[0], privKey[1])
+	}
+}
+
+func TestIdentityKeypair_WithMatchingPublicKey(t *testing.T) {
+	// These are a valid keypair - public key derived from private key
+	validPrivateKey := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+	// Derived public key (computed via curve25519.ScalarBaseMult)
+	validPublicKey := "de47b21c5f00c58e1f6c11deaaa6b65bf3f38f43cb8f8a8c28987614c2c14a74"
+
+	yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  private_key: "` + validPrivateKey + `"
+  public_key: "` + validPublicKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Should parse both keys
+	pubKey, hasPublic, err := cfg.Agent.GetIdentityPublicKey()
+	if err != nil {
+		t.Fatalf("GetIdentityPublicKey() failed: %v", err)
+	}
+	if !hasPublic {
+		t.Error("GetIdentityPublicKey() hasPublic = false, want true")
+	}
+	if pubKey[0] != 0xde || pubKey[1] != 0x47 {
+		t.Errorf("GetIdentityPublicKey() first bytes = %x %x, want de 47", pubKey[0], pubKey[1])
+	}
+}
+
+func TestIdentityKeypair_DataDirOptionalWithPrivateKey(t *testing.T) {
+	// When private_key is set, data_dir should be optional (validation passes)
+	validPrivateKey := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	// Explicitly set data_dir to empty to test that validation passes
+	yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  data_dir: ""
+  private_key: "` + validPrivateKey + `"
+`
+
+	_, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() should succeed with private_key and empty data_dir: %v", err)
+	}
+}
+
+func TestIdentityKeypair_DataDirRequiredWithAutoID(t *testing.T) {
+	// When id is "auto" and no private_key, data_dir is required
+	// Explicitly set data_dir to empty to override the default
+	yamlConfig := `
+agent:
+  id: "auto"
+  data_dir: ""
+`
+
+	_, err := Parse([]byte(yamlConfig))
+	if err == nil {
+		t.Error("Parse() should fail when id=auto and empty data_dir")
+	}
+	if !strings.Contains(err.Error(), "data_dir is required") {
+		t.Errorf("Error = %v, want to contain 'data_dir is required'", err)
+	}
+}
+
+func TestIdentityKeypair_DataDirRequiredWithoutPrivateKey(t *testing.T) {
+	// When no private_key, data_dir is required
+	// Explicitly set data_dir to empty to override the default
+	yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  data_dir: ""
+`
+
+	_, err := Parse([]byte(yamlConfig))
+	if err == nil {
+		t.Error("Parse() should fail when no private_key and empty data_dir")
+	}
+	if !strings.Contains(err.Error(), "data_dir is required") {
+		t.Errorf("Error = %v, want to contain 'data_dir is required'", err)
+	}
+}
+
+func TestIdentityKeypair_PublicKeyWithoutPrivateKey(t *testing.T) {
+	// public_key without private_key should fail
+	validPublicKey := "de47b21c5f00c58e1f6c11deaaa6b65bf3f38f43cb8f8a8c28987614c2c14a74"
+
+	yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  data_dir: "./data"
+  public_key: "` + validPublicKey + `"
+`
+
+	_, err := Parse([]byte(yamlConfig))
+	if err == nil {
+		t.Error("Parse() should fail when public_key is set without private_key")
+	}
+	if !strings.Contains(err.Error(), "requires agent.private_key") {
+		t.Errorf("Error = %v, want to contain 'requires agent.private_key'", err)
+	}
+}
+
+func TestIdentityKeypair_InvalidPrivateKeyHex(t *testing.T) {
+	tests := []struct {
+		name       string
+		privateKey string
+		wantErr    string
+	}{
+		{
+			name:       "too_short",
+			privateKey: "a1b2c3d4",
+			wantErr:    "must be 32 bytes",
+		},
+		{
+			name:       "invalid_hex",
+			privateKey: "not_valid_hex_string_here_needs_to_be_64_chars_long_for_testing!",
+			wantErr:    "invalid agent private key hex",
+		},
+		{
+			name:       "odd_length",
+			privateKey: "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57",
+			wantErr:    "invalid agent private key hex",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  private_key: "` + tc.privateKey + `"
+`
+			_, err := Parse([]byte(yamlConfig))
+			if err == nil {
+				t.Error("Parse() should fail for invalid private key")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Error = %v, want to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIdentityKeypair_InvalidPublicKeyHex(t *testing.T) {
+	validPrivateKey := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	tests := []struct {
+		name      string
+		publicKey string
+		wantErr   string
+	}{
+		{
+			name:      "too_short",
+			publicKey: "a1b2c3d4",
+			wantErr:   "must be 32 bytes",
+		},
+		{
+			name:      "invalid_hex",
+			publicKey: "not_valid_hex_string_here_needs_to_be_64_chars_long_for_testing!",
+			wantErr:   "invalid agent public key hex",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  private_key: "` + validPrivateKey + `"
+  public_key: "` + tc.publicKey + `"
+`
+			_, err := Parse([]byte(yamlConfig))
+			if err == nil {
+				t.Error("Parse() should fail for invalid public key")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Error = %v, want to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestIdentityKeypair_Redacted(t *testing.T) {
+	validPrivateKey := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  private_key: "` + validPrivateKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Get redacted config
+	redacted := cfg.Redacted()
+
+	// Private key SHOULD be redacted
+	if redacted.Agent.PrivateKey != "[REDACTED]" {
+		t.Errorf("Redacted agent private key = %s, want [REDACTED]", redacted.Agent.PrivateKey)
+	}
+
+	// Original should still have the real private key
+	if cfg.Agent.PrivateKey != validPrivateKey {
+		t.Errorf("Original agent private key was modified")
+	}
+}
+
+func TestIdentityKeypair_HasSensitiveData(t *testing.T) {
+	validPrivateKey := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	t.Run("with_agent_private_key", func(t *testing.T) {
+		yamlConfig := `
+agent:
+  id: "ea468d30f0e0b80ea37ba9f6a7902407"
+  private_key: "` + validPrivateKey + `"
+`
+		cfg, err := Parse([]byte(yamlConfig))
+		if err != nil {
+			t.Fatalf("Parse() failed: %v", err)
+		}
+
+		if !cfg.HasSensitiveData() {
+			t.Error("HasSensitiveData() = false, want true (has agent private key)")
+		}
+	})
+
+	t.Run("without_agent_private_key", func(t *testing.T) {
+		yamlConfig := `
+agent:
+  data_dir: "./data"
+`
+		cfg, err := Parse([]byte(yamlConfig))
+		if err != nil {
+			t.Fatalf("Parse() failed: %v", err)
+		}
+
+		// No private key alone is not sensitive
+		if cfg.HasSensitiveData() {
+			t.Error("HasSensitiveData() = true, want false (no private key)")
+		}
+	})
+}

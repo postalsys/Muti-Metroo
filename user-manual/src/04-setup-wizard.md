@@ -109,6 +109,13 @@ For both options, you specify a **service name** used when installing as a syste
 When embedding:
 - **Output path**: Where to save the embedded binary
 
+When you choose to embed config, the wizard **automatically** embeds the identity:
+- `agent.id` is set to the generated agent ID
+- `agent.private_key` is set to the generated X25519 private key
+- `agent.data_dir` is cleared (not needed)
+
+The resulting binary can run without any external files - true single-file deployment.
+
 ### Step 13: Service Installation
 
 If running with elevated privileges, optionally install as a system service:

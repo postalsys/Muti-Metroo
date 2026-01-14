@@ -307,3 +307,140 @@ func TestStoreZeroKey(t *testing.T) {
 		t.Error("Store() should fail with zero private key")
 	}
 }
+
+// Tests for KeypairFromConfig
+
+func TestKeypairFromConfig_ValidPrivateKey(t *testing.T) {
+	// Valid 64-character hex string
+	privateKeyHex := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	kp, err := KeypairFromConfig(privateKeyHex, "")
+	if err != nil {
+		t.Fatalf("KeypairFromConfig() error = %v", err)
+	}
+
+	// Verify private key was parsed correctly
+	if kp.PrivateKey[0] != 0x48 || kp.PrivateKey[1] != 0xbb {
+		t.Errorf("private key first bytes = %x %x, want 48 bb", kp.PrivateKey[0], kp.PrivateKey[1])
+	}
+
+	// Verify public key was derived (not zero)
+	if IsZeroKey(kp.PublicKey) {
+		t.Error("public key is zero, should be derived from private key")
+	}
+
+	// Verify public key is correctly derived
+	derivedPub := DerivePublicKey(kp.PrivateKey)
+	if kp.PublicKey != derivedPub {
+		t.Error("public key does not match derivation from private key")
+	}
+}
+
+func TestKeypairFromConfig_WithMatchingPublicKey(t *testing.T) {
+	privateKeyHex := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	// First get the correct public key by deriving it
+	privKey, _ := ParseKey(privateKeyHex)
+	correctPublicKey := DerivePublicKey(privKey)
+	publicKeyHex := KeyToString(correctPublicKey)
+
+	kp, err := KeypairFromConfig(privateKeyHex, publicKeyHex)
+	if err != nil {
+		t.Fatalf("KeypairFromConfig() error = %v", err)
+	}
+
+	if kp.PublicKey != correctPublicKey {
+		t.Error("public key does not match expected derived key")
+	}
+}
+
+func TestKeypairFromConfig_MismatchedPublicKey(t *testing.T) {
+	privateKeyHex := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+	// A different public key that doesn't match the private key
+	wrongPublicKeyHex := "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+	_, err := KeypairFromConfig(privateKeyHex, wrongPublicKeyHex)
+	if err == nil {
+		t.Error("KeypairFromConfig() should fail with mismatched public key")
+	}
+	if err.Error() != "public key does not match derivation from private key" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestKeypairFromConfig_EmptyPrivateKey(t *testing.T) {
+	_, err := KeypairFromConfig("", "")
+	if err == nil {
+		t.Error("KeypairFromConfig() should fail with empty private key")
+	}
+	if err.Error() != "private key is required" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestKeypairFromConfig_InvalidPrivateKeyHex(t *testing.T) {
+	tests := []struct {
+		name       string
+		privateKey string
+	}{
+		{"too short", "a1b2c3d4"},
+		{"invalid hex", "not_valid_hex_string_here_needs_to_be_64_chars_long_for_testing!"},
+		{"odd length", "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := KeypairFromConfig(tt.privateKey, "")
+			if err == nil {
+				t.Error("KeypairFromConfig() should fail for invalid private key")
+			}
+		})
+	}
+}
+
+func TestKeypairFromConfig_InvalidPublicKeyHex(t *testing.T) {
+	validPrivateKey := "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+
+	tests := []struct {
+		name      string
+		publicKey string
+	}{
+		{"too short", "a1b2c3d4"},
+		{"invalid hex", "not_valid_hex_string_here_needs_to_be_64_chars_long_for_testing!"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := KeypairFromConfig(validPrivateKey, tt.publicKey)
+			if err == nil {
+				t.Error("KeypairFromConfig() should fail for invalid public key")
+			}
+		})
+	}
+}
+
+func TestKeypairFromConfig_RoundTrip(t *testing.T) {
+	// Generate a keypair the normal way
+	origKP, err := NewKeypair()
+	if err != nil {
+		t.Fatalf("NewKeypair() error = %v", err)
+	}
+
+	// Export to hex strings
+	privateKeyHex := KeyToString(origKP.PrivateKey)
+	publicKeyHex := KeyToString(origKP.PublicKey)
+
+	// Load it via KeypairFromConfig
+	loadedKP, err := KeypairFromConfig(privateKeyHex, publicKeyHex)
+	if err != nil {
+		t.Fatalf("KeypairFromConfig() error = %v", err)
+	}
+
+	// Verify the keys match
+	if loadedKP.PrivateKey != origKP.PrivateKey {
+		t.Error("private key does not match after round-trip")
+	}
+	if loadedKP.PublicKey != origKP.PublicKey {
+		t.Error("public key does not match after round-trip")
+	}
+}

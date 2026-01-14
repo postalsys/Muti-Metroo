@@ -200,9 +200,36 @@ func (c *Config) CanDecryptManagement() bool {
 type AgentConfig struct {
 	ID          string `yaml:"id,omitempty"`           // "auto" or hex string
 	DisplayName string `yaml:"display_name,omitempty"` // Human-readable name (Unicode allowed)
-	DataDir     string `yaml:"data_dir"`               // Directory for persistent state (required)
+	DataDir     string `yaml:"data_dir,omitempty"`     // Directory for persistent state (optional with identity in config)
 	LogLevel    string `yaml:"log_level,omitempty"`    // debug, info, warn, error
 	LogFormat   string `yaml:"log_format,omitempty"`   // text, json
+
+	// X25519 keypair for E2E encryption (optional - enables single-file deployment)
+	// When specified, takes precedence over data_dir files, making data_dir optional.
+	// Generate with: muti-metroo init, then copy values from agent_key file.
+	PrivateKey string `yaml:"private_key,omitempty"` // 64-char hex string (32 bytes)
+	PublicKey  string `yaml:"public_key,omitempty"`  // Optional - derived from private_key if not specified
+}
+
+// HasIdentityKeypair returns true if the identity private key is configured in config.
+func (a *AgentConfig) HasIdentityKeypair() bool {
+	return a.PrivateKey != ""
+}
+
+// GetIdentityPrivateKey returns the parsed identity private key.
+// Returns an error if the key is not configured or invalid.
+func (a *AgentConfig) GetIdentityPrivateKey() ([KeySize]byte, error) {
+	return parseHexKey(a.PrivateKey, "agent private key", KeySize)
+}
+
+// GetIdentityPublicKey returns the parsed identity public key if configured.
+// Returns the key, a boolean indicating if it was configured, and any error.
+func (a *AgentConfig) GetIdentityPublicKey() ([KeySize]byte, bool, error) {
+	if a.PublicKey == "" {
+		return [KeySize]byte{}, false, nil
+	}
+	key, err := parseHexKey(a.PublicKey, "agent public key", KeySize)
+	return key, true, err
 }
 
 // ListenerConfig defines a transport listener.
@@ -754,14 +781,24 @@ func (c *Config) Validate() error {
 	var errs []string
 
 	// Validate agent config
-	if c.Agent.DataDir == "" {
-		errs = append(errs, "agent.data_dir is required")
+	// data_dir is required unless identity keypair is fully specified in config
+	if c.Agent.DataDir == "" && !c.Agent.HasIdentityKeypair() {
+		errs = append(errs, "agent.data_dir is required when agent.private_key is not configured")
+	}
+	// data_dir is also required if agent.id is "auto" (can't auto-generate without persistence)
+	if c.Agent.DataDir == "" && (c.Agent.ID == "" || c.Agent.ID == "auto") {
+		errs = append(errs, "agent.data_dir is required when agent.id is 'auto' (cannot auto-generate without persistence)")
 	}
 	if !isValidLogLevel(c.Agent.LogLevel) {
 		errs = append(errs, fmt.Sprintf("invalid log_level: %s (must be debug, info, warn, or error)", c.Agent.LogLevel))
 	}
 	if !isValidLogFormat(c.Agent.LogFormat) {
 		errs = append(errs, fmt.Sprintf("invalid log_format: %s (must be text or json)", c.Agent.LogFormat))
+	}
+
+	// Validate identity keypair configuration
+	if err := c.validateIdentityKeypair(); err != nil {
+		errs = append(errs, err.Error())
 	}
 
 	// Validate global TLS config
@@ -875,6 +912,32 @@ func (c *Config) validateManagementKeys() error {
 	if c.Management.PrivateKey != "" {
 		if _, err := c.GetManagementPrivateKey(); err != nil {
 			return fmt.Errorf("management.private_key: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateIdentityKeypair validates the agent identity keypair configuration.
+func (c *Config) validateIdentityKeypair() error {
+	// If no private key, check that public key is also not set
+	if c.Agent.PrivateKey == "" {
+		if c.Agent.PublicKey != "" {
+			return fmt.Errorf("agent.public_key requires agent.private_key to be set")
+		}
+		return nil
+	}
+
+	// Validate private key format
+	if _, err := c.Agent.GetIdentityPrivateKey(); err != nil {
+		return fmt.Errorf("agent.private_key: %w", err)
+	}
+
+	// Validate public key format if set
+	// Note: The derivation check (public matches private) is done in identity.KeypairFromConfig()
+	if c.Agent.PublicKey != "" {
+		if _, _, err := c.Agent.GetIdentityPublicKey(); err != nil {
+			return fmt.Errorf("agent.public_key: %w", err)
 		}
 	}
 
@@ -1140,6 +1203,7 @@ func (c *Config) Redacted() *Config {
 	}
 
 	// Redact other sensitive fields
+	redact(&redacted.Agent.PrivateKey)
 	redact(&redacted.FileTransfer.PasswordHash)
 	redact(&redacted.Shell.PasswordHash)
 	redact(&redacted.Management.PrivateKey)
@@ -1149,6 +1213,11 @@ func (c *Config) Redacted() *Config {
 
 // HasSensitiveData returns true if the config contains any sensitive data.
 func (c *Config) HasSensitiveData() bool {
+	// Check agent identity private key
+	if c.Agent.PrivateKey != "" {
+		return true
+	}
+
 	// Check peer proxy passwords
 	for _, p := range c.Peers {
 		if p.ProxyAuth.Password != "" {

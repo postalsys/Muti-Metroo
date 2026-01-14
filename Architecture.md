@@ -272,11 +272,50 @@ Each agent has a persistent unique identifier:
 │  AgentID: 16 bytes (128 bits)                                               │
 │                                                                             │
 │  • Generated randomly on first run using crypto/rand                        │
-│  • Persisted to data directory                                              │
 │  • Displayed as hex string: "a3f8c2d1e5b94a7c8d2e1f0a3b5c7d9e"              │
 │  • Short form for logs: "a3f8c2d1" (first 8 hex chars)                      │
 │                                                                             │
-│  Storage: {data_dir}/agent_id                                               │
+│  Identity Storage Options:                                                  │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  FILE-BASED (default):                                                │  │
+│  │    • AgentID:    {data_dir}/agent_id                                  │  │
+│  │    • PrivateKey: {data_dir}/agent_key       (0600 permissions)        │  │
+│  │    • PublicKey:  {data_dir}/agent_key.pub   (0644 permissions)        │  │
+│  │                                                                       │  │
+│  │  CONFIG-BASED (for single-file deployment):                           │  │
+│  │    • agent.id:          32-char hex string                            │  │
+│  │    • agent.private_key: 64-char hex string (X25519 private key)       │  │
+│  │    • agent.public_key:  optional (derived from private_key)           │  │
+│  │                                                                       │  │
+│  │  When config-based identity is set:                                   │  │
+│  │    • Takes precedence over file-based identity                        │  │
+│  │    • data_dir becomes optional                                        │  │
+│  │    • Enables true single-file deployment (no external files)          │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 4.1.1 X25519 Keypair for E2E Encryption
+
+Each agent has an X25519 keypair used for end-to-end encryption key exchange:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          E2E ENCRYPTION KEYPAIR                             │
+│                                                                             │
+│  Type:    X25519 (Curve25519 ECDH)                                          │
+│  Size:    32 bytes (256 bits) each                                          │
+│                                                                             │
+│  Storage precedence:                                                        │
+│    1. Config (agent.private_key) - if set, used exclusively                 │
+│    2. Files ({data_dir}/agent_key) - default, auto-generated                │
+│                                                                             │
+│  Config-based identity validation rules:                                    │
+│    • private_key alone is valid (public_key derived automatically)          │
+│    • public_key without private_key is invalid                              │
+│    • If public_key provided, must match derivation from private_key         │
+│    • data_dir required only when private_key not in config                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

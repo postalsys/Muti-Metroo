@@ -13,12 +13,26 @@ agent:
   # If not set, falls back to agent ID for display
   display_name: ""
 
-  # Directory for persistent state (agent_id, etc.)
+  # Directory for persistent state (agent_id, keypair)
+  # Optional when identity is fully specified via private_key below
   data_dir: "./data"
 
   # Logging configuration
   log_level: "info"   # debug, info, warn, error
   log_format: "text"  # text, json
+
+  # X25519 keypair for E2E encryption (optional - enables single-file deployment)
+  # When specified, takes precedence over data_dir files, making data_dir optional.
+  # Generate with: muti-metroo init -d /tmp/keys && cat /tmp/keys/agent_key
+  # private_key: "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+  # public_key is optional - derived from private_key automatically
+  # public_key: "e7d4c3b2a1..."
+
+# Example: Single-file deployment (no data_dir needed)
+# agent:
+#   id: "ea468d30f0e0b80ea37ba9f6a7902407"
+#   private_key: "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+#   log_level: "info"
 
 # ------------------------------------------------------------------------------
 # Global TLS Configuration

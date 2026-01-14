@@ -203,6 +203,16 @@ func (w *Wizard) Run() (*Result, error) {
 		fmt.Println("\n[OK] Generated new E2E encryption keypair")
 	}
 
+	// If embedding config, always embed identity for true single-file deployment
+	if embedConfig {
+		// Set identity values in config
+		cfg.Agent.ID = agentID.String()
+		cfg.Agent.PrivateKey = identity.KeyToString(keypair.PrivateKey)
+		// Clear data_dir since identity is now in config
+		cfg.Agent.DataDir = ""
+		fmt.Println("[OK] Identity embedded in config - no data folder needed")
+	}
+
 	// Handle config delivery based on user choice
 	var embeddedBinary string
 	if embedConfig {

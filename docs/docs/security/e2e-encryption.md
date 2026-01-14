@@ -33,14 +33,38 @@ End-to-end encryption is enabled automatically. There is no configuration to set
 
 ### Key Generation
 
-Each agent automatically generates an X25519 keypair on first start:
+Each agent has an X25519 keypair for E2E encryption. Keys can be stored in files or in the config.
+
+#### File-Based Keys (Default)
+
+By default, keys are generated on first start and stored in `data_dir`:
 
 | File | Purpose | Permissions |
 |------|---------|-------------|
 | `{data_dir}/agent_key` | Private key (never shared) | 0600 (owner only) |
 | `{data_dir}/agent_key.pub` | Public key (distributed to peers) | 0644 (world readable) |
 
-The keypair is persistent - once generated, it's reused on subsequent starts. The public key is automatically distributed to other agents via NodeInfo advertisements, so peers can encrypt data destined for this agent.
+The keypair is persistent - once generated, it's reused on subsequent starts.
+
+#### Config-Based Keys
+
+For single-file deployments, keys can be specified directly in config:
+
+```yaml
+agent:
+  id: "a1b2c3d4e5f6789012345678901234ab"
+  private_key: "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+  # public_key is optional - derived automatically from private_key
+```
+
+When `private_key` is set in config:
+- Keys are loaded from config instead of data_dir files
+- The `data_dir` field becomes optional
+- Enables true single-file deployment (no external files needed)
+
+Config-based keys take precedence over file-based keys.
+
+The public key is automatically distributed to other agents via NodeInfo advertisements, so peers can encrypt data destined for this agent.
 
 ### Stream Encryption Flow
 
@@ -103,6 +127,8 @@ If streams fail with decryption errors:
 
 ### Key Issues
 
+For file-based keys:
+
 ```bash
 # Verify keypair exists
 ls -la {data_dir}/agent_key*
@@ -110,6 +136,17 @@ ls -la {data_dir}/agent_key*
 # Regenerate if corrupted (will change agent identity)
 rm {data_dir}/agent_key*
 muti-metroo init -d {data_dir}
+```
+
+For config-based keys:
+
+```bash
+# Generate new keys
+muti-metroo init -d /tmp/newkeys
+
+# Copy the values to your config
+cat /tmp/newkeys/agent_key       # -> agent.private_key
+cat /tmp/newkeys/agent_id        # -> agent.id
 ```
 
 ## Next Steps

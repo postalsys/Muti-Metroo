@@ -17,9 +17,11 @@ muti-metroo run -c /path/to/config.yaml
 agent:
   id: "auto"                    # Agent ID (auto-generate or hex string)
   display_name: "My Agent"      # Human-readable name
-  data_dir: "./data"            # Persistent state directory
+  data_dir: "./data"            # Persistent state directory (optional with identity in config)
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text, json
+  private_key: ""               # X25519 private key (64-char hex, optional)
+  public_key: ""                # X25519 public key (optional, derived from private_key)
 
 # Global TLS configuration
 tls:
@@ -145,9 +147,32 @@ forward:
 agent:
   id: "auto"                    # "auto" or 32-char hex string
   display_name: "My Agent"      # Shown in dashboard
-  data_dir: "./data"            # Where to store state
+  data_dir: "./data"            # Where to store state (optional with identity in config)
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text or json
+  private_key: ""               # X25519 private key for E2E encryption (optional)
+  public_key: ""                # X25519 public key (optional, derived from private_key)
+```
+
+### Identity Keypair
+
+By default, the X25519 keypair for E2E encryption is stored in `data_dir`. For single-file deployments, you can specify the keypair directly in config:
+
+```yaml
+agent:
+  id: "a1b2c3d4e5f6789012345678901234ab"
+  private_key: "48bbea6c0c9be254bde983c92c8a53db759f27e51a6ae77fd9cca81895a5d57c"
+  # data_dir not needed when identity is in config
+```
+
+When `private_key` is set, `data_dir` becomes optional. The `public_key` field is automatically derived from `private_key` if not specified.
+
+To generate keys for config:
+
+```bash
+muti-metroo init -d /tmp/keys
+cat /tmp/keys/agent_key        # private_key value
+cat /tmp/keys/agent_id         # id value
 ```
 
 ## Listeners Section

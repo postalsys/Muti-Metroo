@@ -226,6 +226,41 @@ func LoadOrCreateKeypair(dataDir string) (*Keypair, bool, error) {
 	return kp, true, nil // Created new keypair
 }
 
+// KeypairFromConfig creates a Keypair from config-provided hex values.
+// privateKeyHex is required, publicKeyHex is optional (derived if empty).
+// If publicKeyHex is provided, it must match the derivation from privateKeyHex.
+// Returns the keypair and any error.
+func KeypairFromConfig(privateKeyHex, publicKeyHex string) (*Keypair, error) {
+	if privateKeyHex == "" {
+		return nil, errors.New("private key is required")
+	}
+
+	// Parse private key
+	privateKey, err := ParseKey(privateKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("invalid private key: %w", err)
+	}
+
+	// Derive public key from private
+	derivedPublic := DerivePublicKey(privateKey)
+
+	// If public key provided, validate it matches derivation
+	if publicKeyHex != "" {
+		providedPublic, err := ParseKey(publicKeyHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid public key: %w", err)
+		}
+		if providedPublic != derivedPublic {
+			return nil, errors.New("public key does not match derivation from private key")
+		}
+	}
+
+	return &Keypair{
+		PrivateKey: privateKey,
+		PublicKey:  derivedPublic,
+	}, nil
+}
+
 // KeypairExists checks if a keypair exists in the data directory.
 func KeypairExists(dataDir string) bool {
 	privPath := filepath.Join(dataDir, keyFileName)

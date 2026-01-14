@@ -161,22 +161,37 @@ func New(cfg *config.Config) (*Agent, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse agent ID from config: %w", err)
 		}
-		// Store the config ID to data directory for consistency
-		if err := agentID.Store(cfg.Agent.DataDir); err != nil {
-			return nil, fmt.Errorf("store agent ID: %w", err)
+		// Only store to data_dir if data_dir is configured
+		if cfg.Agent.DataDir != "" {
+			if err := agentID.Store(cfg.Agent.DataDir); err != nil {
+				return nil, fmt.Errorf("store agent ID: %w", err)
+			}
 		}
 	} else {
 		// Auto-generate or load from data directory
+		// Note: Config validation ensures data_dir is set when ID is "auto"
 		agentID, _, err = identity.LoadOrCreate(cfg.Agent.DataDir)
 		if err != nil {
 			return nil, fmt.Errorf("load identity: %w", err)
 		}
 	}
 
-	// Load or create X25519 keypair for E2E encryption
-	keypair, _, err := identity.LoadOrCreateKeypair(cfg.Agent.DataDir)
-	if err != nil {
-		return nil, fmt.Errorf("load keypair: %w", err)
+	// Load X25519 keypair for E2E encryption
+	// Check config first (enables single-file deployment), then fall back to data_dir
+	var keypair *identity.Keypair
+	if cfg.Agent.HasIdentityKeypair() {
+		// Load from config
+		keypair, err = identity.KeypairFromConfig(cfg.Agent.PrivateKey, cfg.Agent.PublicKey)
+		if err != nil {
+			return nil, fmt.Errorf("load keypair from config: %w", err)
+		}
+	} else {
+		// Fall back to data_dir (existing behavior)
+		// Note: Config validation ensures data_dir is set when private_key is not configured
+		keypair, _, err = identity.LoadOrCreateKeypair(cfg.Agent.DataDir)
+		if err != nil {
+			return nil, fmt.Errorf("load keypair: %w", err)
+		}
 	}
 
 	// Initialize logger

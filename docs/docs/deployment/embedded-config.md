@@ -21,6 +21,16 @@ The configuration is appended to the binary itself:
 - No `-c` flag needed - just `./my-agent run`
 - External config files are ignored when embedded config is present
 
+## True Single-File Deployment
+
+With embedded identity, the agent requires **zero external files**:
+
+- **Agent ID** - Stored in config as `agent.id`
+- **X25519 keypair** - Stored in config as `agent.private_key`
+- **No data directory** - Not needed when identity is in config
+
+The setup wizard offers this option automatically when embedding config.
+
 ## Creating an Embedded Binary
 
 ### Using the Setup Wizard
@@ -46,6 +56,15 @@ Delivery method:
 You'll then specify:
 - **Service name**: Custom name for the service (e.g., `my-agent`)
 - **Output path**: Where to save the embedded binary
+
+### Automatic Identity Embedding
+
+When you choose to embed config, the wizard **automatically** embeds the identity:
+- `agent.id` is set to the generated agent ID
+- `agent.private_key` is set to the generated X25519 private key
+- `agent.data_dir` is cleared (not needed)
+
+The resulting binary can run with no external files - true single-file deployment.
 
 ### Binary Output
 
