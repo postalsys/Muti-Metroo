@@ -85,7 +85,6 @@ html: $(BUILD_DIR)/combined.md
 		--metadata-file=../metadata.yaml \
 		--toc --toc-depth=3 \
 		--standalone \
-		--highlight-style=tango \
 		-o manual.html
 	@echo "HTML built: $(OUTPUT_HTML)"
 
@@ -107,12 +106,8 @@ pdf: $(BUILD_DIR)/combined.md
 		--toc --toc-depth=3 \
 		--include-in-header=../$(ASSETS_DIR)/header.tex \
 		--include-in-header=version.tex \
-		--highlight-style=tango \
 		-V geometry:margin=1in \
 		-V fontsize=11pt \
-		-V linkcolor=blue \
-		-V urlcolor=blue \
-		-V toccolor=black \
 		-o muti-metroo-user-manual.pdf
 	@echo "PDF built: $(OUTPUT_PDF)"
 

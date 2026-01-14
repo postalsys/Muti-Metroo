@@ -20,9 +20,11 @@
 \makeatother
 \setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
 
-% Define colors
-\definecolor{primaryblue}{RGB}{0, 102, 204}
-\definecolor{darkgray}{RGB}{64, 64, 64}
+% Define colors - Mole-inspired warm orange/tan theme (matches Docusaurus site)
+\definecolor{primarycolor}{RGB}{196, 136, 58}    % #c4883a - warm orange/tan
+\definecolor{primarydark}{RGB}{176, 122, 52}     % #b07a34 - darker variant
+\definecolor{linkcolor}{RGB}{160, 107, 45}       % #a06b2d - link color
+\definecolor{darkgray}{RGB}{61, 61, 61}          % #3d3d3d - text color
 \definecolor{lightgray}{RGB}{240, 240, 240}
 \definecolor{codebg}{RGB}{248, 248, 248}
 \definecolor{warnbg}{RGB}{255, 243, 205}
@@ -30,6 +32,10 @@
 
 % Code block styling
 \tcbuselibrary{listings,skins,breakable}
+
+% Suppress minor overfull hbox warnings (up to 10pt)
+% These are cosmetic and don't significantly affect readability
+\hfuzz=10pt
 
 % Custom title page
 \makeatletter
@@ -44,7 +50,7 @@
     \vspace{1cm}
 
     % Title
-    {\fontsize{36}{43}\selectfont\bfseries\color{primaryblue} Muti Metroo\par}
+    {\fontsize{36}{43}\selectfont\bfseries\color{primarycolor} Muti Metroo\par}
     \vspace{0.5cm}
     {\fontsize{24}{29}\selectfont\bfseries User Manual\par}
 
@@ -53,10 +59,10 @@
     % Subtitle
     {\Large\color{darkgray} Userspace Mesh Networking Agent\par}
 
-    \vspace{1.5cm}
+    \vspace{0.8cm}
 
     % Decorative line
-    \noindent\makebox[\linewidth]{\color{primaryblue}\rule{0.5\paperwidth}{1pt}}
+    \noindent\makebox[\linewidth]{\color{primarycolor}\rule{0.5\paperwidth}{1pt}}
 
     \vfill
 
@@ -78,14 +84,14 @@
 % Chapter styling
 \usepackage{titlesec}
 \titleformat{\chapter}[display]
-  {\normalfont\huge\bfseries\color{primaryblue}}
+  {\normalfont\huge\bfseries\color{primarycolor}}
   {\chaptertitlename\ \thechapter}
   {20pt}
   {\Huge}
 
 % Section styling
 \titleformat{\section}
-  {\normalfont\Large\bfseries\color{primaryblue}}
+  {\normalfont\Large\bfseries\color{primarycolor}}
   {\thesection}
   {1em}
   {}
@@ -107,9 +113,9 @@
 \AtBeginDocument{%
   \hypersetup{
     colorlinks=true,
-    linkcolor=primaryblue,
-    urlcolor=primaryblue,
-    citecolor=primaryblue,
+    linkcolor=linkcolor,
+    urlcolor=linkcolor,
+    citecolor=linkcolor,
     pdfauthor={Postal Systems OÜ},
     pdftitle={Muti Metroo User Manual},
     pdfsubject={Userspace Mesh Networking Agent}
