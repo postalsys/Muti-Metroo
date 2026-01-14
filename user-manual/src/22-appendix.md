@@ -27,6 +27,7 @@
 | `muti-metroo shell --tty <id> bash` | Interactive shell |
 | `muti-metroo upload <id> <local> <remote>` | Upload file |
 | `muti-metroo download <id> <remote> <local>` | Download file |
+| `muti-metroo ping <id> <dest>` | ICMP ping through remote agent |
 
 ### Administration
 

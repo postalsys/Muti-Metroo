@@ -66,7 +66,7 @@ exit:
 # Routing settings
 routing:
   advertise_interval: 2m
-  node_info_interval: 2m
+  node_info_interval: 2m         # Defaults to advertise_interval if not set
   route_ttl: 5m
   max_hops: 16
 
@@ -121,10 +121,17 @@ management:
 
 # UDP relay
 udp:
-  enabled: false
+  enabled: true
   max_associations: 1000
   idle_timeout: 5m
   max_datagram_size: 1472
+
+# ICMP echo (ping)
+icmp:
+  enabled: true
+  max_sessions: 100
+  idle_timeout: 60s
+  echo_timeout: 5s
 
 # Port forwarding
 forward:

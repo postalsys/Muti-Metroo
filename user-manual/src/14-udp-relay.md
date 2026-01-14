@@ -8,7 +8,7 @@ Configure on the **exit** agent:
 
 ```yaml
 udp:
-  enabled: false               # Disabled by default
+  enabled: true                # Enabled by default
   max_associations: 1000       # Max concurrent associations
   idle_timeout: 5m             # Association timeout
   max_datagram_size: 1472      # Max UDP payload
