@@ -12,7 +12,6 @@ icmp:
   max_sessions: 100          # Max concurrent sessions
   idle_timeout: 60s          # Session cleanup timeout
   echo_timeout: 5s           # Per-request timeout
-  allowed_cidrs: []          # Destination whitelist (empty = all)
 ```
 
 ### Configuration Options
@@ -23,7 +22,6 @@ icmp:
 | `max_sessions` | `100` | Max concurrent sessions (0 = unlimited) |
 | `idle_timeout` | `60s` | Session cleanup after inactivity |
 | `echo_timeout` | `5s` | Timeout for individual echo requests |
-| `allowed_cidrs` | `[]` | CIDR whitelist (empty = all allowed) |
 | `max_concurrent_replies` | `0` | Limit reply goroutines (0 = unlimited) |
 
 ## Platform Support
@@ -142,22 +140,6 @@ socks5:
   address: "127.0.0.1:1080"
 ```
 
-### Restricted Destinations
-
-Limit which IPs can be pinged with CIDR whitelisting:
-
-```yaml
-icmp:
-  enabled: true
-  allowed_cidrs:
-    - "8.8.8.0/24"           # Google DNS
-    - "1.1.1.0/24"           # Cloudflare DNS
-    - "10.0.0.0/8"           # Internal network
-    - "192.168.0.0/16"       # Private network
-```
-
-When `allowed_cidrs` is empty (default), all destinations are allowed.
-
 ## Limitations
 
 - **Echo only**: Only ICMP echo (ping) is supported
@@ -169,8 +151,7 @@ When `allowed_cidrs` is empty (default), all destinations are allowed.
 
 1. **E2E encryption**: All ICMP data encrypted through the mesh
 2. **Session limits**: Use `max_sessions` to prevent resource exhaustion
-3. **CIDR restrictions**: Use `allowed_cidrs` to limit pingable destinations
-4. **No DNS**: Only IP addresses accepted (no domain names)
+3. **No DNS**: Only IP addresses accepted (no domain names)
 
 ## Troubleshooting
 
@@ -195,14 +176,6 @@ Error: ICMP not enabled
 1. Verify exit agent has `icmp.enabled: true`
 2. Check that a route exists to the exit agent
 3. Ensure exit agent is connected to the mesh
-
-### Destination Not Allowed
-
-```
-Error: destination not allowed
-```
-
-The exit agent has `allowed_cidrs` configured and the destination IP is not in the whitelist. Add the destination CIDR to the list or remove the restriction.
 
 ### Session Timeout
 

@@ -152,22 +152,6 @@ ICMP traffic is encrypted between ingress and exit:
 
 Transit nodes cannot decrypt ICMP payloads.
 
-## Restricting Destinations
-
-Limit which IPs can be pinged with CIDR whitelisting:
-
-```yaml
-icmp:
-  enabled: true
-  allowed_cidrs:
-    - "8.8.8.0/24"           # Google DNS
-    - "1.1.1.0/24"           # Cloudflare DNS
-    - "10.0.0.0/8"           # Internal network
-    - "2001:4860::/32"       # Google IPv6
-```
-
-When `allowed_cidrs` is empty (default), all destinations are allowed.
-
 ## Troubleshooting
 
 ### Permission Denied (Linux)
@@ -192,14 +176,6 @@ Error: ICMP not enabled
 - Check that a route exists to the exit node
 - Ensure exit node is connected to the mesh
 
-### Destination Not Allowed
-
-```
-Error: destination not allowed
-```
-
-The exit node has `allowed_cidrs` configured and the destination IP is not in the whitelist.
-
 ### Session Timeout
 
 Sessions expire after `idle_timeout` (default 60 seconds) of inactivity. Each ping request resets the timer.
@@ -208,8 +184,7 @@ Sessions expire after `idle_timeout` (default 60 seconds) of inactivity. Each pi
 
 1. **E2E encryption**: All ICMP data is encrypted through the mesh
 2. **Session limits**: Use `max_sessions` to prevent resource exhaustion
-3. **CIDR restrictions**: Use `allowed_cidrs` to limit pingable destinations
-4. **No DNS resolution**: Only IP addresses are accepted (no domain names)
+3. **No DNS resolution**: Only IP addresses are accepted (no domain names)
 
 ## Related
 

@@ -1331,24 +1331,6 @@ ICMP echo uses the same E2E encryption as TCP streams:
 
 Transit agents relay encrypted frames without decryption capability.
 
-### Access Control
-
-Exit nodes can restrict which destinations are allowed for ICMP:
-
-```yaml
-icmp:
-  enabled: true
-  allowed_cidrs:
-    - "10.0.0.0/8"       # Internal network
-    - "172.16.0.0/12"    # Private range
-    - "8.8.8.0/24"       # Google DNS
-```
-
-**Rules:**
-- Empty `allowed_cidrs` list = allow all destinations (default)
-- Non-empty list = only destinations matching a CIDR are allowed
-- Requests to disallowed destinations return `ICMP_OPEN_ERR` with code 51
-
 ### Unprivileged ICMP Sockets
 
 The implementation uses unprivileged ICMP sockets (no root required):
@@ -1366,8 +1348,6 @@ icmp:
   max_sessions: 100          # Max concurrent sessions (0=unlimited)
   idle_timeout: 60s          # Session cleanup timeout
   echo_timeout: 5s           # Per-echo reply timeout
-  allowed_cidrs:             # Destination whitelist (empty=allow all)
-    - "10.0.0.0/8"
 ```
 
 ### Error Codes
@@ -1375,7 +1355,6 @@ icmp:
 | Code | Name                  | Description                           |
 |------|-----------------------|---------------------------------------|
 | 50   | ICMP_DISABLED         | ICMP feature is disabled              |
-| 51   | ICMP_DEST_NOT_ALLOWED | Destination not in allowed CIDRs      |
 | 52   | ICMP_SESSION_LIMIT    | Max concurrent sessions reached       |
 | 18   | GENERAL_FAILURE       | Socket creation or key exchange error |
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"sync"
 	"time"
 
@@ -101,16 +100,6 @@ func (h *Handler) HandleICMPOpen(
 			Message:   "ICMP echo is disabled",
 		})
 		return fmt.Errorf("ICMP echo is disabled")
-	}
-
-	// Check destination against allowed CIDRs
-	if !h.isDestinationAllowed(destIP) {
-		h.writer.WriteICMPOpenErr(peerID, streamID, &protocol.ICMPOpenErr{
-			RequestID: open.RequestID,
-			ErrorCode: protocol.ErrICMPDestNotAllowed,
-			Message:   "ICMP destination not allowed",
-		})
-		return fmt.Errorf("destination %s not in allowed CIDRs", destIP)
 	}
 
 	// Check session limit
@@ -450,20 +439,3 @@ func (h *Handler) cleanupExpired() {
 	}
 }
 
-// isDestinationAllowed checks if the destination IP is in the allowed CIDRs.
-// If AllowedCIDRs is empty, all destinations are allowed.
-func (h *Handler) isDestinationAllowed(destIP net.IP) bool {
-	// Empty list means all destinations are allowed
-	if len(h.config.AllowedCIDRs) == 0 {
-		return true
-	}
-
-	// Check if destination matches any allowed CIDR
-	for _, cidr := range h.config.AllowedCIDRs {
-		if cidr.Contains(destIP) {
-			return true
-		}
-	}
-
-	return false
-}

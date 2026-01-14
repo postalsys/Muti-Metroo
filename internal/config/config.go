@@ -527,11 +527,6 @@ type ICMPConfig struct {
 
 	// EchoTimeout is the timeout for each individual ICMP echo request.
 	EchoTimeout time.Duration `yaml:"echo_timeout"`
-
-	// AllowedCIDRs restricts which destination IPs can be pinged.
-	// Empty list means all destinations are allowed.
-	// Example: ["0.0.0.0/0", "::/0"] allows all, ["10.0.0.0/8"] allows only 10.x.x.x
-	AllowedCIDRs []string `yaml:"allowed_cidrs"`
 }
 
 // ForwardConfig configures TCP port forwarding.

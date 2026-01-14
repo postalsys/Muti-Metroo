@@ -24,7 +24,6 @@ icmp:
   max_sessions: 100          # Concurrent session limit (0 = unlimited)
   idle_timeout: 60s          # Session cleanup timeout
   echo_timeout: 5s           # Per-echo request timeout
-  allowed_cidrs: []          # Destination CIDR whitelist (empty = all allowed)
   max_concurrent_replies: 0  # Concurrent reply goroutines (0 = unlimited)
 ```
 
@@ -68,27 +67,6 @@ Timeout for individual ICMP echo requests.
 
 This is the server-side timeout. The CLI also has its own timeout (`-t` flag) which may be shorter.
 
-### allowed_cidrs
-
-Restrict which destination IPs can be pinged. Accepts a list of CIDR ranges.
-
-| Type | Default |
-|------|---------|
-| []string | `[]` (all allowed) |
-
-When empty, all destinations are allowed. When specified, only destinations matching at least one CIDR will be accepted.
-
-```yaml
-icmp:
-  allowed_cidrs:
-    - "8.8.8.0/24"          # Google DNS range
-    - "1.1.1.0/24"          # Cloudflare DNS range
-    - "192.168.0.0/16"      # Private network
-    - "2001:4860::/32"      # Google IPv6 range
-```
-
-Destinations not in any allowed CIDR will be rejected with "destination not allowed".
-
 ### max_concurrent_replies
 
 Limits concurrent goroutines waiting for ICMP replies.
@@ -126,19 +104,6 @@ icmp:
   max_sessions: 500
   idle_timeout: 30s
   max_concurrent_replies: 100
-```
-
-### Restricted Destinations
-
-Only allow pinging specific networks:
-
-```yaml
-icmp:
-  enabled: true
-  allowed_cidrs:
-    - "10.0.0.0/8"           # Internal network
-    - "172.16.0.0/12"        # Internal network
-    - "192.168.0.0/16"       # Internal network
 ```
 
 ### Disabled
@@ -206,9 +171,8 @@ macOS supports unprivileged ICMP sockets natively. No configuration is required.
 
 1. **E2E encryption**: All ICMP data is encrypted through the mesh
 2. **Session limits**: Use `max_sessions` to prevent resource exhaustion
-3. **CIDR restrictions**: Use `allowed_cidrs` to limit pingable destinations
-4. **Goroutine limits**: Use `max_concurrent_replies` to prevent goroutine exhaustion
-5. **No domain resolution**: Only IP addresses are accepted (no DNS)
+3. **Goroutine limits**: Use `max_concurrent_replies` to prevent goroutine exhaustion
+4. **No domain resolution**: Only IP addresses are accepted (no DNS)
 
 ## Usage
 
