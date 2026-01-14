@@ -3,9 +3,17 @@
 **Version:** 2.3
 **Date:** January 2026
 
+## Executive Overview
+
+Muti Metroo is a userspace mesh networking agent that creates encrypted virtual tunnels across heterogeneous transport layers (QUIC, HTTP/2, WebSocket). Agents form a mesh network where each can serve as ingress (SOCKS5 proxy entry point), transit (relay between networks), or exit (connection to target destinations). Traffic flows through multi-hop paths with automatic route discovery via flood-based propagation.
+
+The architecture provides end-to-end encryption using X25519 key exchange and ChaCha20-Poly1305, ensuring transit agents cannot decrypt payload data. Stream multiplexing enables concurrent connections with full TCP semantics including half-close support. The system operates entirely in userspace without root privileges, making it suitable for deployment across diverse environments where traditional VPNs are impractical.
+
 ---
 
 ## Table of Contents
+
+- [Executive Overview](#executive-overview)
 
 1. [Executive Summary](#1-executive-summary)
 2. [System Overview](#2-system-overview)
