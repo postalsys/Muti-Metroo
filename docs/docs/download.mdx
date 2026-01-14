@@ -167,11 +167,19 @@ muti-metroo --version
 
 ### Installation
 
-1. Download the `.exe` file for your architecture
-2. Move the file to a directory in your PATH (e.g., `C:\Program Files\muti-metroo\`)
-3. Open Command Prompt or PowerShell and verify:
-
 ```powershell
+# Download for your architecture (example: amd64)
+curl.exe -L -o muti-metroo.exe https://download.mutimetroo.com/windows-amd64/muti-metroo.exe
+
+# Move to Program Files (run as Administrator)
+mkdir "C:\Program Files\muti-metroo" -ErrorAction SilentlyContinue
+move muti-metroo.exe "C:\Program Files\muti-metroo\"
+
+# Add to PATH (run as Administrator, or add manually via System Properties)
+$path = [Environment]::GetEnvironmentVariable("Path", "Machine")
+[Environment]::SetEnvironmentVariable("Path", "$path;C:\Program Files\muti-metroo", "Machine")
+
+# Verify installation (restart terminal first)
 muti-metroo.exe --version
 ```
 
