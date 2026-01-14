@@ -46,7 +46,6 @@ flowchart LR
 | **SOCKS5 Proxy** | TCP CONNECT and UDP ASSOCIATE with optional authentication |
 | **CIDR and Domain Routes** | Route by IP range or domain pattern with DNS resolution at the exit node |
 | **Port Forwarding** | Expose local services through reverse tunnels - serve tools or receive callbacks from anywhere in the mesh |
-| **ICMP Echo (Ping)** | Test connectivity to remote hosts through the mesh using the `ping` command |
 | **File Transfer** | Upload/download files and directories to any agent in the mesh |
 | **Remote Shell** | Execute commands on remote agents with interactive PTY support |
 | **TUN Interface** | Transparent L3 routing with [Mutiauk](/mutiauk) - no per-app configuration |
