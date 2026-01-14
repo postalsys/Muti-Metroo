@@ -154,8 +154,8 @@ export default function Home(): ReactNode {
       description="Secure mesh networking for distributed infrastructure. Build multi-hop relay chains across your infrastructure with SOCKS5 proxy. Single binary, no root required.">
       <HomepageHeader />
       <main>
-        <UseCases />
         <HomepageFeatures />
+        <UseCases />
         <QuickExample />
       </main>
     </Layout>
