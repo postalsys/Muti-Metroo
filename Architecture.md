@@ -1354,9 +1354,9 @@ icmp:
 The implementation uses unprivileged ICMP sockets (no root required):
 
 - **Linux**: Uses `udp4`/`udp6` network with `golang.org/x/net/icmp` package
-  - Requires sysctl: `net.ipv4.ping_group_range="0 65535"`
-- **macOS/BSD**: Unprivileged ICMP available by default
-- **Windows**: Uses ICMP echo API via Go's icmp package
+  - Requires sysctl: `net.ipv4.ping_group_range="0 65535"` (disabled by default on most distros)
+- **macOS/BSD**: Unprivileged ICMP available by default (no configuration required)
+- **Windows**: Not supported (Windows lacks unprivileged ICMP socket support)
 
 ### Configuration
 

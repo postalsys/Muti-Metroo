@@ -167,12 +167,26 @@ muti-metroo ping 2001:4860:4860::8888
 
 For IPv6 to work, ensure the destination is reachable via IPv6 from the exit agent.
 
-## Linux System Requirements
+## Platform Support
 
-On Linux, unprivileged ICMP sockets require the `ping_group_range` sysctl to be configured:
+ICMP uses unprivileged sockets, and support varies by platform:
+
+| Platform | Supported | Notes |
+|----------|-----------|-------|
+| **Linux** | Yes | Requires `ping_group_range` sysctl (see below) |
+| **macOS** | Yes | Works without configuration |
+| **Windows** | No | Unprivileged ICMP sockets not supported |
+
+:::warning Windows Not Supported
+ICMP relay does not work on Windows exit agents. The exit agent must run on Linux or macOS.
+:::
+
+### Linux Configuration
+
+On Linux, unprivileged ICMP sockets require the `ping_group_range` sysctl. This is **disabled by default** on most distributions.
 
 ```bash
-# Check current setting
+# Check current setting (default is usually "1 0" = disabled)
 sysctl net.ipv4.ping_group_range
 
 # Enable for all groups (run as root)
@@ -182,7 +196,11 @@ sudo sysctl -w net.ipv4.ping_group_range="0 65535"
 echo "net.ipv4.ping_group_range=0 65535" | sudo tee -a /etc/sysctl.conf
 ```
 
-Without this setting, ICMP will fail with permission errors.
+Without this setting, ICMP will fail with "socket: operation not permitted".
+
+### macOS
+
+macOS supports unprivileged ICMP sockets natively. No configuration is required.
 
 ## Security Considerations
 

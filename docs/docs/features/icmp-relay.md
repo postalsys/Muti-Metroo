@@ -42,7 +42,21 @@ ICMP relay requires:
 
 1. **Exit agent** with ICMP enabled (enabled by default)
 2. A route from ingress to exit
-3. **Linux only**: `ping_group_range` sysctl configured (see below)
+3. **Supported platform** on the exit agent (see Platform Support below)
+
+## Platform Support
+
+ICMP uses unprivileged sockets and platform support varies:
+
+| Platform | Supported | Requirements |
+|----------|-----------|--------------|
+| **Linux** | Yes | `ping_group_range` sysctl must be configured |
+| **macOS** | Yes | Works out of the box (no configuration needed) |
+| **Windows** | No | Not supported - Windows lacks unprivileged ICMP socket support |
+
+:::warning Windows Exit Agents
+ICMP relay does not work when the exit agent runs on Windows. Use Linux or macOS exit agents for ICMP functionality.
+:::
 
 ## Configuration
 
