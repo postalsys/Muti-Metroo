@@ -4,6 +4,7 @@ import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import HomepageFeatures from '@site/src/components/HomepageFeatures';
+import NetworkDiagram from '@site/src/components/NetworkDiagram';
 import Heading from '@theme/Heading';
 
 import styles from './index.module.css';
@@ -154,6 +155,7 @@ export default function Home(): ReactNode {
       description="Secure mesh networking for distributed infrastructure. Build multi-hop relay chains across your infrastructure with SOCKS5 proxy. Single binary, no root required.">
       <HomepageHeader />
       <main>
+        <NetworkDiagram />
         <HomepageFeatures />
         <UseCases />
         <QuickExample />
