@@ -28,7 +28,7 @@ flowchart LR
 | **SOCKS5 Proxy** | TCP CONNECT and UDP ASSOCIATE with authentication |
 | **TUN Interface** | Transparent L3 routing with Mutiauk companion tool (Linux) |
 | **Flexible Routing** | CIDR and domain-based exit routes |
-| **Multiple Transports** | QUIC/TLS 1.3, HTTP/2, and WebSocket to bypass firewalls |
+| **Multiple Transports** | QUIC/TLS 1.3, HTTP/2, and WebSocket for network traversal |
 | **Port Forwarding** | Expose local services through reverse tunnels |
 | **Remote Execution** | Execute commands on remote agents |
 | **File Transfer** | Upload/download files across the mesh |
@@ -40,7 +40,7 @@ flowchart LR
 
 ### Corporate Network Access
 
-Provide secure access to internal resources through multi-hop SOCKS5 proxy chains, bypassing network segmentation without VPN infrastructure.
+Provide secure access to internal resources through multi-hop SOCKS5 proxy chains, connecting across network segments without traditional VPN infrastructure.
 
 ```mermaid
 flowchart LR
