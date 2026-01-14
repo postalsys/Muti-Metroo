@@ -1648,50 +1648,71 @@ func (w *Wizard) buildConfig(
 	fileTransferConfig config.FileTransferConfig,
 	managementConfig config.ManagementConfig,
 ) *config.Config {
-	cfg := config.Default()
+	// Start with empty config - runtime applies defaults via config.Parse()
+	cfg := &config.Config{}
 
+	// Agent settings (always include data_dir)
 	cfg.Agent.DataDir = dataDir
-	cfg.Agent.DisplayName = displayName
-	cfg.Agent.LogLevel = logLevel
-	cfg.Agent.LogFormat = "text"
+	if displayName != "" {
+		cfg.Agent.DisplayName = displayName
+	}
+	if logLevel != "" && logLevel != "info" {
+		cfg.Agent.LogLevel = logLevel
+	}
 
-	// Global TLS config
-	cfg.TLS = tlsConfig
+	// Global TLS config (only if non-empty)
+	if tlsConfig.Cert != "" || tlsConfig.CertPEM != "" || tlsConfig.Strict {
+		cfg.TLS = tlsConfig
+	}
 
-	// Listener (uses global TLS config, no per-listener TLS needed)
+	// Listener
 	listener := config.ListenerConfig{
 		Transport: transport,
 		Address:   listenAddr,
-		PlainText: plainText,
 	}
 	if transport == "h2" || transport == "ws" {
 		listener.Path = listenPath
 	}
+	if plainText {
+		listener.PlainText = true
+	}
 	cfg.Listeners = []config.ListenerConfig{listener}
 
-	// Peers
-	cfg.Peers = peers
+	// Peers (only if configured)
+	if len(peers) > 0 {
+		cfg.Peers = peers
+	}
 
-	// SOCKS5
-	cfg.SOCKS5 = socks5Config
+	// SOCKS5 (only if enabled)
+	if socks5Config.Enabled {
+		cfg.SOCKS5 = socks5Config
+	}
 
-	// Exit
-	cfg.Exit = exitConfig
+	// Exit (only if enabled)
+	if exitConfig.Enabled {
+		cfg.Exit = exitConfig
+	}
 
-	// HTTP
-	cfg.HTTP.Enabled = healthEnabled
+	// HTTP (only if enabled)
 	if healthEnabled {
+		cfg.HTTP.Enabled = true
 		cfg.HTTP.Address = ":8080"
 	}
 
-	// Shell
-	cfg.Shell = shellConfig
+	// Shell (only if enabled)
+	if shellConfig.Enabled {
+		cfg.Shell = shellConfig
+	}
 
-	// File Transfer
-	cfg.FileTransfer = fileTransferConfig
+	// File Transfer (only if enabled)
+	if fileTransferConfig.Enabled {
+		cfg.FileTransfer = fileTransferConfig
+	}
 
-	// Management Key Encryption
-	cfg.Management = managementConfig
+	// Management Key Encryption (only if configured)
+	if managementConfig.PublicKey != "" {
+		cfg.Management = managementConfig
+	}
 
 	return cfg
 }

@@ -118,8 +118,9 @@ func TestBuildConfig(t *testing.T) {
 				if cfg.Agent.DataDir != "/data" {
 					t.Errorf("DataDir = %q, want %q", cfg.Agent.DataDir, "/data")
 				}
-				if cfg.Agent.LogLevel != "info" {
-					t.Errorf("LogLevel = %q, want %q", cfg.Agent.LogLevel, "info")
+				// LogLevel is omitted when "info" (default) - runtime applies default
+				if cfg.Agent.LogLevel != "" {
+					t.Errorf("LogLevel = %q, want empty (default applied at runtime)", cfg.Agent.LogLevel)
 				}
 				if len(cfg.Listeners) != 1 {
 					t.Fatalf("Listeners count = %d, want 1", len(cfg.Listeners))
@@ -456,9 +457,9 @@ func TestBuildConfigLogFormat(t *testing.T) {
 		config.ShellConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 
-	// Verify LogFormat is always set to "text"
-	if cfg.Agent.LogFormat != "text" {
-		t.Errorf("Agent.LogFormat = %q, want %q", cfg.Agent.LogFormat, "text")
+	// LogFormat is omitted from generated config - runtime applies default
+	if cfg.Agent.LogFormat != "" {
+		t.Errorf("Agent.LogFormat = %q, want empty (default applied at runtime)", cfg.Agent.LogFormat)
 	}
 }
 
@@ -473,15 +474,16 @@ func TestBuildConfigDefaults(t *testing.T) {
 		config.ShellConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 
-	// Verify default values from config.Default() are preserved
-	if cfg.Routing.MaxHops == 0 {
-		t.Error("Routing.MaxHops should have default value")
+	// Verify wizard generates minimal config - defaults are NOT included
+	// (defaults are applied at runtime by config.Parse())
+	if cfg.Routing.MaxHops != 0 {
+		t.Error("Routing.MaxHops should be zero (default applied at runtime)")
 	}
-	if cfg.Limits.BufferSize == 0 {
-		t.Error("Limits.BufferSize should have default value")
+	if cfg.Limits.BufferSize != 0 {
+		t.Error("Limits.BufferSize should be zero (default applied at runtime)")
 	}
-	if cfg.Connections.Timeout == 0 {
-		t.Error("Connections.Timeout should have default value")
+	if cfg.Connections.Timeout != 0 {
+		t.Error("Connections.Timeout should be zero (default applied at runtime)")
 	}
 }
 
