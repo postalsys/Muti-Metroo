@@ -232,6 +232,111 @@ sudo rm -rf /etc/muti-metroo
 sudo rm -rf /var/lib/muti-metroo
 ```
 
+## PM2 Process Manager
+
+[PM2](https://pm2.keymetrics.io/) is a cross-platform process manager that can manage Muti Metroo alongside other applications.
+
+### Quick Start
+
+```bash
+# Install PM2
+npm install -g pm2
+
+# Start Muti Metroo
+pm2 start muti-metroo -- run -c /etc/muti-metroo/config.yaml
+
+# Save and enable startup
+pm2 save
+pm2 startup
+```
+
+### Ecosystem File
+
+Create `ecosystem.config.js` for reproducible deployments:
+
+```javascript
+// ecosystem.config.js
+module.exports = {
+  apps: [{
+    name: 'muti-metroo',
+    script: '/usr/local/bin/muti-metroo',
+    args: 'run -c /etc/muti-metroo/config.yaml',
+    cwd: '/etc/muti-metroo',
+    autorestart: true,
+    max_restarts: 10,
+    restart_delay: 5000,
+    error_file: '/var/log/muti-metroo/error.log',
+    out_file: '/var/log/muti-metroo/out.log',
+    merge_logs: true,
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z'
+  }]
+};
+```
+
+Start with ecosystem file:
+
+```bash
+pm2 start /etc/muti-metroo/ecosystem.config.js
+pm2 save
+```
+
+### Multiple Agents
+
+```javascript
+// ecosystem.config.js
+module.exports = {
+  apps: [
+    {
+      name: 'muti-metroo-ingress',
+      script: '/usr/local/bin/muti-metroo',
+      args: 'run -c /etc/muti-metroo/ingress.yaml',
+      autorestart: true
+    },
+    {
+      name: 'muti-metroo-exit',
+      script: '/usr/local/bin/muti-metroo',
+      args: 'run -c /etc/muti-metroo/exit.yaml',
+      autorestart: true
+    }
+  ]
+};
+```
+
+### PM2 Commands
+
+```bash
+# Status
+pm2 status
+pm2 show muti-metroo
+
+# Logs
+pm2 logs muti-metroo
+
+# Restart/Stop
+pm2 restart muti-metroo
+pm2 stop muti-metroo
+
+# Monitoring
+pm2 monit
+```
+
+### Log Rotation
+
+```bash
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:retain 7
+```
+
+### Windows
+
+```powershell
+npm install -g pm2
+pm2 start C:\ProgramData\muti-metroo\muti-metroo.exe -- run -c C:\ProgramData\muti-metroo\config.yaml
+pm2 save
+pm2-startup install
+```
+
 ## Security Considerations
 
 ### File Permissions
