@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.5.0...muti-metroo-v2.6.0) (2026-01-14)
+
+
+### Features
+
+* add config-based identity for single-file deployments ([b6dc428](https://github.com/postalsys/Muti-Metroo/commit/b6dc42886b3f0f6866513df778f818b1b3a0b21d))
+
 ## [2.5.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.4.3...muti-metroo-v2.5.0) (2026-01-14)
 
 
