@@ -4,7 +4,7 @@ sidebar_position: 6
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
-  <img src="/img/mole-rocket.png" alt="Mole with UDP" style={{maxWidth: '180px'}} />
+  <img src="/img/mole-surfacing.png" alt="Mole with UDP" style={{maxWidth: '180px'}} />
 </div>
 
 # UDP Relay

@@ -23,7 +23,7 @@ icmp:
   enabled: true              # Enable ICMP echo forwarding (default: true)
   max_sessions: 100          # Concurrent session limit (0 = unlimited)
   idle_timeout: 60s          # Session cleanup timeout
-  echo_timeout: 10s          # Per-echo request timeout
+  echo_timeout: 5s           # Per-echo request timeout
   allowed_cidrs: []          # Destination CIDR whitelist (empty = all allowed)
   max_concurrent_replies: 0  # Concurrent reply goroutines (0 = unlimited)
 ```
@@ -64,7 +64,7 @@ Timeout for individual ICMP echo requests.
 
 | Type | Default |
 |------|---------|
-| duration | `10s` |
+| duration | `5s` |
 
 This is the server-side timeout. The CLI also has its own timeout (`-t` flag) which may be shorter.
 
@@ -211,6 +211,7 @@ See [ping CLI command](/cli/ping) for full usage details.
 
 ## Related
 
+- [Features - ICMP Relay](/features/icmp-relay) - Feature overview
 - [ping CLI Command](/cli/ping) - Send ICMP requests through agents
 - [Exit Configuration](/configuration/exit) - Configure exit routing
 - [UDP Configuration](/configuration/udp) - UDP relay configuration

@@ -33,7 +33,7 @@ udp:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enabled` | bool | false | Enable UDP relay |
+| `enabled` | bool | true | Enable UDP relay |
 | `max_associations` | int | 1000 | Maximum concurrent UDP associations |
 | `idle_timeout` | duration | 5m | Association timeout after inactivity |
 | `max_datagram_size` | int | 1472 | Maximum UDP payload size in bytes |
@@ -106,16 +106,14 @@ udp:
   max_datagram_size: 1472
 ```
 
-### Disabled (Default)
+### Disabled
 
-UDP relay is disabled by default:
+To disable UDP relay:
 
 ```yaml
 udp:
   enabled: false
 ```
-
-Or simply omit the `udp` section entirely.
 
 ## Complete Exit Configuration
 

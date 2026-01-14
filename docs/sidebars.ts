@@ -55,6 +55,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'features/socks5-proxy',
         'features/udp-relay',
+        'features/icmp-relay',
         'features/exit-routing',
         'features/port-forwarding',
         'features/file-transfer',
