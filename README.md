@@ -87,7 +87,7 @@ sudo mutiauk setup
 sudo mutiauk daemon start
 ```
 
-With Mutiauk, any application's traffic to configured routes is automatically tunneled through the mesh - no proxy settings required. This makes Muti Metroo + Mutiauk a powerful alternative to tools like Ligolo-ng, with added benefits:
+With Mutiauk, any application's traffic to configured routes is automatically tunneled through the mesh - no proxy settings required. Key advantages:
 
 - **Native multi-hop routing** - no manual listener chaining for double pivots
 - **End-to-end encryption** - transit nodes cannot decrypt traffic
@@ -162,7 +162,7 @@ For single-file deployments, the wizard can embed configuration directly into th
 ./build/muti-metroo setup -c /path/to/embedded-binary
 ```
 
-This is ideal for red team operations and simplified distribution.
+This simplifies deployment and distribution.
 
 ### Service Installation
 

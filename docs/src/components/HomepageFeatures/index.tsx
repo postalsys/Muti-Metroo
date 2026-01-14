@@ -14,14 +14,14 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Traverse Any Firewall',
+    title: 'Network Traversal',
     image: '/img/mole-wiring.png',
     imageAlt: 'Mole connecting wires',
     link: '/concepts/transports',
     description: (
       <>
-        Reach networks behind restrictive firewalls using HTTP/2 or WebSocket
-        that blends with normal HTTPS traffic. Works through corporate proxies.
+        Connect across network boundaries using HTTP/2 or WebSocket transports.
+        Compatible with corporate proxy infrastructure.
       </>
     ),
   },
@@ -63,14 +63,14 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Remote Operations',
+    title: 'Remote Administration',
     image: '/img/mole-presenting.png',
     imageAlt: 'Mole presenting',
     link: '/features/shell',
     description: (
       <>
-        Execute commands and transfer files on any agent in the mesh. Interactive
-        shell with command whitelisting and authenticated file upload/download.
+        Administer agents across the mesh with authenticated command execution
+        and file transfer. Built-in security controls including command whitelisting.
       </>
     ),
   },

@@ -76,10 +76,10 @@ function UseCases(): ReactNode {
           </div>
           <div className="col col--3">
             <div className={styles.useCase}>
-              <Heading as="h3">Firewall Traversal</Heading>
+              <Heading as="h3">NAT and Network Traversal</Heading>
               <p>
-                Reach networks behind restrictive firewalls using HTTP/2 or
-                WebSocket transports that blend with normal HTTPS traffic.
+                Connect across network boundaries using HTTP/2 or WebSocket
+                transports compatible with corporate proxy infrastructure.
               </p>
             </div>
           </div>
@@ -151,7 +151,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Self-Hosted Mesh Tunneling"
-      description="Tunnel through firewalls and reach any network. Build multi-hop relay chains across your infrastructure with SOCKS5 proxy. Single binary, no root required.">
+      description="Secure mesh networking for distributed infrastructure. Build multi-hop relay chains across your infrastructure with SOCKS5 proxy. Single binary, no root required.">
       <HomepageHeader />
       <main>
         <UseCases />

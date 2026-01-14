@@ -6,7 +6,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Muti Metroo',
-  tagline: 'Tunnel through firewalls and reach any network',
+  tagline: 'Secure mesh networking for distributed infrastructure',
   favicon: 'img/favicon.ico',
 
   headTags: [

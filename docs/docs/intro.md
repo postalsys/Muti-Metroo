@@ -9,11 +9,15 @@ sidebar_position: 1
 
 # Muti Metroo
 
-**Your private metro system for network traffic** - tunnel through firewalls and bridge private networks with encrypted relay chains.
+**Your private metro system for network traffic** - connect distributed infrastructure with encrypted relay chains.
 
 ## What is Muti Metroo?
 
 Muti Metroo allows you to build flexible, resilient mesh networks where traffic can flow through multiple intermediate nodes to reach its destination. Think of it as building your own private network overlay that works across different network segments, firewalls, and transport protocols.
+
+:::info Authorized Use
+Muti Metroo is designed for authorized network connectivity, infrastructure management, and secure remote access within your own systems.
+:::
 
 ```mermaid
 flowchart LR
@@ -31,7 +35,7 @@ flowchart LR
 
 | Challenge | How Muti Metroo Helps |
 | --------- | --------------------- |
-| **Need to reach a restricted network** | Tunnel through firewalls using HTTP/2 or WebSocket that blends with normal HTTPS |
+| **Network boundaries** | HTTP/2 and WebSocket transports work across network boundaries and corporate proxies |
 | **Complex network topology** | Build multi-hop relay chains - traffic automatically finds its path to the exit |
 | **Hard to deploy** | Single binary, no root required, no kernel modules - deploy in seconds |
 | **Per-application configuration** | SOCKS5 proxy or TUN interface routes all traffic transparently |
@@ -41,13 +45,13 @@ flowchart LR
 
 | Feature | What It Does |
 | ------- | ------------ |
-| **Firewall Traversal** | HTTP/2 and WebSocket transports blend with HTTPS traffic to bypass restrictive firewalls |
+| **Network Traversal** | HTTP/2 and WebSocket transports connect across network boundaries and corporate proxies |
 | **Multi-Hop Routing** | Automatic route propagation - traffic flows through chains, trees, or full mesh topologies |
 | **SOCKS5 Proxy** | TCP CONNECT and UDP ASSOCIATE with optional authentication |
 | **CIDR and Domain Routes** | Route by IP range or domain pattern with DNS resolution at the exit node |
 | **Port Forwarding** | Expose local services through reverse tunnels - serve tools or receive callbacks from anywhere in the mesh |
-| **File Transfer** | Upload/download files and directories to any agent in the mesh |
-| **Remote Shell** | Execute commands on remote agents with interactive PTY support |
+| **File Transfer** | Authenticated file upload/download for agent administration |
+| **Remote Shell** | Authenticated command execution with whitelisting and PTY support |
 | **TUN Interface** | Transparent L3 routing with [Mutiauk](/mutiauk) - no per-app configuration |
 | **Web Dashboard** | Visual metro map showing mesh topology and connections |
 | **No Root Required** | Runs entirely in userspace as a single binary |
@@ -57,7 +61,7 @@ flowchart LR
 
 ### Corporate Network Access
 
-Provide secure access to internal resources through multi-hop SOCKS5 proxy chains, bypassing network segmentation without VPN infrastructure.
+Provide secure access to internal resources through multi-hop SOCKS5 proxy chains, connecting across network segments without traditional VPN infrastructure.
 
 ```mermaid
 flowchart LR
