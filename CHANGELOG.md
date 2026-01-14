@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.5.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.4.3...muti-metroo-v2.5.0) (2026-01-14)
+
+
+### Features
+
+* remove ICMP allowed_cidrs config option ([2fecf14](https://github.com/postalsys/Muti-Metroo/commit/2fecf1439b234e3b0ab708c2e98d9cb20d8d865e))
+* **wizard:** add reverse proxy question and omit empty config values ([c877c90](https://github.com/postalsys/Muti-Metroo/commit/c877c902b1ce098e9d5d6953dadfb23f6271ea97))
+* **wizard:** generate minimal config without default values ([ac1edb2](https://github.com/postalsys/Muti-Metroo/commit/ac1edb25274fb560371a6eb80e327ac0f01681ab))
+
 ## [2.4.3](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.4.2...muti-metroo-v2.4.3) (2026-01-14)
 
 
