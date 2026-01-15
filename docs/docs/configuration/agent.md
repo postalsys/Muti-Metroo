@@ -1,5 +1,5 @@
 ---
-title: Agent Configuration
+title: Agent
 sidebar_position: 2
 ---
 

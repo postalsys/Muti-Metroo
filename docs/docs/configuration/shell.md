@@ -1,5 +1,5 @@
 ---
-title: Remote Shell Configuration
+title: Remote Shell
 sidebar_position: 12
 ---
 

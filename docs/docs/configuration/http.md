@@ -1,5 +1,5 @@
 ---
-title: HTTP API Configuration
+title: HTTP API
 sidebar_position: 11
 ---
 

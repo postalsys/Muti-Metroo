@@ -1,5 +1,5 @@
 ---
-title: Management Key Configuration
+title: Management Key
 sidebar_position: 15
 ---
 

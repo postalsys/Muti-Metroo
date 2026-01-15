@@ -1,5 +1,5 @@
 ---
-title: File Transfer Configuration
+title: File Transfer
 sidebar_position: 13
 ---
 

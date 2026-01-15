@@ -1,5 +1,5 @@
 ---
-title: ICMP Configuration
+title: ICMP
 sidebar_position: 10
 ---
 

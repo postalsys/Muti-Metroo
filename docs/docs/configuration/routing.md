@@ -1,5 +1,5 @@
 ---
-title: Routing Configuration
+title: Routing
 sidebar_position: 14
 ---
 
