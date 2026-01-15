@@ -263,7 +263,9 @@ pm2 set pm2-logrotate:rotateInterval '0 0 * * *'
 
 ## Windows
 
-PM2 works on Windows with some differences:
+PM2 works on Windows but requires additional setup for startup persistence.
+
+### Basic Usage
 
 ```powershell
 # Install PM2
@@ -272,9 +274,33 @@ npm install -g pm2
 # Start Muti Metroo
 pm2 start C:\ProgramData\muti-metroo\muti-metroo.exe -- run -c C:\ProgramData\muti-metroo\config.yaml
 
-# Save and setup startup
+# Save process list
 pm2 save
-pm2-startup install
+```
+
+### Windows Service (Recommended)
+
+The `pm2 startup` command does not work natively on Windows. For production deployments, use [pm2-installer](https://github.com/jessety/pm2-installer) to run PM2 as a proper Windows Service:
+
+```powershell
+# Clone the installer
+git clone https://github.com/jessety/pm2-installer
+cd pm2-installer
+
+# Run PowerShell installer (as Administrator)
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+This creates a Windows Service that:
+- Starts automatically on boot without requiring user login
+- Runs as Local Service user
+- Persists across reboots and user logouts
+
+After installation, manage your app normally:
+
+```powershell
+pm2 start C:\ProgramData\muti-metroo\muti-metroo.exe -- run -c C:\ProgramData\muti-metroo\config.yaml
+pm2 save
 ```
 
 ### Windows Ecosystem File
@@ -300,7 +326,7 @@ module.exports = {
 | Feature | PM2 | systemd | Windows Service |
 |---------|-----|---------|-----------------|
 | Cross-platform | Yes | Linux only | Windows only |
-| Log rotation | Built-in module | journald | Event Log |
+| Log rotation | Via pm2-logrotate module | journald | Event Log |
 | Monitoring UI | pm2 monit | journalctl | Event Viewer |
 | Cluster mode | Yes | Manual | Manual |
 | Memory limits | Yes | Yes | Limited |
