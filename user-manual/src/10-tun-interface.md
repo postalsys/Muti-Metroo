@@ -338,13 +338,16 @@ rustscan -a 192.168.50.1 --udp -r 1-1000
 
 **UDP scanning limitations:**
 
-Both RustScan (`--udp`) and nmap (`-sU`) UDP scans show ports as `open|filtered` when scanning through Mutiauk. This is a fundamental limitation of UDP scanning through any proxy:
+UDP scanning through Mutiauk has significant limitations:
 
-- UDP port scanning relies on ICMP "port unreachable" messages to identify closed ports
-- ICMP responses cannot be forwarded back through SOCKS5 UDP ASSOCIATE
-- Without these responses, the scanner cannot distinguish between open ports and filtered/closed ports
+- **nmap UDP (`-sU`)**: Shows ports as `open|filtered` because ICMP "port unreachable" messages cannot be forwarded back through the proxy
+- **RustScan UDP (`--udp`)**: May not find any ports because it relies on receiving UDP responses, which are unreliable through proxy chains
 
-This limitation applies to all UDP scanners, not just RustScan.
+UDP port scanning fundamentally relies on either:
+1. Receiving a response from an open port (service-specific)
+2. Receiving ICMP "port unreachable" for closed ports
+
+Neither mechanism works reliably through SOCKS5 proxies. For accurate UDP scanning, scan directly from the network segment or use nmap with the understanding that results will show `open|filtered`.
 
 ### Using Ping
 

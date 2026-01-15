@@ -4,14 +4,49 @@
 #   client (RustScan + Mutiauk TUN + MM ingress)
 #     -> transit (Muti Metroo relay)
 #       -> exit (Muti Metroo exit with CIDR routes)
-#         -> Internet targets (kreata.ee, dns-02.emailengine.app)
+#         -> target (local container with TCP/UDP services)
 #
 # Usage:
 #   docker compose build
 #   docker compose up -d
 #   docker compose exec client /scripts/start-client.sh
+#
+# Target services:
+#   - TCP 22: SSH (dropbear)
+#   - TCP 80: HTTP (nginx)
+#   - TCP 443: HTTPS (nginx)
+#   - UDP 53: DNS (dnsmasq)
+#   - UDP 123: NTP response simulator
 
 services:
+  # Local scan target with TCP and UDP services
+  target:
+    image: alpine:latest
+    container_name: rustscan-target
+    hostname: target
+    command: |
+      sh -c '
+        apk add --no-cache nginx dnsmasq dropbear netcat-openbsd &&
+        # Configure nginx
+        mkdir -p /run/nginx &&
+        echo "server { listen 80; listen 443; location / { return 200 \"OK\"; } }" > /etc/nginx/http.d/default.conf &&
+        # Configure dnsmasq for UDP 53
+        echo "port=53" > /etc/dnsmasq.conf &&
+        echo "no-resolv" >> /etc/dnsmasq.conf &&
+        echo "address=/#/127.0.0.1" >> /etc/dnsmasq.conf &&
+        # Start services
+        nginx &&
+        dnsmasq &&
+        dropbear -R -F -E -p 22 &
+        # UDP 123 responder (simulates NTP)
+        while true; do nc -u -l -p 123 -e echo "NTP OK" 2>/dev/null; done &
+        # Keep container running
+        tail -f /dev/null
+      '
+    networks:
+      mesh:
+        ipv4_address: 192.168.107.100
+    restart: unless-stopped
   # Exit agent - handles traffic to specific CIDRs
   exit:
     build:
@@ -72,3 +107,6 @@ services:
 networks:
   mesh:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.107.0/24

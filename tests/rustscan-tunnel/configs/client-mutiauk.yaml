@@ -14,11 +14,8 @@ socks5:
   keepalive: 60s
 
 routes:
-  - destination: 178.33.49.65/32
-    comment: "kreata.ee"
-    enabled: true
-  - destination: 162.19.67.61/32
-    comment: "dns-02.emailengine.app"
+  - destination: 192.168.107.100/32
+    comment: "Local scan target"
     enabled: true
 
 nat:

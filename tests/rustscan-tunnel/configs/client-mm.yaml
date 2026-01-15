@@ -16,6 +16,9 @@ socks5:
   enabled: true
   address: "127.0.0.1:1080"
 
+udp:
+  enabled: true
+
 http:
   enabled: true
   address: ":8080"
