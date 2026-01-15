@@ -1,7 +1,11 @@
 ---
 title: ICMP Configuration
-sidebar_position: 8
+sidebar_position: 10
 ---
+
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-presenting.png" alt="Mole configuring ICMP" style={{maxWidth: '180px'}} />
+</div>
 
 # ICMP Configuration
 

@@ -11,7 +11,7 @@ sidebar_position: 1
 
 Control every aspect of your agent through a single YAML file. Start with the minimal config and add sections as you need them.
 
-**Quick reference:**
+## Quick Reference
 
 | I want to... | Section |
 |--------------|---------|
@@ -20,6 +20,14 @@ Control every aspect of your agent through a single YAML file. Start with the mi
 | Connect to other agents | [peers](/configuration/peers) |
 | Create a SOCKS5 proxy | [socks5](/configuration/socks5) |
 | Route traffic to destinations | [exit](/configuration/exit) |
+| Set up port forwarding | [forward](/configuration/forward) |
+| Enable UDP relay | [udp](/configuration/udp) |
+| Enable ICMP ping | [icmp](/configuration/icmp) |
+| Enable remote shell | [shell](/configuration/shell) |
+| Enable file transfer | [file-transfer](/configuration/file-transfer) |
+| Configure HTTP API | [http](/configuration/http) |
+| Tune route propagation | [routing](/configuration/routing) |
+| Encrypt mesh topology | [management](/configuration/management) |
 | Set up TLS certificates | [tls-certificates](/configuration/tls-certificates) |
 | Use secrets from environment | [environment-variables](/configuration/environment-variables) |
 
@@ -31,36 +39,17 @@ Muti Metroo uses YAML configuration files. The default location is `./config.yam
 muti-metroo run -c /path/to/config.yaml
 ```
 
-## Configuration Sections
-
-| Section | Purpose |
-|---------|---------|
-| [agent](/configuration/agent) | Agent identity and logging |
-| [listeners](/configuration/listeners) | Transport listeners (QUIC, HTTP/2, WebSocket) |
-| [peers](/configuration/peers) | Outbound peer connections |
-| [socks5](/configuration/socks5) | SOCKS5 proxy configuration |
-| [exit](/configuration/exit) | Exit node routes and DNS |
-| [tls-certificates](/configuration/tls-certificates) | TLS/mTLS configuration |
-| [environment-variables](/configuration/environment-variables) | Environment variable substitution |
-
-## Quick Reference
-
-### Minimal Configuration
+## Minimal Configuration
 
 The simplest working configuration:
 
 ```yaml
 agent:
-  id: "auto"
   data_dir: "./data"
-
-tls:
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
 
 listeners:
   - transport: quic
-    address: "0.0.0.0:4433"
+    address: ":4433"
 
 socks5:
   enabled: true
@@ -76,122 +65,66 @@ http:
   address: ":8080"
 ```
 
-### Full Configuration
+TLS certificates are auto-generated at startup. See [TLS Certificates](/configuration/tls-certificates) for custom certificate setup.
 
-See [configs/example.yaml](https://github.com/postalsys/Muti-Metroo/blob/master/configs/example.yaml) for a fully commented configuration file.
+## Full Example
 
-## Configuration Structure
+See [configs/example.yaml](https://github.com/postalsys/Muti-Metroo/blob/master/configs/example.yaml) for a fully commented configuration file with all options.
 
-```yaml
-# Default action when binary runs without arguments (embedded configs only)
-# default_action: run    # Auto-start agent when embedded
+## Configuration Sections
 
-# Agent identity and logging
-agent:
-  id: "auto"                    # Agent ID (auto-generate or hex string)
-  display_name: "My Agent"      # Human-readable name
-  data_dir: "./data"            # Persistent state directory
-  log_level: "info"             # debug, info, warn, error
-  log_format: "text"            # text, json
+### Core
 
-# Global TLS configuration (used by listeners and peers)
-tls:
-  ca: "./certs/ca.crt"          # CA certificate
-  cert: "./certs/agent.crt"     # Agent certificate
-  key: "./certs/agent.key"      # Private key
-  mtls: false                   # Enable mutual TLS
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `agent` | Agent identity, logging | [Agent](/configuration/agent) |
+| `tls` | Global TLS settings | [TLS Certificates](/configuration/tls-certificates) |
+| `listeners` | Accept peer connections | [Listeners](/configuration/listeners) |
+| `peers` | Connect to other agents | [Peers](/configuration/peers) |
 
-# Protocol identifiers (customization)
-protocol:
-  alpn: "muti-metroo/1"         # ALPN for QUIC/TLS (empty to disable)
-  http_header: "X-Muti-Metroo-Protocol"  # HTTP header (empty to disable)
-  ws_subprotocol: "muti-metroo/1"        # WebSocket subprotocol (empty to disable)
+### Ingress
 
-# Transport listeners
-listeners:
-  - transport: quic             # quic, h2, ws
-    address: "0.0.0.0:4433"
-    # Uses global TLS settings; per-listener overrides available via tls: section
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `socks5` | SOCKS5 proxy | [SOCKS5](/configuration/socks5) |
+| `forward.listeners` | Port forward listeners | [Forward](/configuration/forward) |
 
-# Peer connections
-peers:
-  - id: "abc123..."
-    transport: quic
-    address: "192.168.1.10:4433"
-    # Uses global TLS settings; per-peer overrides available via tls: section
+### Exit
 
-# SOCKS5 proxy
-socks5:
-  enabled: true
-  address: "127.0.0.1:1080"
-  auth:
-    enabled: false
-  max_connections: 1000
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `exit` | CIDR and domain routes | [Exit](/configuration/exit) |
+| `forward.endpoints` | Port forward endpoints | [Forward](/configuration/forward) |
+| `udp` | UDP relay | [UDP](/configuration/udp) |
+| `icmp` | ICMP ping | [ICMP](/configuration/icmp) |
 
-# Exit node
-exit:
-  enabled: false
-  routes:
-    - "10.0.0.0/8"
-  # dns: optional, defaults to system resolver
+### Remote Access
 
-# Routing settings
-routing:
-  advertise_interval: 2m
-  node_info_interval: 2m   # Node info advertisement interval
-  route_ttl: 5m
-  max_hops: 16
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `shell` | Remote command execution | [Shell](/configuration/shell) |
+| `file_transfer` | File upload/download | [File Transfer](/configuration/file-transfer) |
 
-# Connection tuning
-connections:
-  idle_threshold: 5m
-  timeout: 90s
-  reconnect:
-    initial_delay: 1s
-    max_delay: 60s
-    multiplier: 2.0        # Exponential backoff multiplier
-    jitter: 0.2            # Random jitter factor (0.0-1.0)
-    max_retries: 0         # 0 = infinite retries
+### HTTP API
 
-# Resource limits
-limits:
-  max_streams_per_peer: 1000
-  max_streams_total: 10000
-  max_pending_opens: 100     # Pending stream open requests
-  stream_open_timeout: 30s   # Timeout for stream open
-  buffer_size: 262144
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `http` | Health, dashboard, APIs | [HTTP](/configuration/http) |
 
-# HTTP API
-http:
-  enabled: true
-  address: ":8080"
-  read_timeout: 10s
-  write_timeout: 10s
-  minimal: false               # When true, only health endpoints enabled
-  pprof: false                 # /debug/pprof/* endpoints
-  dashboard: true              # /ui/*, /api/* endpoints
-  remote_api: true             # /agents/* endpoints
+### Tuning
 
-# Shell (remote commands)
-shell:
-  enabled: false
-  whitelist: []
-  password_hash: ""
-  timeout: 0s                # Default command timeout (0 = no timeout)
-  max_sessions: 0            # Concurrent session limit (0 = unlimited)
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `routing` | Route advertisement | [Routing](/configuration/routing) |
+| `connections` | Keepalive, reconnection | [Routing](/configuration/routing#connection-tuning) |
+| `limits` | Stream limits, buffers | [Routing](/configuration/routing) |
 
-# File transfer
-file_transfer:
-  enabled: false
-  max_file_size: 524288000   # 500 MB default, 0 = unlimited
-  allowed_paths: []
-  password_hash: ""
+### Security
 
-# Management key encryption (topology privacy)
-management:
-  public_key: ""             # 64-char hex, add to all agents
-  private_key: ""            # 64-char hex, only on management nodes
-```
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `management` | Topology encryption | [Management](/configuration/management) |
+| `protocol` | OPSEC identifiers | [TLS Certificates](/configuration/tls-certificates) |
 
 ## Environment Variables
 
@@ -203,7 +136,6 @@ agent:
   log_level: "${LOG_LEVEL:-info}"
 
 socks5:
-  address: "${SOCKS_ADDR:-127.0.0.1:1080}"
   auth:
     users:
       - username: "${SOCKS_USER}"
@@ -213,6 +145,8 @@ socks5:
 Syntax:
 - `${VAR}` - Use environment variable (error if not set)
 - `${VAR:-default}` - Use default if variable not set
+
+See [Environment Variables](/configuration/environment-variables) for more details.
 
 ## Validation
 
@@ -226,7 +160,7 @@ ERROR  Invalid configuration: peers[0].id: invalid agent ID format
 
 ## Reloading
 
-Currently, configuration cannot be reloaded without restart. To apply changes:
+Configuration cannot be reloaded without restart. To apply changes:
 
 ```bash
 # Stop agent (Ctrl+C or SIGTERM)
@@ -235,7 +169,7 @@ Currently, configuration cannot be reloaded without restart. To apply changes:
 muti-metroo run -c ./config.yaml
 ```
 
-## Configuration Best Practices
+## Best Practices
 
 1. **Use environment variables** for secrets (passwords, keys)
 2. **Keep configs in version control** (without secrets)
@@ -243,9 +177,28 @@ muti-metroo run -c ./config.yaml
 4. **Start minimal** and add features as needed
 5. **Test configuration** before production deployment
 
+## Embedded Configuration
+
+For single-file deployments, configuration can be embedded in the binary:
+
+```yaml
+# When running embedded binary without arguments
+default_action: run    # Auto-start agent
+# default_action: help # Show help (default)
+```
+
+The setup wizard can create embedded binaries:
+
+```bash
+muti-metroo setup
+# Choose "Embed in binary" for configuration delivery
+```
+
+See [Embedded Configuration](/deployment/embedded-config) for details.
+
 ## Next Steps
 
 - [Agent Configuration](/configuration/agent) - Identity and logging
 - [Listeners](/configuration/listeners) - Transport setup
 - [Peers](/configuration/peers) - Connecting to other agents
-- [TLS Certificates](/configuration/tls-certificates) - Certificate management
+- [Getting Started](/getting-started/overview) - First-time setup

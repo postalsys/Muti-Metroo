@@ -208,49 +208,6 @@ services:
       - ./config.yaml:/app/config.yaml
 ```
 
-### Container Orchestration
-
-Environment variables work well with container orchestration platforms. Example ConfigMap:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: muti-metroo-config
-data:
-  LOG_LEVEL: "info"
-  SOCKS_ADDR: "0.0.0.0:1080"
-```
-
-Secret:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: muti-metroo-secrets
-type: Opaque
-stringData:
-  SOCKS5_PASSWORD_HASH: "$2a$10$..."
-  TLS_KEY: |
-    -----BEGIN PRIVATE KEY-----
-    ...
-    -----END PRIVATE KEY-----
-```
-
-Deployment:
-
-```yaml
-spec:
-  containers:
-    - name: muti-metroo
-      envFrom:
-        - configMapRef:
-            name: muti-metroo-config
-        - secretRef:
-            name: muti-metroo-secrets
-```
-
 ### systemd
 
 ```ini
