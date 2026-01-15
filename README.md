@@ -155,8 +155,8 @@ For single-file deployments, the wizard can embed configuration directly into th
 ./build/muti-metroo setup
 # Choose "Embed in binary" when prompted
 
-# Run without config file
-./my-agent run
+# Run without config file (no 'run' command needed)
+./my-agent
 
 # Edit embedded config later
 ./build/muti-metroo setup -c /path/to/embedded-binary

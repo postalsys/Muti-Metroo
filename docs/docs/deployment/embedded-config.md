@@ -18,7 +18,7 @@ Drop a single executable. No config files, no setup - just run the binary and th
 The configuration is appended to the binary itself:
 - YAML config is XOR-obfuscated and added to the end of the executable
 - The agent detects and loads embedded config automatically on startup
-- No `-c` flag needed - just `./my-agent run`
+- No `-c` flag or `run` command needed - just `./my-agent`
 - External config files are ignored when embedded config is present
 
 ## True Single-File Deployment

@@ -19,10 +19,10 @@ When using embedded configuration (via the setup wizard), the service installati
    - Linux/macOS: `/usr/local/bin/<service-name>`
    - Windows: `C:\Program Files\<service-name>\<service-name>.exe`
 
-2. Creates service definition without `-c` flag:
+2. Creates service definition without `-c` flag or `run` command:
    ```bash
-   # Embedded config service
-   ExecStart=/usr/local/bin/my-agent run
+   # Embedded config service (no arguments needed)
+   ExecStart=/usr/local/bin/my-agent
    ```
 
 3. Uses the custom service name you specified

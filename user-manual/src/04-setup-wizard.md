@@ -357,8 +357,8 @@ Output binary path: ./my-agent
 ### Running Embedded Binary
 
 ```bash
-# No config file needed
-./my-agent run
+# No config file or run command needed
+./my-agent
 
 # Output shows embedded config detection
 Using embedded configuration
