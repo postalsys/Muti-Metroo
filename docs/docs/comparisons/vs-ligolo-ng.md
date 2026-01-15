@@ -142,37 +142,144 @@ curl http://internal-server/
 
 ### Ligolo-ng: Manual Double Pivoting
 
-To reach networks behind multiple hops, you chain listeners manually:
+To reach networks behind multiple hops (double pivoting), Ligolo-ng requires manual configuration at each step. Consider this scenario:
 
-```
-[Proxy] <-- Agent1 (Network A) <-- Agent2 (Network B) --> Target
+```mermaid
+flowchart LR
+    subgraph Attacker
+        Kali[Kali Linux<br/>Proxy Server]
+    end
+
+    subgraph DMZ["First Pivot (10.1.20.x)"]
+        Ubuntu[Ubuntu<br/>Agent 1]
+    end
+
+    subgraph Internal["Second Pivot (10.1.30.x)"]
+        Windows[Windows<br/>Agent 2]
+    end
+
+    subgraph Target["Target Network"]
+        Final[10.1.30.0/24]
+    end
+
+    Kali -->|"TUN ligolo"| Ubuntu
+    Ubuntu -->|"TUN ligolo-double"| Windows
+    Windows --> Final
 ```
 
-Setup requires:
-1. Start listener on Agent1 for Agent2 to connect
-2. Run Agent2 connecting through Agent1's listener
-3. Manage each hop explicitly
+**Step-by-step double pivot setup:**
+
+**Step 1: Create second TUN interface on your machine**
+
+```bash
+# Create a separate TUN for the second pivot
+sudo ip tuntap add user kali mode tun ligolo-double
+sudo ip link set ligolo-double up
+```
+
+**Step 2: Add listener on first agent for second agent to connect**
+
+In the Ligolo-ng proxy console, select the first agent session and create a listener:
+
+```bash
+# In proxy console - select first agent
+session
+
+# Add listener that forwards to proxy
+listener_add --addr 0.0.0.0:11601 --to 127.0.0.1:11601 --tcp
+
+# Verify listener is active
+listener_list
+```
+
+**Step 3: Run agent on second pivot point**
+
+Deploy and run the agent on the second machine (e.g., Windows), connecting through the first pivot:
+
+```bash
+# On Windows (second pivot) - connect via first pivot's IP
+.\agent.exe -connect 10.1.20.10:11601 -ignore-cert
+```
+
+**Step 4: Start tunnel with second TUN interface**
+
+Back in the proxy console, select the new session and start the tunnel:
+
+```bash
+# Select the new Windows session
+session
+
+# Start tunnel using the second TUN interface
+tunnel_start --tun ligolo-double
+```
+
+**Step 5: Add route for target network**
+
+```bash
+# Route traffic to target network through second TUN
+sudo ip route add 10.1.30.0/24 dev ligolo-double
+```
+
+**Jump Box Access (240.0.0.1)**
+
+Ligolo-ng reserves the IP `240.0.0.1` to access the agent's local ports directly:
+
+```bash
+# Add route to access agent's localhost
+sudo ip route add 240.0.0.1/32 dev ligolo
+
+# Access agent's local web server
+curl http://240.0.0.1:8080
+```
+
+**Summary**: Each additional hop requires creating a new TUN interface, configuring listeners, deploying agents, and manually managing routes.
 
 ### Muti Metroo: Native Multi-hop Routing
 
-Routes propagate automatically through flood-based routing:
+Routes propagate automatically through flood-based routing - no manual chaining required:
 
-```
-[Client] --> Agent A --> Agent B --> Agent C --> Target
+```mermaid
+flowchart LR
+    subgraph Client
+        App[Application]
+    end
+
+    subgraph Mesh["Muti Metroo Mesh"]
+        A[Agent A<br/>Ingress]
+        B[Agent B<br/>Transit]
+        C[Agent C<br/>Exit]
+    end
+
+    subgraph Target["Target Network"]
+        Final[10.1.30.0/24]
+    end
+
+    App -->|SOCKS5| A
+    A <--> B
+    B <--> C
+    C --> Final
 ```
 
-Setup:
-1. Connect agents in any topology (chain, tree, mesh)
-2. Exit agents advertise their routes
-3. Ingress automatically finds the path - no manual configuration
+**Setup (one-time configuration):**
 
 ```yaml
 # Agent C config - just advertise the route
 exit:
   cidr_routes:
-    - cidr: "10.0.0.0/8"
-# Routes automatically propagate to all other agents
+    - cidr: "10.1.30.0/24"
+# Routes automatically propagate through B to A
 ```
+
+```bash
+# Access target network - routing is automatic
+curl --socks5 localhost:1080 http://10.1.30.50/
+
+# Or with Mutiauk for transparent access
+sudo mutiauk daemon start
+curl http://10.1.30.50/
+```
+
+**Key difference**: Add or remove intermediate agents without reconfiguration. Routes flood automatically through the mesh, and traffic finds the optimal path to the exit agent advertising the matching route.
 
 ## Security Model
 
