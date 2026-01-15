@@ -15,7 +15,7 @@ Both Ligolo-ng and Muti Metroo create network tunnels using TUN interfaces, but 
 
 | Aspect | Ligolo-ng | Muti Metroo (+ Mutiauk) |
 |--------|-----------|-------------------------|
-| **Architecture** | Proxy + Agent (star topology) | Mesh network (any topology) |
+| **Architecture** | Proxy + Agent (chained for multi-hop) | Mesh network (any topology) |
 | **TUN Location** | Server-side (proxy machine) | Client-side (Mutiauk) |
 | **Proxy Server** | Requires root/admin for TUN | None needed (agents run unprivileged) |
 | **Agent Privileges** | None required | None required |
@@ -30,14 +30,14 @@ Both Ligolo-ng and Muti Metroo create network tunnels using TUN interfaces, but 
 
 ### Ligolo-ng: Centralized Proxy Model
 
-Ligolo-ng uses a **star topology** where a central proxy server manages all connections:
+Ligolo-ng uses a **proxy-agent model** where agents connect back to a central proxy server. For single-hop access, this resembles a star topology:
 
 ```mermaid
 flowchart TB
     subgraph Attacker["Attacker Machine"]
-        Proxy[Proxy Server]
-        TUN[TUN Interface]
         Tools[Security Tools]
+        TUN[TUN Interface]
+        Proxy[Proxy Server]
     end
 
     subgraph Network1["Target Network 1"]
@@ -45,24 +45,19 @@ flowchart TB
         Target1[Internal Host]
     end
 
-    subgraph Network2["Target Network 2"]
-        Agent2[Agent 2]
-        Target2[Internal Host]
-    end
-
     Tools --> TUN
     TUN --> Proxy
     Agent1 -->|"Reverse Connection"| Proxy
-    Agent2 -->|"Reverse Connection"| Proxy
     Agent1 --> Target1
-    Agent2 --> Target2
 ```
 
 **How it works:**
 1. Start the proxy server on your attack machine (creates TUN interface)
-2. Deploy agents on target networks (they connect back to proxy)
+2. Deploy agent on target network (connects back to proxy)
 3. Configure routes on the proxy to point to the TUN interface
-4. Traffic from your tools goes through TUN to agents to targets
+4. Traffic from your tools goes through TUN to agent to targets
+
+**For multi-hop (double pivoting)**, agents chain through listeners - Agent 2 connects to Agent 1's listener, not directly to the proxy. See [Multi-hop Capabilities](#multi-hop-capabilities) below.
 
 ### Muti Metroo: Decentralized Mesh Model
 
@@ -142,30 +137,40 @@ curl http://internal-server/
 
 ### Ligolo-ng: Manual Double Pivoting
 
-To reach networks behind multiple hops (double pivoting), Ligolo-ng requires manual configuration at each step. Consider this scenario:
+To reach networks behind multiple hops (double pivoting), Ligolo-ng requires manual configuration at each step. The key is that Agent 2 connects through Agent 1's listener, not directly to the proxy:
 
 ```mermaid
 flowchart LR
-    subgraph Attacker
-        Kali[Kali Linux<br/>Proxy Server]
+    subgraph Attacker["Attacker Machine"]
+        Tools[Tools]
+        TUN1[TUN ligolo]
+        TUN2[TUN ligolo-double]
+        Proxy[Proxy Server]
     end
 
     subgraph DMZ["First Pivot (10.1.20.x)"]
-        Ubuntu[Ubuntu<br/>Agent 1]
+        Agent1[Agent 1<br/>+ Listener :11601]
     end
 
     subgraph Internal["Second Pivot (10.1.30.x)"]
-        Windows[Windows<br/>Agent 2]
+        Agent2[Agent 2]
     end
 
     subgraph Target["Target Network"]
         Final[10.1.30.0/24]
     end
 
-    Kali -->|"TUN ligolo"| Ubuntu
-    Ubuntu -->|"TUN ligolo-double"| Windows
-    Windows --> Final
+    Tools --> TUN1 & TUN2
+    TUN1 & TUN2 --> Proxy
+    Agent1 -->|"Reverse Connection"| Proxy
+    Agent2 -->|"Via Listener"| Agent1
+    Agent2 --> Final
 ```
+
+**Connection flow:**
+- Agent 1 connects directly back to the Proxy (reverse connection)
+- Agent 2 connects to Agent 1's listener (port 11601), which tunnels to the Proxy
+- Both TUN interfaces exist on the attacker machine, routing to different networks
 
 **Step-by-step double pivot setup:**
 
