@@ -462,7 +462,7 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | ---------- | ------ | ---------------------------------------------------------------- |
 | `/health`  | GET    | Basic health check, returns "OK"                                 |
 | `/healthz` | GET    | Detailed health with JSON stats (peer count, stream count, etc.) |
-| `/ready`   | GET    | Readiness probe for Kubernetes                                   |
+| `/ready`   | GET    | Readiness probe for load balancers                               |
 
 ### Web Dashboard
 

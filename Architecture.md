@@ -2116,7 +2116,7 @@ listeners:
       client_ca: "./certs/ca.crt" # Optional: require client certs
 
       # Option 2: Inline PEM content (takes precedence over file paths)
-      # Useful for Kubernetes secrets or single-file configs
+      # Useful for secrets management or single-file configs
       # cert_pem: |
       #   -----BEGIN CERTIFICATE-----
       #   ...
