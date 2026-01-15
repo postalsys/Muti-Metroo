@@ -17,67 +17,22 @@ curl -x socks5://localhost:1080 https://internal.example.com
 ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 ```
 
-## Configuration
-
-```yaml
-socks5:
-  enabled: true
-  address: "127.0.0.1:1080"
-  auth:
-    enabled: true
-    users:
-      - username: "user1"
-        password_hash: "$2a$10$..."  # bcrypt hash
-  max_connections: 1000
-```
-
-## Authentication
-
-Supports two methods:
-
-### No Authentication
-
-```yaml
-socks5:
-  enabled: true
-  address: "127.0.0.1:1080"
-  auth:
-    enabled: false
-```
-
-### Username/Password
-
-```yaml
-socks5:
-  enabled: true
-  address: "127.0.0.1:1080"
-  auth:
-    enabled: true
-    users:
-      - username: "user1"
-        password_hash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
-```
-
-Generate password hash using the built-in CLI:
-
-```bash
-muti-metroo hash --cost 12
-```
-
-See [CLI - hash](/cli/hash) for details.
+:::tip Configuration
+See [SOCKS5 Configuration](/configuration/socks5) for all options including authentication, bind address, and connection limits.
+:::
 
 ## Usage Examples
 
 ### cURL
 
 ```bash
-# No auth
+# Basic usage
 curl -x socks5://localhost:1080 https://example.com
 
-# With auth
+# With authentication
 curl -x socks5://user1:password@localhost:1080 https://example.com
 
-# With hostname resolution at proxy (socks5h)
+# With hostname resolution at exit agent (socks5h)
 curl -x socks5h://localhost:1080 https://internal.corp.local
 ```
 
@@ -93,14 +48,19 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 
 # Using ncat (from nmap)
 ssh -o ProxyCommand='ncat --proxy localhost:1080 --proxy-type socks5 %h %p' user@remote-host
+
+# Add to ~/.ssh/config for permanent use
+# Host internal-*
+#     ProxyCommand nc -x localhost:1080 %h %p
 ```
 
 ### Firefox
 
-1. Preferences → Network Settings → Manual proxy configuration
-2. SOCKS Host: localhost, Port: 1080
-3. SOCKS v5
-4. Username/password if auth enabled
+1. Preferences -> Network Settings -> Manual proxy configuration
+2. SOCKS Host: `localhost`, Port: `1080`
+3. Select SOCKS v5
+4. Check "Proxy DNS when using SOCKS v5" for internal DNS resolution
+5. Enter username/password if authentication is enabled
 
 ### Git
 
@@ -149,58 +109,129 @@ proxychains4 nmap -sT -Pn 192.168.1.0/24
 proxychains4 sqlmap -u "http://target/page?id=1"
 ```
 
-## Bind Address Options
+### wget
 
-Control who can connect to the SOCKS5 proxy:
+```bash
+# Via environment variable
+ALL_PROXY=socks5://localhost:1080 wget https://example.com/file.tar.gz
 
-| Address | Access | Use Case |
-|---------|--------|----------|
-| `127.0.0.1:1080` | Local only | Most secure - only local applications |
-| `0.0.0.0:1080` | All interfaces | Share proxy with other machines |
-| `192.168.1.10:1080` | Specific interface | Limit to one network |
-
-:::warning Network Binding
-When binding to `0.0.0.0` or a network interface, always enable authentication to prevent unauthorized access.
-:::
-
-## Connection Limits
-
-Prevent resource exhaustion with connection limits:
-
-```yaml
-socks5:
-  max_connections: 1000    # Maximum concurrent connections (0 = unlimited)
+# Or in ~/.wgetrc
+# use_proxy = on
+# http_proxy = socks5://localhost:1080
+# https_proxy = socks5://localhost:1080
 ```
 
-## Security Considerations
+## Verifying the Proxy
 
-1. **Bind to localhost** when possible to prevent unauthorized access
-2. **Enable authentication** when binding to network interfaces
-3. **Use strong passwords** with bcrypt hashing (cost 10+)
-4. **Monitor connections** via the HTTP API health endpoints
-5. **Set connection limits** to prevent resource exhaustion
+### Check Proxy is Running
+
+```bash
+# Health check
+curl http://localhost:8080/healthz | jq '{socks5: .socks5}'
+
+# Test connection
+nc -zv localhost 1080
+```
+
+### Test Connectivity
+
+```bash
+# Check your exit IP
+curl -x socks5://localhost:1080 https://httpbin.org/ip
+
+# Test internal connectivity
+curl -x socks5h://localhost:1080 http://internal-server/health
+```
+
+### View Active Connections
+
+```bash
+# Via health endpoint
+curl http://localhost:8080/healthz | jq '.streams'
+```
 
 ## Transparent Proxying
 
-For applications that don't support SOCKS5, use [Mutiauk](/mutiauk) (Linux only) to create a TUN interface that transparently routes traffic through the proxy. This enables tools like `nmap` to work without SOCKS configuration.
+For applications that don't support SOCKS5, use [Mutiauk](/mutiauk) (Linux only) to create a TUN interface that transparently routes all traffic through the proxy. No per-app configuration needed.
 
 ## UDP Support
 
-SOCKS5 UDP ASSOCIATE is supported for tunneling UDP traffic (DNS, NTP) through the mesh. UDP relay requires an exit node with UDP enabled.
+SOCKS5 UDP ASSOCIATE is supported for tunneling UDP traffic (DNS, NTP) through the mesh.
 
-```yaml
-# Exit node configuration
-udp:
-  enabled: true
+See [UDP Relay](/features/udp-relay) for details and examples.
+
+## Troubleshooting
+
+### Connection Refused
+
+```
+curl: (7) Failed to connect to localhost port 1080: Connection refused
 ```
 
-See [Features - UDP Relay](/features/udp-relay) for details.
+**Causes:**
+- SOCKS5 server not enabled in config
+- Agent not running
+- Wrong port number
+
+**Solutions:**
+```bash
+# Check agent is running
+curl http://localhost:8080/health
+
+# Verify SOCKS5 is enabled
+curl http://localhost:8080/healthz | jq '.socks5'
+```
+
+### Authentication Failed
+
+```
+curl: (7) User was rejected by the SOCKS5 server (1 1)
+```
+
+**Causes:**
+- Wrong username or password
+- Authentication required but not provided
+
+**Solutions:**
+- Verify credentials: `curl -x socks5://user:pass@localhost:1080 ...`
+- Check if auth is enabled in config
+
+### No Route to Host
+
+```
+curl: (7) Can't complete SOCKS5 connection to example.com:443
+```
+
+**Causes:**
+- No exit agent with matching route
+- Exit agent not connected to mesh
+- Destination unreachable from exit
+
+**Solutions:**
+```bash
+# Check routes exist
+curl http://localhost:8080/healthz | jq '.routes'
+
+# Verify peer connections
+curl http://localhost:8080/healthz | jq '.peers'
+```
+
+### DNS Resolution Failed
+
+```
+curl: (6) Could not resolve host: internal.corp.local
+```
+
+**Cause:** Using `socks5://` instead of `socks5h://`
+
+**Solution:** Use `socks5h://` to resolve DNS at the exit agent:
+```bash
+curl -x socks5h://localhost:1080 https://internal.corp.local
+```
 
 ## Related
 
-- [Features - UDP Relay](/features/udp-relay) - UDP tunneling through SOCKS5
 - [Configuration - SOCKS5](/configuration/socks5) - Full configuration reference
-- [Configuration - UDP](/configuration/udp) - UDP relay configuration
-- [Security - Authentication](/security/authentication) - Password security
-- [Concepts - Agent Roles](/concepts/agent-roles) - Understanding ingress role
-- [Troubleshooting - Common Issues](/troubleshooting/common-issues) - SOCKS5 troubleshooting
+- [UDP Relay](/features/udp-relay) - UDP tunneling through SOCKS5
+- [Mutiauk](/mutiauk) - Transparent proxying via TUN interface
+- [Troubleshooting](/troubleshooting/common-issues) - More troubleshooting tips

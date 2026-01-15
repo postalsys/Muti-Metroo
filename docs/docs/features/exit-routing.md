@@ -25,24 +25,9 @@ Control where your traffic goes. An exit node opens connections to destinations 
 Domain routes only work with **SOCKS5 clients** that send the destination hostname. The [Mutiauk TUN interface](/mutiauk) operates at Layer 3 (IP) and only sees IP addresses after DNS resolution, so it can only use **CIDR routes**. Mutiauk's autoroutes feature fetches only CIDR routes from Muti Metroo.
 :::
 
-## Configuration
-
-```yaml
-exit:
-  enabled: true
-  routes:
-    - "10.0.0.0/8"
-    - "192.168.0.0/16"
-    - "0.0.0.0/0"  # Default route
-  domain_routes:
-    - "api.internal.corp"    # Exact domain match
-    - "*.example.com"        # Wildcard match
-  dns:                       # Optional, defaults to system resolver
-    servers:
-      - "8.8.8.8:53"
-      - "1.1.1.1:53"
-    timeout: 5s
-```
+:::tip Configuration
+See [Exit Configuration](/configuration/exit) for all options including CIDR routes, domain routes, and DNS servers.
+:::
 
 ## Route Advertisement
 
@@ -116,15 +101,76 @@ Example:
 
 ## Access Control
 
-Only destinations matching advertised routes are allowed:
+Exit nodes only allow connections to destinations matching their advertised routes. If an exit advertises `10.0.0.0/8`, connections to any other IP range will be rejected. This provides implicit access control - you control what each exit can reach by configuring its routes.
 
-```yaml
-exit:
-  routes:
-    - "10.0.0.0/8"  # Only allow 10.x.x.x
+## Verifying Routes
+
+Check which routes are available in the mesh:
+
+```bash
+# View all routes (CIDR and domain)
+curl http://localhost:8080/healthz | jq '{routes: .routes, domain_routes: .domain_routes}'
+
+# Trigger route advertisement after config changes
+curl -X POST http://localhost:8080/routes/advertise
 ```
 
-Connections to other IPs will be rejected.
+## Troubleshooting
+
+### No Route to Host
+
+```
+curl: (7) Can't complete SOCKS5 connection to 10.1.2.3:443
+```
+
+**Causes:**
+- No exit node advertising a route that covers the destination
+- Exit node not connected to the mesh
+- Route not yet propagated (wait for advertise interval)
+
+**Solutions:**
+```bash
+# Check available routes
+curl http://localhost:8080/healthz | jq '.routes'
+
+# Verify peer connections
+curl http://localhost:8080/healthz | jq '.peers'
+
+# Trigger route advertisement on the exit node
+curl -X POST http://exit-node:8080/routes/advertise
+```
+
+### Domain Route Not Matching
+
+```
+# Expected to use internal DNS but resolved externally
+```
+
+**Causes:**
+- Using `socks5://` instead of `socks5h://` (DNS resolved locally)
+- Domain pattern doesn't match (wildcards are single-level only)
+- CIDR route matching before domain route (IP-based request)
+
+**Solutions:**
+- Use `socks5h://` to send hostname to the proxy
+- Check wildcard pattern: `*.example.com` matches `foo.example.com` but not `a.b.example.com`
+- Verify domain routes exist: `curl http://localhost:8080/healthz | jq '.domain_routes'`
+
+### Connection Timeout
+
+```
+curl: (7) Failed to connect to destination
+```
+
+**Causes:**
+- Destination unreachable from exit node's network
+- Firewall blocking outbound connections
+- DNS resolution failing at exit (for domain routes)
+
+**Solutions:**
+- Verify exit node can reach the destination directly
+- Check exit node's DNS configuration for domain routes
+- Review firewall rules on the exit node's network
 
 ## Related
 

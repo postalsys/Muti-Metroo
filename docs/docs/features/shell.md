@@ -26,41 +26,9 @@ Two modes are available:
 - **Normal mode**: Run commands and see output (default)
 - **Interactive TTY**: Full terminal for vim, htop, top, and other interactive programs
 
-## Configuration
-
-```yaml
-shell:
-  enabled: false              # Disabled by default (security)
-  whitelist: []               # Commands allowed (empty = none, ["*"] = all)
-  # whitelist:
-  #   - htop
-  #   - top
-  #   - vim
-  #   - journalctl
-  #   - systemctl
-  password_hash: ""           # bcrypt hash of shell password
-  timeout: 0s                 # Optional command timeout (0 = no timeout)
-  max_sessions: 0             # Max concurrent sessions (0 = unlimited)
-```
-
-:::tip Generate Password Hash
-Use the built-in CLI to generate bcrypt hashes: `muti-metroo hash`
-
-See [CLI - hash](/cli/hash) for details.
+:::tip Configuration
+See [Remote Shell Configuration](/configuration/shell) for all options including command whitelist, password authentication, and session limits.
 :::
-
-## Security Model
-
-1. **Command Whitelist**: Only whitelisted commands can run
-   - Empty list = no commands allowed (default)
-   - `["*"]` = all commands allowed (testing only!)
-   - Commands must be base names only (no paths)
-
-2. **Password Authentication**: bcrypt-hashed password required when configured
-
-3. **Session Limits**: Maximum concurrent sessions to prevent resource exhaustion
-
-4. **Argument Validation**: Dangerous shell metacharacters are blocked
 
 ## Modes
 
@@ -163,8 +131,117 @@ muti-metroo shell abc123 systeminfo
 muti-metroo shell abc123 netstat -an
 ```
 
+## Common Workflows
+
+### System Health Check
+
+```bash
+# Quick system status
+muti-metroo shell abc123 uptime
+muti-metroo shell abc123 df -h
+muti-metroo shell abc123 free -m
+
+# Check running services
+muti-metroo shell abc123 systemctl status muti-metroo
+```
+
+### Log Monitoring
+
+```bash
+# Follow service logs
+muti-metroo shell abc123 journalctl -u muti-metroo -f
+
+# Search recent logs
+muti-metroo shell abc123 journalctl -u muti-metroo --since "1 hour ago"
+```
+
+### Configuration Management
+
+```bash
+# View config (streaming mode)
+muti-metroo shell abc123 cat /etc/muti-metroo/config.yaml
+
+# Edit config (interactive mode)
+muti-metroo shell --tty abc123 vim /etc/muti-metroo/config.yaml
+
+# Restart service after changes
+muti-metroo shell abc123 systemctl restart muti-metroo
+```
+
+## Troubleshooting
+
+### Command Not Allowed
+
+```
+Error: command not in whitelist: vim
+```
+
+**Cause:** The command is not in the agent's `whitelist` configuration.
+
+**Solutions:**
+- Use only whitelisted commands
+- Contact the agent administrator to add the command
+- Check available commands in the agent's config
+
+### Authentication Failed
+
+```
+Error: authentication required
+```
+
+**Cause:** The agent requires password authentication for shell access.
+
+**Solution:** Provide the password with `-p`:
+```bash
+muti-metroo shell -p mypassword abc123 whoami
+```
+
+### Session Limit Reached
+
+```
+Error: maximum sessions exceeded
+```
+
+**Cause:** The agent has reached its `max_sessions` limit.
+
+**Solutions:**
+- Wait for existing sessions to complete
+- Close unused shell sessions
+- Contact the agent administrator to increase the limit
+
+### Interactive Program Not Working
+
+```
+# vim appears broken, no colors in htop
+```
+
+**Cause:** Running an interactive program without `--tty` flag.
+
+**Solution:** Use `--tty` for interactive programs:
+```bash
+muti-metroo shell --tty abc123 htop
+muti-metroo shell --tty abc123 vim /etc/config.yaml
+```
+
+### Agent Not Reachable
+
+```
+Error: no route to agent abc123
+```
+
+**Cause:** The target agent is not connected to the mesh.
+
+**Solutions:**
+```bash
+# Check if agent is known
+curl http://localhost:8080/agents
+
+# Verify connectivity
+curl http://localhost:8080/healthz | jq '.peers'
+```
+
 ## Related
 
 - [CLI - Shell](/cli/shell) - CLI reference
 - [API - Shell](/api/shell) - WebSocket API reference
-- [Security - Access Control](/security/access-control) - Whitelist configuration
+- [Configuration - Shell](/configuration/shell) - Shell configuration reference

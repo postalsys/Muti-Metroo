@@ -41,31 +41,9 @@ UDP relay requires:
 2. **Exit agent** with UDP relay enabled
 3. A route from ingress to exit
 
-## Configuration
-
-### Exit Node
-
-Enable UDP relay on exit nodes:
-
-```yaml
-udp:
-  enabled: true
-  max_associations: 1000
-  idle_timeout: 5m
-  max_datagram_size: 1472
-```
-
-See [Configuration - UDP](/configuration/udp) for full reference.
-
-### Ingress Node
-
-No special configuration needed. UDP ASSOCIATE is automatically available when SOCKS5 is enabled and an exit with UDP support is reachable.
-
-```yaml
-socks5:
-  enabled: true
-  address: "127.0.0.1:1080"
-```
+:::tip Configuration
+See [UDP Configuration](/configuration/udp) for exit node options and [SOCKS5 Configuration](/configuration/socks5) for ingress setup.
+:::
 
 :::info UDP Relay Binding
 The UDP relay socket binds to the same IP address as the SOCKS5 TCP listener. If SOCKS5 listens on `127.0.0.1:1080`, UDP relay sockets will bind to `127.0.0.1`. If SOCKS5 listens on `0.0.0.0:1080`, UDP relay sockets will bind to `0.0.0.0` (all interfaces).

@@ -1,6 +1,6 @@
 ---
 title: Port Forwarding
-sidebar_position: 7
+sidebar_position: 3
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>

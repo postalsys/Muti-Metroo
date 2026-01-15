@@ -58,23 +58,11 @@ ICMP uses unprivileged sockets and platform support varies:
 ICMP relay does not work when the exit agent runs on Windows. Use Linux or macOS exit agents for ICMP functionality.
 :::
 
-## Configuration
+:::tip Configuration
+See [ICMP Configuration](/configuration/icmp) for all options including session limits and timeouts.
+:::
 
-### Exit Node
-
-ICMP is enabled by default on exit nodes:
-
-```yaml
-icmp:
-  enabled: true
-  max_sessions: 100
-  idle_timeout: 60s
-  echo_timeout: 5s
-```
-
-See [Configuration - ICMP](/configuration/icmp) for full reference.
-
-### Linux System Requirements
+## Linux System Requirements
 
 On Linux, unprivileged ICMP sockets require kernel configuration:
 

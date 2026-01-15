@@ -1,6 +1,6 @@
 ---
 title: Web Dashboard
-sidebar_position: 5
+sidebar_position: 8
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -112,17 +112,78 @@ Returns metro map data:
 
 Returns detailed node information for all known agents.
 
-## Configuration
+:::tip Configuration
+See [HTTP Configuration](/configuration/http) for dashboard access options including binding address and minimal mode.
+:::
 
-Dashboard is automatically available when HTTP server is enabled:
+## Command Line Access
 
-```yaml
-http:
-  enabled: true
-  address: ":8080"
+Query dashboard data without a browser:
+
+```bash
+# Get dashboard overview
+curl http://localhost:8080/api/dashboard | jq
+
+# Get topology for mesh visualization
+curl http://localhost:8080/api/topology | jq
+
+# Get detailed node information
+curl http://localhost:8080/api/nodes | jq
+
+# Quick health check
+curl http://localhost:8080/healthz | jq '{peers: .peer_count, streams: .stream_count, routes: .routes | length}'
 ```
 
-No additional configuration required.
+## Troubleshooting
+
+### Dashboard Not Loading
+
+```
+Connection refused on http://localhost:8080/ui/
+```
+
+**Causes:**
+- HTTP server not enabled in configuration
+- Agent not running
+- Wrong port number
+
+**Solutions:**
+```bash
+# Check if HTTP server is running
+curl http://localhost:8080/health
+
+# Verify configuration has http.enabled: true
+```
+
+### No Agents Visible
+
+```
+Dashboard shows only local agent, no peers
+```
+
+**Causes:**
+- No peers connected yet
+- Peers haven't advertised their routes
+- Network connectivity issues
+
+**Solutions:**
+```bash
+# Check peer connections
+curl http://localhost:8080/healthz | jq '.peers'
+
+# Trigger route advertisement
+curl -X POST http://localhost:8080/routes/advertise
+```
+
+### Dashboard Returns 404
+
+```
+HTTP 404 on /ui/ endpoint
+```
+
+**Cause:** Dashboard disabled with `http.minimal: true` or `http.dashboard: false`.
+
+**Solution:** Enable dashboard in configuration or use the API endpoints directly.
 
 ## Related
 

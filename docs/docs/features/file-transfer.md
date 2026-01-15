@@ -1,6 +1,6 @@
 ---
 title: File Transfer
-sidebar_position: 3
+sidebar_position: 4
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -22,22 +22,8 @@ muti-metroo upload abc123 ./deploy.sh /tmp/deploy.sh
 muti-metroo upload abc123 ./tools /opt/tools
 ```
 
-## Configuration
-
-```yaml
-file_transfer:
-  enabled: true
-  max_file_size: 524288000    # 500 MB default, 0 = unlimited
-  allowed_paths:
-    - /tmp
-    - /home/user/uploads
-  password_hash: ""           # bcrypt hash (generate with: muti-metroo hash)
-```
-
-:::tip Generate Password Hash
-Use the built-in CLI to generate bcrypt hashes: `muti-metroo hash --cost 12`
-
-See [CLI - hash](/cli/hash) for details.
+:::tip Configuration
+See [File Transfer Configuration](/configuration/file-transfer) for all options including path restrictions, size limits, and authentication.
 :::
 
 ## CLI Usage
@@ -159,57 +145,74 @@ Resume uses **file size comparison** to detect if the source file changed:
 Resume is not supported for directory transfers. If a directory transfer is interrupted, it will restart from the beginning.
 :::
 
-## Security
+## Troubleshooting
 
-### Access Control
+### Permission Denied
 
-1. **enabled flag**: Disable completely if not needed
-2. **password_hash**: Require password for all transfers
-3. **allowed_paths**: Control which paths can be accessed
-
-### Path Configuration
-
-The `allowed_paths` setting works consistently with the shell `whitelist`:
-
-| Configuration | Behavior |
-|--------------|----------|
-| `[]` (empty) | No paths allowed - feature effectively disabled |
-| `["*"]` | All absolute paths allowed |
-| `["/tmp", "/data"]` | Only specified paths/prefixes allowed |
-
-:::warning Breaking Change
-Empty `allowed_paths: []` now blocks all paths (previously allowed all). Use `allowed_paths: ["*"]` to allow all paths.
-:::
-
-### Glob Pattern Support
-
-Patterns support glob syntax for flexible path matching:
-
-```yaml
-file_transfer:
-  enabled: true
-  allowed_paths:
-    # Exact prefix - allows /tmp and everything under it
-    - /tmp
-
-    # Recursive glob - same as prefix, explicitly matches subdirectories
-    - /data/**
-
-    # Wildcard in path - matches any username
-    - /home/*/uploads
-
-    # Extension matching - only .log files in /var/log
-    - /var/log/*.log
+```
+Error: path not allowed: /etc/passwd
 ```
 
-### Pattern Examples
+**Cause:** The path is not in the agent's `allowed_paths` configuration.
 
-| Pattern | Matches | Does Not Match |
-|---------|---------|----------------|
-| `/tmp` | `/tmp`, `/tmp/file.txt`, `/tmp/a/b/c` | `/tmpevil`, `/etc` |
-| `/tmp/**` | `/tmp`, `/tmp/file.txt`, `/tmp/a/b/c` | `/tmpevil` |
-| `/home/*/uploads` | `/home/alice/uploads`, `/home/bob/uploads/doc.pdf` | `/home/uploads` |
-| `/var/log/*.log` | `/var/log/syslog.log` | `/var/log/app/error.log` |
+**Solutions:**
+- Check the agent's `allowed_paths` setting
+- Use a path that's explicitly allowed
+- Contact the agent administrator to add the path
+
+### Authentication Failed
+
+```
+Error: authentication required
+```
+
+**Cause:** The agent requires password authentication for file transfers.
+
+**Solution:** Provide the password with `-p`:
+```bash
+muti-metroo upload -p mypassword abc123 ./file.txt /tmp/file.txt
+```
+
+### File Too Large
+
+```
+Error: file exceeds maximum size limit
+```
+
+**Cause:** The file exceeds the agent's `max_file_size` setting.
+
+**Solutions:**
+- Check the size limit: `max_file_size: 0` means unlimited
+- Split the file into smaller parts
+- Contact the agent administrator to increase the limit
+
+### Agent Not Reachable
+
+```
+Error: no route to agent abc123
+```
+
+**Cause:** The target agent is not connected to the mesh or routes haven't propagated.
+
+**Solutions:**
+```bash
+# Check if agent is known
+curl http://localhost:8080/agents
+
+# Verify connectivity
+curl http://localhost:8080/healthz | jq '.peers'
+```
+
+### Transfer Interrupted
+
+If a transfer is interrupted, use `--resume` to continue:
+
+```bash
+# Resume from where it left off
+muti-metroo download --resume abc123 /data/large.iso ./large.iso
+```
+
+Note: Resume is not supported for directory transfers.
 
 ## Related
 
