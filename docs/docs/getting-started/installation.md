@@ -1,6 +1,6 @@
 ---
 title: Installation
-sidebar_position: 2
+sidebar_position: 3
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -118,25 +118,24 @@ For development:
 After installation, verify everything works:
 
 ```bash
+# Check the binary works
+muti-metroo --version
+
 # Initialize agent identity
 muti-metroo init -d ./data
+# Output: Agent ID: a1b2c3d4...
 
-# Check the generated agent ID
-cat ./data/agent_id
-
-# Generate test certificates
-muti-metroo cert ca --cn "Test CA" -o ./certs
-muti-metroo cert agent --cn "test-agent" \
-  --ca ./certs/ca.crt \
-  --ca-key ./certs/ca.key \
-  -o ./certs
-
-# Verify certificates (output file uses common name)
-muti-metroo cert info ./certs/test-agent.crt
+# Check the generated files
+ls ./data/
+# Output: agent_id  keypair.json
 ```
+
+:::info No Certificate Setup Required
+TLS certificates are auto-generated at startup. Manual certificate setup is only needed for [strict TLS verification](/configuration/tls-certificates) or mTLS.
+:::
 
 ## Next Steps
 
-- [Quick Start](/getting-started/quick-start) - Create your first configuration
-- [Interactive Setup](/getting-started/interactive-setup) - Use the setup wizard
+- [Interactive Setup](/getting-started/interactive-setup) - Guided wizard (recommended)
+- [Quick Start](/getting-started/quick-start) - Manual configuration
 - [Configuration Reference](/configuration/overview) - All configuration options

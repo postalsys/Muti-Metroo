@@ -1,6 +1,6 @@
 ---
 title: Quick Start
-sidebar_position: 3
+sidebar_position: 4
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -42,32 +42,39 @@ Save this Agent ID - you will need it when connecting other agents to this one.
 
 ## Step 2: Create Configuration File
 
-Create `config.yaml` with your agent settings:
+Create `config.yaml` with a minimal working configuration:
 
 ```yaml
-# Agent identity
 agent:
-  id: "auto"                    # Uses ID from data directory
-  display_name: "My First Agent"
   data_dir: "./data"
-  log_level: "info"
-  log_format: "text"
 
-# Listen for peer connections
 listeners:
   - transport: quic
-    address: "0.0.0.0:4433"
+    address: ":4433"
 
-# SOCKS5 proxy (ingress role)
 socks5:
   enabled: true
   address: "127.0.0.1:1080"
 
-# HTTP API (health checks, dashboard)
+exit:
+  enabled: true
+  routes:
+    - "0.0.0.0/0"
+
 http:
   enabled: true
   address: ":8080"
 ```
+
+This creates a fully functional agent that can:
+- Accept peer connections on port 4433 (QUIC)
+- Provide a SOCKS5 proxy on localhost:1080
+- Route traffic to any destination (exit)
+- Serve the dashboard on port 8080
+
+:::tip Minimal Config
+All other settings use sensible defaults. See [Configuration Reference](/configuration/overview) for customization.
+:::
 
 ## Step 3: Run the Agent
 
@@ -102,76 +109,44 @@ curl http://localhost:8080/healthz
 # Output: {"status":"healthy","agent_id":"a1b2c3d4...","peers":0,"streams":0,"routes":0}
 ```
 
-## Step 5: Test SOCKS5 Proxy
+## Step 5: Test the Proxy
 
-With no exit routes configured, SOCKS5 connections will fail with "no route". But you can verify the proxy is working:
-
-```bash
-# This will fail with "no route to host" - that is expected!
-curl -x socks5://localhost:1080 https://example.com
-
-# Error: Connection refused (no exit node configured)
-```
-
-To actually proxy traffic, you need to either:
-1. Enable exit on this agent (see [Exit Routing](/features/exit-routing))
-2. Connect to another agent that has exit enabled
-
-## Adding Exit Capability
-
-To make this agent also serve as an exit node, add to your `config.yaml`:
-
-```yaml
-# Exit node configuration
-exit:
-  enabled: true
-  routes:
-    - "0.0.0.0/0"          # Advertise default route
-```
-
-Restart the agent:
+Your agent is now a working SOCKS5 proxy:
 
 ```bash
-# Stop with Ctrl+C, then restart
-muti-metroo run -c ./config.yaml
+# Test with curl
+curl -x socks5://localhost:1080 https://httpbin.org/ip
+
+# Test with SSH
+ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 ```
 
-Now test the proxy:
+Open the dashboard at http://localhost:8080/ui/ to see the mesh topology.
 
-```bash
-# Should work now!
-curl -x socks5://localhost:1080 https://example.com
-```
+## Alternative: Client-Only Configuration
 
-## Configuration Summary
-
-Here is the complete configuration for a single agent acting as both ingress and exit:
+If you want to connect to an **existing** exit agent (instead of running your own exit), use this simpler config:
 
 ```yaml
 agent:
-  id: "auto"
-  display_name: "All-in-One Agent"
   data_dir: "./data"
-  log_level: "info"
-  log_format: "text"
 
-listeners:
-  - transport: quic
-    address: "0.0.0.0:4433"
+peers:
+  - id: "exit-agent-id-here"      # Get this from the exit agent
+    transport: quic
+    address: "exit.example.com:4433"
 
 socks5:
   enabled: true
   address: "127.0.0.1:1080"
-
-exit:
-  enabled: true
-  routes:
-    - "0.0.0.0/0"
-
-http:
-  enabled: true
-  address: ":8080"
 ```
+
+This configuration:
+- Connects to a remote exit agent
+- No listeners needed (outbound-only)
+- No exit config needed (uses remote exit)
+
+Ideal for laptops connecting to a central exit server.
 
 ## Next Steps
 

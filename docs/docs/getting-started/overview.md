@@ -11,84 +11,76 @@ sidebar_position: 1
 
 In the next few minutes, you will have a working tunnel that can reach networks behind firewalls, relay traffic through multiple hops, and route connections to any destination.
 
-**What you will build:**
-- A SOCKS5 proxy that tunnels traffic through restricted networks
-- Multi-hop relay chains that reach destinations you could not access directly
-- Exit points that connect to internal resources or the internet
+## Try It in 2 Minutes
 
-## Prerequisites
-
-- **Muti Metroo binary** - [Download for your platform](/download)
-- **Basic networking knowledge** (TCP/IP, CIDR notation)
-
-## Choose Your Path
-
-Pick the setup method that fits your situation:
-
-### Quick Evaluation
-
-Want to quickly try Muti Metroo? Use the **Interactive Setup Wizard**:
-
-```bash
-muti-metroo setup
-```
-
-The wizard guides you through all configuration steps with sensible defaults.
-
-**Time: 5-10 minutes**
-
-[Go to Interactive Setup](/getting-started/interactive-setup)
-
-### Manual Configuration
-
-Need full control over your configuration? Follow the **Quick Start Guide**:
-
-```bash
-# Initialize agent and create config manually
-muti-metroo init -d ./data
-# Edit config.yaml
-muti-metroo run -c ./config.yaml
-```
-
-**Time: 15-30 minutes**
-
-[Go to Quick Start](/getting-started/quick-start)
-
-### Docker Deployment
-
-For containerized deployments, see the **Docker guide**:
-
-[Go to Docker Deployment](/deployment/docker)
-
-**Quick try-out:** Clone the repo and run a 4-agent demo in seconds:
+No installation needed - just Docker:
 
 ```bash
 git clone https://github.com/postalsys/Muti-Metroo.git
 cd Muti-Metroo/examples/docker-tryout
 docker compose up -d
-# Access dashboard: http://localhost:18080/ui/
-# Test proxy: curl -x socks5h://localhost:11080 https://httpbin.org/ip
 ```
 
-## What You Will Accomplish
+**That's it!** You now have a working 4-agent mesh:
 
-By the end of these guides, you will be able to:
+- **Dashboard:** http://localhost:18080/ui/ - see the mesh topology
+- **Test proxy:** `curl -x socks5h://localhost:11080 https://httpbin.org/ip`
 
-1. **Tunnel through firewalls** - Route traffic through HTTP/2 or WebSocket that blends with normal HTTPS
-2. **Reach internal networks** - Access resources behind NAT or segmented networks
-3. **Build relay chains** - Connect through multiple hops to reach any destination
-4. **Proxy any application** - Use SOCKS5 with curl, SSH, browsers, or any TCP application
-5. **Monitor your mesh** - View connections and routes in the web dashboard
+Explore the dashboard to see how traffic flows through the mesh, then continue below for production setup.
+
+---
+
+## Production Setup
+
+**What you will build:**
+- A SOCKS5 proxy that tunnels traffic through restricted networks
+- Multi-hop relay chains that reach destinations you could not access directly
+- Exit points that connect to internal resources or the internet
+
+### Prerequisites
+
+- **Muti Metroo binary** - [Download for your platform](/download)
+- **Basic networking knowledge** (TCP/IP, CIDR notation)
+
+### Choose Your Path
+
+| Path | Best For | Time |
+|------|----------|------|
+| **[Interactive Setup](/getting-started/interactive-setup)** | New users, guided experience | 5-10 min |
+| **[Quick Start](/getting-started/quick-start)** | Manual control, scripting | 10-15 min |
+| **[Docker](/deployment/docker)** | Containerized deployments | 5 min |
+
+### Recommended: Interactive Setup
+
+The wizard handles everything - certificates, identity, and configuration:
+
+```bash
+muti-metroo setup
+```
+
+[Go to Interactive Setup](/getting-started/interactive-setup)
+
+### Alternative: Manual Configuration
+
+For full control or automation:
+
+```bash
+muti-metroo init -d ./data
+# Create config.yaml (see Quick Start)
+muti-metroo run -c ./config.yaml
+```
+
+[Go to Quick Start](/getting-started/quick-start)
 
 ## Next Steps
 
-1. **[Installation](/getting-started/installation)** - Download binaries for your platform
-2. **[Quick Start](/getting-started/quick-start)** - Manual configuration walkthrough
-3. **[Interactive Setup](/getting-started/interactive-setup)** - Guided wizard
-4. **[Your First Mesh](/getting-started/first-mesh)** - Connect multiple agents
+After setup, explore:
+
+- **[Your First Mesh](/getting-started/first-mesh)** - Connect multiple agents
+- **[Core Concepts](/concepts/architecture)** - Understand the architecture
+- **[Configuration Reference](/configuration/overview)** - All available options
 
 ## Need Help?
 
-- Check [Troubleshooting](/troubleshooting/common-issues) for common issues
-- Review [Configuration Reference](/configuration/overview) for all options
-- Read [Core Concepts](/concepts/architecture) to understand the architecture
+- [Troubleshooting](/troubleshooting/common-issues) - Common issues and solutions
+- [FAQ](/troubleshooting/faq) - Frequently asked questions

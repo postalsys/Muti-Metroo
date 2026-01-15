@@ -1,6 +1,6 @@
 ---
 title: Interactive Setup
-sidebar_position: 4
+sidebar_position: 2
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -19,9 +19,19 @@ By the end, you will have a SOCKS5 proxy ready to tunnel traffic through your me
 muti-metroo setup
 ```
 
+:::tip Quick Path - 4 Essential Steps
+For a basic working setup, most steps can use defaults. Focus on these:
+1. **Basic Setup** - accept defaults or set data directory
+2. **Agent Role** - select Ingress + Exit for a standalone proxy
+3. **Network Configuration** - accept defaults (QUIC on :4433)
+4. **SOCKS5 Proxy** - accept defaults (localhost:1080)
+
+Press Enter to accept defaults on all other steps.
+:::
+
 ## What the Wizard Configures
 
-The wizard walks you through 13 steps, though some are conditional based on your role selections.
+The wizard has 13 steps, but many are optional or have sensible defaults.
 
 ### 1. Basic Setup
 
