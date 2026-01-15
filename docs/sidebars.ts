@@ -68,9 +68,11 @@ const sidebars: SidebarsConfig = {
       label: 'Deployment',
       items: [
         'deployment/scenarios',
+        'deployment/embedded-config',
         'deployment/docker',
         'deployment/kubernetes',
         'deployment/system-service',
+        'deployment/pm2',
         'deployment/reverse-proxy',
         'deployment/high-availability',
       ],
