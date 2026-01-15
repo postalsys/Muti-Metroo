@@ -446,6 +446,5 @@ Both relays connect to the same exit agent. Routes are learned from both, with t
 ## Next Steps
 
 - [Docker Deployment](/deployment/docker) - Containerized deployment
-- [Kubernetes Deployment](/deployment/kubernetes) - K8s deployment
 - [System Service](/deployment/system-service) - Install as service
 - [High Availability](/deployment/high-availability) - Redundancy patterns

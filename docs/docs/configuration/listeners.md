@@ -328,7 +328,7 @@ listeners:
     path: "/mesh"
 ```
 
-### Docker/Kubernetes
+### Containers
 
 ```yaml
 tls:

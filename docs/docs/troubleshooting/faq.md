@@ -245,10 +245,6 @@ muti-metroo.exe service install -c C:\config\config.yaml
 
 Yes. See [Docker Deployment](/deployment/docker).
 
-### Can I run Muti Metroo in Kubernetes?
-
-Yes. See [Kubernetes Deployment](/deployment/kubernetes).
-
 ## Troubleshooting
 
 ### How do I enable debug logging?

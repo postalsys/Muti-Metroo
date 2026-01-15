@@ -70,7 +70,6 @@ const sidebars: SidebarsConfig = {
         'deployment/scenarios',
         'deployment/embedded-config',
         'deployment/docker',
-        'deployment/kubernetes',
         'deployment/system-service',
         'deployment/pm2',
         'deployment/reverse-proxy',

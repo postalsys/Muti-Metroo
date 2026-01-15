@@ -122,7 +122,7 @@ tls:
 
 ### Option 4: Inline PEM Certificates
 
-Embed certificates directly in config (useful for Kubernetes secrets):
+Embed certificates directly in config (useful for secrets management or single-file deployment):
 
 ```yaml
 tls:
@@ -492,7 +492,9 @@ peers:
     address: "peer.example.com:4433"
 ```
 
-### Kubernetes
+### Container Secrets
+
+When using container orchestration or secret management, inject certificates via environment variables:
 
 ```yaml
 tls:

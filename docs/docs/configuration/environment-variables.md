@@ -208,9 +208,9 @@ services:
       - ./config.yaml:/app/config.yaml
 ```
 
-### Kubernetes
+### Container Orchestration
 
-ConfigMap:
+Environment variables work well with container orchestration platforms. Example ConfigMap:
 
 ```yaml
 apiVersion: v1
@@ -357,4 +357,3 @@ SOCKS5_PASSWORD_HASH='$2a$10$abc123...'  # Use single quotes
 
 - [Configuration Overview](/configuration/overview) - Full configuration reference
 - [Deployment: Docker](/deployment/docker) - Docker deployment
-- [Deployment: Kubernetes](/deployment/kubernetes) - Kubernetes deployment

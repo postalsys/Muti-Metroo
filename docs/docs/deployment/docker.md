@@ -399,5 +399,5 @@ docker compose exec agent1 chown -R 1000:1000 /app/data
 
 ## Next Steps
 
-- [Kubernetes Deployment](/deployment/kubernetes) - Deploy on K8s
 - [System Service](/deployment/system-service) - Native installation
+- [Embedded Config](/deployment/embedded-config) - Single-file deployment

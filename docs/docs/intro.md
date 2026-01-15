@@ -130,7 +130,7 @@ The wizard guides you through configuring your first agent, generating TLS certi
 | [Core Concepts](/concepts/architecture)           | Architecture, roles, transports, and routing      |
 | [Configuration](/configuration/overview)          | Complete configuration reference                  |
 | [Features](/features/socks5-proxy)                | SOCKS5, exit routing, port forwarding, file transfer, shell |
-| [Deployment](/deployment/scenarios)               | Docker, Kubernetes, and production deployment     |
+| [Deployment](/deployment/scenarios)               | Docker, services, and production deployment       |
 | [Security](/security/overview)                    | TLS, authentication, and best practices           |
 | [CLI Reference](/cli/overview)                    | Command-line interface documentation              |
 | [HTTP API](/api/overview)                         | REST API for monitoring and management            |

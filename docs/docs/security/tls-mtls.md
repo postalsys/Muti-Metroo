@@ -288,7 +288,9 @@ peers:
 
 **Why this is safe:** The E2E encryption layer (X25519 + ChaCha20-Poly1305) protects all traffic regardless of TLS verification. Even if TLS is not verified, the actual mesh traffic remains encrypted end-to-end.
 
-### Kubernetes (Inline Certs)
+### Environment-based Certificates
+
+Inject certificates via environment variables (useful for containers and secret management):
 
 ```yaml
 tls:
