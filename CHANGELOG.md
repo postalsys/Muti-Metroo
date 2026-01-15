@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.6.0...muti-metroo-v2.7.0) (2026-01-15)
+
+
+### Features
+
+* add configurable default CLI action for embedded configs ([c22e812](https://github.com/postalsys/Muti-Metroo/commit/c22e812b2b349963a57378b4ee8af898a232070a))
+
 ## [2.6.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.5.0...muti-metroo-v2.6.0) (2026-01-14)
 
 
