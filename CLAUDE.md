@@ -198,6 +198,14 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo hash "password"              # From argument
 ./build/muti-metroo hash --cost 12               # Custom cost factor
 
+# Interactive Setup Wizard
+./build/muti-metroo setup                        # Launch interactive configuration wizard
+./build/muti-metroo setup -c ./config.yaml       # Generate config at specific path
+
+# Management Key Generation (for topology encryption)
+./build/muti-metroo management-key generate      # Generate new keypair
+./build/muti-metroo management-key public        # Derive public key from private key
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -352,7 +360,7 @@ Disabled endpoints return HTTP 404 and log access attempts at debug level.
 - **Frame size**: Max 16 KB payload for write fairness
 - **Buffer size**: 256 KB per stream default
 - **Timeouts**: Handshake 10s, Stream open 30s, Idle stream 5m
-- **Keepalive**: Every 30s idle, 90s timeout
+- **Keepalive**: Every 5m idle, 90s timeout
 - **Reconnection**: Exponential backoff 1s→60s with 20% jitter
 - **Protocol version**: 0x01 (in PEER_HELLO)
 
@@ -474,6 +482,7 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/agents/{agent-id}/routes`        | GET    | Get route table from specific agent    |
 | `/agents/{agent-id}/peers`         | GET    | Get peer list from specific agent      |
 | `/agents/{agent-id}/shell`         | GET    | WebSocket shell access on remote agent |
+| `/agents/{agent-id}/icmp`          | GET    | WebSocket ICMP ping sessions           |
 | `/agents/{agent-id}/file/upload`   | POST   | Upload file to remote agent            |
 | `/agents/{agent-id}/file/download` | POST   | Download file from remote agent        |
 
@@ -519,6 +528,16 @@ The installer creates a systemd unit file at `/etc/systemd/system/muti-metroo.se
 sudo systemctl start muti-metroo
 sudo systemctl enable muti-metroo
 sudo journalctl -u muti-metroo -f
+```
+
+**User mode (no root required):**
+
+```bash
+# Install as user service (uses cron @reboot + nohup)
+muti-metroo service install --user -c /path/to/config.yaml
+
+# Uninstall user service
+muti-metroo service uninstall --user
 ```
 
 ### macOS (launchd)
@@ -615,19 +634,6 @@ shell:
 | macOS    | Yes               | Yes       |
 | Windows  | Yes (ConPTY)      | Yes       |
 
-### Prometheus Metrics
-
-| Metric                               | Type      | Labels           | Description       |
-| ------------------------------------ | --------- | ---------------- | ----------------- |
-| `muti_metroo_shell_sessions_active`  | Gauge     | -                | Active sessions   |
-| `muti_metroo_shell_sessions_total`   | Counter   | `type`, `result` | Total sessions    |
-| `muti_metroo_shell_duration_seconds` | Histogram | -                | Session duration  |
-| `muti_metroo_shell_bytes_total`      | Counter   | `direction`      | Bytes transferred |
-
-Type labels: `stream`, `interactive`
-Result labels: `success`, `error`, `timeout`, `rejected`
-Direction labels: `stdin`, `stdout`, `stderr`
-
 ## File Transfer
 
 The file transfer feature allows uploading and downloading files and directories to/from remote agents using streaming transfers.
@@ -659,14 +665,17 @@ muti-metroo upload -a 192.168.1.10:8080 abc123def456 ./file.txt /tmp/file.txt
 |------|-------|---------|-------------|
 | `--agent` | `-a` | `localhost:8080` | Agent health server address |
 | `--password` | `-p` | | File transfer password |
-| `--timeout` | `-t` | `300` | Transfer timeout in seconds |
+| `--timeout` | `-t` | `5m` | Transfer timeout |
+| `--rate-limit` | | | Bandwidth limit (e.g., `100KB`, `1MB`) |
+| `--resume` | | | Resume interrupted transfers |
+| `--quiet` | `-q` | | Suppress progress output |
 
 ### Configuration
 
 ```yaml
 file_transfer:
-  enabled: true # Enable/disable file transfer
-  max_file_size: 0 # Max file size in bytes (0 = unlimited)
+  enabled: false # Disabled by default
+  max_file_size: 524288000 # Default 500 MB (0 = unlimited)
   allowed_paths: # Works like shell whitelist:
     - /tmp # - Empty [] = no paths allowed
     - /data/** # - ["*"] = all paths allowed
@@ -730,7 +739,7 @@ UDP relay enables SOCKS5 UDP ASSOCIATE (RFC 1928) support, allowing UDP traffic 
 
 ```yaml
 udp:
-  enabled: false               # Disabled by default
+  enabled: true                # Enabled by default
   max_associations: 1000       # Max concurrent UDP associations
   idle_timeout: 5m             # Association timeout after inactivity
   max_datagram_size: 1472      # Max UDP payload (MTU - IP/UDP headers)
@@ -757,6 +766,49 @@ socksify dig @8.8.8.8 example.com
 - Maximum datagram size: 1472 bytes
 - No fragmentation support (frag > 0 rejected)
 - UDP association tied to TCP control connection lifetime
+
+## ICMP Ping
+
+ICMP ping allows sending echo requests through exit agents to test connectivity and measure latency to destinations.
+
+### Configuration
+
+```yaml
+icmp:
+  enabled: true              # Enabled by default
+  max_sessions: 100          # Max concurrent ping sessions
+  idle_timeout: 60s          # Session idle timeout
+  echo_timeout: 5s           # Per-echo request timeout
+```
+
+### CLI Usage
+
+```bash
+# Ping through remote exit agent
+muti-metroo ping <target-agent-id> <destination-ip>
+
+# Examples:
+muti-metroo ping abc123def456 8.8.8.8
+muti-metroo ping abc123def456 192.168.1.1 -c 10
+
+# With options
+muti-metroo ping abc123def456 8.8.8.8 -c 10 -i 500ms
+```
+
+**Flags:**
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--agent` | `-a` | `localhost:8080` | Agent health server address |
+| `--count` | `-c` | `4` | Number of echo requests (0 = infinite) |
+| `--interval` | `-i` | `1s` | Interval between requests |
+| `--timeout` | `-t` | `5s` | Per-request timeout |
+
+### Implementation Details
+
+- Uses unprivileged ICMP sockets where available
+- Destination must be an IP address (not hostname)
+- Statistics output includes min/avg/max RTT and packet loss
+- E2E encrypted through the mesh
 
 ## Port Forwarding
 
