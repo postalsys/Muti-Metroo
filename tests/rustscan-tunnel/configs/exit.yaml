@@ -1,0 +1,22 @@
+# Exit Agent - handles traffic to kreata.ee and dns-02.emailengine.app
+agent:
+  id: "eeee000000000000eeee000000000000"
+  display_name: "exit-node"
+
+listeners:
+  - transport: quic
+    address: ":4433"
+
+exit:
+  enabled: true
+  routes:
+    - "178.33.49.65/32"    # kreata.ee
+    - "162.19.67.61/32"    # dns-02.emailengine.app
+
+http:
+  enabled: true
+  address: ":8080"
+  dashboard: true
+
+logging:
+  level: debug

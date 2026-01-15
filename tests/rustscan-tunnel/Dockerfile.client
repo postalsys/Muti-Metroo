@@ -1,0 +1,53 @@
+# RustScan + Mutiauk TUN + Muti Metroo Client Container
+# Multi-stage build with parent directory as context
+
+# Stage 1: Build Mutiauk from sibling project (force amd64 for runtime compatibility)
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS mutiauk-builder
+WORKDIR /build
+COPY Mutiauk/ .
+RUN go mod download && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /mutiauk ./cmd/mutiauk
+
+# Stage 2: Build Muti Metroo (force amd64 for runtime compatibility)
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS mm-builder
+WORKDIR /build
+COPY Muti-Metroo-v4/ .
+RUN go mod download && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /muti-metroo ./cmd/muti-metroo
+
+# Stage 3: Runtime with tools
+# Force amd64 platform since RustScan only provides amd64 .deb
+FROM --platform=linux/amd64 kalilinux/kali-rolling
+
+# Install required tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    nmap \
+    netcat-openbsd \
+    iproute2 \
+    iptables \
+    dnsutils \
+    tcpdump \
+    procps \
+    traceroute \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install RustScan from GitHub release (deb is inside a zip)
+RUN apt-get update && apt-get install -y unzip && rm -rf /var/lib/apt/lists/* \
+    && wget -q https://github.com/bee-san/RustScan/releases/download/2.4.1/rustscan.deb.zip \
+    && unzip rustscan.deb.zip \
+    && dpkg -i rustscan*.deb \
+    && rm -f rustscan*.deb rustscan.deb.zip
+
+# Copy binaries from build stages
+COPY --from=mutiauk-builder /mutiauk /usr/local/bin/mutiauk
+COPY --from=mm-builder /muti-metroo /usr/local/bin/muti-metroo
+
+# Create directories for configs
+RUN mkdir -p /etc/muti-metroo /etc/mutiauk /app
+
+WORKDIR /app
+
+# Default command
+CMD ["/bin/bash"]

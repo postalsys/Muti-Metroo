@@ -1,0 +1,74 @@
+# RustScan through Mutiauk TUN + Muti Metroo Test Environment
+#
+# Architecture:
+#   client (RustScan + Mutiauk TUN + MM ingress)
+#     -> transit (Muti Metroo relay)
+#       -> exit (Muti Metroo exit with CIDR routes)
+#         -> Internet targets (kreata.ee, dns-02.emailengine.app)
+#
+# Usage:
+#   docker compose build
+#   docker compose up -d
+#   docker compose exec client /scripts/start-client.sh
+
+services:
+  # Exit agent - handles traffic to specific CIDRs
+  exit:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: rustscan-exit
+    hostname: exit
+    volumes:
+      - ./configs/exit.yaml:/app/config.yaml:ro
+    ports:
+      - "28083:8080"  # Health/Dashboard
+    networks:
+      - mesh
+    restart: unless-stopped
+
+  # Transit agent - relays between client and exit
+  transit:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: rustscan-transit
+    hostname: transit
+    volumes:
+      - ./configs/transit.yaml:/app/config.yaml:ro
+    ports:
+      - "28082:8080"  # Health/Dashboard
+    networks:
+      - mesh
+    depends_on:
+      - exit
+    restart: unless-stopped
+
+  # Client container with RustScan, Mutiauk TUN, and Muti Metroo ingress
+  client:
+    build:
+      context: ../../..  # Points to /Users/andris/Projects/Coinstash/
+      dockerfile: Muti-Metroo-v4/tests/rustscan-tunnel/Dockerfile.client
+    container_name: rustscan-client
+    hostname: client
+    cap_add:
+      - NET_ADMIN  # Required for TUN interface
+    devices:
+      - /dev/net/tun  # Required for TUN interface
+    volumes:
+      - ./configs/client-mm.yaml:/etc/muti-metroo/config.yaml:ro
+      - ./configs/client-mutiauk.yaml:/etc/mutiauk/config.yaml:ro
+      - ./scripts:/scripts:ro
+    ports:
+      - "28081:8080"  # Health/Dashboard
+      - "21080:1080"  # SOCKS5 (for external testing)
+    networks:
+      - mesh
+    depends_on:
+      - transit
+    stdin_open: true
+    tty: true
+
+networks:
+  mesh:
+    driver: bridge
