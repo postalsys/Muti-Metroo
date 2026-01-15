@@ -25,6 +25,7 @@ SSH jump hosts (ProxyJump) and Muti Metroo both solve the problem of reaching ho
 | **Persistence** | Session-based | Always-on mesh |
 | **Root Required** | No | No (Mutiauk TUN: yes) |
 | **Dependencies** | OpenSSH on all hosts | Single binary, no dependencies |
+| **Platform Support** | Linux/macOS (Windows requires setup) | Linux, macOS, Windows natively |
 
 ## Architecture Comparison
 
@@ -133,6 +134,8 @@ ssh -J jump1.example.com,jump2.internal admin@target
 - Credentials (keys/passwords) for each hop
 - Manual chain configuration for each target
 
+**Windows limitation:** If any hop in the chain is a Windows machine, SSH jump becomes problematic. Windows does not include an SSH server by default - OpenSSH Server is an optional feature that must be manually installed and configured. In enterprise environments, this is often not permitted or available, breaking the SSH chain.
+
 ### Muti Metroo: Automatic Routing
 
 Configure agents with peer connections:
@@ -164,6 +167,96 @@ curl --socks5 localhost:1080 http://10.20.30.40/
 # Or with Mutiauk for transparent access
 curl http://10.20.30.40/
 ```
+
+## Platform Considerations
+
+### SSH: The Windows Problem
+
+SSH jump chains assume all intermediate hosts run an SSH server. This works well in Unix/Linux environments but creates significant challenges in mixed environments:
+
+**Windows machines typically lack SSH:**
+- OpenSSH Server is **not installed by default** on Windows
+- It's an optional Windows feature requiring admin privileges to enable
+- Many enterprise environments restrict or prohibit enabling SSH on Windows
+- Even when available, configuration differs from Unix (paths, permissions, shell)
+
+**Real-world scenario:**
+
+```mermaid
+flowchart LR
+    subgraph Your Machine
+        Client[SSH Client]
+    end
+
+    subgraph DMZ
+        Linux[Linux Server<br/>SSH OK]
+    end
+
+    subgraph Internal
+        Windows[Windows Server<br/>No SSH]
+    end
+
+    subgraph Target
+        Final[Target Host]
+    end
+
+    Client -->|SSH| Linux
+    Linux -.->|"SSH?"| Windows
+    Windows -.->|"???"| Final
+
+    style Windows fill:#ffcccc,stroke:#cc0000
+```
+
+If your path to a target network passes through a Windows machine, the SSH chain breaks. You would need to:
+1. Request admin access to install OpenSSH Server
+2. Configure the SSH service and firewall rules
+3. Set up authentication (keys or passwords)
+4. Hope IT security approves the change
+
+### Muti Metroo: Cross-Platform by Design
+
+Muti Metroo agents run natively on Windows, Linux, and macOS without any additional dependencies:
+
+```bash
+# Same binary works everywhere
+# Linux
+./muti-metroo run -c config.yaml
+
+# Windows
+.\muti-metroo.exe run -c config.yaml
+
+# macOS
+./muti-metroo run -c config.yaml
+```
+
+**Mixed environment example:**
+
+```mermaid
+flowchart LR
+    subgraph Your Machine
+        App[Application]
+    end
+
+    subgraph DMZ
+        Linux[Linux Agent]
+    end
+
+    subgraph Internal
+        Windows[Windows Agent]
+    end
+
+    subgraph Target
+        Final[10.20.30.0/24]
+    end
+
+    App -->|SOCKS5| Linux
+    Linux <-->|HTTP/2| Windows
+    Windows --> Final
+
+    style Windows fill:#ccffcc,stroke:#00cc00
+```
+
+No SSH server needed. The same agent binary runs on any platform, connecting via QUIC, HTTP/2, or WebSocket.
 
 ## Protocol Support
 
@@ -394,7 +487,7 @@ SSH jump hosts excel when:
 - **SSH-native workflows**: Using git, scp, rsync over SSH
 - **Temporary access**: Quick one-off access to a remote host
 - **No additional software**: Can't deploy agents on intermediate hosts
-- **Unix/Linux only**: All hosts support SSH
+- **Homogeneous Unix/Linux environment**: All hosts in the chain run Linux/macOS with SSH servers available - no Windows machines in the path
 
 **Typical workflow:**
 ```bash
@@ -410,6 +503,7 @@ psql -h localhost -p 5432
 
 Muti Metroo excels when:
 
+- **Mixed OS environments**: Path includes Windows machines where SSH is unavailable
 - **Need UDP or ICMP**: DNS, VoIP, ping, game traffic
 - **Complex topologies**: Multiple sites, redundant paths, mesh networks
 - **Firewall traversal**: Port 22 blocked, need HTTP/2 or WebSocket
@@ -448,10 +542,10 @@ Or use SSH as a transport for initial agent deployment in locked-down environmen
 
 | Choose | When You Need |
 |--------|---------------|
-| **SSH Jump** | Quick access with existing SSH infrastructure, SSH-native tools, simple chains |
-| **Muti Metroo** | UDP/ICMP support, complex topologies, firewall bypass, always-on mesh, E2E encryption |
+| **SSH Jump** | Quick access with existing SSH infrastructure, SSH-native tools, simple chains, Unix/Linux-only environments |
+| **Muti Metroo** | Mixed OS environments (Windows in path), UDP/ICMP support, complex topologies, firewall bypass, always-on mesh, E2E encryption |
 
-SSH jump hosts are the pragmatic choice when you already have SSH access and need simple TCP connectivity. Muti Metroo provides a more capable solution for complex networking scenarios, protocol diversity, and persistent infrastructure connectivity.
+SSH jump hosts are the pragmatic choice when you already have SSH access across a homogeneous Unix/Linux environment. Muti Metroo provides a more capable solution for mixed OS environments, complex networking scenarios, protocol diversity, and persistent infrastructure connectivity.
 
 ## See Also
 
