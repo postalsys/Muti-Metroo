@@ -2,13 +2,21 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 /**
  * Sidebar configuration for Muti Metroo documentation.
- * Organized by user journey: Getting Started -> Concepts -> Features -> Reference -> Advanced
+ * Organized by user journey: Learn -> Get -> Decide -> Setup -> Understand -> Configure -> Use -> Deploy -> Secure -> Reference -> Fix
  */
 const sidebars: SidebarsConfig = {
   docsSidebar: [
     'intro',
     'download',
-    'mutiauk',
+    {
+      type: 'category',
+      label: 'Comparisons',
+      items: [
+        'comparisons/vs-ligolo-ng',
+        'comparisons/vs-ssh-jump',
+        'comparisons/vs-chisel',
+      ],
+    },
     {
       type: 'category',
       label: 'Getting Started',
@@ -34,15 +42,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Comparisons',
-      items: [
-        'comparisons/vs-ligolo-ng',
-        'comparisons/vs-ssh-jump',
-        'comparisons/vs-chisel',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Configuration',
       items: [
         'configuration/overview',
@@ -60,7 +59,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Features',
+      label: 'Usage Guides',
       items: [
         'features/socks5-proxy',
         'features/udp-relay',
@@ -83,6 +82,7 @@ const sidebars: SidebarsConfig = {
         'deployment/pm2',
         'deployment/reverse-proxy',
         'deployment/high-availability',
+        'mutiauk',
       ],
     },
     {
