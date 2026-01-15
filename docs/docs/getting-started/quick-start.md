@@ -148,6 +148,86 @@ This configuration:
 
 Ideal for laptops connecting to a central exit server.
 
+## Optional: Transparent Routing with Mutiauk
+
+Instead of configuring each application to use SOCKS5, you can use **Mutiauk** to transparently route all traffic through the mesh.
+
+:::info Linux Only
+Mutiauk requires Linux and root privileges to create the TUN interface.
+:::
+
+### Install Mutiauk
+
+```bash
+curl -L -o mutiauk https://download.mutimetroo.com/linux-amd64/mutiauk
+chmod +x mutiauk
+sudo mv mutiauk /usr/local/bin/
+```
+
+### Option A: Autoroutes (Recommended)
+
+If your exit agents advertise specific CIDR routes (like `10.0.0.0/8` or `192.168.0.0/16`), Mutiauk can automatically sync them:
+
+```bash
+sudo tee /etc/mutiauk/config.yaml > /dev/null << 'EOF'
+tun:
+  name: tun0
+  mtu: 1400
+  address: 10.200.200.1/24
+
+socks5:
+  server: 127.0.0.1:1080
+
+autoroutes:
+  enabled: true
+  url: "http://localhost:8080"
+  poll_interval: 30s
+EOF
+
+sudo mutiauk daemon start
+```
+
+Routes are automatically fetched from the Muti Metroo API and applied to the TUN interface.
+
+:::warning Default Routes Not Synced
+Autoroutes filters out `0.0.0.0/0` (default route) for safety. If your exit advertises `0.0.0.0/0`, use manual routes instead.
+:::
+
+### Option B: Manual Routes
+
+For exit agents advertising `0.0.0.0/0` (like the docker-tryout example), add routes manually:
+
+```bash
+sudo tee /etc/mutiauk/config.yaml > /dev/null << 'EOF'
+tun:
+  name: tun0
+  mtu: 1400
+  address: 10.200.200.1/24
+
+socks5:
+  server: 127.0.0.1:1080
+
+routes:
+  # Route all traffic (same as 0.0.0.0/0 but in two halves)
+  - destination: 0.0.0.0/1
+    enabled: true
+  - destination: 128.0.0.0/1
+    enabled: true
+EOF
+
+sudo mutiauk daemon start
+```
+
+### Test Transparent Routing
+
+```bash
+# No SOCKS5 flag needed - traffic goes through TUN automatically
+curl https://httpbin.org/ip
+ping 8.8.8.8
+```
+
+See [Mutiauk documentation](/mutiauk) for more options including systemd service installation.
+
 ## Next Steps
 
 - [Your First Mesh](/getting-started/first-mesh) - Connect multiple agents
