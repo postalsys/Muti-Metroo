@@ -21,10 +21,8 @@ flowchart LR
     C --> Target[Internal Server]
 ```
 
-<div style={{textAlign: 'center', margin: '2rem 0'}}>
-  <a href="/getting-started/overview" className="button button--primary button--lg">
-    Get Started in 2 Minutes
-  </a>
+<div className="text--center margin-vert--lg">
+  <a className="button button--primary button--lg" href="/getting-started/overview">Get Started in 2 Minutes</a>
 </div>
 
 ## Why Muti Metroo?
