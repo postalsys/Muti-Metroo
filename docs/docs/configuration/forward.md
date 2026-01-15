@@ -9,7 +9,9 @@ sidebar_position: 8
 
 # Port Forward Configuration
 
-Expose local services through the mesh network. Configure **endpoints** where services run and **listeners** where remote clients connect.
+Expose local services through the mesh network. Services register with a routing key via **endpoints**, and any agent can create **listeners** to access them locally - a lightweight service discovery pattern.
+
+See [Port Forwarding Usage](/features/port-forwarding) for the service discovery pattern and use cases.
 
 **Quick setup:**
 

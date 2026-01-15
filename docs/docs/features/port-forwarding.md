@@ -9,63 +9,87 @@ sidebar_position: 7
 
 # Port Forwarding
 
-Expose local services through your mesh network. Run a web server on your machine and make it accessible from any agent in the mesh - even when you're many network hops away.
+Expose local services through your mesh network. Services register themselves with a routing key, and any agent can create a local port that tunnels to that service - like lightweight service discovery built into your mesh.
 
-```bash
-# From a remote office site:
-curl http://nearest-agent:8080/configs/setup.sh -o /tmp/setup.sh
+```mermaid
+flowchart LR
+    subgraph SiteA["Site A"]
+        App[Client App] -->|"localhost:8080"| Listener[Listener Agent]
+    end
+
+    Listener -->|Encrypted| Transit[Transit]
+    Transit -->|Encrypted| Endpoint[Endpoint Agent]
+
+    subgraph SiteB["Site B"]
+        Endpoint -->|"localhost:3000"| Service[API Service]
+    end
 ```
 
-This downloads from your central server, tunneled through the mesh.
+To the client app, it looks like a normal local port. The mesh handles routing and encryption transparently.
+
+## Service Discovery Pattern
+
+Port forwarding doubles as a lightweight service discovery mechanism:
+
+1. **Services register** by configuring an endpoint with a routing key
+2. **Keys propagate** through the mesh automatically
+3. **Any agent** can create a listener for that key
+4. **Client apps** connect to a local port as if the service were local
+
+```mermaid
+flowchart TB
+    subgraph Services["Services Register (Endpoints)"]
+        S1["api-v1 -> localhost:3000"]
+        S2["config-server -> localhost:8000"]
+        S3["metrics -> localhost:9090"]
+    end
+
+    subgraph Mesh["Mesh Network"]
+        Routes["Route Table<br/>api-v1, config-server, metrics"]
+    end
+
+    subgraph Clients["Clients Discover (Listeners)"]
+        C1["localhost:3000 -> api-v1"]
+        C2["localhost:8080 -> config-server"]
+    end
+
+    Services --> Mesh
+    Mesh --> Clients
+```
+
+**Benefits:**
+- No separate service registry infrastructure needed
+- Services are discoverable across network boundaries
+- Client apps don't need mesh awareness - they just connect to localhost
+- E2E encryption protects all traffic automatically
 
 ## How It Works
 
 Port forwarding creates **reverse tunnels** - the opposite direction from SOCKS5 proxy:
 
-```mermaid
-flowchart LR
-    subgraph socks["SOCKS5 (Outbound)"]
-        direction LR
-        S1[Your App] --> S2[Ingress] --> S3[Transit] --> S4[Exit] --> S5[Remote Server]
-    end
-```
+| Direction | Flow | Use Case |
+|-----------|------|----------|
+| **SOCKS5** | Your app -> Mesh -> Remote server | Access remote resources |
+| **Port Forward** | Remote client -> Mesh -> Your service | Expose local services |
 
-```mermaid
-flowchart RL
-    subgraph forward["Port Forwarding (Inbound)"]
-        direction RL
-        P1[Remote Client] --> P2[Listener] --> P3[Transit] --> P4[Endpoint] --> P5[Your Service]
-    end
-```
-
-**Endpoints** run on the agent with access to your service. **Listeners** run on agents where remote clients will connect.
-
-## Port Forwarding vs SOCKS5
-
-| Aspect | SOCKS5 Proxy | Port Forwarding |
-|--------|--------------|-----------------|
-| **Direction** | Outbound (you reach remote) | Inbound (remote reaches you) |
-| **Use case** | Access remote resources | Expose local services |
-| **Who initiates** | Your local application | Remote application |
-| **Configuration** | `socks5` + `exit` sections | `forward` section |
-| **Example** | Browse internal network via proxy | Serve configuration files to remote agents |
+**Endpoints** run on agents with access to your service. **Listeners** run on agents where clients will connect.
 
 ## Configuration
 
 Port forwarding uses **routing keys** to match listeners with endpoints:
 
 ```yaml
-# On YOUR machine (where the service runs) - the "endpoint"
+# On the SERVICE side (endpoint) - where your service runs
 forward:
   endpoints:
-    - key: "my-files"            # Routing key (advertised to mesh)
-      target: "localhost:80"     # Your local service
+    - key: "my-api"              # Routing key (advertised to mesh)
+      target: "localhost:3000"   # Your local service
 
-# On REMOTE agents (where clients connect) - the "listeners"
+# On the CLIENT side (listener) - where apps connect
 forward:
   listeners:
-    - key: "my-files"            # Must match endpoint key
-      address: ":8080"           # Port remote clients use
+    - key: "my-api"              # Must match endpoint key
+      address: ":3000"           # Local port for client apps
       max_connections: 100       # Optional limit
 ```
 
@@ -78,7 +102,7 @@ See [Configuration - Forward](/configuration/forward) for full reference.
 Serve configuration files, scripts, and updates to remote sites:
 
 ```yaml
-# Central server
+# Central server (endpoint)
 forward:
   endpoints:
     - key: "config-server"
@@ -91,21 +115,24 @@ python3 -m http.server 8000 --directory ./configs
 ```
 
 ```yaml
-# Remote site agents
+# Remote site agents (listeners)
 forward:
   listeners:
     - key: "config-server"
       address: "127.0.0.1:8080"
 ```
 
-From any remote site: `curl http://local-agent:8080/site-config.yaml -o config.yaml`
+From any remote site:
+```bash
+curl http://localhost:8080/site-config.yaml -o config.yaml
+```
 
-### Internal Service Access
+### Internal API Gateway
 
-Make internal services accessible from remote sites:
+Make internal APIs accessible from all sites without VPN:
 
 ```yaml
-# Headquarters (where the service runs)
+# API server at headquarters (endpoint)
 forward:
   endpoints:
     - key: "internal-api"
@@ -113,66 +140,98 @@ forward:
 ```
 
 ```yaml
-# Branch office agents
+# All branch office agents (listeners)
 forward:
   listeners:
     - key: "internal-api"
       address: "127.0.0.1:3000"
 ```
 
-Applications at branch offices can access the internal API at `localhost:3000`.
+Applications at any branch office can call `http://localhost:3000/api/...` as if the API were local.
+
+### Database Access
+
+Provide secure database access across sites:
+
+```yaml
+# Database server (endpoint)
+forward:
+  endpoints:
+    - key: "postgres-main"
+      target: "localhost:5432"
+```
+
+```yaml
+# Developer workstations (listeners)
+forward:
+  listeners:
+    - key: "postgres-main"
+      address: "127.0.0.1:5432"
+```
+
+Developers connect to `localhost:5432` - standard database tools work unchanged.
 
 ### Multiple Services
 
-Expose several services through different routing keys:
+Register several services with different keys:
 
 ```yaml
+# Service host (multiple endpoints)
 forward:
   endpoints:
     - key: "http-docs"
       target: "localhost:80"
-    - key: "file-share"
-      target: "localhost:445"
-    - key: "ssh-access"
-      target: "localhost:22"
+    - key: "api-gateway"
+      target: "localhost:8080"
+    - key: "metrics"
+      target: "localhost:9090"
 ```
+
+### High Availability
+
+Multiple agents can register the same endpoint key for redundancy:
+
+```yaml
+# Primary server
+forward:
+  endpoints:
+    - key: "api-v1"
+      target: "localhost:3000"
+
+# Secondary server (same key)
+forward:
+  endpoints:
+    - key: "api-v1"
+      target: "localhost:3000"
+```
+
+Listeners will route to the nearest available endpoint based on hop count.
 
 ## Security Features
 
 - **E2E Encryption**: Each connection gets its own encrypted session (X25519 + ChaCha20-Poly1305). Transit agents cannot decrypt traffic.
 
-- **Routing Key Matching**: Only pre-configured keys work. Unknown keys are rejected.
+- **Key-Based Access**: Only pre-configured routing keys work. Services must explicitly register to be discoverable.
 
 - **Connection Limits**: Set `max_connections` on listeners to prevent resource exhaustion.
 
-- **Configuration Based**: Port forwarding is configured via config files for consistent deployment.
+- **Local Binding**: Bind listeners to `127.0.0.1` to restrict access to local applications only.
 
 ## Monitoring
 
-View all active port forward routes in the [Web Dashboard](/features/web-dashboard):
-
-| Column | Description |
-|--------|-------------|
-| **Key** | Routing key linking listeners to endpoints |
-| **Ingress** | Agent running the listener |
-| **Listener** | Listen address on ingress |
-| **Exit** | Agent running the endpoint |
-| **Target** | Service address on exit |
-| **Hops** | Number of mesh hops |
-
-The table shows all ingress-exit combinations. If multiple agents have listeners or endpoints for the same key, all pairings are displayed.
-
-You can also query the data programmatically:
+View active port forward routes in the [Web Dashboard](/features/web-dashboard) or query programmatically:
 
 ```bash
 curl http://localhost:8080/api/dashboard | jq '.forward_routes'
 ```
 
+The response shows all endpoint-listener pairings with hop counts.
+
 ## Limitations
 
 - **TCP only**: UDP is not supported for port forwarding
-- **Fixed keys**: Routing keys must be pre-configured on both endpoints and listeners
-- **No dynamic ports**: Unlike ngrok, ports are not dynamically assigned
+- **Static keys**: Routing keys must be pre-configured (no dynamic registration API)
+- **Fixed ports**: Unlike ngrok, listener ports are not dynamically assigned
 
 ## Related
 
