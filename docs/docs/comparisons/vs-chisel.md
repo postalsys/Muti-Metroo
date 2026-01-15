@@ -28,6 +28,7 @@ Both Chisel and Muti Metroo create encrypted tunnels for TCP and UDP traffic, bu
 | **ICMP Support** | No | Yes |
 | **File Transfer** | No | Yes (built-in) |
 | **Remote Shell** | No | Yes (authenticated) |
+| **Platform Support** | Linux, macOS, Windows | Linux, macOS, Windows |
 
 ## Architecture Comparison
 
@@ -225,42 +226,156 @@ The transit agent relays encrypted frames it cannot read - only ingress and exit
 
 ### Chisel: Manual Chaining
 
-To reach services through multiple hops, chain Chisel instances:
+To reach services through multiple hops, chain Chisel instances. Unlike SSH (which requires SSH servers on each hop), Chisel runs as a standalone binary on any platform - including Windows. However, multi-hop still requires manual configuration at each step.
+
+**Double pivot scenario:**
+
+```mermaid
+flowchart LR
+    subgraph Your Machine
+        Client[Chisel Client]
+    end
+
+    subgraph DMZ["DMZ (Linux)"]
+        Server1[Chisel Server]
+        Client1[Chisel Client]
+    end
+
+    subgraph Internal["Internal (Windows)"]
+        Server2[Chisel Server]
+    end
+
+    subgraph Target
+        Final[Target Network]
+    end
+
+    Client -->|"8080"| Server1
+    Client1 -->|"R:9090"| Server2
+    Server2 --> Final
+```
+
+**Step-by-step setup:**
 
 ```bash
-# Hop 1: Server on DMZ host
+# Step 1: Start server on DMZ host (Linux)
 chisel server --port 8080
 
-# Hop 2: Client on DMZ connects to internal server
+# Step 2: On DMZ host, run client to create reverse tunnel to internal
 chisel client dmz-server:8080 R:9090:internal-server:8080
 
-# Hop 2: Server on internal host
-chisel server --port 8080
+# Step 3: Start server on internal host (Windows works fine)
+chisel.exe server --port 8080
 
-# Your client connects through the chain
+# Step 4: From your machine, connect through the chain
 chisel client dmz-server:9090 3000:final-target:80
 ```
 
-Each hop requires manual configuration and separate Chisel instances.
+**Platform advantage over SSH**: Unlike SSH jump hosts, Chisel runs natively on Windows without requiring OpenSSH Server installation. You can deploy `chisel.exe` on Windows machines and they participate in the chain.
+
+**Complexity remains**: Each hop still requires:
+- Deploying Chisel binary to intermediate hosts
+- Running both server AND client on transit hosts
+- Manual reverse tunnel configuration for each hop
+- Managing multiple processes across the chain
 
 ### Muti Metroo: Native Routing
 
-Routes propagate automatically through flood-based routing:
+Routes propagate automatically through flood-based routing - same binary, simpler setup:
+
+```mermaid
+flowchart LR
+    subgraph Your Machine
+        App[Application]
+    end
+
+    subgraph DMZ["DMZ (Linux)"]
+        AgentA[Agent A]
+    end
+
+    subgraph Internal["Internal (Windows)"]
+        AgentB[Agent B]
+    end
+
+    subgraph Target
+        Final[10.0.0.0/8]
+    end
+
+    App -->|SOCKS5| AgentA
+    AgentA <-->|HTTP/2| AgentB
+    AgentB --> Final
+```
 
 ```yaml
-# Agent C (exit) - just advertise routes
+# Agent B config (Windows) - just advertise routes
 exit:
   cidr_routes:
     - cidr: "10.0.0.0/8"
+# Routes automatically propagate to Agent A
 ```
 
-Agents discover paths automatically. No per-hop configuration needed:
+**Key differences:**
+- Single agent process per host (not server + client)
+- Routes propagate automatically through the mesh
+- No manual reverse tunnel chaining
+- Add or remove agents without reconfiguring others
 
-```
-[Client] --> Agent A --> Agent B --> Agent C --> Target
+```bash
+# Access any destination - routing handled automatically
+curl --socks5 localhost:1080 http://10.20.30.40/
 ```
 
-Add or remove agents - routes adjust automatically.
+## Platform Considerations
+
+### Cross-Platform Support
+
+Both Chisel and Muti Metroo are written in Go and run natively on Windows, Linux, and macOS without additional dependencies. This is a significant advantage over SSH-based solutions, where Windows machines typically lack SSH servers.
+
+| Platform | Chisel | Muti Metroo |
+|----------|--------|-------------|
+| Linux | Yes | Yes |
+| macOS | Yes | Yes |
+| Windows | Yes | Yes |
+| No dependencies | Yes | Yes |
+
+### Mixed Environment Complexity
+
+While both tools run on Windows, their multi-hop approaches differ significantly:
+
+**Chisel in mixed environments:**
+```
+Your Machine -> Linux (server+client) -> Windows (server+client) -> Target
+                    ^                         ^
+                    |                         |
+              2 processes                2 processes
+```
+
+- Each intermediate host runs TWO processes (server + client)
+- Manual reverse tunnel configuration at each hop
+- Must coordinate ports and addresses across the chain
+- Adding a new hop requires reconfiguring existing connections
+
+**Muti Metroo in mixed environments:**
+```
+Your Machine -> Linux (agent) -> Windows (agent) -> Target
+                    ^                 ^
+                    |                 |
+              1 process           1 process
+```
+
+- Each host runs ONE agent process
+- Peer connections are bidirectional
+- Routes propagate automatically
+- Adding a new hop requires no changes to existing agents
+
+### Operational Differences
+
+| Aspect | Chisel | Muti Metroo |
+|--------|--------|-------------|
+| Processes per hop | 2 (server + client) | 1 (agent) |
+| Configuration | CLI flags per instance | Single YAML config |
+| Route management | Manual reverse tunnels | Automatic propagation |
+| Adding new hop | Reconfigure chain | Just connect new agent |
+| Service mode | Manual (nohup, screen) | Built-in (systemd, launchd, Windows Service) |
 
 ## Reverse Tunneling Comparison
 
@@ -369,10 +484,11 @@ Additional authentication for features:
 Chisel excels when:
 
 - **Simple point-to-point tunneling**: Need to forward a few ports quickly
-- **Single server access**: One server provides access to target network
+- **Single server access**: One server provides access to target network (no multi-hop needed)
 - **Quick deployment**: No config files needed, just CLI flags
 - **SSH-style encryption**: Prefer SSH protocol encryption
 - **Let's Encrypt**: Want automatic TLS certificates
+- **Cross-platform single-hop**: Need to tunnel through a Windows machine (unlike SSH)
 
 **Typical workflow:**
 ```bash
@@ -391,12 +507,13 @@ curl --socks5 localhost:1080 http://internal-service/
 Muti Metroo excels when:
 
 - **Complex topologies**: Multi-site, chain, tree, or mesh networks
-- **Native multi-hop**: Traffic needs to traverse multiple network boundaries
+- **Native multi-hop**: Traffic needs to traverse multiple network boundaries without manual chaining
+- **Mixed OS environments**: Simpler multi-hop setup across Windows/Linux/macOS (single agent per host)
 - **E2E encryption**: Transit nodes must not see your data
 - **UDP/ICMP support**: Need to tunnel more than TCP
 - **Transparent routing**: Want TUN-based access without SOCKS configuration
 - **Additional features**: File transfer, remote shell, web dashboard
-- **Always-on infrastructure**: Persistent mesh with automatic reconnection
+- **Always-on infrastructure**: Persistent mesh with automatic reconnection and service mode
 
 **Typical workflow:**
 ```bash
@@ -437,7 +554,9 @@ If you're considering switching from Chisel:
 | Choose | When You Need |
 |--------|---------------|
 | **Chisel** | Simple port forwarding, quick setup, single-hop tunneling, CLI-only workflow |
-| **Muti Metroo** | Complex topologies, native multi-hop, E2E encryption, UDP/ICMP, TUN interface, always-on mesh |
+| **Muti Metroo** | Complex topologies, native multi-hop without manual chaining, E2E encryption, UDP/ICMP, TUN interface, always-on mesh |
+
+Both tools run natively on Windows, Linux, and macOS - unlike SSH which requires server installation on Windows. However, Chisel's multi-hop approach requires manual server+client chaining at each hop, while Muti Metroo handles routing automatically with a single agent per host.
 
 Chisel is excellent for quick, simple tunneling with minimal setup. Muti Metroo provides a more comprehensive solution for complex networking scenarios with native multi-hop routing, end-to-end encryption, and transparent TUN-based routing.
 
