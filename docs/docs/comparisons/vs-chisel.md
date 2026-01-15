@@ -342,11 +342,36 @@ Both Chisel and Muti Metroo are written in Go and run natively on Windows, Linux
 While both tools run on Windows, their multi-hop approaches differ significantly:
 
 **Chisel in mixed environments:**
-```
-Your Machine -> Linux (server+client) -> Windows (server+client) -> Target
-                    ^                         ^
-                    |                         |
-              2 processes                2 processes
+
+```mermaid
+flowchart LR
+    subgraph YourMachine["Your Machine"]
+        Client[Chisel Client]
+    end
+
+    subgraph Linux["Linux Host"]
+        Server1[Chisel Server]
+        Client1[Chisel Client]
+    end
+
+    subgraph Windows["Windows Host"]
+        Server2[Chisel Server]
+        Client2[Chisel Client]
+    end
+
+    subgraph Target["Target"]
+        Final[Target Network]
+    end
+
+    Client --> Server1
+    Client1 --> Server2
+    Client2 --> Final
+
+    Linux -.- Note1["2 processes"]
+    Windows -.- Note2["2 processes"]
+
+    style Note1 fill:none,stroke:none
+    style Note2 fill:none,stroke:none
 ```
 
 - Each intermediate host runs TWO processes (server + client)
@@ -355,11 +380,34 @@ Your Machine -> Linux (server+client) -> Windows (server+client) -> Target
 - Adding a new hop requires reconfiguring existing connections
 
 **Muti Metroo in mixed environments:**
-```
-Your Machine -> Linux (agent) -> Windows (agent) -> Target
-                    ^                 ^
-                    |                 |
-              1 process           1 process
+
+```mermaid
+flowchart LR
+    subgraph YourMachine["Your Machine"]
+        App[Application]
+    end
+
+    subgraph Linux["Linux Host"]
+        AgentA[Agent]
+    end
+
+    subgraph Windows["Windows Host"]
+        AgentB[Agent]
+    end
+
+    subgraph Target["Target"]
+        Final[Target Network]
+    end
+
+    App -->|SOCKS5| AgentA
+    AgentA <--> AgentB
+    AgentB --> Final
+
+    Linux -.- Note1["1 process"]
+    Windows -.- Note2["1 process"]
+
+    style Note1 fill:none,stroke:none
+    style Note2 fill:none,stroke:none
 ```
 
 - Each host runs ONE agent process
