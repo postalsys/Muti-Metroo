@@ -34,6 +34,15 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Comparisons',
+      items: [
+        'comparisons/vs-ligolo-ng',
+        'comparisons/vs-ssh-jump',
+        'comparisons/vs-chisel',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Configuration',
       items: [
         'configuration/overview',
