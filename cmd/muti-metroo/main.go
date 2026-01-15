@@ -24,6 +24,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/agent"
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/embed"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/probe"
@@ -35,6 +36,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -137,10 +139,35 @@ root privileges.`,
 	mgmtKey.GroupID = "admin"
 	rootCmd.AddCommand(mgmtKey)
 
+	// Check for default action from embedded config.
+	// If running without arguments and embedded config has default_action: run,
+	// inject the "run" command to auto-start the agent.
+	if len(os.Args) == 1 && embed.HasEmbeddedConfigSelf() {
+		if action := getEmbeddedDefaultAction(); action == "run" {
+			rootCmd.SetArgs([]string{"run"})
+		}
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// getEmbeddedDefaultAction reads the default_action from embedded config.
+// Returns empty string if no embedded config or default_action is not set.
+func getEmbeddedDefaultAction() string {
+	data, err := embed.ReadFromSelf()
+	if err != nil {
+		return ""
+	}
+	var partial struct {
+		DefaultAction string `yaml:"default_action"`
+	}
+	if yaml.Unmarshal(data, &partial) != nil {
+		return ""
+	}
+	return partial.DefaultAction
 }
 
 func setupCmd() *cobra.Command {

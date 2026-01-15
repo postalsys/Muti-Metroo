@@ -58,7 +58,11 @@ func parseHexKey(hexStr, keyName string, expectedSize int) ([KeySize]byte, error
 
 // Config represents the complete agent configuration.
 type Config struct {
-	Agent        AgentConfig        `yaml:"agent"`
+	// DefaultAction is the action to run when the binary is executed without arguments.
+	// Only applies to embedded config binaries. Valid values: "run", "help".
+	// When set to "run", the agent starts automatically without requiring "./my-agent run".
+	DefaultAction string             `yaml:"default_action,omitempty"`
+	Agent         AgentConfig        `yaml:"agent"`
 	Protocol     ProtocolConfig     `yaml:"protocol,omitempty"`
 	TLS          GlobalTLSConfig    `yaml:"tls,omitempty"`
 	Management   ManagementConfig   `yaml:"management,omitempty"`
@@ -779,6 +783,11 @@ func expandEnvVars(s string) string {
 // Validate checks the configuration for errors.
 func (c *Config) Validate() error {
 	var errs []string
+
+	// Validate default_action (only for embedded config usage)
+	if c.DefaultAction != "" && !isOneOf(c.DefaultAction, "run", "help") {
+		errs = append(errs, fmt.Sprintf("invalid default_action: %s (must be 'run' or 'help')", c.DefaultAction))
+	}
 
 	// Validate agent config
 	// data_dir is required unless identity keypair is fully specified in config

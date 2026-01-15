@@ -13,6 +13,9 @@ muti-metroo run -c /path/to/config.yaml
 ## Configuration Structure
 
 ```yaml
+# Default action when binary runs without arguments (embedded configs only)
+# default_action: run    # Auto-start agent when embedded
+
 # Agent identity and logging
 agent:
   id: "auto"                    # Agent ID (auto-generate or hex string)
@@ -140,6 +143,23 @@ forward:
   endpoints: []
   listeners: []
 ```
+
+## Default Action (Embedded Configs Only)
+
+When creating single-file deployments with embedded configuration, the wizard automatically sets `default_action: run`. This allows the binary to start without the `run` argument:
+
+```yaml
+default_action: run
+```
+
+**Behavior:**
+- `./my-agent` - Starts agent automatically
+- `./my-agent help` - Shows help
+- `./my-agent status` - Shows status
+
+Without `default_action` set (or with file-based configs), running without arguments shows help.
+
+**Valid values:** `run`, `help`
 
 ## Agent Section
 

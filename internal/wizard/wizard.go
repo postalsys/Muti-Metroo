@@ -205,12 +205,16 @@ func (w *Wizard) Run() (*Result, error) {
 
 	// If embedding config, always embed identity for true single-file deployment
 	if embedConfig {
+		// Set default action so binary auto-starts without "run" argument
+		cfg.DefaultAction = "run"
+
 		// Set identity values in config
 		cfg.Agent.ID = agentID.String()
 		cfg.Agent.PrivateKey = identity.KeyToString(keypair.PrivateKey)
 		// Clear data_dir since identity is now in config
 		cfg.Agent.DataDir = ""
 		fmt.Println("[OK] Identity embedded in config - no data folder needed")
+		fmt.Println("[OK] Default action set to 'run' - binary starts without arguments")
 	}
 
 	// Handle config delivery based on user choice

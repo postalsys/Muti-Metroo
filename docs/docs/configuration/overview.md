@@ -83,6 +83,9 @@ See [configs/example.yaml](https://github.com/postalsys/Muti-Metroo/blob/master/
 ## Configuration Structure
 
 ```yaml
+# Default action when binary runs without arguments (embedded configs only)
+# default_action: run    # Auto-start agent when embedded
+
 # Agent identity and logging
 agent:
   id: "auto"                    # Agent ID (auto-generate or hex string)

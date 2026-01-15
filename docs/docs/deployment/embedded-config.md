@@ -82,11 +82,13 @@ $ ls -la my-agent
 
 ## Running an Embedded Binary
 
-Simply run the binary without any flags:
+Simply run the binary - no `run` command needed:
 
 ```bash
-./my-agent run
+./my-agent
 ```
+
+The wizard automatically sets `default_action: run` in embedded configs, so the agent starts without any arguments.
 
 Output shows it's using embedded config:
 
@@ -95,6 +97,14 @@ Using embedded configuration
 Starting Muti Metroo agent...
 Display Name: my-agent
 Agent ID: abc123def456...
+```
+
+Other commands still work normally:
+
+```bash
+./my-agent help     # Show help
+./my-agent status   # Check status
+./my-agent --version
 ```
 
 ## Editing Embedded Configuration
@@ -133,13 +143,13 @@ When installing as a service, embedded binaries are handled specially:
    - Linux/macOS: `/usr/local/bin/<service-name>`
    - Windows: `C:\Program Files\<service-name>\<service-name>.exe`
 
-2. The service definition runs without `-c` flag:
+2. The service definition runs without `-c` flag or `run` command:
    ```bash
    # Traditional service
    ExecStart=/usr/local/bin/muti-metroo run -c /etc/muti-metroo/config.yaml
 
-   # Embedded config service
-   ExecStart=/usr/local/bin/my-agent run
+   # Embedded config service (no arguments needed)
+   ExecStart=/usr/local/bin/my-agent
    ```
 
 ### Linux (systemd)

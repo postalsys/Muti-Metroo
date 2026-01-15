@@ -3,6 +3,16 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
+# Default Action (Embedded Configs Only)
+# ------------------------------------------------------------------------------
+# When the binary runs without arguments and has embedded config, this determines
+# what action to take. The setup wizard automatically sets this to "run" when
+# creating embedded binaries.
+#
+# default_action: run    # Auto-start agent (./my-agent starts without "run" arg)
+# default_action: help   # Show help (default behavior)
+
+# ------------------------------------------------------------------------------
 # Agent Identity
 # ------------------------------------------------------------------------------
 agent:
