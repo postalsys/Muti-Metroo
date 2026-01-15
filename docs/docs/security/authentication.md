@@ -1,6 +1,6 @@
 ---
 title: Authentication
-sidebar_position: 3
+sidebar_position: 4
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -13,73 +13,31 @@ Control who can use your mesh. Require passwords for SOCKS5 proxy access, shell 
 
 ## Where Authentication Applies
 
-| Component | How to Authenticate | What It Protects |
-|-----------|--------------------|--------------------|
+| Component | Authentication Method | What It Protects |
+|-----------|----------------------|------------------|
 | SOCKS5 proxy | Username + password | Who can tunnel traffic |
 | Remote shell | Password | Who can run commands |
 | File transfer | Password | Who can upload/download files |
-| Peer connections | TLS certificates | Which agents can join the mesh |
-| HTTP API | Firewall/reverse proxy | Monitoring access |
+| Peer connections | TLS certificates (mTLS) | Which agents can join the mesh |
+| HTTP API | Firewall/reverse proxy | Monitoring and management access |
 
-## SOCKS5 Authentication
+## Password Hashing
 
-### Configuration
-
-```yaml
-socks5:
-  enabled: true
-  address: "127.0.0.1:1080"
-  auth:
-    enabled: true
-    users:
-      - username: "user1"
-        password_hash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
-      - username: "user2"
-        password_hash: "$2a$12$..."
-```
-
-### Generating Password Hashes
-
-The recommended way to generate bcrypt password hashes is using the built-in CLI command:
+All passwords are stored as bcrypt hashes - never as plaintext. Generate hashes using the built-in CLI:
 
 ```bash
 # Interactive (recommended - password hidden)
 muti-metroo hash
 
-# Or provide password as argument
-muti-metroo hash "yourpassword"
-
-# With custom cost factor
+# With custom cost factor for production
 muti-metroo hash --cost 12
 ```
 
-See [Generating Password Hashes](/cli/hash) for detailed documentation.
-
-#### Alternative Methods
-
-Using htpasswd:
-
-```bash
-htpasswd -bnBC 10 "" yourpassword | tr -d ':\n'
-```
-
-Using Python:
-
-```python
-import bcrypt
-print(bcrypt.hashpw(b"yourpassword", bcrypt.gensalt(10)).decode())
-```
-
-Using Node.js:
-
-```javascript
-const bcrypt = require('bcrypt');
-console.log(bcrypt.hashSync('yourpassword', 10));
-```
+See [hash command](/cli/hash) for full documentation.
 
 ### Cost Factor
 
-The cost factor (10, 12, etc.) determines hash computation time:
+The cost factor determines hash computation time:
 
 | Cost | Time (approx) | Recommendation |
 |------|---------------|----------------|
@@ -87,22 +45,15 @@ The cost factor (10, 12, etc.) determines hash computation time:
 | 12 | ~400ms | Production |
 | 14 | ~1.5s | High security |
 
-Higher cost = slower brute force attacks, but also slower login.
+Higher cost = slower brute force attacks, but also slower authentication.
 
-### Multiple Users
+## SOCKS5 Authentication
 
-```yaml
-socks5:
-  auth:
-    enabled: true
-    users:
-      - username: "admin"
-        password_hash: "$2a$12$..."
-      - username: "readonly"
-        password_hash: "$2a$12$..."
-      - username: "automation"
-        password_hash: "$2a$10$..."
-```
+Protect your proxy with username/password authentication.
+
+:::tip Configuration
+See [SOCKS5 Configuration](/configuration/socks5) for auth setup including multiple users.
+:::
 
 ### Client Usage
 
@@ -110,58 +61,39 @@ socks5:
 # curl
 curl -x socks5://user1:password@localhost:1080 https://example.com
 
-# ssh
+# ssh via netcat
 ssh -o ProxyCommand='nc -x localhost:1080 -P user1 %h %p' user@host
+
+# Firefox: Enter credentials in Network Settings
 ```
 
 ## Shell Authentication
 
-### Configuration
+Protect remote command execution with password authentication.
 
-```yaml
-shell:
-  enabled: true
-  whitelist:
-    - bash
-    - sh
-  password_hash: "$2a$12$..."
-  timeout: 60s
-```
+:::tip Configuration
+See [Remote Shell Configuration](/configuration/shell) for password setup and command whitelist.
+:::
 
-### Generating Shell Password Hash
-
-Use the built-in CLI command (see [Generating Password Hashes](/cli/hash)):
+### Client Usage
 
 ```bash
-muti-metroo hash --cost 12
-```
-
-### Using Shell with Authentication
-
-CLI:
-
-```bash
-# Simple command (default normal mode)
+# Simple command
 muti-metroo shell -p mypassword agent123 whoami
 
-# Interactive shell (requires --tty)
+# Interactive shell
 muti-metroo shell --tty -p mypassword agent123 bash
 ```
 
 ## File Transfer Authentication
 
-### Configuration
+Protect file uploads and downloads with password authentication.
 
-```yaml
-file_transfer:
-  enabled: true
-  password_hash: "$2a$12$..."
-  allowed_paths:
-    - /tmp
-    - /home/user/uploads
-```
+:::tip Configuration
+See [File Transfer Configuration](/configuration/file-transfer) for password setup and path restrictions.
+:::
 
-### Using File Transfer with Authentication
+### Client Usage
 
 ```bash
 # Upload
@@ -171,29 +103,32 @@ muti-metroo upload -p mypassword agent123 ./local.txt /tmp/remote.txt
 muti-metroo download -p mypassword agent123 /tmp/remote.txt ./local.txt
 ```
 
-## HTTP API Authentication
+## HTTP API Security
 
 The HTTP API does not have built-in authentication. Secure it using:
 
 ### Bind to Localhost
 
+Only expose the API locally:
+
 ```yaml
 http:
-  enabled: true
-  address: "127.0.0.1:8080"    # Only local access
+  address: "127.0.0.1:8080"  # Only local access
 ```
 
 ### Firewall Rules
 
+Restrict access to specific IPs:
+
 ```bash
-# Only allow from specific IP
-iptables -A INPUT -p tcp --dport 8080 -s 10.0.0.100 -j ACCEPT
+# Only allow from management network
+iptables -A INPUT -p tcp --dport 8080 -s 10.0.0.0/24 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8080 -j DROP
 ```
 
 ### Reverse Proxy with Auth
 
-nginx example:
+Use nginx or another proxy for HTTP authentication:
 
 ```nginx
 server {
@@ -211,7 +146,7 @@ server {
 
 ## Environment Variables
 
-Never hardcode passwords in config files:
+Never hardcode password hashes in config files. Use environment variables:
 
 ```yaml
 socks5:
@@ -222,31 +157,20 @@ socks5:
 
 shell:
   password_hash: "${SHELL_PASSWORD_HASH}"
-
-file_transfer:
-  password_hash: "${FILE_TRANSFER_PASSWORD_HASH}"
 ```
 
-## Best Practices
+See [Environment Variables](/configuration/environment-variables) for details.
 
-### Password Security
-
-1. **Use strong passwords**: 16+ characters, random
-2. **Use high cost factor**: 12+ for production
-3. **Rotate passwords regularly**: Especially if exposed
-4. **Never share passwords**: Per-user or per-system credentials
-
-### Defense in Depth
+## Defense in Depth
 
 Layer multiple security mechanisms:
 
-```yaml
-# Localhost binding + authentication
-socks5:
-  address: "127.0.0.1:1080"    # Only local
-  auth:
-    enabled: true              # And authenticated
-```
+1. **Bind to localhost** - Restrict network access
+2. **Require authentication** - Verify identity
+3. **Use TLS/mTLS** - Encrypt and authenticate transport
+4. **Firewall rules** - Network-level restrictions
+
+Example: SOCKS5 proxy bound to localhost AND requiring authentication provides two layers of protection.
 
 ## Troubleshooting
 
@@ -256,9 +180,12 @@ socks5:
 Error: invalid bcrypt hash
 ```
 
-- Verify hash starts with `$2a$` or `$2b$`
-- Check hash was generated correctly
-- Ensure no extra whitespace
+**Causes:**
+- Hash doesn't start with `$2a$` or `$2b$`
+- Hash was corrupted or truncated
+- Extra whitespace in the hash
+
+**Solution:** Regenerate using `muti-metroo hash`
 
 ### Authentication Failed
 
@@ -266,22 +193,27 @@ Error: invalid bcrypt hash
 Error: authentication failed
 ```
 
-- Verify password is correct
-- Check password hash in config
-- Enable debug logging
+**Causes:**
+- Wrong password
+- Wrong username (case-sensitive)
+- Hash generated from different password
 
-### User Not Found
+**Solution:** Verify credentials and regenerate hash if needed
+
+### User Not Found (SOCKS5)
 
 ```
 Error: user not found
 ```
 
-- Check username spelling
-- Verify user is in config
-- Username is case-sensitive
+**Causes:**
+- Username not in config
+- Username typo (case-sensitive)
+
+**Solution:** Check `socks5.auth.users` in configuration
 
 ## Next Steps
 
 - [Access Control](/security/access-control) - Route and command restrictions
+- [TLS/mTLS](/security/tls-mtls) - Certificate-based authentication
 - [Best Practices](/security/best-practices) - Production hardening
-- [TLS/mTLS](/security/tls-mtls) - Certificate authentication

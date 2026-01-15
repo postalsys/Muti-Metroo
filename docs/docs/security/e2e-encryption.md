@@ -3,6 +3,10 @@ title: End-to-End Encryption
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole with encryption" style={{maxWidth: '180px'}} />
+</div>
+
 # End-to-End Encryption
 
 Even if a transit node is compromised or the network is monitored, your traffic stays private. Only the ingress and exit can read your data - everything in between sees encrypted bytes.

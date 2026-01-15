@@ -104,57 +104,17 @@ All peer connections use TLS 1.3:
 
 ## Quick Hardening
 
-### Disable Unnecessary Features
+Apply these four changes for immediate security improvement:
 
-```yaml
-# Disable shell if not needed
-shell:
-  enabled: false
+1. **Disable unused features** - Shell and file transfer are disabled by default. Keep them disabled unless needed. See [Shell](/configuration/shell) and [File Transfer](/configuration/file-transfer) configuration.
 
-# Disable file transfer if not needed
-file_transfer:
-  enabled: false
-```
+2. **Restrict SOCKS5 access** - Bind to localhost and enable authentication. See [SOCKS5 Configuration](/configuration/socks5).
 
-### Restrict SOCKS5 Access
+3. **Restrict exit routes** - Only advertise specific CIDRs, not `0.0.0.0/0`. See [Exit Configuration](/configuration/exit).
 
-```yaml
-# Localhost only + authentication
-socks5:
-  enabled: true
-  address: "127.0.0.1:1080"
-  auth:
-    enabled: true
-    users:
-      - username: "user"
-        password_hash: "$2a$12$..."    # Use cost 12+
-```
+4. **Enable mTLS** - Require valid client certificates for peer connections. See [TLS Configuration](/configuration/tls-certificates).
 
-### Restrict Exit Routes
-
-```yaml
-# Only allow specific destinations
-exit:
-  enabled: true
-  routes:
-    - "10.0.1.0/24"    # Specific subnet, not 0.0.0.0/0
-```
-
-### Enable mTLS
-
-```yaml
-# Require client certificates
-tls:
-  ca: "./certs/ca.crt"           # CA for verifying client certs
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-  mtls: true                     # Require valid client certificates
-
-listeners:
-  - transport: quic
-    address: "0.0.0.0:4433"
-    # Uses global TLS settings with mTLS enabled
-```
+For detailed hardening guidance, see [Best Practices](/security/best-practices).
 
 ## Security Topics
 

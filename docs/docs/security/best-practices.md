@@ -1,6 +1,6 @@
 ---
 title: Best Practices
-sidebar_position: 5
+sidebar_position: 6
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -9,49 +9,58 @@ sidebar_position: 5
 
 # Security Best Practices
 
-Make your mesh harder to compromise. The defaults are secure, but production deployments need additional hardening - protecting your CA key, enabling mTLS, and limiting what each component can do.
+Production deployments need additional hardening beyond the secure defaults. This guide covers certificate management, system hardening, and incident response.
 
 **The three most important things:**
-1. Protect your CA private key - if stolen, attackers can create valid certificates
-2. Enable mTLS - only agents with your certificates can connect
-3. Disable features you don't use - shell and file transfer are disabled by default for a reason
+1. **Protect your CA private key** - if stolen, attackers can create valid certificates
+2. **Enable mTLS** - only agents with your certificates can connect
+3. **Disable unused features** - shell and file transfer are disabled by default for a reason
 
 ## Certificate Management
 
 ### Protect CA Private Key
 
-If someone gets your CA key, they can create certificates that your mesh will trust:
+If someone gets your CA key, they can create certificates that your mesh will trust.
+
+**Secure storage options:**
+- Hardware Security Module (HSM)
+- Cloud KMS (AWS KMS, GCP KMS, Azure Key Vault)
+- HashiCorp Vault
+- Encrypted disk with strong passphrase
+
+**Never:**
+- Store in version control
+- Leave on shared systems
+- Transmit over unencrypted channels
+
+### Certificate Validity
+
+Use short validity periods to limit exposure if keys are compromised:
+
+| Certificate | Recommended Validity |
+|-------------|---------------------|
+| CA certificate | 1-3 years |
+| Agent certificates | 90 days |
 
 ```bash
-# Secure storage options:
-# 1. Hardware Security Module (HSM)
-# 2. Cloud KMS (AWS KMS, GCP KMS, Azure Key Vault)
-# 3. HashiCorp Vault
-# 4. Encrypted disk with strong passphrase
-
-# Never:
-# - Store in version control
-# - Leave on shared systems
-# - Transmit over unencrypted channels
-```
-
-### Short Certificate Validity
-
-```bash
-# CA: 1-3 years
+# Generate CA with 1-year validity
 muti-metroo cert ca --days 365
 
-# Agent certificates: 90 days
-muti-metroo cert agent --days 90
+# Generate agent cert with 90-day validity
+muti-metroo cert agent --days 90 --ca ./ca.crt --ca-key ./ca.key
 ```
 
 ### Automate Certificate Rotation
 
+Example rotation script:
+
 ```bash
 #!/bin/bash
-# rotate-cert.sh
+# rotate-cert.sh - run via cron
 CERT_DIR="/etc/muti-metroo/certs"
-CA_DIR="/etc/muti-metroo/ca"  # CA stored separately
+CA_DIR="/etc/muti-metroo/ca"
+
+# Calculate days until expiration
 DAYS_LEFT=$(( ($(date -d "$(openssl x509 -enddate -noout -in $CERT_DIR/agent.crt | cut -d= -f2)" +%s) - $(date +%s)) / 86400 ))
 
 if [ $DAYS_LEFT -lt 30 ]; then
@@ -65,11 +74,9 @@ fi
 
 ### Monitor Certificate Expiration
 
-Set up certificate expiration monitoring using external tools or scripts:
-
 ```bash
 #!/bin/bash
-# check-cert-expiry.sh
+# check-cert-expiry.sh - run daily via monitoring
 CERT="/etc/muti-metroo/certs/agent.crt"
 DAYS_LEFT=$(( ($(date -d "$(openssl x509 -enddate -noout -in $CERT | cut -d= -f2)" +%s) - $(date +%s)) / 86400 ))
 
@@ -79,137 +86,46 @@ if [ $DAYS_LEFT -lt 14 ]; then
 fi
 ```
 
-## Authentication Hardening
+## System Hardening
 
-### Strong Passwords
+### Run as Non-Root
 
-```python
-# Generate strong random password
-import secrets
-import string
-alphabet = string.ascii_letters + string.digits + string.punctuation
-password = ''.join(secrets.choice(alphabet) for _ in range(24))
-print(password)
-```
-
-### High bcrypt Cost
+Muti Metroo doesn't require root privileges. Create a dedicated user:
 
 ```bash
-# Use cost factor 12+ for production
-htpasswd -bnBC 12 "" "$password" | tr -d ':\n'
+# Create dedicated user
+useradd -r -s /sbin/nologin muti-metroo
+
+# Set ownership
+chown -R muti-metroo:muti-metroo /var/lib/muti-metroo
 ```
 
-### Enable All Authentication
+### Limit Capabilities (systemd)
 
-```yaml
-# Always enable auth when network-accessible
-socks5:
-  address: "0.0.0.0:1080"    # Network accessible
-  auth:
-    enabled: true             # Must be authenticated
-
-# Shell should always require password
-shell:
-  enabled: true
-  password_hash: "$2a$12$..."   # Strong hash
-  whitelist:                    # Minimal commands
-    - whoami
-    - hostname
+```ini
+[Service]
+User=muti-metroo
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/muti-metroo
 ```
 
-## Network Security
-
-### Bind to Appropriate Interfaces
-
-```yaml
-# Internal only - bind to private interface
-listeners:
-  - address: "10.0.0.5:4433"
-
-# SOCKS5 for local use only
-socks5:
-  address: "127.0.0.1:1080"
-
-# API for monitoring
-http:
-  address: "127.0.0.1:8080"
-```
-
-### Use Firewall Rules
+### File Permissions
 
 ```bash
-# Allow only necessary ports
-iptables -A INPUT -p udp --dport 4433 -j ACCEPT  # QUIC
-iptables -A INPUT -p tcp --dport 1080 -s 127.0.0.1 -j ACCEPT  # SOCKS5 local
-iptables -A INPUT -p tcp --dport 8080 -s 10.0.0.0/8 -j ACCEPT  # API internal
-```
-
-### Enable mTLS
-
-```yaml
-# Always use mTLS in production
-tls:
-  ca: "/etc/muti-metroo/certs/ca.crt"      # CA for verifying client certs
-  cert: "/etc/muti-metroo/certs/agent.crt"
-  key: "/etc/muti-metroo/certs/agent.key"
-  mtls: true                               # Require valid client certificates
-
-listeners:
-  - transport: quic
-    address: "0.0.0.0:4433"
-    # Uses global TLS settings with mTLS enabled
-```
-
-## Access Control
-
-### Restrict Exit Routes
-
-```yaml
-# Principle of least privilege
-exit:
-  routes:
-    - "10.0.1.0/24"    # Only needed subnet
-    # NOT 0.0.0.0/0    # Never allow everything
-```
-
-### Minimal Shell Whitelist
-
-```yaml
-shell:
-  whitelist:
-    - whoami          # Safe commands only
-    - hostname
-    - uptime
-    # NOT: sh, bash, python, cat, rm, etc.
-```
-
-### Restrict File Paths
-
-```yaml
-file_transfer:
-  allowed_paths:
-    - /tmp/transfers  # Dedicated directory
-  max_file_size: 10485760  # 10 MB limit
-```
-
-## Disable Unused Features
-
-```yaml
-# Only enable what you need
-shell:
-  enabled: false      # Disable if not needed
-
-file_transfer:
-  enabled: false      # Disable if not needed
-
-# If you don't need exit
-exit:
-  enabled: false
+chmod 700 /var/lib/muti-metroo          # Data dir - owner only
+chmod 640 /etc/muti-metroo/config.yaml  # Config - owner + group
+chmod 600 /etc/muti-metroo/certs/*.key  # Private keys - owner only
+chmod 644 /etc/muti-metroo/certs/*.crt  # Certificates - world readable
 ```
 
 ## Secure Secrets
 
 ### Use Environment Variables
+
+Never hardcode secrets in configuration files:
 
 ```yaml
 socks5:
@@ -222,68 +138,44 @@ shell:
   password_hash: "${SHELL_PASSWORD_HASH}"
 ```
 
-### Secure Secret Storage
+### Secret Storage Options
 
-```bash
-# Use secret management tools:
-# - HashiCorp Vault
-# - AWS Secrets Manager
-# - Kubernetes Secrets
-# - Docker Secrets
+- HashiCorp Vault
+- AWS Secrets Manager
+- Docker Secrets
+- systemd credentials
 
-# Never:
-# - Commit secrets to git
-# - Log secrets
-# - Store in plain text files
-```
+**Never:**
+- Commit secrets to git
+- Log secrets
+- Store in plain text files
 
-## Monitoring and Logging
+## Logging and Monitoring
 
-### Enable Structured Logging
+### Structured Logging
+
+Enable JSON logging for aggregation:
 
 ```yaml
 agent:
   log_level: "info"
-  log_format: "json"    # For log aggregation
+  log_format: "json"
 ```
 
-### Retain Audit Logs
+### Key Events to Monitor
+
+- Authentication failures
+- Connection rejections
+- Certificate errors
+- Route changes
+
+### Log Retention
+
+Keep logs for compliance and forensics:
 
 ```bash
-# Keep logs for compliance/forensics
+# Archive logs periodically
 journalctl -u muti-metroo --since "30 days ago" > /archive/muti-metroo-$(date +%Y%m%d).log
-```
-
-## System Hardening
-
-### Run as Non-Root
-
-```bash
-# Create dedicated user
-useradd -r -s /sbin/nologin muti-metroo
-
-# Set ownership
-chown -R muti-metroo:muti-metroo /var/lib/muti-metroo
-```
-
-### Limit Capabilities
-
-```ini
-# systemd unit
-[Service]
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-```
-
-### File Permissions
-
-```bash
-chmod 700 /var/lib/muti-metroo          # Data dir
-chmod 640 /etc/muti-metroo/config.yaml  # Config
-chmod 600 /etc/muti-metroo/certs/*.key  # Private keys
-chmod 644 /etc/muti-metroo/certs/*.crt  # Certificates
 ```
 
 ## Incident Response
@@ -292,7 +184,7 @@ chmod 644 /etc/muti-metroo/certs/*.crt  # Certificates
 
 1. **Have backups** of configuration and certificates
 2. **Document** certificate rotation procedure
-3. **Know how to** revoke certificates
+3. **Know how to** revoke certificates quickly
 4. **Have contacts** for security team
 
 ### If CA is Compromised
@@ -313,25 +205,25 @@ chmod 644 /etc/muti-metroo/certs/*.crt  # Certificates
 5. Generate new identity and certificates
 6. Reconnect to mesh
 
-## Security Checklist
+## Security Checklists
 
 ### Pre-Deployment
 
-- [ ] CA key stored securely (not in repo)
-- [ ] All certificates have appropriate SANs
-- [ ] mTLS enabled
-- [ ] SOCKS5 authentication enabled
+- [ ] CA key stored securely (HSM, Vault, or encrypted)
+- [ ] mTLS enabled for peer connections
+- [ ] SOCKS5 authentication enabled (if network-accessible)
 - [ ] Shell disabled or whitelist-restricted
 - [ ] File transfer disabled or path-restricted
-- [ ] Exit routes minimized
+- [ ] Exit routes minimized to required networks
+- [ ] Services bound to appropriate interfaces
 
 ### Post-Deployment
 
 - [ ] Firewall rules configured
 - [ ] Monitoring and alerting set up
 - [ ] Log aggregation configured
-- [ ] Certificate expiration monitoring
-- [ ] Regular security reviews scheduled
+- [ ] Certificate expiration monitoring active
+- [ ] Running as non-root user
 - [ ] Incident response plan documented
 
 ### Regular Maintenance
@@ -342,9 +234,18 @@ chmod 644 /etc/muti-metroo/certs/*.crt  # Certificates
 - [ ] Review security logs
 - [ ] Test failover procedures
 
+## Quick Reference
+
+| Security Control | Configuration |
+|-----------------|---------------|
+| Enable mTLS | [TLS Configuration](/configuration/tls-certificates) |
+| Restrict routes | [Exit Configuration](/configuration/exit) |
+| Limit shell commands | [Shell Configuration](/configuration/shell) |
+| Restrict file paths | [File Transfer Configuration](/configuration/file-transfer) |
+| SOCKS5 authentication | [SOCKS5 Configuration](/configuration/socks5) |
+
 ## Next Steps
 
-- [TLS/mTLS](/security/tls-mtls) - Certificate security
+- [TLS/mTLS](/security/tls-mtls) - Certificate security concepts
 - [Authentication](/security/authentication) - Password security
-- [Access Control](/security/access-control) - Restrict access
-- [Troubleshooting](/troubleshooting/common-issues) - Security issues
+- [Access Control](/security/access-control) - Restrict what users can do

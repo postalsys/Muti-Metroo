@@ -1,6 +1,6 @@
 ---
 title: Access Control
-sidebar_position: 4
+sidebar_position: 5
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -11,267 +11,142 @@ sidebar_position: 4
 
 Limit what authenticated users can actually do. Even with valid credentials, users can only reach destinations you allow, run commands you whitelist, and access files in directories you specify.
 
-**Three layers of restriction:**
-- **Exit routes**: Which IP ranges/domains traffic can reach
-- **Shell whitelist**: Which commands can be executed
-- **File paths**: Which directories are accessible for upload/download
+## Three Layers of Restriction
+
+| Layer | What It Controls | Configuration |
+|-------|-----------------|---------------|
+| **Exit routes** | Which IP ranges/domains traffic can reach | [Exit Configuration](/configuration/exit) |
+| **Shell whitelist** | Which commands can be executed | [Shell Configuration](/configuration/shell) |
+| **File paths** | Which directories are accessible | [File Transfer Configuration](/configuration/file-transfer) |
 
 ## Route-Based Access Control
 
-Only allow connections to specific networks - reject everything else:
+Exit nodes only forward traffic to destinations that match their advertised routes. This provides implicit access control:
 
-```yaml
-exit:
-  enabled: true
-  routes:
-    - "10.0.0.0/8"           # Allow internal network
-    - "192.168.1.0/24"       # Allow specific subnet
-    # NOT 0.0.0.0/0         # Internet access denied
-```
+- Advertise `10.0.0.0/8` = only internal network accessible
+- Advertise specific IPs = only those servers reachable
+- Don't advertise `0.0.0.0/0` = no internet access
 
-### How It Works
+### How Route ACL Works
 
 1. Client connects to destination via SOCKS5
 2. Ingress agent routes to exit agent
 3. Exit agent checks if destination matches advertised routes
-4. If no match: Connection rejected with error
-5. If match: Connection established
+4. **No match**: Connection rejected with "no route" error
+5. **Match**: Connection established
 
-### Example Configurations
+### Route ACL Patterns
 
-**Internal Network Only:**
+| Pattern | Effect |
+|---------|--------|
+| Internal CIDRs only | Block all internet access |
+| Specific host IPs | Whitelist individual servers |
+| Split exits | Different exits for internal vs. external |
+| Domain routes | Control access by hostname |
 
-```yaml
-exit:
-  routes:
-    - "10.0.0.0/8"
-    - "172.16.0.0/12"
-    - "192.168.0.0/16"
-```
-
-**Specific Services:**
-
-```yaml
-exit:
-  routes:
-    - "10.0.1.10/32"    # Database server
-    - "10.0.1.20/32"    # API server
-    - "10.0.1.30/32"    # File server
-```
-
-**Split Internet:**
-
-```yaml
-# Exit 1: Internal only
-exit:
-  routes:
-    - "10.0.0.0/8"
-
-# Exit 2: Internet only (exclude internal)
-exit:
-  routes:
-    - "0.0.0.0/0"
-    # Routes propagate with metrics, internal goes to Exit 1
-```
+:::tip Configuration
+See [Exit Configuration](/configuration/exit) for route setup including CIDR and domain routes.
+:::
 
 ## Shell Command Whitelist
 
-Only whitelisted commands can be executed:
+The shell whitelist determines which commands can be executed remotely:
 
-```yaml
-shell:
-  enabled: true
-  whitelist:
-    - whoami
-    - hostname
-    - ip
-    - df
-    - uptime
-  password_hash: "$2a$12$..."
-```
+| Whitelist Setting | Behavior |
+|-------------------|----------|
+| `[]` (empty) | No commands allowed (default) |
+| `["whoami", "hostname"]` | Only listed commands |
+| `["*"]` | All commands (dangerous!) |
 
-### Whitelist Options
+### Whitelist Principles
 
-**Empty list (default)**: No commands allowed:
+- **Command names only**: `whoami`, not `/usr/bin/whoami`
+- **Arguments not restricted**: `ls -la /` works if `ls` is whitelisted
+- **Case-sensitive**: Must match exactly
 
-```yaml
-shell:
-  whitelist: []
-```
+### Safe Commands for Monitoring
 
-**Specific commands**:
+System info: `whoami`, `hostname`, `uptime`, `uname`
+Network diagnostics: `ip`, `ping`, `traceroute`, `dig`
+Resource monitoring: `df`, `du`, `ps`, `top`, `free`
 
-```yaml
-shell:
-  whitelist:
-    - whoami
-    - hostname
-```
+### Commands to Avoid
 
-**All commands** (DANGEROUS - testing only):
+- **System modification**: `rm`, `mv`, `cp`, `chmod`, `chown`
+- **Code execution**: `sh`, `bash`, `python`, `perl`, `eval`
+- **Data access**: `cat`, `less`, `grep`, `find`
+- **Privilege escalation**: `sudo`, `su`
 
-```yaml
-shell:
-  whitelist:
-    - "*"
-```
+:::tip Configuration
+See [Remote Shell Configuration](/configuration/shell) for whitelist setup.
+:::
 
-### What Can Be Whitelisted
+## File Path Restrictions
 
-- Command base names only (`whoami`, not `/usr/bin/whoami`)
-- Each command must be explicitly listed
-- Arguments are not restricted (use with caution)
+File transfers are restricted to allowed directories:
 
-### Example Secure Whitelist
+| Setting | Behavior |
+|---------|----------|
+| `[]` (empty) | No paths allowed (default) |
+| `["/tmp", "/data"]` | Only listed paths and subdirectories |
+| `["*"]` | All paths (dangerous!) |
 
-```yaml
-shell:
-  whitelist:
-    # System info
-    - whoami
-    - hostname
-    - uptime
-    - uname
+### Path Matching
 
-    # Network diagnostics
-    - ip
-    - ping
-    - traceroute
-    - dig
-    - nslookup
+Paths must start with an allowed prefix:
+- `/tmp` allows `/tmp/file.txt` and `/tmp/subdir/file.txt`
+- Path traversal is blocked: `/tmp/../etc/passwd` is rejected
 
-    # Disk info
-    - df
-    - du
+:::tip Configuration
+See [File Transfer Configuration](/configuration/file-transfer) for path restrictions and glob patterns.
+:::
 
-    # Process info
-    - ps
-    - top
-```
+## Network-Level Controls
 
-### What NOT to Whitelist
+### Bind Address Restrictions
 
-Avoid commands that can:
-- Modify system (`rm`, `mv`, `cp`, `chmod`)
-- Execute arbitrary code (`sh`, `bash`, `python`, `eval`)
-- Access sensitive data (`cat`, `less`, `grep`)
-- Elevate privileges (`sudo`, `su`)
+Limit which interfaces services listen on:
 
-## File Transfer Path Restrictions
+| Bind Address | Access |
+|--------------|--------|
+| `127.0.0.1:1080` | Localhost only |
+| `192.168.1.10:1080` | Specific interface only |
+| `0.0.0.0:1080` | All interfaces (use with caution) |
 
-Limit file transfer to specific directories:
+### Firewall Integration
 
-```yaml
-file_transfer:
-  enabled: true
-  allowed_paths:
-    - /tmp
-    - /home/app/uploads
-    - /var/log/app
-  password_hash: "$2a$12$..."
-```
-
-### How It Works
-
-1. Upload/download request received
-2. Path checked against allowed_paths
-3. Path must start with one of allowed paths
-4. If no match: Request denied
-5. If match: Transfer proceeds
-
-### Path Checking
-
-```yaml
-allowed_paths:
-  - /tmp
-  - /home/user/uploads
-
-# Allowed:
-# /tmp/file.txt         - matches /tmp
-# /tmp/subdir/file.txt  - matches /tmp
-# /home/user/uploads/x  - matches /home/user/uploads
-
-# Denied:
-# /etc/passwd           - no match
-# /home/user/secret     - no match
-# /tmp/../etc/passwd    - normalized, doesn't match
-```
-
-### Maximum File Size
-
-```yaml
-file_transfer:
-  max_file_size: 104857600    # 100 MB limit
-  # 0 = unlimited
-```
-
-## Network-Level Access Control
-
-### Firewall Rules
-
-Restrict who can connect to the agent:
+Combine with host firewall rules:
 
 ```bash
-# Linux (iptables)
-# Only allow QUIC from specific IP
-iptables -A INPUT -p udp --dport 4433 -s 10.0.0.100 -j ACCEPT
-iptables -A INPUT -p udp --dport 4433 -j DROP
-
 # Only allow SOCKS5 from localhost
 iptables -A INPUT -p tcp --dport 1080 -s 127.0.0.1 -j ACCEPT
 iptables -A INPUT -p tcp --dport 1080 -j DROP
+
+# Only allow mesh traffic from trusted peers
+iptables -A INPUT -p udp --dport 4433 -s 10.0.0.0/24 -j ACCEPT
+iptables -A INPUT -p udp --dport 4433 -j DROP
 ```
 
-### Bind Address
+### mTLS as Access Control
 
-Limit listening interfaces:
-
-```yaml
-# Localhost only
-socks5:
-  address: "127.0.0.1:1080"
-
-# Specific interface
-listeners:
-  - address: "192.168.1.10:4433"    # Not 0.0.0.0
-```
-
-### mTLS Certificate-Based ACL
-
-Only specific clients can connect:
-
-```yaml
-tls:
-  ca: "./certs/ca.crt"    # Only certs signed by this CA can connect
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-  mtls: true              # Require valid client certificates
-
-listeners:
-  - transport: quic
-    address: "0.0.0.0:4433"
-```
-
-Combined with separate CAs for different access levels.
+With mTLS enabled, only agents with valid certificates can connect. This provides network-level access control before any authentication occurs.
 
 ## Layered Security Example
 
-Combine multiple controls:
+Combine multiple controls for defense in depth:
 
 ```yaml
-# Layer 1: Network binding
+# Layer 1: Network binding - internal interface only
 socks5:
-  address: "10.0.0.5:1080"    # Internal interface only
-
-# Layer 2: Authentication
-socks5:
+  address: "10.0.0.5:1080"
+  # Layer 2: Authentication required
   auth:
     enabled: true
     users:
       - username: "internal-user"
         password_hash: "$2a$12$..."
 
-# Layer 3: TLS mutual auth
+# Layer 3: mTLS - only valid certificates accepted
 tls:
   ca: "./certs/internal-ca.crt"
   cert: "./certs/agent.crt"
@@ -282,17 +157,18 @@ listeners:
   - transport: quic
     address: "0.0.0.0:4433"
 
-# Layer 4: Route restriction
+# Layer 4: Route restriction - internal networks only
 exit:
   routes:
-    - "10.0.0.0/8"    # Internal only
+    - "10.0.0.0/8"
 
-# Layer 5: Shell restriction
+# Layer 5: Shell restriction - monitoring commands only
 shell:
   enabled: true
   whitelist:
     - whoami
     - hostname
+    - uptime
   password_hash: "$2a$12$..."
 
 # Layer 6: File path restriction
@@ -304,33 +180,62 @@ file_transfer:
   password_hash: "$2a$12$..."
 ```
 
-## Monitoring Access
+This configuration requires an attacker to bypass six layers to cause damage.
 
-### Logging
+## Access Control Checklist
 
-Enable debug logging for access issues:
+### Minimum Security
+- [ ] SOCKS5 bound to localhost or internal interface
+- [ ] Shell disabled or empty whitelist
+- [ ] File transfer disabled or empty allowed_paths
 
-```yaml
-agent:
-  log_level: "debug"
+### Recommended
+- [ ] Authentication enabled on all services
+- [ ] Exit routes limited to required networks
+- [ ] Shell whitelist with only necessary commands
+- [ ] File paths restricted to specific directories
+
+### High Security
+- [ ] mTLS enabled for peer connections
+- [ ] Per-user SOCKS5 accounts
+- [ ] Strict shell whitelist (no shells, no cat)
+- [ ] Firewall rules restricting access
+- [ ] Debug logging for access monitoring
+
+## Troubleshooting
+
+### Route Not Found
+
+```
+Error: no route to host
 ```
 
-Look for:
-- `SOCKS5 auth failed`
-- `shell command rejected`
-- `route not found`
-- `file transfer denied`
+**Cause:** Destination doesn't match any advertised exit route.
 
-## Best Practices
+**Solution:** Check exit routes with `curl http://localhost:8080/healthz | jq '.routes'`
 
-1. **Principle of least privilege**: Only allow what's needed
-2. **Defense in depth**: Multiple layers of control
-3. **Monitor and alert**: Track access failures
-4. **Regular review**: Audit allowed routes/commands/paths
-5. **Document access**: Know who has access to what
+### Command Rejected
+
+```
+Error: command not in whitelist
+```
+
+**Cause:** Command not in shell whitelist.
+
+**Solution:** Add to whitelist or use an allowed command.
+
+### Path Not Allowed
+
+```
+Error: path not allowed
+```
+
+**Cause:** File path not in allowed_paths.
+
+**Solution:** Use an allowed path or update configuration.
 
 ## Next Steps
 
 - [Best Practices](/security/best-practices) - Production hardening
 - [Authentication](/security/authentication) - Password security
-- [Troubleshooting](/troubleshooting/common-issues) - Debug access issues
+- [TLS/mTLS](/security/tls-mtls) - Certificate-based access control
