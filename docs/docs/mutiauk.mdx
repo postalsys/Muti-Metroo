@@ -500,9 +500,9 @@ nmap -sT -sV -Pn 192.168.50.1
 - UDP scans work but show `open|filtered` since ICMP unreachable messages cannot be received through the proxy
 :::
 
-### RustScan Alternative (TCP Only)
+### RustScan Alternative
 
-[RustScan](https://github.com/RustScan/RustScan) is a fast port scanner that can be used as an alternative to nmap for TCP scanning through Mutiauk:
+[RustScan](https://github.com/RustScan/RustScan) is a fast port scanner that can be used as an alternative to nmap through Mutiauk:
 
 ```bash
 # Start Mutiauk
@@ -516,16 +516,19 @@ rustscan -a 192.168.50.1,192.168.50.2 --top
 
 # Pass results to nmap for service detection
 rustscan -a 192.168.50.1 -- -sV -sC
+
+# UDP scan (same limitations as nmap UDP through tunnel)
+rustscan -a 192.168.50.1 --udp -r 1-1000
 ```
 
-:::warning RustScan: TCP Only
-RustScan only supports TCP scanning. It cannot perform UDP scans because:
+:::note UDP Scanning Limitations
+Both RustScan (`--udp`) and nmap (`-sU`) UDP scans show ports as `open|filtered` when scanning through Mutiauk. This is a fundamental limitation of UDP scanning through any proxy:
 
-1. **Design limitation**: RustScan is built specifically for fast TCP port discovery using asynchronous TCP connect calls
-2. **No UDP implementation**: RustScan does not implement UDP socket handling or the timeout-based detection that UDP scanning requires
-3. **SOCKS5 compatibility**: While TCP connections work transparently through SOCKS5/TUN, RustScan has no mechanism to utilize SOCKS5 UDP ASSOCIATE
+- UDP port scanning relies on ICMP "port unreachable" messages to identify closed ports
+- ICMP responses cannot be forwarded back through SOCKS5 UDP ASSOCIATE
+- Without these responses, the scanner cannot distinguish between open ports and filtered/closed ports
 
-For UDP scanning, use nmap with the `-sU` flag instead.
+This limitation applies to all UDP scanners, not just RustScan.
 :::
 
 ## Architecture

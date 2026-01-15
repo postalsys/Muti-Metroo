@@ -318,6 +318,34 @@ nmap -sT -sV -Pn 192.168.50.1
 - Normal `ping` command works (uses TUN), but nmap's built-in ping does not
 - UDP scans show `open|filtered` (ICMP port unreachable not forwarded)
 
+### RustScan Alternative
+
+RustScan (<https://github.com/RustScan/RustScan>) is a fast port scanner that can be used as an alternative to nmap:
+
+```bash
+# Fast TCP scan
+rustscan -a 192.168.50.1 -r 1-1000
+
+# Scan multiple targets
+rustscan -a 192.168.50.1,192.168.50.2 --top
+
+# Pass results to nmap for service detection
+rustscan -a 192.168.50.1 -- -sV -sC
+
+# UDP scan (same limitations as nmap UDP through tunnel)
+rustscan -a 192.168.50.1 --udp -r 1-1000
+```
+
+**UDP scanning limitations:**
+
+Both RustScan (`--udp`) and nmap (`-sU`) UDP scans show ports as `open|filtered` when scanning through Mutiauk. This is a fundamental limitation of UDP scanning through any proxy:
+
+- UDP port scanning relies on ICMP "port unreachable" messages to identify closed ports
+- ICMP responses cannot be forwarded back through SOCKS5 UDP ASSOCIATE
+- Without these responses, the scanner cannot distinguish between open ports and filtered/closed ports
+
+This limitation applies to all UDP scanners, not just RustScan.
+
 ### Using Ping
 
 Mutiauk supports ICMP echo (ping) forwarding through the mesh network via a custom SOCKS5 extension.
