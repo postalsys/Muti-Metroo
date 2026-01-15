@@ -20,7 +20,7 @@ Choose the right transport for your network environment. Use QUIC when you contr
 | Must go through HTTP proxy | **WebSocket** - maximum compatibility |
 | Not sure | Start with QUIC, fall back to WebSocket if blocked |
 
-## Comparison
+## Transport Comparison
 
 | Transport | Speed | Firewall Friendliness | Best For |
 |-----------|-------|----------------------|----------|
@@ -32,49 +32,25 @@ Choose the right transport for your network environment. Use QUIC when you contr
 
 QUIC (Quick UDP Internet Connections) is the recommended transport for most deployments.
 
-### Characteristics
+```mermaid
+flowchart LR
+    A[Agent A] <-->|"UDP + TLS 1.3"| B[Agent B]
+```
 
-- **Protocol**: UDP with built-in TLS 1.3
-- **Multiplexing**: Native stream multiplexing
-- **Performance**: Lowest latency, best throughput
-- **Connection**: Fast 0-RTT reconnection
-- **Congestion**: Modern congestion control (BBR)
+**Characteristics:**
+- UDP with built-in TLS 1.3
+- Native stream multiplexing (no head-of-line blocking)
+- Lowest latency, best throughput
+- Fast 0-RTT reconnection
+- Modern congestion control (BBR)
 
-### When to Use
-
+**When to use:**
 - Connecting servers you control (cloud, data center)
 - Home or office network without strict firewalls
 - When speed matters (large file transfers, low latency)
 - Most residential ISP connections (UDP usually works)
 
-### Configuration
-
-**Global TLS and Listener:**
-
-```yaml
-tls:
-  ca: "./certs/ca.crt"
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-
-listeners:
-  - transport: quic
-    address: "0.0.0.0:4433"
-    # Uses global TLS settings
-```
-
-**Peer connection:**
-
-```yaml
-peers:
-  - id: "peer-id..."
-    transport: quic
-    address: "192.168.1.10:4433"
-    # Uses global CA and cert/key
-```
-
-### Firewall Considerations
-
+**Firewall considerations:**
 - Requires UDP port to be open
 - May be blocked by corporate firewalls
 - NAT traversal generally works well
@@ -84,51 +60,24 @@ peers:
 
 HTTP/2 provides a TCP-based alternative with good firewall compatibility.
 
-### Characteristics
+```mermaid
+flowchart LR
+    A[Agent A] <-->|"TCP + TLS 1.3<br/>/mesh path"| B[Agent B]
+```
 
-- **Protocol**: TCP with TLS 1.3
-- **Multiplexing**: HTTP/2 stream multiplexing
-- **Performance**: Good, but TCP head-of-line blocking
-- **Connection**: Standard TLS handshake
-- **Compatibility**: Works through most firewalls
+**Characteristics:**
+- TCP with TLS 1.3
+- HTTP/2 stream multiplexing
+- Good performance, but TCP head-of-line blocking
+- Compatible with most firewalls and proxies
 
-### When to Use
-
+**When to use:**
 - Corporate network that blocks UDP
 - Behind a load balancer or reverse proxy
 - Need to blend with normal HTTPS traffic
 - QUIC is being blocked or throttled
 
-### Configuration
-
-**Listener:**
-
-```yaml
-tls:
-  ca: "./certs/ca.crt"
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-
-listeners:
-  - transport: h2
-    address: "0.0.0.0:8443"
-    path: "/mesh"           # Optional URL path
-    # Uses global TLS settings
-```
-
-**Peer connection:**
-
-```yaml
-peers:
-  - id: "peer-id..."
-    transport: h2
-    address: "192.168.1.10:8443"
-    path: "/mesh"
-    # Uses global CA and cert/key
-```
-
-### Firewall Considerations
-
+**Firewall considerations:**
 - Uses standard HTTPS port (443)
 - Passes through most corporate firewalls
 - Compatible with HTTP proxies (without CONNECT)
@@ -138,89 +87,35 @@ peers:
 
 WebSocket provides maximum compatibility, especially through HTTP proxies.
 
-### Characteristics
+```mermaid
+flowchart LR
+    A[Agent A] <-->|"HTTP Upgrade<br/>Framed Messages"| Proxy[HTTP Proxy]
+    Proxy <-->|"WebSocket"| B[Agent B]
+```
 
-- **Protocol**: HTTP upgrade to WebSocket, then framed messages
-- **Multiplexing**: Application-level multiplexing over single connection
-- **Performance**: Highest overhead, most latency
-- **Connection**: HTTP handshake, then persistent
-- **Compatibility**: Maximum - works through HTTP proxies
+**Characteristics:**
+- HTTP upgrade to WebSocket, then framed messages
+- Application-level multiplexing over single connection
+- Highest overhead, most latency
+- Works through HTTP proxies with CONNECT
 
-### When to Use
-
+**When to use:**
 - Must go through a corporate HTTP proxy
 - Network inspects and blocks non-HTTP traffic
 - Hosting behind a CDN or WAF
 - Maximum compatibility is more important than speed
 
-### Configuration
-
-**Listener:**
-
-```yaml
-tls:
-  ca: "./certs/ca.crt"
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-
-listeners:
-  - transport: ws
-    address: "0.0.0.0:443"
-    path: "/mesh"           # URL path for WebSocket
-    # Uses global TLS settings
-```
-
-**Peer connection:**
-
-```yaml
-peers:
-  - id: "peer-id..."
-    transport: ws
-    address: "wss://relay.example.com:443/mesh"
-    # Uses global CA and cert/key
-```
-
-**Through HTTP proxy:**
-
-```yaml
-peers:
-  - id: "peer-id..."
-    transport: ws
-    address: "wss://relay.example.com:443/mesh"
-    proxy: "http://proxy.corp.local:8080"
-    proxy_auth:
-      username: "${PROXY_USER}"
-      password: "${PROXY_PASS}"
-```
-
-### Plain WebSocket Mode (Reverse Proxy)
-
-When deploying behind a reverse proxy that handles TLS termination (Nginx, Caddy, Apache), use the `plaintext` option to accept unencrypted WebSocket connections:
-
-```yaml
-listeners:
-  - transport: ws
-    address: "127.0.0.1:8080"  # Bind to localhost only
-    path: "/mesh"
-    plaintext: true            # No TLS - proxy handles encryption
-```
-
-**Security notes:**
-- Only use behind trusted reverse proxies
-- Bind to `127.0.0.1` to prevent direct external access
-- mTLS is not available in this mode
-- Peer authentication and end-to-end encryption still work
-
-See [Reverse Proxy Deployment](/deployment/reverse-proxy) for complete configuration examples.
-
-### Firewall Considerations
-
+**Firewall considerations:**
 - Uses standard HTTP/HTTPS ports
 - Works through HTTP proxies with CONNECT
 - Compatible with most corporate environments
 - May work through some WAFs and CDNs
 
-## Transport Comparison
+:::info Plain WebSocket Mode
+When behind a reverse proxy handling TLS termination, use `plaintext: true` to accept unencrypted WebSocket connections on localhost. See [Reverse Proxy Deployment](/deployment/reverse-proxy).
+:::
+
+## Performance Comparison
 
 ### Latency (per hop)
 
@@ -230,14 +125,6 @@ See [Reverse Proxy Deployment](/deployment/reverse-proxy) for complete configura
 | HTTP/2 | 2-5ms | 60-150ms |
 | WebSocket | 3-10ms | 80-200ms |
 
-### Throughput
-
-| Transport | Single Stream | Multi-Stream |
-|-----------|---------------|--------------|
-| QUIC | Excellent | Excellent |
-| HTTP/2 | Good | Good |
-| WebSocket | Fair | Fair |
-
 ### Connection Establishment
 
 | Transport | Initial | Reconnect |
@@ -246,9 +133,17 @@ See [Reverse Proxy Deployment](/deployment/reverse-proxy) for complete configura
 | HTTP/2 | 2-RTT | 1-RTT (TLS resumption) |
 | WebSocket | 2-RTT + HTTP upgrade | 2-RTT |
 
+### Throughput
+
+| Transport | Single Stream | Multi-Stream |
+|-----------|---------------|--------------|
+| QUIC | Excellent | Excellent |
+| HTTP/2 | Good | Good |
+| WebSocket | Fair | Fair |
+
 ## Mixed Transport Deployments
 
-You can mix transports in a single mesh:
+You can mix transports in a single mesh. Each peer connection chooses the best transport for that specific link:
 
 ```mermaid
 flowchart TB
@@ -258,39 +153,9 @@ flowchart TB
     D -->|QUIC<br/>cloud| B
 ```
 
-### Configuration Example
+Routes propagate across all transports - traffic finds the best path regardless of underlying protocol.
 
-Agent A (multiple transports):
-
-```yaml
-tls:
-  ca: "./certs/ca.crt"
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
-
-listeners:
-  - transport: quic
-    address: "0.0.0.0:4433"
-    # Uses global TLS settings
-
-  - transport: h2
-    address: "0.0.0.0:8443"
-    path: "/mesh"
-    # Uses global TLS settings
-
-peers:
-  - id: "agent-b-id..."
-    transport: h2
-    address: "corporate-relay.example.com:443/mesh"
-    # Uses global CA and cert/key
-
-  - id: "agent-c-id..."
-    transport: quic
-    address: "192.168.1.50:4433"
-    # Uses global CA and cert/key
-```
-
-## Transport Selection Guide
+## Selection Guide
 
 | Where You Are | Where You're Connecting | Use |
 |---------------|------------------------|-----|
@@ -301,40 +166,8 @@ peers:
 | Behind CDN/WAF | Anywhere | WebSocket |
 | Anywhere | Server behind reverse proxy | HTTP/2 or WebSocket |
 
-## Troubleshooting
-
-### QUIC Connection Fails
-
-```bash
-# Check if UDP is reachable
-nc -u -v target.example.com 4433
-
-# Check firewall rules
-sudo iptables -L -n | grep 4433
-```
-
-### HTTP/2 Connection Fails
-
-```bash
-# Test HTTP/2 connectivity
-curl -v --http2 https://target.example.com:8443/mesh
-
-# Check TLS
-openssl s_client -connect target.example.com:8443
-```
-
-### WebSocket Connection Fails
-
-```bash
-# Test WebSocket connectivity
-wscat -c wss://target.example.com:443/mesh
-
-# Test through proxy
-curl -v --proxy http://proxy:8080 https://target.example.com/mesh
-```
-
 ## Next Steps
 
 - [Routing](/concepts/routing) - How routes work across transports
-- [TLS Configuration](/configuration/tls-certificates) - Certificate setup
+- [Configuration Reference](/configuration/overview) - Transport configuration
 - [Troubleshooting Connectivity](/troubleshooting/connectivity) - Connection issues

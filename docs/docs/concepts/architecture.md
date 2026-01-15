@@ -239,14 +239,6 @@ flowchart LR
 
 Total memory per stream = buffer_size x number_of_hops
 
-## Thread Model
-
-Muti Metroo uses Go's goroutine-based concurrency:
-
-- **Per-Peer Goroutines**: Reader and writer for each peer connection
-- **Per-Stream Goroutines**: I/O relay for each active stream
-- **Background Workers**: Route advertisement, keepalive, cleanup
-
 ## Security Model
 
 - **Transport Security**: TLS 1.3 for all peer connections
