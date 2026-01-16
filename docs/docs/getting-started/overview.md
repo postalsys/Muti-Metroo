@@ -37,6 +37,10 @@ Explore the dashboard to see how traffic flows through the mesh, then continue b
 - Multi-hop relay chains that reach destinations you could not access directly
 - Exit points that connect to internal resources or the internet
 
+:::tip Transparent Routing with TUN Interface
+Want to route all traffic through the mesh without configuring each application for SOCKS5? On Linux, you can use [Mutiauk](/mutiauk) - a companion TUN interface that transparently intercepts Layer 3 traffic and forwards it through Muti Metroo.
+:::
+
 ### Prerequisites
 
 - **Muti Metroo binary** - [Download for your platform](/download)
