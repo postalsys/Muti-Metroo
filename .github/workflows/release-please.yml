@@ -139,6 +139,16 @@ jobs:
           # Remove the generated header file (not needed for distribution)
           Remove-Item -Force "${BINARY_NAME}.h" -ErrorAction SilentlyContinue
 
+      - name: Install UPX
+        shell: pwsh
+        run: |
+          choco install upx -y
+
+      - name: Compress DLL with UPX
+        shell: pwsh
+        run: |
+          upx --best --lzma "muti-metroo-windows-amd64.dll"
+
       - name: Upload DLL to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

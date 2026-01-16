@@ -7,6 +7,7 @@ BINARY_NAME := muti-metroo
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
+LDFLAGS_RELEASE := -ldflags "-s -w -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
 
 # Go parameters
 GOCMD := go
@@ -101,18 +102,20 @@ build-dll:
 	@echo "Building $(BINARY_NAME).dll..."
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
-		$(GOBUILD) -buildmode=c-shared \
-		$(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME).dll ./cmd/muti-dll
+		$(GOBUILD) -buildmode=c-shared -trimpath \
+		$(LDFLAGS_RELEASE) -o $(BUILD_DIR)/$(BINARY_NAME).dll ./cmd/muti-dll
 	@rm -f $(BUILD_DIR)/$(BINARY_NAME).h
+	@echo "DLL built. For smaller size, compress with: upx --best --lzma $(BUILD_DIR)/$(BINARY_NAME).dll"
 
 ## build-dll-cross: Cross-compile Windows DLL from macOS/Linux (requires mingw-w64)
 build-dll-cross:
 	@echo "Cross-compiling $(BINARY_NAME).dll..."
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 \
-		$(GOBUILD) -buildmode=c-shared \
-		$(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME).dll ./cmd/muti-dll
+		$(GOBUILD) -buildmode=c-shared -trimpath \
+		$(LDFLAGS_RELEASE) -o $(BUILD_DIR)/$(BINARY_NAME).dll ./cmd/muti-dll
 	@rm -f $(BUILD_DIR)/$(BINARY_NAME).h
+	@echo "DLL built. For smaller size, compress with: upx --best --lzma $(BUILD_DIR)/$(BINARY_NAME).dll"
 
 ## help: Show this help
 help:

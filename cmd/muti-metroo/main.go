@@ -202,6 +202,11 @@ After the wizard completes, the new config will be embedded into that binary.`,
 			if configPath != "" {
 				// Check if it looks like a binary (not .yaml/.yml)
 				if !strings.HasSuffix(configPath, ".yaml") && !strings.HasSuffix(configPath, ".yml") {
+					// Reject DLL files - embedding is not supported for DLLs
+					// (UPX compression is incompatible with config embedding)
+					if strings.HasSuffix(strings.ToLower(configPath), ".dll") {
+						return fmt.Errorf("config embedding is not supported for DLL files; use a config file instead: rundll32.exe %s,Run config.yaml", configPath)
+					}
 					// Check if it's an executable
 					info, err := os.Stat(configPath)
 					if err != nil {

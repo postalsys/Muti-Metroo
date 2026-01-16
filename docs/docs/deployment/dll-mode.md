@@ -63,24 +63,11 @@ C:\Windows\SysWOW64\rundll32.exe C:\path\to\muti-metroo.dll,Run C:\path\to\confi
 
 The native ARM64 `rundll32.exe` (in `System32`) cannot load x64 DLLs directly.
 
-## Embedded Configuration
+## Configuration
 
-For true single-file deployment, embed the configuration into the DLL using the setup wizard:
+The DLL requires an external configuration file - embedded configuration is not supported for DLLs due to incompatibility with UPX compression.
 
-```powershell
-# Embed config into the DLL
-muti-metroo.exe setup -c C:\path\to\muti-metroo.dll
-```
-
-The wizard will automatically embed the configuration into the DLL - no separate config file is needed.
-
-After embedding, run without specifying a config file:
-
-```powershell
-rundll32.exe C:\path\to\my-agent.dll,Run
-```
-
-See [Embedded Configuration](/deployment/embedded-config) for detailed instructions on the embedding process.
+For single-file deployment, use the standalone `.exe` with [Embedded Configuration](/deployment/embedded-config) instead.
 
 ## Termination
 
@@ -171,7 +158,7 @@ This runs as SYSTEM with elevated privileges, starting at boot before user login
 | Service installation | Yes | No |
 | Survives reboot | Yes (as service) | No (needs Task Scheduler) |
 | Background execution | Requires `start /b` | Native |
-| Embedded config | Yes | Yes |
+| Embedded config | Yes | No (use config file) |
 | Interactive commands | Yes | No |
 | Graceful shutdown | Yes (via signals) | No (taskkill only) |
 | Process name in Task Manager | `muti-metroo.exe` | `rundll32.exe` |
@@ -191,6 +178,7 @@ For true service behavior with automatic restart and boot persistence, use `muti
 - **No boot persistence**: Does not automatically start after reboot (use Task Scheduler)
 - **No automatic restart**: Will not restart after a crash (unlike a Windows service)
 - **No graceful shutdown**: The DLL cannot receive Windows signals for graceful termination
+- **No embedded config**: Config embedding is incompatible with UPX compression; use a config file
 - **No service installation**: Use the .exe for `muti-metroo service install`
 - **No interactive commands**: Commands like `shell`, `upload`, `download` must use the .exe
 - **No console output**: Logs must be configured to file output for debugging
