@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.8.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.7.0...muti-metroo-v2.8.0) (2026-01-16)
+
+
+### Features
+
+* **socks5:** add WebSocket transport with HTTP Basic Auth ([648c46b](https://github.com/postalsys/Muti-Metroo/commit/648c46bfd409e7d45ad5ffab933ba5262825eaf6))
+
+
+### Bug Fixes
+
+* use Infima utility classes for intro CTA button ([aba0a6e](https://github.com/postalsys/Muti-Metroo/commit/aba0a6e8e2128467f614005e27e6881cf7b2c94e))
+
 ## [2.7.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.6.0...muti-metroo-v2.7.0) (2026-01-15)
 
 
