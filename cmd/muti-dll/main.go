@@ -30,6 +30,16 @@ import (
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 )
 
+// Windows API constants
+const getModuleHandleExFlagFromAddress = 0x00000004
+
+// Windows API functions (lazy-loaded)
+var (
+	kernel32           = syscall.NewLazyDLL("kernel32.dll")
+	procGetModuleHandleEx = kernel32.NewProc("GetModuleHandleExW")
+	procGetModuleFileName = kernel32.NewProc("GetModuleFileNameW")
+)
+
 // Version is set at build time via ldflags.
 var Version = "dev"
 
@@ -42,40 +52,29 @@ func init() {
 	}
 }
 
-// getDLLPath returns the full path to this DLL.
-// We use GetModuleHandleEx with GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-// to get the module handle of the DLL containing this function.
+// getDLLPath returns the full path to this DLL using GetModuleHandleEx
+// with GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS to locate the module handle.
+// Returns an empty string if the path cannot be determined.
 func getDLLPath() string {
-	kernel32 := syscall.NewLazyDLL("kernel32.dll")
-	getModuleHandleEx := kernel32.NewProc("GetModuleHandleExW")
-	getModuleFileName := kernel32.NewProc("GetModuleFileNameW")
-
-	const GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS = 0x00000004
-
 	var hModule uintptr
 
-	// Get the module handle of the DLL containing this function
-	// by passing the address of a variable in this DLL's memory space.
-	// We use the address of the Version variable which is in our DLL.
-	ret, _, _ := getModuleHandleEx.Call(
-		GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+	// Get module handle by passing address of a variable in this DLL's memory space
+	ret, _, _ := procGetModuleHandleEx.Call(
+		getModuleHandleExFlagFromAddress,
 		uintptr(unsafe.Pointer(&Version)),
 		uintptr(unsafe.Pointer(&hModule)),
 	)
-
 	if ret == 0 {
 		return ""
 	}
 
-	// Buffer for the path (MAX_PATH is 260, but long paths can be up to 32767)
+	// Buffer for path (MAX_PATH is 260, but long paths can be up to 32767)
 	buf := make([]uint16, 32768)
-
-	ret, _, _ = getModuleFileName.Call(
+	ret, _, _ = procGetModuleFileName.Call(
 		hModule,
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(len(buf)),
 	)
-
 	if ret == 0 {
 		return ""
 	}
@@ -90,31 +89,24 @@ func getDLLPath() string {
 //
 //export Run
 func Run(hwnd C.HWND, hinst C.HINSTANCE, lpszCmdLine *C.char, nCmdShow C.int) {
-	// Parse command line - should be the config file path
 	cmdLine := strings.TrimSpace(C.GoString(lpszCmdLine))
-
-	// Get the DLL's own path for embedded config support
 	dllPath := getDLLPath()
 
-	// Load config (embedded takes precedence, then command line path)
 	cfg, _, err := config.LoadOrEmbeddedFrom(dllPath, cmdLine)
-	if err != nil || cfg == nil {
+	if err != nil {
 		return
 	}
 
-	// Create agent
 	a, err := agent.New(cfg)
 	if err != nil {
 		return
 	}
 
-	// Start agent
 	if err := a.Start(); err != nil {
 		return
 	}
 
-	// Block forever - rundll32 process will be terminated externally
-	// Signal handling doesn't work reliably in DLL context on Windows
+	// Block forever - signal handling is unreliable in DLL context
 	select {}
 }
 
