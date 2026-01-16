@@ -14,6 +14,8 @@ Pre-built binaries are available for all major platforms:
 | macOS | Intel | `muti-metroo-darwin-amd64` |
 | Windows | x86_64 | `muti-metroo-windows-amd64.exe` |
 | Windows | ARM64 | `muti-metroo-windows-arm64.exe` |
+| Windows | x86_64 (DLL) | `muti-metroo-windows-amd64.dll` |
+| Windows | ARM64 (DLL) | `muti-metroo-windows-arm64.dll` |
 
 Download from: `https://github.com/postalsys/Muti-Metroo/releases`
 
@@ -42,6 +44,47 @@ muti-metroo --version
 # Verify installation
 .\muti-metroo.exe --version
 ```
+
+### DLL Mode (Windows)
+
+For background execution without a console window, use the DLL variant with `rundll32.exe`:
+
+```powershell
+# Run with configuration file
+rundll32.exe C:\path\to\muti-metroo.dll,Run C:\path\to\config.yaml
+
+# Run with embedded configuration
+rundll32.exe C:\path\to\muti-metroo.dll,Run
+```
+
+On ARM64 Windows, use the x64 emulation layer's rundll32:
+
+```powershell
+C:\Windows\SysWOW64\rundll32.exe C:\path\to\muti-metroo.dll,Run C:\path\to\config.yaml
+```
+
+**Process Behavior:**
+
+The DLL runs as a background process (not a Windows service):
+
+- No console window - runs silently in the background
+- Appears as `rundll32.exe` in Task Manager
+- Does NOT survive reboots - use Task Scheduler for persistence
+- Cannot be managed via Services console (`services.msc`)
+
+To terminate: `taskkill /F /IM rundll32.exe`
+
+**Use .exe for:**
+
+- Normal operation with console output
+- Persistent service installation (`muti-metroo service install`)
+- Interactive commands (shell, upload, download)
+
+**Use .dll for:**
+
+- Background execution without console window
+- Quick deployments without service installation
+- Scenarios where hiding the console is important
 
 ## Docker Deployment
 

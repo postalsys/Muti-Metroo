@@ -747,6 +747,41 @@ func LoadOrEmbedded(path string) (*Config, bool, error) {
 	return cfg, false, nil
 }
 
+// LoadOrEmbeddedFrom loads configuration from embedded binary data in a specific binary,
+// otherwise falls back to loading from the specified config file path.
+// This is useful for DLLs where os.Executable() returns the host process path.
+// If binaryPath is empty, falls back to LoadOrEmbedded behavior.
+func LoadOrEmbeddedFrom(binaryPath, configPath string) (*Config, bool, error) {
+	// If no binary path specified, use standard behavior
+	if binaryPath == "" {
+		return LoadOrEmbedded(configPath)
+	}
+
+	// Check for embedded config in the specified binary
+	hasEmbedded, err := embed.HasEmbeddedConfig(binaryPath)
+	if err == nil && hasEmbedded {
+		data, err := embed.ReadEmbeddedConfig(binaryPath)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to read embedded config from %s: %w", binaryPath, err)
+		}
+		cfg, err := Parse(data)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to parse embedded config: %w", err)
+		}
+		return cfg, true, nil
+	}
+
+	// Fall back to config file
+	if configPath == "" {
+		return nil, false, fmt.Errorf("no embedded config found and no config path specified")
+	}
+	cfg, err := Load(configPath)
+	if err != nil {
+		return nil, false, err
+	}
+	return cfg, false, nil
+}
+
 // Parse parses configuration from YAML bytes.
 func Parse(data []byte) (*Config, error) {
 	// Expand environment variables

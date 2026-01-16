@@ -85,6 +85,7 @@ const sidebars: SidebarsConfig = {
         'deployment/docker',
         'deployment/system-service',
         'deployment/pm2',
+        'deployment/dll-mode',
         'deployment/reverse-proxy',
         'deployment/high-availability',
         'mutiauk',

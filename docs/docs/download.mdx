@@ -155,6 +155,9 @@ muti-metroo --version
   <DownloadButton href="https://download.mutimetroo.com/windows-amd64/muti-metroo.exe" primary>
     Download (.exe)
   </DownloadButton>
+  <DownloadButton href="https://download.mutimetroo.com/windows-amd64/muti-metroo.dll">
+    Download DLL
+  </DownloadButton>
 </DownloadButtonGroup>
 
 ### ARM64
@@ -163,7 +166,14 @@ muti-metroo --version
   <DownloadButton href="https://download.mutimetroo.com/windows-arm64/muti-metroo.exe" primary>
     Download ARM64 (.exe)
   </DownloadButton>
+  <DownloadButton href="https://download.mutimetroo.com/windows-arm64/muti-metroo.dll">
+    Download ARM64 DLL
+  </DownloadButton>
 </DownloadButtonGroup>
+
+:::tip DLL Mode
+The DLL variant runs via `rundll32.exe` without a console window. Use `.exe` for normal operation; use `.dll` for background execution scenarios. See [DLL Mode](/deployment/dll-mode) for details.
+:::
 
 ### Installation
 
@@ -209,7 +219,7 @@ sha256sum -c checksums.txt --ignore-missing
   <TabItem value="windows" label="Windows">
 
 ```powershell
-# Get the expected hash from checksums.txt
+# Get the expected hash from checksums.txt (example: .exe)
 $expected = (Get-Content checksums.txt | Select-String "muti-metroo-windows-amd64.exe").ToString().Split()[0]
 
 # Calculate actual hash
@@ -217,6 +227,8 @@ $actual = (Get-FileHash muti-metroo-windows-amd64.exe -Algorithm SHA256).Hash.To
 
 # Compare
 if ($expected -eq $actual) { "OK" } else { "MISMATCH" }
+
+# For DLL verification, use muti-metroo-windows-amd64.dll instead
 ```
 
   </TabItem>

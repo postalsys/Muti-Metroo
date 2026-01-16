@@ -108,6 +108,49 @@ jobs:
           BINARY_NAME="muti-metroo-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
           gh release upload "${{ needs.release-please.outputs.tag_name }}" "$BINARY_NAME" --clobber
 
+  build-dll:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - goarch: amd64
+          - goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build DLL
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        shell: pwsh
+        run: |
+          $VERSION = "${{ needs.release-please.outputs.tag_name }}"
+          $VERSION = $VERSION -replace '^v', '' -replace '^muti-metroo-v', ''
+          $BINARY_NAME = "muti-metroo-windows-${{ matrix.goarch }}.dll"
+
+          go build -buildmode=c-shared -trimpath `
+            -ldflags="-s -w -X main.Version=$VERSION" `
+            -o "$BINARY_NAME" `
+            ./cmd/muti-dll
+
+          # Remove the generated header file (not needed for distribution)
+          Remove-Item -Force "${BINARY_NAME}.h" -ErrorAction SilentlyContinue
+
+      - name: Upload DLL to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $BINARY_NAME = "muti-metroo-windows-${{ matrix.goarch }}.dll"
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" "$BINARY_NAME" --clobber
+
   user-manual:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
@@ -149,7 +192,7 @@ jobs:
             --clobber
 
   checksums:
-    needs: [release-please, build, user-manual]
+    needs: [release-please, build, build-dll, user-manual]
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:

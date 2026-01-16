@@ -96,6 +96,24 @@ generate-certs:
 	openssl req -x509 -newkey rsa:4096 -keyout ./certs/ca.key -out ./certs/ca.crt \
 		-days 365 -nodes -subj "/CN=muti-metroo-ca"
 
+## build-dll: Build Windows DLL on Windows (requires GCC)
+build-dll:
+	@echo "Building $(BINARY_NAME).dll..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 GOOS=windows GOARCH=amd64 \
+		$(GOBUILD) -buildmode=c-shared \
+		$(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME).dll ./cmd/muti-dll
+	@rm -f $(BUILD_DIR)/$(BINARY_NAME).h
+
+## build-dll-cross: Cross-compile Windows DLL from macOS/Linux (requires mingw-w64)
+build-dll-cross:
+	@echo "Cross-compiling $(BINARY_NAME).dll..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 \
+		$(GOBUILD) -buildmode=c-shared \
+		$(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME).dll ./cmd/muti-dll
+	@rm -f $(BUILD_DIR)/$(BINARY_NAME).h
+
 ## help: Show this help
 help:
 	@echo "Muti Metroo - Userspace Mesh Networking Agent"
