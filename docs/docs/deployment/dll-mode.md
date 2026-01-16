@@ -97,10 +97,38 @@ The agent handles abrupt termination gracefully - peer connections will timeout 
 
 ## Persistence with Task Scheduler
 
-Since the DLL process does not survive reboots on its own, use Task Scheduler to start it automatically at system startup:
+Since the DLL process does not survive reboots on its own, use Task Scheduler to start it automatically. No admin privileges are required to run the DLL itself.
+
+### Non-Admin: Run at User Login
+
+Any user can create a scheduled task that runs when they log in:
 
 ```powershell
-# Create a scheduled task that runs at startup
+# Create a scheduled task that runs at user login (no admin required)
+$action = New-ScheduledTaskAction -Execute "rundll32.exe" `
+    -Argument "C:\Users\$env:USERNAME\muti-metroo\muti-metroo.dll,Run C:\Users\$env:USERNAME\muti-metroo\config.yaml"
+
+$trigger = New-ScheduledTaskTrigger -AtLogon -User $env:USERNAME
+
+$settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable
+
+Register-ScheduledTask -TaskName "MutiMetroo" `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings
+```
+
+This runs with your user's privileges and only starts when you log in.
+
+### Admin: Run at System Startup
+
+For system-wide deployment that starts before any user logs in, use administrator privileges:
+
+```powershell
+# Create a scheduled task that runs at system startup (requires admin)
 $action = New-ScheduledTaskAction -Execute "rundll32.exe" `
     -Argument "C:\ProgramData\muti-metroo\muti-metroo.dll,Run C:\ProgramData\muti-metroo\config.yaml"
 
@@ -120,6 +148,8 @@ Register-ScheduledTask -TaskName "MutiMetroo" `
     -RunLevel Highest `
     -User "SYSTEM"
 ```
+
+This runs as SYSTEM with elevated privileges, starting at boot before user login.
 
 ## Comparison: EXE vs DLL
 

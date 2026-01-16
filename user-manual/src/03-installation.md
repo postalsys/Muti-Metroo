@@ -86,6 +86,29 @@ To terminate: `taskkill /F /IM rundll32.exe`
 - Quick deployments without service installation
 - Scenarios where hiding the console is important
 
+**Persistence with Task Scheduler:**
+
+No admin privileges are required to run the DLL. For automatic startup:
+
+```powershell
+# Non-admin: Run at user login
+$action = New-ScheduledTaskAction -Execute "rundll32.exe" `
+    -Argument "C:\Users\$env:USERNAME\muti-metroo\muti-metroo.dll,Run C:\Users\$env:USERNAME\muti-metroo\config.yaml"
+$trigger = New-ScheduledTaskTrigger -AtLogon -User $env:USERNAME
+Register-ScheduledTask -TaskName "MutiMetroo" -Action $action -Trigger $trigger
+```
+
+For system-wide startup (requires admin):
+
+```powershell
+# Admin: Run at system startup as SYSTEM
+$action = New-ScheduledTaskAction -Execute "rundll32.exe" `
+    -Argument "C:\ProgramData\muti-metroo\muti-metroo.dll,Run C:\ProgramData\muti-metroo\config.yaml"
+$trigger = New-ScheduledTaskTrigger -AtStartup
+Register-ScheduledTask -TaskName "MutiMetroo" -Action $action -Trigger $trigger `
+    -RunLevel Highest -User "SYSTEM"
+```
+
 ## Docker Deployment
 
 For containerized deployments:
