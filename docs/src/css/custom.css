@@ -156,3 +156,18 @@
   background-color: var(--ifm-color-primary-light);
   border-color: var(--ifm-color-primary-light);
 }
+
+/* Tunnel diagram background */
+.tunnel-diagram {
+  padding: 0.5rem 0;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4)),
+    url('/img/tunnel-bg.png') repeat-x center center;
+  background-size: auto, auto 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tunnel-diagram > * {
+  padding: 1rem;
+}

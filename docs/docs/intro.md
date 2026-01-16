@@ -13,6 +13,8 @@ sidebar_position: 1
 
 Muti Metroo creates encrypted tunnels through multiple relay points, letting you reach resources behind firewalls without VPN infrastructure. Deploy a single binary, connect your agents, and route traffic through any network topology.
 
+<div className="tunnel-diagram">
+
 ```mermaid
 flowchart LR
     Client[Your App] -->|SOCKS5| A[Agent A<br/>Ingress]
@@ -20,6 +22,8 @@ flowchart LR
     B -->|Encrypted| C[Agent C<br/>Exit]
     C --> Target[Internal Server]
 ```
+
+</div>
 
 <div className="text--center margin-vert--lg">
   <a className="button button--primary button--lg" href="/getting-started/overview">Get Started in 2 Minutes</a>
