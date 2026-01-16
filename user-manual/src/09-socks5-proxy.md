@@ -137,6 +137,35 @@ socks5:
   max_connections: 1000    # Maximum concurrent connections
 ```
 
+## WebSocket Transport
+
+Enable SOCKS5 over WebSocket for environments where raw TCP/SOCKS5 is blocked but HTTPS/WebSocket is permitted:
+
+```yaml
+socks5:
+  enabled: true
+  address: "127.0.0.1:1080"    # TCP listener (still works)
+  auth:
+    enabled: true
+    users:
+      - username: "user1"
+        password_hash: "$2a$10$..."
+  websocket:
+    enabled: true
+    address: "0.0.0.0:8443"    # WebSocket listener
+    path: "/socks5"
+    plaintext: false           # TLS (true for reverse proxy)
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `websocket.enabled` | false | Enable WebSocket listener |
+| `websocket.address` | - | Listen address (required if enabled) |
+| `websocket.path` | "/socks5" | WebSocket upgrade path |
+| `websocket.plaintext` | false | Disable TLS (for reverse proxy) |
+
+**Authentication:** When `auth.enabled` is true, the WebSocket endpoint requires HTTP Basic Auth using the same credentials. Clients like Mutiauk automatically send credentials for both HTTP Basic Auth and SOCKS5 authentication.
+
 ## UDP Support
 
 For UDP traffic tunneling (DNS, NTP, etc.), see [UDP Relay](14-udp-relay.md). UDP relay uses SOCKS5 UDP ASSOCIATE and requires configuration on the exit agent.

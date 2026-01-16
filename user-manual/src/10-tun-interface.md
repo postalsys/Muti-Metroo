@@ -86,11 +86,13 @@ tun:
   address6: fd00:200::1/64  # Optional IPv6
 
 socks5:
-  server: 127.0.0.1:1080
+  server: 127.0.0.1:1080    # TCP address or wss:// URL
   username: ""              # Optional auth
   password: ""
   timeout: 30s
   keepalive: 60s
+  transport: tcp            # "tcp" (default) or "websocket"
+  ws_path: /socks5          # WebSocket path (for websocket transport)
 
 routes:
   - destination: 10.0.0.0/8
@@ -130,6 +132,49 @@ When enabled, Mutiauk:
 2. Extracts CIDR routes from all connected agents
 3. Filters out unsafe routes (default, loopback, link-local)
 4. Applies valid routes to the TUN interface
+
+### WebSocket Transport
+
+When raw TCP/SOCKS5 traffic is blocked but HTTPS is permitted, use WebSocket transport:
+
+```yaml
+socks5:
+  # Option 1: Use wss:// URL (auto-detects WebSocket)
+  server: wss://relay.example.com:8443/socks5
+
+  # Option 2: Explicit transport setting
+  server: relay.example.com:8443
+  transport: websocket
+  ws_path: /socks5
+
+  # Authentication (if server requires it)
+  username: "user1"
+  password: "yourpassword"
+```
+
+The Muti Metroo server must have WebSocket SOCKS5 enabled:
+
+```yaml
+# Muti Metroo config
+socks5:
+  enabled: true
+  auth:
+    enabled: true
+    users:
+      - username: "user1"
+        password_hash: "$2a$10$..."
+  websocket:
+    enabled: true
+    address: "0.0.0.0:8443"
+    path: "/socks5"
+```
+
+**Authentication:** When `socks5.auth.enabled` is true on the server, Mutiauk automatically:
+
+1. Sends HTTP Basic Auth credentials during WebSocket handshake
+2. Performs SOCKS5 username/password authentication after connection
+
+Both use the same `username` and `password` from your config.
 
 ## CLI Commands
 
