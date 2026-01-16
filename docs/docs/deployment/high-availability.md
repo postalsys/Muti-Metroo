@@ -1,6 +1,6 @@
 ---
 title: High Availability
-sidebar_position: 5
+sidebar_position: 7
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -342,14 +342,27 @@ curl http://localhost:8080/healthz | jq '.routes'
 
 ### Chaos Testing
 
-Use the built-in chaos package for automated testing:
+Test resilience with controlled failures:
 
-```go
-// internal/chaos provides fault injection
-chaosMonkey := chaos.NewChaosMonkey(agent)
-chaosMonkey.InjectNetworkDelay(100 * time.Millisecond)
-chaosMonkey.DisconnectRandomPeer()
+```bash
+# Simulate network delay (Linux with tc)
+docker exec agent1 tc qdisc add dev eth0 root netem delay 100ms
+
+# Kill a random agent container
+docker kill $(docker ps -q --filter "name=agent" | shuf -n 1)
+
+# Verify mesh recovers
+sleep 30
+curl http://localhost:8080/healthz | jq '{peers: .peer_count, routes: .route_count}'
 ```
+
+For development, the codebase includes an internal chaos testing package (`internal/chaos`) for automated fault injection.
+
+## See Also
+
+- [API - Health](/api/health) - Health check endpoints
+- [API - Routes](/api/routes) - Route advertisement API
+- [Docker Deployment](/deployment/docker) - Container-based HA testing
 
 ## Next Steps
 

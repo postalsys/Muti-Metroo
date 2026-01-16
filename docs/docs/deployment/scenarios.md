@@ -447,4 +447,5 @@ Both relays connect to the same exit agent. Routes are learned from both, with t
 
 - [Docker Deployment](/deployment/docker) - Containerized deployment
 - [System Service](/deployment/system-service) - Install as service
+- [PM2 Process Manager](/deployment/pm2) - Node.js-based process management
 - [High Availability](/deployment/high-availability) - Redundancy patterns

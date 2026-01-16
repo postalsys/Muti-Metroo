@@ -3,6 +3,10 @@ title: Embedded Configuration
 sidebar_position: 2
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-hammering.png" alt="Mole embedding configuration" style={{maxWidth: '180px'}} />
+</div>
+
 # Embedded Configuration
 
 Drop a single executable. No config files, no setup - just run the binary and the agent starts with all settings baked in.

@@ -1,13 +1,13 @@
 ---
 title: Reverse Proxy Deployment
-sidebar_position: 2
+sidebar_position: 6
 ---
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
-  <img src="/img/mole-behind-proxy.png" alt="Mole behind proxy" style={{maxWidth: '180px'}} />
+  <img src="/img/mole-climbing.png" alt="Mole behind proxy" style={{maxWidth: '180px'}} />
 </div>
 
 # Reverse Proxy Deployment

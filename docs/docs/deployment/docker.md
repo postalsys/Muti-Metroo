@@ -1,6 +1,6 @@
 ---
 title: Docker Deployment
-sidebar_position: 2
+sidebar_position: 3
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
@@ -367,11 +367,11 @@ services:
 # Check logs
 docker compose logs agent1
 
-# Check config syntax
+# Check docker compose config syntax
 docker compose config
 
-# Test config
-docker compose run --rm agent1 ./muti-metroo validate -c /app/config.yaml
+# Test agent starts successfully (will exit after init)
+docker compose run --rm agent1 timeout 5 ./muti-metroo run -c /app/config.yaml || true
 ```
 
 ### Network Issues

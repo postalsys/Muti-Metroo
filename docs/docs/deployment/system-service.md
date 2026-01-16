@@ -440,6 +440,11 @@ sudo lsof -i :4433
 sudo netstat -tlnp | grep 4433
 ```
 
+## See Also
+
+- [CLI - Service](/cli/service) - Service management commands
+- [CLI - Run](/cli/run) - Run agent manually
+
 ## Next Steps
 
 - [High Availability](/deployment/high-availability) - Redundancy setup
