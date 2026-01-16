@@ -1,6 +1,5 @@
 ---
 title: ping
-sidebar_position: 7
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>

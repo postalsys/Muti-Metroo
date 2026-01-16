@@ -1,6 +1,5 @@
 ---
 title: hash
-sidebar_position: 8
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>

@@ -1,6 +1,5 @@
 ---
 title: probe
-sidebar_position: 5
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>

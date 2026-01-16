@@ -38,9 +38,10 @@ muti-metroo upload [flags] <target-agent-id> <local-path> <remote-path>
 |------|-------|---------|-------------|
 | `--agent` | `-a` | `localhost:8080` | Agent HTTP API address |
 | `--password` | `-p` | | File transfer password |
-| `--timeout` | `-t` | `300` | Transfer timeout in seconds |
+| `--timeout` | `-t` | `5m` | Transfer timeout (e.g., 30s, 5m, 1h) |
 | `--rate-limit` | | | Max transfer speed (e.g., 100KB, 1MB, 10MiB) |
 | `--resume` | | `false` | Resume interrupted transfer if possible |
+| `--quiet` | `-q` | `false` | Suppress progress output |
 
 ### Examples
 
@@ -80,9 +81,10 @@ muti-metroo download [flags] <target-agent-id> <remote-path> <local-path>
 |------|-------|---------|-------------|
 | `--agent` | `-a` | `localhost:8080` | Agent HTTP API address |
 | `--password` | `-p` | | File transfer password |
-| `--timeout` | `-t` | `300` | Transfer timeout in seconds |
+| `--timeout` | `-t` | `5m` | Transfer timeout (e.g., 30s, 5m, 1h) |
 | `--rate-limit` | | | Max transfer speed (e.g., 100KB, 1MB, 10MiB) |
 | `--resume` | | `false` | Resume interrupted transfer if possible |
+| `--quiet` | `-q` | `false` | Suppress progress output |
 
 ### Examples
 

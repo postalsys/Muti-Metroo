@@ -1,7 +1,10 @@
 ---
 title: management-key
-sidebar_position: 10
 ---
+
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-inspecting.png" alt="Mole managing keys" style={{maxWidth: '180px'}} />
+</div>
 
 # management-key
 
@@ -59,7 +62,7 @@ muti-metroo management-key public --private <private-key-hex>
 ```
 
 **Flags:**
-- `--private, -p` (required): Private key in hex format (64 characters)
+- `--private` (required): Private key in hex format (64 characters)
 
 **Example:**
 ```bash
