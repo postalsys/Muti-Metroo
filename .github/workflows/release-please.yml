@@ -112,11 +112,8 @@ jobs:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: windows-latest
-    strategy:
-      matrix:
-        include:
-          - goarch: amd64
-          - goarch: arm64
+    env:
+      GOARCH: amd64
 
     steps:
       - uses: actions/checkout@v4
@@ -127,13 +124,12 @@ jobs:
 
       - name: Build DLL
         env:
-          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
         shell: pwsh
         run: |
           $VERSION = "${{ needs.release-please.outputs.tag_name }}"
           $VERSION = $VERSION -replace '^v', '' -replace '^muti-metroo-v', ''
-          $BINARY_NAME = "muti-metroo-windows-${{ matrix.goarch }}.dll"
+          $BINARY_NAME = "muti-metroo-windows-amd64.dll"
 
           go build -buildmode=c-shared -trimpath `
             -ldflags="-s -w -X main.Version=$VERSION" `
@@ -148,8 +144,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          $BINARY_NAME = "muti-metroo-windows-${{ matrix.goarch }}.dll"
-          gh release upload "${{ needs.release-please.outputs.tag_name }}" "$BINARY_NAME" --clobber
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" "muti-metroo-windows-amd64.dll" --clobber
 
   user-manual:
     needs: release-please

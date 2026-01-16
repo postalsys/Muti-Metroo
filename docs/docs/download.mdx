@@ -166,10 +166,11 @@ muti-metroo --version
   <DownloadButton href="https://download.mutimetroo.com/windows-arm64/muti-metroo.exe" primary>
     Download ARM64 (.exe)
   </DownloadButton>
-  <DownloadButton href="https://download.mutimetroo.com/windows-arm64/muti-metroo.dll">
-    Download ARM64 DLL
-  </DownloadButton>
 </DownloadButtonGroup>
+
+:::note ARM64 DLL
+No native ARM64 DLL is provided. ARM64 Windows users can run the x64 DLL via the emulation layer. See [DLL Mode](/deployment/dll-mode#arm64-compatibility) for instructions.
+:::
 
 :::tip DLL Mode
 The DLL variant runs via `rundll32.exe` without a console window. Use `.exe` for normal operation; use `.dll` for background execution scenarios. See [DLL Mode](/deployment/dll-mode) for details.

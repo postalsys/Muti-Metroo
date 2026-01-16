@@ -32,10 +32,11 @@ This makes DLL mode ideal for scenarios where you need background execution with
 
 ## Download
 
-DLL builds are available alongside the standard .exe files on the [Download page](/download):
+The DLL build is available on the [Download page](/download):
 
 - **x86_64**: `muti-metroo.dll` (Windows amd64)
-- **ARM64**: `muti-metroo.dll` (Windows arm64)
+
+ARM64 Windows users can run the x64 DLL via the emulation layer (see [ARM64 Compatibility](#arm64-compatibility) below).
 
 ## Basic Usage
 

@@ -15,7 +15,6 @@ Pre-built binaries are available for all major platforms:
 | Windows | x86_64 | `muti-metroo-windows-amd64.exe` |
 | Windows | ARM64 | `muti-metroo-windows-arm64.exe` |
 | Windows | x86_64 (DLL) | `muti-metroo-windows-amd64.dll` |
-| Windows | ARM64 (DLL) | `muti-metroo-windows-arm64.dll` |
 
 Download from: `https://github.com/postalsys/Muti-Metroo/releases`
 
