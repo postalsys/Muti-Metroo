@@ -15,6 +15,7 @@ const sidebars: SidebarsConfig = {
         'comparisons/vs-ligolo-ng',
         'comparisons/vs-ssh-jump',
         'comparisons/vs-chisel',
+        'comparisons/vs-gost',
       ],
     },
     {
