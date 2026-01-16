@@ -1,5 +1,5 @@
 ---
-title: FAQ
+title: Frequently Asked Questions
 sidebar_position: 4
 ---
 
@@ -119,10 +119,18 @@ socks5:
 
 ### How is traffic encrypted?
 
-All peer connections use TLS 1.3 with:
-- AES-256-GCM or ChaCha20-Poly1305 encryption
-- ECDHE key exchange
+Traffic is protected at two levels:
+
+**Transport encryption** (peer-to-peer):
+- TLS 1.3 with AES-256-GCM or ChaCha20-Poly1305
 - Perfect forward secrecy
+
+**End-to-end encryption** (ingress-to-exit):
+- X25519 key exchange per stream
+- ChaCha20-Poly1305 authenticated encryption
+- Transit agents cannot decrypt payload data
+
+See [E2E Encryption](/security/e2e-encryption) for details.
 
 ### Is mutual TLS (mTLS) required?
 
@@ -149,7 +157,7 @@ See [TLS Certificates](/configuration/tls-certificates) for details.
 
 - CONNECT command: Yes
 - BIND: No
-- UDP ASSOCIATE: No
+- UDP ASSOCIATE: Yes (see [UDP Relay](/features/udp-relay))
 - IPv4/IPv6: Yes
 - Domain names: Yes
 - No auth: Yes
@@ -263,13 +271,21 @@ Or at runtime:
 ### How do I check if agents are connected?
 
 ```bash
-curl http://localhost:8080/healthz | jq '.peers'
+# Using CLI
+muti-metroo peers
+
+# Using HTTP API
+curl http://localhost:8080/healthz | jq '.peer_count'
 ```
 
 ### How do I check routes?
 
 ```bash
-curl http://localhost:8080/healthz | jq '.routes'
+# Using CLI
+muti-metroo routes
+
+# Using HTTP API
+curl http://localhost:8080/healthz | jq '.route_count'
 ```
 
 ### Where are the logs?
@@ -327,6 +343,12 @@ http://localhost:8080/ui/
 ```
 
 See [Web Dashboard](/features/web-dashboard).
+
+## See Also
+
+- [CLI Reference](/cli/overview) - All CLI commands
+- [HTTP API Reference](/api/overview) - API endpoints
+- [Configuration Overview](/configuration/overview) - Full configuration reference
 
 ## Next Steps
 

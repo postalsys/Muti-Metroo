@@ -1,5 +1,5 @@
 ---
-title: Connectivity
+title: Connectivity Troubleshooting
 sidebar_position: 2
 ---
 
@@ -25,37 +25,50 @@ muti-metroo cert info ./certs/agent.crt
 
 ## Diagnostic Tools
 
-### Check Agent Health
+### CLI Commands
+
+Use the built-in CLI commands for quick diagnostics:
 
 ```bash
-# Basic health
+# Check overall agent status
+muti-metroo status
+
+# List connected peers with state and RTT
+muti-metroo peers
+
+# View routing table with hop counts
+muti-metroo routes
+
+# Test connectivity to a listener before deployment
+muti-metroo probe server.example.com:4433
+muti-metroo probe --transport h2 server.example.com:443
+
+# Ping through the mesh to test exit connectivity
+muti-metroo ping abc123 8.8.8.8
+```
+
+### HTTP API
+
+For scripting and monitoring:
+
+```bash
+# Basic health check
 curl http://localhost:8080/health
 
-# Detailed status
+# Detailed status with counts
 curl http://localhost:8080/healthz | jq
 
 # Expected output:
 {
   "status": "healthy",
-  "agent_id": "abc123...",
-  "peers": 2,
-  "routes": 5,
-  "streams": 10
+  "running": true,
+  "peer_count": 2,
+  "stream_count": 10,
+  "route_count": 5
 }
-```
 
-### Check Peer Connections
-
-```bash
-# List connected peers
+# List all known agents
 curl http://localhost:8080/agents | jq
-```
-
-### Check Routes
-
-```bash
-# View routing table
-curl http://localhost:8080/healthz | jq '.routes'
 
 # Trigger route refresh
 curl -X POST http://localhost:8080/routes/advertise
@@ -230,8 +243,11 @@ grep -A5 "exit:" /etc/muti-metroo/config.yaml
 **Step 2: Check route propagation**
 
 ```bash
-# On ingress agent
-curl http://localhost:8080/healthz | jq '.routes'
+# On ingress agent - using CLI
+muti-metroo routes
+
+# Or using HTTP API
+curl http://localhost:8080/healthz | jq '.route_count'
 ```
 
 **Step 3: Check peer connectivity**
@@ -239,7 +255,11 @@ curl http://localhost:8080/healthz | jq '.routes'
 Routes propagate through peers. If peer is disconnected, routes are lost.
 
 ```bash
-curl http://localhost:8080/healthz | jq '.peers'
+# Using CLI
+muti-metroo peers
+
+# Or using HTTP API
+curl http://localhost:8080/healthz | jq '.peer_count'
 ```
 
 **Step 4: Trigger route advertisement**
@@ -362,6 +382,15 @@ time curl -x socks5://localhost:1080 https://example.com -o /dev/null
 - [ ] Peer ID matches
 - [ ] Routes advertised
 - [ ] Logs show no errors
+
+## See Also
+
+- [CLI - Status](/cli/status) - Check agent status
+- [CLI - Peers](/cli/peers) - List connected peers
+- [CLI - Routes](/cli/routes) - View routing table
+- [CLI - Probe](/cli/probe) - Test listener connectivity
+- [CLI - Ping](/cli/ping) - Test network reachability through mesh
+- [API - Health](/api/health) - Health check endpoints
 
 ## Next Steps
 

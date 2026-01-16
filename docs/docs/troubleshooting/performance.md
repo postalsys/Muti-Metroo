@@ -1,5 +1,5 @@
 ---
-title: Performance
+title: Performance Troubleshooting
 sidebar_position: 3
 ---
 
@@ -132,7 +132,7 @@ ps aux | grep muti-metroo
 cat /proc/$(pgrep muti-metroo)/status | grep -i mem
 
 # Check stream count via health endpoint
-curl http://localhost:8080/healthz | jq '.streams'
+curl http://localhost:8080/healthz | jq '.stream_count'
 ```
 
 ### Calculation
@@ -224,7 +224,7 @@ CPU-bound workloads benefit from faster cores.
 ```bash
 # Check connection count
 netstat -an | grep 4433 | wc -l
-curl http://localhost:8080/healthz | jq '.peers'
+curl http://localhost:8080/healthz | jq '.peer_count'
 ```
 
 **Solutions:**
@@ -335,7 +335,14 @@ limits:
   max_streams_per_peer: 100
 ```
 
+## See Also
+
+- [CLI - Status](/cli/status) - Check agent status
+- [API - Debugging (pprof)](/api/debugging) - Profiling endpoints
+- [API - Health](/api/health) - Health check endpoints
+
 ## Next Steps
 
 - [Common Issues](/troubleshooting/common-issues) - Quick solutions
 - [Deployment](/deployment/scenarios) - Optimize deployment
+- [FAQ](/troubleshooting/faq) - Common questions

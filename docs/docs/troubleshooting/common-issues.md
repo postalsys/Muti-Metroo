@@ -71,11 +71,10 @@ Error: open ./certs/agent.crt: no such file or directory
 
 ```bash
 # Generate certificates
-muti-metroo cert ca --cn "My CA" -o ./certs
-muti-metroo cert agent --cn "agent-1" \
+muti-metroo cert ca -n "My CA"
+muti-metroo cert agent -n "agent-1" \
   --ca ./certs/ca.crt \
-  --ca-key ./certs/ca.key \
-  -o ./certs
+  --ca-key ./certs/ca.key
 
 # Or fix path in config
 tls:
@@ -631,6 +630,14 @@ If these solutions don't work:
    - Configuration (redacted)
    - Logs (debug level)
    - Steps to reproduce
+
+## See Also
+
+- [CLI - Status](/cli/status) - Check agent status
+- [CLI - Peers](/cli/peers) - List connected peers
+- [CLI - Routes](/cli/routes) - View routing table
+- [CLI - Cert](/cli/cert) - Certificate management
+- [API - Health](/api/health) - Health check endpoints
 
 ## Next Steps
 
