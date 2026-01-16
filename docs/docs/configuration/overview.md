@@ -15,21 +15,21 @@ Control every aspect of your agent through a single YAML file. Start with the mi
 
 | I want to... | Section |
 |--------------|---------|
-| Set agent name and logging | [agent](/configuration/agent) |
-| Accept incoming connections | [listeners](/configuration/listeners) |
-| Connect to other agents | [peers](/configuration/peers) |
-| Create a SOCKS5 proxy | [socks5](/configuration/socks5) |
-| Route traffic to destinations | [exit](/configuration/exit) |
-| Set up port forwarding | [forward](/configuration/forward) |
-| Enable UDP relay | [udp](/configuration/udp) |
-| Enable ICMP ping | [icmp](/configuration/icmp) |
-| Enable remote shell | [shell](/configuration/shell) |
-| Enable file transfer | [file-transfer](/configuration/file-transfer) |
-| Configure HTTP API | [http](/configuration/http) |
-| Tune route propagation | [routing](/configuration/routing) |
-| Encrypt mesh topology | [management](/configuration/management) |
-| Set up TLS certificates | [tls-certificates](/configuration/tls-certificates) |
-| Use secrets from environment | [environment-variables](/configuration/environment-variables) |
+| Set agent name and logging | [Agent](/configuration/agent) |
+| Accept incoming connections | [Listeners](/configuration/listeners) |
+| Connect to other agents | [Peers](/configuration/peers) |
+| Create a SOCKS5 proxy | [SOCKS5](/configuration/socks5) |
+| Route traffic to destinations | [Exit](/configuration/exit) |
+| Set up port forwarding | [Forward](/configuration/forward) |
+| Enable UDP relay | [UDP](/configuration/udp) |
+| Enable ICMP ping | [ICMP](/configuration/icmp) |
+| Enable remote shell | [Shell](/configuration/shell) |
+| Enable file transfer | [File Transfer](/configuration/file-transfer) |
+| Configure HTTP API | [HTTP](/configuration/http) |
+| Tune route propagation | [Routing](/configuration/routing) |
+| Encrypt mesh topology | [Management](/configuration/management) |
+| Set up TLS certificates | [TLS Certificates](/configuration/tls-certificates) |
+| Use secrets from environment | [Environment Variables](/configuration/environment-variables) |
 
 ## Configuration File
 
