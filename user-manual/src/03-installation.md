@@ -49,12 +49,10 @@ muti-metroo --version
 For background execution without a console window, use the DLL variant with `rundll32.exe`:
 
 ```powershell
-# Run with configuration file
 rundll32.exe C:\path\to\muti-metroo.dll,Run C:\path\to\config.yaml
-
-# Run with embedded configuration
-rundll32.exe C:\path\to\muti-metroo.dll,Run
 ```
+
+**Note:** Embedded configuration is not supported for DLLs (incompatible with UPX compression). Use the `.exe` for single-file deployment with embedded config.
 
 On ARM64 Windows, use the x64 emulation layer's rundll32:
 

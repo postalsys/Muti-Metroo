@@ -43,11 +43,7 @@ ARM64 Windows users can run the x64 DLL via the emulation layer (see [ARM64 Comp
 The DLL exports a `Run` function that can be invoked via `rundll32.exe`:
 
 ```powershell
-# Run with configuration file
 rundll32.exe C:\path\to\muti-metroo.dll,Run C:\path\to\config.yaml
-
-# Run with embedded configuration (no config file needed)
-rundll32.exe C:\path\to\muti-metroo.dll,Run
 ```
 
 The DLL runs silently in the background without opening a console window.
@@ -202,6 +198,6 @@ agent:
 
 ## Next Steps
 
-- [Embedded Configuration](/deployment/embedded-config) - Single-file deployment
+- [Embedded Configuration](/deployment/embedded-config) - Single-file deployment (use .exe for this)
 - [System Service](/deployment/system-service) - Native Windows Service installation
 - [Download](/download) - Get the DLL binary

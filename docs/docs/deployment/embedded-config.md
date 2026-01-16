@@ -17,6 +17,10 @@ Drop a single executable. No config files, no setup - just run the binary and th
 - Custom binary name for each deployment
 - Can still edit config later without rebuilding
 
+:::note Executables Only
+Embedded configuration is supported for `.exe` files only. The Windows DLL variant requires an external config file due to UPX compression compatibility. See [DLL Mode](/deployment/dll-mode) for details.
+:::
+
 ## How It Works
 
 The configuration is appended to the binary itself:
