@@ -169,6 +169,103 @@ When limit is reached:
 - New connections are rejected
 - Existing connections continue working
 
+## WebSocket Transport
+
+Enable SOCKS5 over WebSocket for environments where raw TCP/SOCKS5 is blocked but HTTPS/WebSocket is permitted.
+
+### Configuration
+
+```yaml
+socks5:
+  enabled: true
+  address: "127.0.0.1:1080"     # TCP listener (still works)
+
+  websocket:
+    enabled: true
+    address: "0.0.0.0:8443"     # WebSocket listener address
+    path: "/socks5"             # WebSocket upgrade path
+    plaintext: false            # TLS mode (true for reverse proxy)
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `websocket.enabled` | bool | false | Enable WebSocket listener |
+| `websocket.address` | string | - | Listen address (required if enabled) |
+| `websocket.path` | string | "/socks5" | WebSocket upgrade path |
+| `websocket.plaintext` | bool | false | Disable TLS (for reverse proxy) |
+
+### Deployment Modes
+
+**Direct TLS (default):**
+```yaml
+socks5:
+  websocket:
+    enabled: true
+    address: "0.0.0.0:8443"
+    plaintext: false            # Uses agent's TLS certificate
+```
+
+**Behind Reverse Proxy:**
+```yaml
+socks5:
+  websocket:
+    enabled: true
+    address: "127.0.0.1:8081"   # Internal only
+    plaintext: true             # Proxy handles TLS termination
+```
+
+### Authentication
+
+When SOCKS5 authentication is enabled, the WebSocket endpoint automatically requires HTTP Basic Auth using the same credentials. This provides an additional security layer before the WebSocket upgrade.
+
+```yaml
+socks5:
+  enabled: true
+  address: "127.0.0.1:1080"
+  auth:
+    enabled: true
+    users:
+      - username: "user1"
+        password_hash: "$2a$10$..."
+  websocket:
+    enabled: true
+    address: "0.0.0.0:8443"
+```
+
+Clients must include the `Authorization` header with Basic Auth credentials:
+
+```
+Authorization: Basic base64(username:password)
+```
+
+:::tip
+The WebSocket endpoint uses the same credential store as the SOCKS5 server. Configure users once in `socks5.auth.users` and they work for both TCP and WebSocket connections.
+:::
+
+### Client Configuration
+
+Connect using WebSocket-capable SOCKS5 clients:
+
+```yaml
+# Mutiauk config with WebSocket transport
+socks5:
+  server: "wss://proxy.example.com:8443/socks5"
+  transport: websocket
+  # Same credentials for HTTP Basic Auth and SOCKS5 auth
+  username: "user1"
+  password: "yourpassword"
+```
+
+When SOCKS5 authentication is enabled, Mutiauk automatically:
+1. Sends HTTP Basic Auth credentials during the WebSocket handshake
+2. Performs SOCKS5 username/password authentication after connection
+
+:::info
+The WebSocket endpoint serves a splash page at `/` for camouflage. Only the configured path (`/socks5` by default) accepts WebSocket upgrades.
+:::
+
 ## UDP Relay Binding
 
 When a client requests UDP ASSOCIATE, the server creates a UDP relay socket for that session. For security, the UDP relay socket binds to the **same IP address** as the SOCKS5 TCP listener.

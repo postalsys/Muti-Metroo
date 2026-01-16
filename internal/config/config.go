@@ -362,10 +362,30 @@ type ProxyAuth struct {
 
 // SOCKS5Config defines SOCKS5 server settings.
 type SOCKS5Config struct {
-	Enabled        bool             `yaml:"enabled,omitempty"`
-	Address        string           `yaml:"address,omitempty"`
-	Auth           SOCKS5AuthConfig `yaml:"auth,omitempty"`
-	MaxConnections int              `yaml:"max_connections,omitempty"`
+	Enabled        bool                   `yaml:"enabled,omitempty"`
+	Address        string                 `yaml:"address,omitempty"`
+	Auth           SOCKS5AuthConfig       `yaml:"auth,omitempty"`
+	MaxConnections int                    `yaml:"max_connections,omitempty"`
+	WebSocket      WebSocketSOCKS5Config  `yaml:"websocket,omitempty"`
+}
+
+// WebSocketSOCKS5Config defines WebSocket SOCKS5 listener settings.
+// This allows SOCKS5 protocol to be tunneled over WebSocket transport,
+// which can pass through firewalls that block raw TCP/SOCKS5 traffic.
+type WebSocketSOCKS5Config struct {
+	// Enabled controls whether the WebSocket SOCKS5 listener is active.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// Address is the listen address (e.g., "0.0.0.0:8443" or "127.0.0.1:8081").
+	Address string `yaml:"address,omitempty"`
+
+	// Path is the WebSocket upgrade path (default: "/socks5").
+	Path string `yaml:"path,omitempty"`
+
+	// PlainText allows running without TLS (for reverse proxy mode).
+	// When true, the listener serves plain HTTP/WebSocket.
+	// Use this when running behind nginx/Caddy that handles TLS termination.
+	PlainText bool `yaml:"plaintext,omitempty"`
 }
 
 // SOCKS5AuthConfig defines SOCKS5 authentication settings.
@@ -832,6 +852,16 @@ func (c *Config) Validate() error {
 	// Validate SOCKS5
 	if c.SOCKS5.Enabled && c.SOCKS5.Address == "" {
 		errs = append(errs, "socks5.address is required when enabled")
+	}
+
+	// Validate SOCKS5 WebSocket
+	if c.SOCKS5.WebSocket.Enabled {
+		if c.SOCKS5.WebSocket.Address == "" {
+			errs = append(errs, "socks5.websocket.address is required when enabled")
+		}
+		if c.SOCKS5.WebSocket.Path != "" && !strings.HasPrefix(c.SOCKS5.WebSocket.Path, "/") {
+			errs = append(errs, "socks5.websocket.path must start with '/'")
+		}
 	}
 
 	// Validate exit routes (CIDR)

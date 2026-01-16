@@ -163,6 +163,14 @@ func (h *Handler) Handle(conn net.Conn) error {
 	}
 }
 
+// noDeadlineMonitor is an optional interface that connections can implement
+// to indicate they don't support deadline-based polling for disconnect detection.
+// WebSocket connections implement this because their underlying library closes
+// the connection when read contexts are canceled, which breaks the polling pattern.
+type noDeadlineMonitor interface {
+	NoDeadlineMonitor() bool
+}
+
 // handleConnect handles CONNECT commands.
 func (h *Handler) handleConnect(conn net.Conn, req *Request) error {
 	targetAddr := net.JoinHostPort(req.DestAddr, strconv.Itoa(int(req.DestPort)))
@@ -172,50 +180,66 @@ func (h *Handler) handleConnect(conn net.Conn, req *Request) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Monitor client connection for early disconnect.
-	// After SOCKS5 handshake, client should not send data until we reply,
-	// so any read returning means the client closed the connection.
+	// Check if connection supports deadline-based monitoring.
+	// WebSocket connections don't support this because their library closes
+	// the connection when read context is canceled.
+	useMonitor := true
+	if ndm, ok := conn.(noDeadlineMonitor); ok && ndm.NoDeadlineMonitor() {
+		useMonitor = false
+	}
+
 	dialDone := make(chan struct{})
 	monitorExited := make(chan struct{})
-	go func() {
-		defer close(monitorExited)
-		buf := make([]byte, 1)
-		// Use a short read deadline to periodically check if dial is done
-		for {
-			select {
-			case <-dialDone:
-				return
-			default:
-			}
-			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			_, err := conn.Read(buf)
-			// Check if dial completed while we were reading
-			select {
-			case <-dialDone:
-				return
-			default:
-			}
-			if err != nil {
-				// Check if it's a timeout (expected) or actual error (client closed)
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					continue // Just a timeout, keep monitoring
+
+	if useMonitor {
+		// Monitor client connection for early disconnect.
+		// After SOCKS5 handshake, client should not send data until we reply,
+		// so any read returning means the client closed the connection.
+		go func() {
+			defer close(monitorExited)
+			buf := make([]byte, 1)
+			// Use a short read deadline to periodically check if dial is done
+			for {
+				select {
+				case <-dialDone:
+					return
+				default:
 				}
-				// Client closed or error - cancel the dial
+				conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+				_, err := conn.Read(buf)
+				// Check if dial completed while we were reading
+				select {
+				case <-dialDone:
+					return
+				default:
+				}
+				if err != nil {
+					// Check if it's a timeout (expected) or actual error (client closed)
+					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+						continue // Just a timeout, keep monitoring
+					}
+					// Client closed or error - cancel the dial
+					cancel()
+					return
+				}
+				// Got unexpected data - protocol error, cancel
 				cancel()
 				return
 			}
-			// Got unexpected data - protocol error, cancel
-			cancel()
-			return
-		}
-	}()
+		}()
+	} else {
+		// No monitoring - just close the channel immediately
+		close(monitorExited)
+	}
 
 	// Connect to destination with context
 	target, err := h.dialer.DialContext(ctx, "tcp", targetAddr)
 	close(dialDone) // Signal monitor goroutine to stop
 
-	// Force interrupt any ongoing Read by setting a deadline in the past
-	conn.SetReadDeadline(time.Now().Add(-time.Second))
+	if useMonitor {
+		// Force interrupt any ongoing Read by setting a deadline in the past
+		conn.SetReadDeadline(time.Now().Add(-time.Second))
+	}
 
 	// Wait for monitor goroutine to fully exit before proceeding
 	// This prevents the race where monitor reads data meant for TLS handshake

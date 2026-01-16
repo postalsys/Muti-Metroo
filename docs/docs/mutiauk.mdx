@@ -62,6 +62,7 @@ flowchart LR
 | **TCP Support** | Full TCP connection forwarding |
 | **UDP Support** | UDP datagram forwarding via SOCKS5 UDP ASSOCIATE |
 | **ICMP Support** | Ping forwarding via Muti Metroo ICMP relay |
+| **WebSocket Transport** | Connect via WebSocket when TCP/SOCKS5 is blocked |
 | **Route-Based** | Only intercept traffic for configured destinations |
 | **Autoroutes** | Automatically fetch routes from Muti Metroo API |
 | **Route Persistence** | Save routes to config with `--persist` flag |
@@ -150,11 +151,13 @@ tun:
   address6: fd00:200::1/64  # Optional IPv6
 
 socks5:
-  server: 127.0.0.1:1080
+  server: 127.0.0.1:1080  # TCP address, or wss:// URL for WebSocket
   username: ""  # Optional auth
   password: ""
   timeout: 30s
   keepalive: 60s
+  transport: tcp  # "tcp" (default) or "websocket"
+  ws_path: /socks5  # WebSocket path (only for WebSocket transport)
 
 routes:
   - destination: 10.0.0.0/8
@@ -460,6 +463,57 @@ routes:
 ### Container/VM Traffic
 
 Route traffic from containers or VMs through the mesh by configuring their default gateway to the TUN interface.
+
+### WebSocket Transport (Firewall Bypass)
+
+When raw TCP/SOCKS5 traffic is blocked but HTTPS is permitted, use WebSocket transport to tunnel through:
+
+```yaml
+# /etc/mutiauk/config.yaml
+socks5:
+  # Option 1: Use wss:// URL (auto-detects WebSocket)
+  server: wss://relay.example.com:8443/socks5
+
+  # Option 2: Explicit transport setting
+  server: relay.example.com:8443
+  transport: websocket
+  ws_path: /socks5
+
+  # Authentication (if server requires it)
+  username: "user1"
+  password: "yourpassword"
+```
+
+This tunnels the SOCKS5 protocol over WebSocket, appearing as standard HTTPS traffic to network filters. The Muti Metroo server must have WebSocket SOCKS5 enabled:
+
+```yaml
+# Muti Metroo config
+socks5:
+  enabled: true
+  auth:
+    enabled: true
+    users:
+      - username: "user1"
+        password_hash: "$2a$10$..."
+  websocket:
+    enabled: true
+    address: "0.0.0.0:8443"
+    path: "/socks5"
+```
+
+#### Authentication
+
+When `socks5.auth.enabled` is true on the Muti Metroo server:
+
+1. **HTTP Basic Auth** is required for the WebSocket upgrade request
+2. **SOCKS5 Username/Password** authentication is required after connection
+
+Mutiauk handles both automatically using the same credentials:
+
+- The `username` and `password` from your config are sent as HTTP Basic Auth headers during the WebSocket handshake
+- The same credentials are then used for SOCKS5 authentication after the connection is established
+
+This dual-authentication provides defense in depth - the WebSocket endpoint is protected before any SOCKS5 traffic is accepted.
 
 ### Network Scanning with Nmap
 

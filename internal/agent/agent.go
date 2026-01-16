@@ -490,6 +490,28 @@ func (a *Agent) buildSOCKS5Auth() []socks5.Authenticator {
 	})
 }
 
+// buildSOCKS5CredentialStore builds a credential store from SOCKS5 auth config.
+// This is used for HTTP Basic Auth on the WebSocket SOCKS5 endpoint.
+func (a *Agent) buildSOCKS5CredentialStore() socks5.CredentialStore {
+	// Prefer hashed credentials if available
+	hashedUsers := make(map[string]string)
+	users := make(map[string]string)
+
+	for _, u := range a.cfg.SOCKS5.Auth.Users {
+		if u.PasswordHash != "" {
+			hashedUsers[u.Username] = u.PasswordHash
+		} else if u.Password != "" {
+			users[u.Username] = u.Password
+		}
+	}
+
+	// Return hashed credentials if available, otherwise plaintext
+	if len(hashedUsers) > 0 {
+		return socks5.HashedCredentials(hashedUsers)
+	}
+	return socks5.StaticCredentials(users)
+}
+
 // Start starts all agent components.
 func (a *Agent) Start() error {
 	if a.running.Load() {
@@ -537,6 +559,45 @@ func (a *Agent) Start() error {
 		}
 		a.logger.Info("SOCKS5 server started",
 			logging.KeyAddress, a.cfg.SOCKS5.Address)
+
+		// Start WebSocket SOCKS5 listener if enabled
+		if a.cfg.SOCKS5.WebSocket.Enabled {
+			wsCfg := socks5.WebSocketConfig{
+				Address:   a.cfg.SOCKS5.WebSocket.Address,
+				Path:      a.cfg.SOCKS5.WebSocket.Path,
+				PlainText: a.cfg.SOCKS5.WebSocket.PlainText,
+			}
+
+			// Use same credentials as SOCKS5 for HTTP Basic Auth if auth is enabled
+			if a.cfg.SOCKS5.Auth.Enabled {
+				wsCfg.Credentials = a.buildSOCKS5CredentialStore()
+			}
+
+			// Load TLS config unless plaintext mode
+			if !wsCfg.PlainText {
+				tlsConfig, err := a.loadListenerTLSConfig(nil, false)
+				if err != nil {
+					a.logger.Error("failed to load TLS config for WebSocket SOCKS5",
+						logging.KeyError, err)
+					a.running.Store(false)
+					return fmt.Errorf("load TLS config for WebSocket SOCKS5: %w", err)
+				}
+				wsCfg.TLSConfig = tlsConfig
+			}
+
+			if err := a.socks5Srv.StartWebSocket(wsCfg); err != nil {
+				a.logger.Error("failed to start WebSocket SOCKS5 listener",
+					logging.KeyAddress, a.cfg.SOCKS5.WebSocket.Address,
+					logging.KeyError, err)
+				a.running.Store(false)
+				return fmt.Errorf("start WebSocket SOCKS5: %w", err)
+			}
+			a.logger.Info("WebSocket SOCKS5 listener started",
+				logging.KeyAddress, a.cfg.SOCKS5.WebSocket.Address,
+				"path", a.cfg.SOCKS5.WebSocket.Path,
+				"plaintext", a.cfg.SOCKS5.WebSocket.PlainText,
+				"auth", a.cfg.SOCKS5.Auth.Enabled)
+		}
 
 		// Start UDP destination association cleanup loop
 		a.startUDPDestCleanupLoop()

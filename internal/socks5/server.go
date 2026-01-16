@@ -48,9 +48,10 @@ type Server struct {
 	handler  *Handler
 	listener net.Listener
 
-	mu          sync.Mutex
-	connections map[net.Conn]struct{}
-	connCount   atomic.Int64
+	// WebSocket listener (optional)
+	wsListener *WebSocketListener
+
+	tracker *connTracker[net.Conn]
 
 	running  atomic.Bool
 	stopOnce sync.Once
@@ -68,10 +69,10 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 
 	return &Server{
-		cfg:         cfg,
-		handler:     NewHandler(cfg.Authenticators, cfg.Dialer),
-		connections: make(map[net.Conn]struct{}),
-		stopCh:      make(chan struct{}),
+		cfg:     cfg,
+		handler: NewHandler(cfg.Authenticators, cfg.Dialer),
+		tracker: newConnTracker[net.Conn](),
+		stopCh:  make(chan struct{}),
 	}
 }
 
@@ -107,12 +108,13 @@ func (s *Server) Stop() error {
 			err = s.listener.Close()
 		}
 
-		// Close all active connections
-		s.mu.Lock()
-		for conn := range s.connections {
-			conn.Close()
+		// Stop WebSocket listener if running
+		if s.wsListener != nil {
+			s.wsListener.Stop()
 		}
-		s.mu.Unlock()
+
+		// Close all active connections
+		s.tracker.closeAll()
 	})
 
 	// Wait for all goroutines to finish
@@ -145,7 +147,7 @@ func (s *Server) Address() net.Addr {
 
 // ConnectionCount returns the number of active connections.
 func (s *Server) ConnectionCount() int64 {
-	return s.connCount.Load()
+	return s.tracker.count()
 }
 
 // IsRunning returns true if the server is running.
@@ -173,6 +175,50 @@ func (s *Server) SetICMPHandler(handler ICMPHandler) {
 	s.handler.SetICMPHandler(handler)
 }
 
+// StartWebSocket starts a WebSocket listener for SOCKS5 connections.
+// This allows SOCKS5 protocol to be tunneled over WebSocket transport.
+func (s *Server) StartWebSocket(cfg WebSocketConfig) error {
+	if s.wsListener != nil && s.wsListener.IsRunning() {
+		return fmt.Errorf("WebSocket listener already running")
+	}
+
+	listener, err := NewWebSocketListener(cfg, s.handler)
+	if err != nil {
+		return fmt.Errorf("create WebSocket listener: %w", err)
+	}
+
+	if err := listener.Start(); err != nil {
+		return fmt.Errorf("start WebSocket listener: %w", err)
+	}
+
+	s.wsListener = listener
+	return nil
+}
+
+// StopWebSocket stops the WebSocket listener if running.
+func (s *Server) StopWebSocket() error {
+	if s.wsListener == nil {
+		return nil
+	}
+	return s.wsListener.Stop()
+}
+
+// WebSocketAddress returns the WebSocket listener address, or empty if not running.
+func (s *Server) WebSocketAddress() string {
+	if s.wsListener == nil || !s.wsListener.IsRunning() {
+		return ""
+	}
+	return s.wsListener.Address()
+}
+
+// WebSocketConnectionCount returns the number of active WebSocket SOCKS5 connections.
+func (s *Server) WebSocketConnectionCount() int64 {
+	if s.wsListener == nil {
+		return 0
+	}
+	return s.wsListener.ConnectionCount()
+}
+
 // acceptLoop accepts new connections.
 func (s *Server) acceptLoop() {
 	defer s.wg.Done()
@@ -190,12 +236,12 @@ func (s *Server) acceptLoop() {
 		}
 
 		// Check connection limit
-		if s.cfg.MaxConnections > 0 && s.connCount.Load() >= int64(s.cfg.MaxConnections) {
+		if s.cfg.MaxConnections > 0 && s.tracker.count() >= int64(s.cfg.MaxConnections) {
 			conn.Close()
 			continue
 		}
 
-		s.trackConn(conn, true)
+		s.tracker.add(conn)
 		s.wg.Add(1)
 		go s.handleConn(conn)
 	}
@@ -204,7 +250,7 @@ func (s *Server) acceptLoop() {
 // handleConn handles a single connection.
 func (s *Server) handleConn(conn net.Conn) {
 	defer s.wg.Done()
-	defer s.trackConn(conn, false)
+	defer s.tracker.remove(conn)
 	defer conn.Close()
 
 	// Set timeouts
@@ -214,20 +260,6 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	// Handle the connection
 	s.handler.Handle(conn)
-}
-
-// trackConn tracks active connections.
-func (s *Server) trackConn(conn net.Conn, add bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if add {
-		s.connections[conn] = struct{}{}
-		s.connCount.Add(1)
-	} else {
-		delete(s.connections, conn)
-		s.connCount.Add(-1)
-	}
 }
 
 // WithAuthenticators returns a new server config with authenticators.

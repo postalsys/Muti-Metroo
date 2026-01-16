@@ -9,7 +9,7 @@ A userspace mesh networking agent that creates virtual TCP tunnels across hetero
 ## Features
 
 - **Multiple Transport Layers**: QUIC/TLS 1.3, HTTP/2, and WebSocket transports
-- **SOCKS5 Proxy Ingress**: Accept client connections with optional username/password authentication
+- **SOCKS5 Proxy Ingress**: Accept client connections with optional username/password authentication (TCP or WebSocket transport)
 - **Port Forwarding**: Reverse tunnel to expose local services through the mesh (ngrok-style)
 - **CIDR-Based Exit Routing**: Advertise routes and handle DNS resolution at exit nodes
 - **Multi-Hop Mesh Routing**: Flood-based route propagation with longest-prefix match
@@ -300,7 +300,14 @@ socks5:
     enabled: false
     users:
       - username: "user1"
-        password: "pass1"
+        password_hash: "$2a$10$..."  # bcrypt hash (use: muti-metroo hash)
+  # WebSocket transport (optional, for firewall bypass)
+  # When auth.enabled is true, WebSocket requires HTTP Basic Auth with same credentials
+  websocket:
+    enabled: false
+    address: "0.0.0.0:8443"
+    path: "/socks5"
+    plaintext: false  # true when behind reverse proxy
 ```
 
 ### Exit Node

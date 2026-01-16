@@ -1981,6 +1981,55 @@ internal/icmp/
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### 11.3 WebSocket Transport
+
+The SOCKS5 server can optionally accept connections over WebSocket transport, enabling tunneling through environments where raw TCP/SOCKS5 traffic is blocked but HTTPS/WebSocket is permitted.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SOCKS5 WEBSOCKET TRANSPORT                               │
+│                                                                             │
+│  TCP Transport (default):                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Client ──[TCP]──> 127.0.0.1:1080 ──> SOCKS5 Handler                 │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+│  WebSocket Transport (optional):                                            │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ Client ──[WebSocket]──> 0.0.0.0:8443/socks5 ──> SOCKS5 Handler      │    │
+│  │                                                                     │    │
+│  │ • Appears as HTTPS traffic to network filters                       │    │
+│  │ • TLS termination at listener (or plaintext behind reverse proxy)  │    │
+│  │ • Same SOCKS5 protocol, different transport                         │    │
+│  │ • Splash page at "/" for camouflage                                 │    │
+│  │ • HTTP Basic Auth when socks5.auth is enabled                       │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+│  Configuration:                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │ socks5:                                                             │    │
+│  │   websocket:                                                        │    │
+│  │     enabled: true                                                   │    │
+│  │     address: "0.0.0.0:8443"   # Listen address                      │    │
+│  │     path: "/socks5"           # WebSocket upgrade path              │    │
+│  │     plaintext: false          # TLS (true for reverse proxy)        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+The WebSocket listener wraps websocket.Conn to implement net.Conn, allowing the same SOCKS5 handler to serve both TCP and WebSocket clients. Binary WebSocket messages carry SOCKS5 protocol data unchanged.
+
+**Authentication Flow:**
+
+When `socks5.auth.enabled` is true, the WebSocket endpoint enforces two layers of authentication:
+
+1. **HTTP Basic Auth** - Validated before WebSocket upgrade. The WebSocket listener receives a `CredentialStore` from the agent and checks the `Authorization` header. Invalid or missing credentials return HTTP 401 Unauthorized.
+
+2. **SOCKS5 Username/Password** - Standard RFC 1929 authentication after the WebSocket connection is established. The same credential store is used by the SOCKS5 handler.
+
+Both use the same `socks5.auth.users` configuration. Compatible clients (like Mutiauk) automatically send credentials for both layers using the same username/password.
+
 ---
 
 ## 12. Data Plane
@@ -2179,6 +2228,14 @@ socks5:
 
   # Limits
   max_connections: 1000
+
+  # WebSocket transport (optional)
+  # Enables SOCKS5 over WebSocket for environments where raw TCP is blocked
+  websocket:
+    enabled: false
+    address: "0.0.0.0:8443"  # Listen address for WebSocket connections
+    path: "/socks5"          # WebSocket upgrade path
+    plaintext: false         # Set true when behind reverse proxy (nginx/Caddy)
 
 # ------------------------------------------------------------------------------
 # Exit Configuration
@@ -2811,6 +2868,8 @@ muti-metroo/
 │   │   ├── server.go               # SOCKS5 server
 │   │   ├── handler.go              # SOCKS5 command handler
 │   │   ├── auth.go                 # Authentication
+│   │   ├── ws_listener.go          # WebSocket SOCKS5 listener
+│   │   ├── conn_tracker.go         # Generic connection tracker
 │   │   └── socks5_test.go          # SOCKS5 tests
 │   │
 │   ├── exit/
