@@ -20,6 +20,8 @@ This guide shows you how to tunnel traffic through a remote network. You will co
 
 Here is what you are building:
 
+<div className="tunnel-diagram">
+
 ```mermaid
 flowchart LR
     C["Client<br/>(Browser)"]
@@ -31,6 +33,8 @@ flowchart LR
     A -->|"QUIC/TLS<br/>192.168.1.20:4433"| B
     B -->|TCP| I
 ```
+
+</div>
 
 - **Agent A** (your machine): Where you connect with curl, SSH, or browser
 - **Agent B** (remote network): Opens connections to destinations you want to reach

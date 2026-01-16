@@ -113,10 +113,10 @@ function QuickExample(): ReactNode {
         </div>
         <div className="row">
           <div className="col col--6">
-            <Heading as="h4">1. Initialize and Run</Heading>
+            <Heading as="h4">1. Setup and Run</Heading>
             <pre className={styles.codeBlock}>
-{`# Initialize agent
-./muti-metroo init -d ./data
+{`# Interactive setup wizard
+./muti-metroo setup
 
 # Run with config
 ./muti-metroo run -c config.yaml`}

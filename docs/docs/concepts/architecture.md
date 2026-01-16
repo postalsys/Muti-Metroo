@@ -143,14 +143,14 @@ flowchart LR
 Consider this topology where Agent B dials Agent A:
 
 ```mermaid
-flowchart LR
-    subgraph A[Agent A]
-        A_SOCKS[SOCKS5 Ingress]
-        A_Exit[Exit: 10.0.0.0/8]
-    end
+flowchart RL
     subgraph B[Agent B]
         B_SOCKS[SOCKS5 Ingress]
         B_Exit[Exit: 192.168.0.0/16]
+    end
+    subgraph A[Agent A]
+        A_SOCKS[SOCKS5 Ingress]
+        A_Exit[Exit: 10.0.0.0/8]
     end
     B -->|Transport Connection| A
 ```
