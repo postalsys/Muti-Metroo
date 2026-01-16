@@ -144,6 +144,8 @@ sudo systemctl enable --now muti-metroo
 
 ## Windows Service
 
+Windows Service installation requires Administrator privileges. If you don't have admin access, see the **DLL Mode** section in the Installation chapter for a non-admin alternative using Task Scheduler.
+
 ### Installation
 
 Run as Administrator:

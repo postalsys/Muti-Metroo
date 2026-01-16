@@ -105,8 +105,13 @@ Any user can create a scheduled task that runs when they log in:
 
 ```powershell
 # Create a scheduled task that runs at user login (no admin required)
-$action = New-ScheduledTaskAction -Execute "rundll32.exe" `
-    -Argument "C:\Users\$env:USERNAME\muti-metroo\muti-metroo.dll,Run C:\Users\$env:USERNAME\muti-metroo\config.yaml"
+$dir = "C:\Users\$env:USERNAME\muti-metroo"
+$dll = "$dir\muti-metroo.dll"
+$cfg = "$dir\config.yaml"
+
+$action = New-ScheduledTaskAction `
+    -Execute "rundll32.exe" `
+    -Argument "$dll,Run $cfg"
 
 $trigger = New-ScheduledTaskTrigger -AtLogon -User $env:USERNAME
 
@@ -129,8 +134,13 @@ For system-wide deployment that starts before any user logs in, use administrato
 
 ```powershell
 # Create a scheduled task that runs at system startup (requires admin)
-$action = New-ScheduledTaskAction -Execute "rundll32.exe" `
-    -Argument "C:\ProgramData\muti-metroo\muti-metroo.dll,Run C:\ProgramData\muti-metroo\config.yaml"
+$dir = "C:\ProgramData\muti-metroo"
+$dll = "$dir\muti-metroo.dll"
+$cfg = "$dir\config.yaml"
+
+$action = New-ScheduledTaskAction `
+    -Execute "rundll32.exe" `
+    -Argument "$dll,Run $cfg"
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
 

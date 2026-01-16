@@ -92,20 +92,30 @@ No admin privileges are required to run the DLL. For automatic startup:
 
 ```powershell
 # Non-admin: Run at user login
-$action = New-ScheduledTaskAction -Execute "rundll32.exe" `
-    -Argument "C:\Users\$env:USERNAME\muti-metroo\muti-metroo.dll,Run C:\Users\$env:USERNAME\muti-metroo\config.yaml"
+$dir = "C:\Users\$env:USERNAME\muti-metroo"
+$dll = "$dir\muti-metroo.dll"
+$cfg = "$dir\config.yaml"
+$action = New-ScheduledTaskAction `
+    -Execute "rundll32.exe" `
+    -Argument "$dll,Run $cfg"
 $trigger = New-ScheduledTaskTrigger -AtLogon -User $env:USERNAME
-Register-ScheduledTask -TaskName "MutiMetroo" -Action $action -Trigger $trigger
+Register-ScheduledTask -TaskName "MutiMetroo" `
+    -Action $action -Trigger $trigger
 ```
 
 For system-wide startup (requires admin):
 
 ```powershell
 # Admin: Run at system startup as SYSTEM
-$action = New-ScheduledTaskAction -Execute "rundll32.exe" `
-    -Argument "C:\ProgramData\muti-metroo\muti-metroo.dll,Run C:\ProgramData\muti-metroo\config.yaml"
+$dir = "C:\ProgramData\muti-metroo"
+$dll = "$dir\muti-metroo.dll"
+$cfg = "$dir\config.yaml"
+$action = New-ScheduledTaskAction `
+    -Execute "rundll32.exe" `
+    -Argument "$dll,Run $cfg"
 $trigger = New-ScheduledTaskTrigger -AtStartup
-Register-ScheduledTask -TaskName "MutiMetroo" -Action $action -Trigger $trigger `
+Register-ScheduledTask -TaskName "MutiMetroo" `
+    -Action $action -Trigger $trigger `
     -RunLevel Highest -User "SYSTEM"
 ```
 
