@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.10.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.9.1...muti-metroo-v2.10.0) (2026-01-16)
+
+
+### Features
+
+* **dll:** add UPX compression, disable config embedding for DLLs ([fb6e1f5](https://github.com/postalsys/Muti-Metroo/commit/fb6e1f5742b9c2e5b72fae1141de86b36a3548d3))
+
+
+### Bug Fixes
+
+* **wizard:** skip file creation when embedding config to target binary ([b2b8944](https://github.com/postalsys/Muti-Metroo/commit/b2b8944a0b18b818ffe88ecec959b0a7302c7cc2))
+
 ## [2.9.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.9.0...muti-metroo-v2.9.1) (2026-01-16)
 
 
