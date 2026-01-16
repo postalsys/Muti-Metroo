@@ -544,28 +544,23 @@ func TestWebSocketListener_SubprotocolValidation(t *testing.T) {
 func TestWebSocketListener_OnErrorCallback(t *testing.T) {
 	handler := NewHandler(nil, nil)
 
-	errorCh := make(chan error, 1)
-
-	// Create listener with invalid TLS config to trigger an error
 	l, err := NewWebSocketListener(WebSocketConfig{
 		Address:   "127.0.0.1:0",
 		PlainText: true,
 		OnError: func(err error) {
-			errorCh <- err
+			// Callback registered for serve errors
 		},
 	}, handler)
 	if err != nil {
 		t.Fatalf("create listener: %v", err)
 	}
 
-	// Start should succeed
 	if err := l.Start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer l.Stop()
 
-	// The OnError callback is only called for serve errors after starting,
-	// not for normal operation. Just verify the callback is set correctly.
+	// Verify the callback is set correctly
 	if l.cfg.OnError == nil {
 		t.Error("OnError callback should be set")
 	}

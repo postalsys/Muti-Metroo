@@ -229,12 +229,7 @@ func (l *WebSocketListener) handleWebSocket(w http.ResponseWriter, r *http.Reque
 	// Validate HTTP Basic Auth if credentials are configured
 	if l.cfg.Credentials != nil {
 		username, password, ok := r.BasicAuth()
-		if !ok {
-			w.Header().Set("WWW-Authenticate", `Basic realm="SOCKS5 Proxy"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if !l.cfg.Credentials.Valid(username, password) {
+		if !ok || !l.cfg.Credentials.Valid(username, password) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="SOCKS5 Proxy"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -302,11 +297,9 @@ func newWsConn(conn *websocket.Conn) *wsConn {
 // getContext returns a context for the current operation, respecting any deadline.
 func (c *wsConn) getContext() context.Context {
 	c.mu.RLock()
-	ctx := c.deadlineCtx
-	c.mu.RUnlock()
-
-	if ctx != nil {
-		return ctx
+	defer c.mu.RUnlock()
+	if c.deadlineCtx != nil {
+		return c.deadlineCtx
 	}
 	return c.baseCtx
 }
@@ -433,9 +426,11 @@ type wsTimeoutError struct {
 	err error
 }
 
-func (e *wsTimeoutError) Error() string   { return e.err.Error() }
-func (e *wsTimeoutError) Timeout() bool   { return true }
-func (e *wsTimeoutError) Temporary() bool { return true }
+func (e *wsTimeoutError) Error() string { return e.err.Error() }
+func (e *wsTimeoutError) Timeout() bool { return true }
+
+// Temporary is deprecated but required by net.Error interface.
+func (e *wsTimeoutError) Temporary() bool { return false }
 
 // translateError converts WebSocket-specific errors to standard net errors.
 func (c *wsConn) translateError(err error) error {
