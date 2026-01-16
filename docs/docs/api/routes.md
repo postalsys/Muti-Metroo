@@ -41,4 +41,9 @@ Trigger immediate advertisement after:
 - Adding new exit routes
 - Network topology changes
 
-Normally routes are advertised periodically based on `routing.advertise_interval` (default 2 minutes).
+Normally routes are advertised periodically based on [`routing.advertise_interval`](/configuration/routing) (default 2 minutes).
+
+## See Also
+
+- [CLI - Routes](/cli/routes) - View local route table
+- [Routing Configuration](/configuration/routing) - Configure route advertisement

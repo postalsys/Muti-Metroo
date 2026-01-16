@@ -2,6 +2,10 @@
 title: Shell WebSocket API
 ---
 
+<div style={{textAlign: 'center', marginBottom: '2rem'}}>
+  <img src="/img/mole-drilling.png" alt="Mole accessing shell" style={{maxWidth: '180px'}} />
+</div>
+
 # Shell WebSocket API
 
 Execute commands on remote agents through the mesh. The CLI handles this automatically - this reference is for building custom integrations.
@@ -165,3 +169,4 @@ For a complete implementation example, see the CLI source code in the project re
 
 - [Shell Feature](/features/shell) - Feature overview
 - [CLI - Shell](/cli/shell) - CLI reference
+- [Shell Configuration](/configuration/shell) - Enable and configure shell access

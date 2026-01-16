@@ -8,7 +8,7 @@ title: Health Endpoints
 
 # Health Endpoints
 
-Check if an agent is running and ready to handle traffic. Use these for load balancer health checks, Kubernetes probes, or monitoring scripts.
+Check if an agent is running and ready to handle traffic. Use these for load balancer health checks, container orchestration probes, or monitoring scripts.
 
 **Quick check:**
 ```bash
@@ -56,7 +56,7 @@ Returns 503 Service Unavailable if agent is not running.
 
 ## GET /ready
 
-Kubernetes readiness probe.
+Readiness probe for container orchestration.
 
 **Response:**
 ```
@@ -78,3 +78,9 @@ curl http://localhost:8080/healthz
 # Readiness
 curl http://localhost:8080/ready
 ```
+
+## See Also
+
+- [CLI - Status](/cli/status) - Check agent status from CLI
+- [HTTP Configuration](/configuration/http) - Configure HTTP endpoints
+- [Deployment Scenarios](/deployment/scenarios) - Using health checks in production

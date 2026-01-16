@@ -1,6 +1,5 @@
 ---
 title: Debugging (pprof)
-sidebar_position: 9
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>

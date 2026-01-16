@@ -95,6 +95,18 @@ Get peer list from specific agent.
 }
 ```
 
+## GET /agents/\{agent-id\}/shell
+
+WebSocket endpoint for remote shell access.
+
+See [Shell WebSocket API](/api/shell).
+
+## GET /agents/\{agent-id\}/icmp
+
+WebSocket endpoint for ICMP ping sessions.
+
+See [ICMP Ping WebSocket API](/api/icmp).
+
 ## POST /agents/\{agent-id\}/file/upload
 
 Upload file to remote agent.

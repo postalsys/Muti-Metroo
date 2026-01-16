@@ -132,6 +132,7 @@ const sidebars: SidebarsConfig = {
         'api/agents',
         'api/routes',
         'api/shell',
+        'api/icmp',
         'api/file-transfer',
         'api/dashboard',
         'api/debugging',
