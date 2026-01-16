@@ -170,6 +170,10 @@ Run as Administrator:
 muti-metroo.exe service install -c C:\ProgramData\muti-metroo\config.yaml
 ```
 
+:::tip Non-Admin Alternative
+Windows Service installation requires Administrator privileges. If you don't have admin access, use [DLL Mode](/deployment/dll-mode) with Task Scheduler instead - it provides similar background execution and can be configured to start at user login without requiring elevation.
+:::
+
 ### Service Management
 
 ```powershell
