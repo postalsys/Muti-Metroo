@@ -67,7 +67,7 @@ $(BUILD_DIR)/combined.md: mermaid
 		-e 's/!\[diagram\](\.\/08-transports-1/![Mixed transport mesh topology](\.\/08-transports-1/g' \
 		-e 's/!\[diagram\](\.\/10-tun-interface-1/![TUN interface traffic flow](\.\/10-tun-interface-1/g' \
 		-e 's/!\[diagram\](\.\/10-tun-interface-2/![Multi-site network topology](\.\/10-tun-interface-2/g' \
-		-e 's/!\[diagram\](\.\/15-port-forwarding-1/![SOCKS5 vs port forwarding traffic direction](\.\/15-port-forwarding-1/g' \
+		-e 's/!\[diagram\](\.\/16-port-forwarding-1/![SOCKS5 vs port forwarding traffic direction](\.\/16-port-forwarding-1/g' \
 		$@ && rm -f $@.bak
 	@# Copy diagram files to build dir so pandoc can find them
 	@for ext in png pdf svg; do \
