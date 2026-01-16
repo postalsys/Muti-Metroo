@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.9.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.8.0...muti-metroo-v2.9.0) (2026-01-16)
+
+
+### Features
+
+* add Windows DLL build for rundll32.exe execution ([996a6bf](https://github.com/postalsys/Muti-Metroo/commit/996a6bf088fdc2821a4eaa437629a115048ae51a))
+
+
+### Bug Fixes
+
+* **user-manual:** update port forwarding diagram reference ([7f229ab](https://github.com/postalsys/Muti-Metroo/commit/7f229ab1520d9ee040cdfc0531dcb87bc41d0e85))
+
 ## [2.8.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.7.0...muti-metroo-v2.8.0) (2026-01-16)
 
 
