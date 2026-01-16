@@ -188,19 +188,50 @@ func (w *Wizard) Run() (*Result, error) {
 		healthEnabled, logLevel, shellConfig, fileTransferConfig, managementConfig,
 	)
 
-	// Initialize identity
-	agentID, _, err := identity.LoadOrCreate(dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize agent identity: %w", err)
-	}
+	// Initialize identity - when embedding to target binary, don't create files
+	var agentID identity.AgentID
+	var keypair *identity.Keypair
 
-	// Initialize E2E encryption keypair
-	keypair, created, err := identity.LoadOrCreateKeypair(dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize E2E encryption keypair: %w", err)
-	}
-	if created {
-		fmt.Println("\n[OK] Generated new E2E encryption keypair")
+	if w.targetBinaryPath != "" {
+		// Embedding to target binary - try to preserve existing identity or generate in-memory
+		if w.existingCfg != nil && w.existingCfg.Agent.ID != "" && w.existingCfg.Agent.PrivateKey != "" {
+			// Use existing identity from embedded config
+			agentID, err = identity.ParseAgentID(w.existingCfg.Agent.ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse existing agent ID: %w", err)
+			}
+			keypair, err = identity.KeypairFromConfig(w.existingCfg.Agent.PrivateKey, "")
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse existing keypair: %w", err)
+			}
+			fmt.Println("\n[OK] Preserving existing identity from embedded config")
+		} else {
+			// Generate new identity in-memory (no files created)
+			agentID, err = identity.NewAgentID()
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate agent identity: %w", err)
+			}
+			keypair, err = identity.NewKeypair()
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate E2E encryption keypair: %w", err)
+			}
+			fmt.Println("\n[OK] Generated new identity (in-memory, no files created)")
+		}
+	} else {
+		// Traditional mode - use file-based identity
+		agentID, _, err = identity.LoadOrCreate(dataDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize agent identity: %w", err)
+		}
+
+		var created bool
+		keypair, created, err = identity.LoadOrCreateKeypair(dataDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize E2E encryption keypair: %w", err)
+		}
+		if created {
+			fmt.Println("\n[OK] Generated new E2E encryption keypair")
+		}
 	}
 
 	// If embedding config, always embed identity for true single-file deployment
@@ -226,18 +257,19 @@ func (w *Wizard) Run() (*Result, error) {
 			if err != nil {
 				return nil, err
 			}
+			// No backup config file when embedding to target binary
 		} else {
 			// Create new binary with embedded config
 			embeddedBinary, err = w.embedConfigToBinary(cfg, serviceName)
 			if err != nil {
 				return nil, err
 			}
-		}
-		// Also write config file for reference/backup
-		if err := w.writeConfig(cfg, configPath); err != nil {
-			prompt.PrintWarning(fmt.Sprintf("Could not save backup config file: %v", err))
-		} else {
-			fmt.Printf("Backup config saved to: %s\n", configPath)
+			// Also write config file for reference/backup
+			if err := w.writeConfig(cfg, configPath); err != nil {
+				prompt.PrintWarning(fmt.Sprintf("Could not save backup config file: %v", err))
+			} else {
+				fmt.Printf("Backup config saved to: %s\n", configPath)
+			}
 		}
 	} else {
 		// Write configuration file (traditional mode)
@@ -284,6 +316,20 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 	dataDir = "./data"
 	configPath = "./config.yaml"
 	displayName = ""
+
+	// When embedding to a target binary, skip config path and data dir questions
+	// Config will be embedded, and identity will be generated in-memory
+	if w.targetBinaryPath != "" {
+		prompt.PrintHeader("Basic Setup", "Configure the agent display name.")
+
+		// Use existing config defaults if available (from embedded config)
+		if w.existingCfg != nil {
+			displayName = w.existingCfg.Agent.DisplayName
+		}
+
+		displayName, err = prompt.ReadLine("Display Name (press Enter to use Agent ID)", displayName)
+		return
+	}
 
 	prompt.PrintHeader("Basic Setup", "Configure the essential paths for your agent.")
 
@@ -1770,8 +1816,12 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 		fmt.Printf("  Agent ID:       %s\n", agentID.String())
 	}
 	fmt.Printf("  E2E Public Key: %s\n", keypair.PublicKeyString())
-	fmt.Printf("  Config file:    %s\n", configPath)
-	fmt.Printf("  Data dir:       %s\n", cfg.Agent.DataDir)
+
+	// When embedding to target binary, don't show config/data paths (they're embedded)
+	if w.targetBinaryPath == "" {
+		fmt.Printf("  Config file:    %s\n", configPath)
+		fmt.Printf("  Data dir:       %s\n", cfg.Agent.DataDir)
+	}
 	fmt.Println()
 
 	if len(cfg.Listeners) > 0 {
@@ -1818,8 +1868,21 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 	}
 
 	fmt.Println()
-	fmt.Println("  To start the agent:")
-	fmt.Printf("    muti-metroo run -c %s\n", configPath)
+
+	// Show appropriate start instructions based on deployment type
+	if w.targetBinaryPath != "" {
+		// DLL or binary with embedded config
+		if strings.HasSuffix(strings.ToLower(w.targetBinaryPath), ".dll") {
+			fmt.Println("  To start the agent:")
+			fmt.Printf("    rundll32.exe %s,Run\n", w.targetBinaryPath)
+		} else {
+			fmt.Println("  To start the agent:")
+			fmt.Printf("    %s\n", w.targetBinaryPath)
+		}
+	} else {
+		fmt.Println("  To start the agent:")
+		fmt.Printf("    muti-metroo run -c %s\n", configPath)
+	}
 	fmt.Println()
 }
 

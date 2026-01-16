@@ -123,8 +123,12 @@ muti-metroo setup -c /path/to/embedded-binary
 The wizard will:
 1. Detect and extract the embedded configuration
 2. Use existing values as defaults
-3. Guide you through changes
-4. Write the updated configuration back to the binary
+3. Skip questions about config file path and data directory (not needed for embedded binaries)
+4. Preserve the existing agent identity (Agent ID and X25519 keypair)
+5. Guide you through changes
+6. Write the updated configuration directly back to the binary
+
+No backup config file or data folder is created when editing an existing embedded binary - the config goes directly into the target binary.
 
 ### Example: Updating a Deployed Agent
 
@@ -226,7 +230,7 @@ For distributing pre-configured agents:
 
 ## Backup Configuration
 
-When embedding, the wizard also saves a backup config file:
+When creating a **new** embedded binary via `muti-metroo setup`, the wizard also saves a backup config file:
 
 ```
 Backup config saved to: ./config.yaml
@@ -236,6 +240,8 @@ Keep this backup for:
 - Documentation of the configuration
 - Recovery if the binary is lost
 - Reference when editing embedded config
+
+**Note**: When editing an existing embedded binary via `muti-metroo setup -c /path/to/binary`, no backup file is created - changes go directly into the binary.
 
 ## Security Considerations
 

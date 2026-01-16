@@ -72,7 +72,7 @@ For true single-file deployment, embed the configuration into the DLL using the 
 muti-metroo.exe setup -c C:\path\to\muti-metroo.dll
 ```
 
-When prompted for "Configuration Delivery", choose **"Embed in binary"**.
+The wizard will automatically embed the configuration into the DLL - no separate config file is needed.
 
 After embedding, run without specifying a config file:
 
