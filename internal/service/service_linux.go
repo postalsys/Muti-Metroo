@@ -162,6 +162,12 @@ func generateSystemdUnit(cfg ServiceConfig, execPath string, embedded bool) stri
 		execStart = execPath + " run"
 	}
 
+	// Build ReadWritePaths: always include WorkingDir, optionally include DataDir
+	readWritePaths := cfg.WorkingDir
+	if cfg.DataDir != "" && cfg.DataDir != cfg.WorkingDir {
+		readWritePaths = cfg.WorkingDir + " " + cfg.DataDir
+	}
+
 	return fmt.Sprintf(`[Unit]
 Description=%s
 Documentation=https://github.com/postalsys/muti-metroo
@@ -190,7 +196,7 @@ SyslogIdentifier=%s
 
 [Install]
 WantedBy=multi-user.target
-`, cfg.Description, execStart, cfg.WorkingDir, user, group, cfg.WorkingDir, cfg.Name)
+`, cfg.Description, execStart, cfg.WorkingDir, user, group, readWritePaths, cfg.Name)
 }
 
 // installImplEmbedded installs systemd service for embedded config binary.

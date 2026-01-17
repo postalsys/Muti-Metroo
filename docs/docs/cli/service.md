@@ -188,8 +188,8 @@ sudo launchctl stop com.muti-metroo
 # Start service
 sudo launchctl start com.muti-metroo
 
-# View logs
-tail -f /var/log/muti-metroo.out.log
+# View logs (in the config file's directory)
+tail -f /etc/muti-metroo/muti-metroo.log
 ```
 
 ## Windows Management (Windows Service)

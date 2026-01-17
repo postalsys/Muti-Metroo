@@ -37,6 +37,9 @@ type ServiceConfig struct {
 	// WorkingDir is the working directory for the service
 	WorkingDir string
 
+	// DataDir is the data directory that needs write access (Linux systemd only)
+	DataDir string
+
 	// User is the user to run the service as (Linux only, empty for root)
 	User string
 

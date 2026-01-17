@@ -921,8 +921,17 @@ user-level service that starts at logon.`,
 			}
 
 			// Create service config
-			cfg := service.DefaultConfig(absPath)
-			cfg.Name = serviceName
+			svcCfg := service.DefaultConfig(absPath)
+			svcCfg.Name = serviceName
+
+			// Load config file to extract data_dir for systemd ReadWritePaths
+			if runtime.GOOS == "linux" {
+				appCfg, _, err := config.LoadOrEmbedded(absPath)
+				if err == nil && appCfg.Agent.DataDir != "" {
+					dataDir, _ := filepath.Abs(appCfg.Agent.DataDir)
+					svcCfg.DataDir = dataDir
+				}
+			}
 
 			// System service installation requires root
 			if !service.IsRoot() {
@@ -946,7 +955,7 @@ user-level service that starts at logon.`,
 			fmt.Printf("  Config: %s\n", absPath)
 			fmt.Printf("  Platform: %s\n", service.Platform())
 
-			if err := service.Install(cfg); err != nil {
+			if err := service.Install(svcCfg); err != nil {
 				return fmt.Errorf("failed to install service: %w", err)
 			}
 
@@ -961,7 +970,7 @@ user-level service that starts at logon.`,
 			case "darwin":
 				fmt.Println("\nManage the service with:")
 				fmt.Println("  sudo launchctl list com.muti-metroo")
-				fmt.Printf("  tail -f %s/%s.log\n", cfg.WorkingDir, serviceName)
+				fmt.Printf("  tail -f %s/%s.log\n", svcCfg.WorkingDir, serviceName)
 			case "windows":
 				fmt.Println("\nManage the service with:")
 				fmt.Println("  sc query muti-metroo")
