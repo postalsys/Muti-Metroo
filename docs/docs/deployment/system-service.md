@@ -70,29 +70,38 @@ The installer creates:
 ```ini
 # /etc/systemd/system/muti-metroo.service
 [Unit]
-Description=Muti Metroo Mesh Networking Agent
+Description=Userspace mesh networking agent for virtual TCP tunnels
+Documentation=https://github.com/postalsys/muti-metroo
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=muti-metroo
-Group=muti-metroo
 ExecStart=/usr/local/bin/muti-metroo run -c /etc/muti-metroo/config.yaml
+WorkingDirectory=/etc/muti-metroo
 Restart=on-failure
 RestartSec=5
-LimitNOFILE=65536
+TimeoutStopSec=30
 
 # Security hardening
-NoNewPrivileges=yes
+NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=/var/lib/muti-metroo
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/etc/muti-metroo /var/lib/muti-metroo
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=muti-metroo
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+:::note
+The `ReadWritePaths` directive includes both the config directory and the data directory specified in your config file. This allows the service to write to the data directory while maintaining strict filesystem protection.
+:::
 
 ### Custom Installation
 
@@ -358,9 +367,9 @@ sudo launchctl stop com.muti-metroo
 # Start service
 sudo launchctl start com.muti-metroo
 
-# View logs
-tail -f /var/log/muti-metroo.out.log
-tail -f /var/log/muti-metroo.err.log
+# View logs (in the config file's directory)
+tail -f /etc/muti-metroo/muti-metroo.log
+tail -f /etc/muti-metroo/muti-metroo.err.log
 ```
 
 ### Uninstall
@@ -386,6 +395,7 @@ The installer creates:
 <dict>
     <key>Label</key>
     <string>com.muti-metroo</string>
+
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/muti-metroo</string>
@@ -393,21 +403,37 @@ The installer creates:
         <string>-c</string>
         <string>/etc/muti-metroo/config.yaml</string>
     </array>
+
     <key>WorkingDirectory</key>
     <string>/etc/muti-metroo</string>
+
     <key>RunAtLoad</key>
     <true/>
+
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
     <key>ThrottleInterval</key>
     <integer>5</integer>
+
     <key>StandardOutPath</key>
-    <string>/var/log/muti-metroo.out.log</string>
+    <string>/etc/muti-metroo/muti-metroo.log</string>
+
     <key>StandardErrorPath</key>
-    <string>/var/log/muti-metroo.err.log</string>
+    <string>/etc/muti-metroo/muti-metroo.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
 </dict>
 </plist>
 ```
+
+:::note
+Log files are created in the config file's directory (WorkingDirectory). The `KeepAlive` with `SuccessfulExit=false` ensures the service restarts only if it exits with an error, not on clean shutdown.
+:::
 
 ### Custom Installation
 
