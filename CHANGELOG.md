@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.2](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.1...muti-metroo-v2.11.2) (2026-01-17)
+
+
+### Bug Fixes
+
+* **service:** fix Windows user service rundll32 argument passing ([8039cae](https://github.com/postalsys/Muti-Metroo/commit/8039cae9db49f59ecc8e43d0c153f5bbe6fd265a))
+
 ## [2.11.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.0...muti-metroo-v2.11.1) (2026-01-17)
 
 
