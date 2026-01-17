@@ -93,3 +93,8 @@ func isUserInstalledImpl() bool {
 func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
 	return fmt.Errorf("DLL-based user service is only supported on Windows")
 }
+
+// getUserServiceInfoImpl returns nil on unsupported platforms.
+func getUserServiceInfoImpl() *UserServiceInfo {
+	return nil
+}

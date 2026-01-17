@@ -431,6 +431,36 @@ func isUserInstalledImpl() bool {
 	return strings.Contains(string(output), cronMarker)
 }
 
+// getUserServiceInfoImpl returns information about the Linux user service.
+func getUserServiceInfoImpl() *UserServiceInfo {
+	serviceDir, err := getCronServiceDir()
+	if err != nil {
+		return nil
+	}
+
+	// Read config path from the cron script
+	scriptPath := filepath.Join(serviceDir, cronScriptName)
+	scriptData, err := os.ReadFile(scriptPath)
+	if err != nil {
+		return nil
+	}
+
+	// Parse CONFIG= line from script
+	var configPath string
+	for _, line := range strings.Split(string(scriptData), "\n") {
+		if strings.HasPrefix(line, "CONFIG=") {
+			configPath = strings.Trim(strings.TrimPrefix(line, "CONFIG="), "\"")
+			break
+		}
+	}
+
+	return &UserServiceInfo{
+		Name:       "muti-metroo",
+		ConfigPath: configPath,
+		LogPath:    filepath.Join(serviceDir, cronLogFileName),
+	}
+}
+
 // generateCronScript generates the wrapper script for nohup execution.
 func generateCronScript(configPath, binaryPath, serviceDir string) string {
 	return fmt.Sprintf(`#!/bin/bash

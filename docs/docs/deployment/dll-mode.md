@@ -111,18 +111,28 @@ This creates a Registry Run entry at `HKCU\Software\Microsoft\Windows\CurrentVer
 **Management commands:**
 
 ```powershell
-# Check status
+# Check status (shows DLL and config paths)
 muti-metroo service status
 
 # Uninstall
 muti-metroo service uninstall
 
-# View registry entry
+# View registry entry (default name)
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v MutiMetroo
+
+# View registry entry (custom name, e.g., -n "My Tunnel" becomes "MyTunnel")
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v MyTunnel
 
 # Stop manually (if needed)
 taskkill /F /IM rundll32.exe
 ```
+
+:::tip Registry Value Names
+The `-n` flag sets the service name, which is converted to PascalCase for the registry value:
+- `muti-metroo` (default) becomes `MutiMetroo`
+- `my-tunnel` becomes `MyTunnel`
+- `My Tunnel` becomes `MyTunnel`
+:::
 
 :::note
 To restart the service, uninstall and reinstall it, or log out and log back in.

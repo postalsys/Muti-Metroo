@@ -725,3 +725,16 @@ func isUserInstalledImpl() bool {
 	_, _, err = key.GetStringValue(info.RegistryValue)
 	return err == nil
 }
+
+// getUserServiceInfoImpl returns information about the Windows user service.
+func getUserServiceInfoImpl() *UserServiceInfo {
+	info := readUserServiceInfo()
+	if info == nil {
+		return nil
+	}
+	return &UserServiceInfo{
+		Name:       info.Name,
+		DLLPath:    info.DLLPath,
+		ConfigPath: info.ConfigPath,
+	}
+}

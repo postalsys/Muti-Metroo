@@ -1102,9 +1102,26 @@ func serviceStatusCmd() *cobra.Command {
 				switch runtime.GOOS {
 				case "linux":
 					fmt.Printf("Type: cron+nohup\n")
-					fmt.Printf("Log: ~/.muti-metroo/muti-metroo.log\n")
+					if info := service.GetUserServiceInfo(); info != nil {
+						if info.ConfigPath != "" {
+							fmt.Printf("Config: %s\n", info.ConfigPath)
+						}
+						if info.LogPath != "" {
+							fmt.Printf("Log: %s\n", info.LogPath)
+						}
+					} else {
+						fmt.Printf("Log: ~/.muti-metroo/muti-metroo.log\n")
+					}
 				case "windows":
 					fmt.Printf("Type: Registry Run key\n")
+					if info := service.GetUserServiceInfo(); info != nil {
+						if info.DLLPath != "" {
+							fmt.Printf("DLL: %s\n", info.DLLPath)
+						}
+						if info.ConfigPath != "" {
+							fmt.Printf("Config: %s\n", info.ConfigPath)
+						}
+					}
 				}
 
 				return nil

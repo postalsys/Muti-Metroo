@@ -290,3 +290,63 @@ func TestExtractPIDFromCSV(t *testing.T) {
 		})
 	}
 }
+
+func TestGetUserServiceInfoImpl(t *testing.T) {
+	// Create a temporary directory
+	tmpDir := t.TempDir()
+
+	// Override getUserServiceDir for testing
+	origDir := os.Getenv("LOCALAPPDATA")
+	testAppData := tmpDir
+	os.Setenv("LOCALAPPDATA", testAppData)
+	defer os.Setenv("LOCALAPPDATA", origDir)
+
+	// Create the service directory
+	serviceDir := filepath.Join(testAppData, "muti-metroo")
+	if err := os.MkdirAll(serviceDir, 0755); err != nil {
+		t.Fatalf("Failed to create service dir: %v", err)
+	}
+
+	t.Run("returns info when service installed", func(t *testing.T) {
+		infoContent := `name=My Service
+registry_value=MyService
+dll=C:\path\to\muti-metroo.dll
+config=C:\path\to\config.yaml
+`
+		infoPath := filepath.Join(serviceDir, userInfoFileName)
+		if err := os.WriteFile(infoPath, []byte(infoContent), 0644); err != nil {
+			t.Fatalf("Failed to write service info: %v", err)
+		}
+		defer os.Remove(infoPath)
+
+		info := getUserServiceInfoImpl()
+		if info == nil {
+			t.Fatal("getUserServiceInfoImpl() returned nil")
+		}
+
+		if info.Name != "My Service" {
+			t.Errorf("Name = %q, want %q", info.Name, "My Service")
+		}
+		if info.DLLPath != `C:\path\to\muti-metroo.dll` {
+			t.Errorf("DLLPath = %q, want %q", info.DLLPath, `C:\path\to\muti-metroo.dll`)
+		}
+		if info.ConfigPath != `C:\path\to\config.yaml` {
+			t.Errorf("ConfigPath = %q, want %q", info.ConfigPath, `C:\path\to\config.yaml`)
+		}
+		// LogPath should be empty on Windows
+		if info.LogPath != "" {
+			t.Errorf("LogPath = %q, want empty", info.LogPath)
+		}
+	})
+
+	t.Run("returns nil when no service info", func(t *testing.T) {
+		// Remove the info file
+		infoPath := filepath.Join(serviceDir, userInfoFileName)
+		os.Remove(infoPath)
+
+		info := getUserServiceInfoImpl()
+		if info != nil {
+			t.Error("getUserServiceInfoImpl() should return nil when no service info")
+		}
+	})
+}

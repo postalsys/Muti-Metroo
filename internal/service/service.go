@@ -316,3 +316,23 @@ func IsInteractive() bool {
 func RunAsService(name string, runner ServiceRunner) error {
 	return runAsServiceImpl(name, runner)
 }
+
+// UserServiceInfo contains information about a user-level service installation.
+type UserServiceInfo struct {
+	Name       string // Service display name
+	DLLPath    string // Path to the DLL (Windows only)
+	ConfigPath string // Path to the config file
+	LogPath    string // Path to the log file (Linux only)
+}
+
+// GetUserServiceInfo returns information about the installed user-level service.
+// Returns nil if no user service is installed.
+func GetUserServiceInfo() *UserServiceInfo {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		return nil
+	}
+	if !IsUserInstalled() {
+		return nil
+	}
+	return getUserServiceInfoImpl()
+}

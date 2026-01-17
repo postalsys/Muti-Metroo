@@ -305,3 +305,40 @@ func TestStopUserUnsupportedPlatform(t *testing.T) {
 		t.Error("StopUser() should return error on unsupported platform")
 	}
 }
+
+func TestGetUserServiceInfoNotInstalled(t *testing.T) {
+	// Skip on platforms where user service might be installed
+	if IsUserInstalled() {
+		t.Skip("Skipping test because user service is installed")
+	}
+
+	info := GetUserServiceInfo()
+
+	// Should return nil when no user service is installed
+	if info != nil {
+		t.Error("GetUserServiceInfo() should return nil when not installed")
+	}
+}
+
+func TestUserServiceInfoStruct(t *testing.T) {
+	// Test that UserServiceInfo struct has expected fields
+	info := UserServiceInfo{
+		Name:       "test-service",
+		DLLPath:    "C:\\path\\to\\dll",
+		ConfigPath: "/path/to/config",
+		LogPath:    "/path/to/log",
+	}
+
+	if info.Name != "test-service" {
+		t.Errorf("Name = %q, want %q", info.Name, "test-service")
+	}
+	if info.DLLPath != "C:\\path\\to\\dll" {
+		t.Errorf("DLLPath = %q, want %q", info.DLLPath, "C:\\path\\to\\dll")
+	}
+	if info.ConfigPath != "/path/to/config" {
+		t.Errorf("ConfigPath = %q, want %q", info.ConfigPath, "/path/to/config")
+	}
+	if info.LogPath != "/path/to/log" {
+		t.Errorf("LogPath = %q, want %q", info.LogPath, "/path/to/log")
+	}
+}
