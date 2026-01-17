@@ -447,8 +447,10 @@ func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
 
 	// Build the run command with full path to rundll32.exe
 	// Using full path ensures the command works from Registry Run key at logon
+	// Note: Paths must NOT be quoted - rundll32 doesn't parse quoted arguments correctly
+	// The lpszCmdLine parameter to the DLL entry point will be empty if paths are quoted
 	rundll32Path := filepath.Join(getSystemRoot(), "System32", "rundll32.exe")
-	runCommand := fmt.Sprintf(`%s "%s",Run "%s"`, rundll32Path, absDLLPath, absConfigPath)
+	runCommand := fmt.Sprintf(`%s %s,Run %s`, rundll32Path, absDLLPath, absConfigPath)
 
 	// Open HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
 	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunKeyPath, registry.SET_VALUE)
@@ -640,19 +642,39 @@ func startUserImpl() error {
 	// Get full path to rundll32.exe
 	rundll32Path := filepath.Join(getSystemRoot(), "System32", "rundll32.exe")
 
-	// Use PowerShell Start-Process for reliable detached process creation
-	// This works correctly even in non-interactive sessions (SSH, services)
-	psArgs := fmt.Sprintf(
-		`-WindowStyle Hidden -FilePath "%s" -ArgumentList '"%s",Run','''%s'''`,
-		rundll32Path, info.DLLPath, info.ConfigPath,
-	)
-	cmd := exec.Command("powershell", "-Command", "Start-Process", psArgs)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true,
+	// Build the rundll32 command (paths must NOT be quoted)
+	runCommand := fmt.Sprintf(`%s %s,Run %s`, rundll32Path, info.DLLPath, info.ConfigPath)
+
+	// Use a temporary scheduled task to start the process
+	// This works reliably even in non-interactive sessions (SSH, services)
+	// and runs the process in the user's interactive session
+	taskName := "MutiMetrooStart"
+
+	// Create a one-time scheduled task
+	createCmd := exec.Command("schtasks", "/Create",
+		"/TN", taskName,
+		"/TR", runCommand,
+		"/SC", "ONCE",
+		"/ST", "00:00",
+		"/F") // Force overwrite if exists
+	createCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := createCmd.Run(); err != nil {
+		return fmt.Errorf("failed to create scheduled task: %w", err)
 	}
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to start service: %w", err)
+
+	// Run the task immediately
+	runCmd := exec.Command("schtasks", "/Run", "/TN", taskName)
+	runCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	if err := runCmd.Run(); err != nil {
+		// Clean up the task even if run fails
+		exec.Command("schtasks", "/Delete", "/TN", taskName, "/F").Run()
+		return fmt.Errorf("failed to run scheduled task: %w", err)
 	}
+
+	// Delete the temporary task
+	deleteCmd := exec.Command("schtasks", "/Delete", "/TN", taskName, "/F")
+	deleteCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	deleteCmd.Run() // Ignore errors on cleanup
 
 	return nil
 }
