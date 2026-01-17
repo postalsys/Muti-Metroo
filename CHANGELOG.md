@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.3](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.2...muti-metroo-v2.11.3) (2026-01-17)
+
+
+### Bug Fixes
+
+* **service:** include data directory in systemd ReadWritePaths ([f422284](https://github.com/postalsys/Muti-Metroo/commit/f422284c5d725961c083c0915538befcfe2aa205))
+
 ## [2.11.2](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.1...muti-metroo-v2.11.2) (2026-01-17)
 
 
