@@ -35,7 +35,7 @@ const getModuleHandleExFlagFromAddress = 0x00000004
 
 // Windows API functions (lazy-loaded)
 var (
-	kernel32           = syscall.NewLazyDLL("kernel32.dll")
+	kernel32              = syscall.NewLazyDLL("kernel32.dll")
 	procGetModuleHandleEx = kernel32.NewProc("GetModuleHandleExW")
 	procGetModuleFileName = kernel32.NewProc("GetModuleFileNameW")
 )

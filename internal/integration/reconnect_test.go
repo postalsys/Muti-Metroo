@@ -75,7 +75,7 @@ func TestPeerReconnection(t *testing.T) {
 			ID:        "auto",
 			Transport: "quic",
 			Address:   addrB,
-			TLS: config.TLSConfig{},
+			TLS:       config.TLSConfig{},
 		},
 	}
 
@@ -171,7 +171,7 @@ func TestPeerReconnection_MaxRetries(t *testing.T) {
 			ID:        "auto",
 			Transport: "quic",
 			Address:   "127.0.0.1:39999", // Non-existent
-			TLS: config.TLSConfig{},
+			TLS:       config.TLSConfig{},
 		},
 	}
 
@@ -254,7 +254,7 @@ func TestPeerReconnection_RouteWithdrawal(t *testing.T) {
 			ID:        "auto",
 			Transport: "quic",
 			Address:   addrB,
-			TLS: config.TLSConfig{},
+			TLS:       config.TLSConfig{},
 		},
 	}
 
@@ -360,7 +360,7 @@ func TestPeerReconnection_MultiHop(t *testing.T) {
 					ID:        "auto",
 					Transport: "quic",
 					Address:   addrs[i+1],
-					TLS: config.TLSConfig{},
+					TLS:       config.TLSConfig{},
 				},
 			}
 		}

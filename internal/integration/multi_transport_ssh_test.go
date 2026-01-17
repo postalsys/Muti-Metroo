@@ -111,7 +111,7 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				ID:        "auto",
 				Transport: "quic",
 				Address:   c.Addresses[1],
-				TLS: config.TLSConfig{},
+				TLS:       config.TLSConfig{},
 			},
 		}
 		cfg.SOCKS5.Enabled = true
@@ -134,7 +134,7 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				Transport: "h2",
 				Address:   c.Addresses[2],
 				Path:      "/mesh",
-				TLS: config.TLSConfig{},
+				TLS:       config.TLSConfig{},
 			},
 		}
 
@@ -156,7 +156,7 @@ func (c *MultiTransportChain) buildConfig(i int, exitRoutes []string) *config.Co
 				Transport: "ws",
 				Address:   c.Addresses[3],
 				Path:      "/mesh",
-				TLS: config.TLSConfig{},
+				TLS:       config.TLSConfig{},
 			},
 		}
 		// Agent C has 0.0.0.0/0 route (catch-all)

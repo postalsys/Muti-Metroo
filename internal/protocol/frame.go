@@ -1000,14 +1000,14 @@ type ForwardListenerInfo struct {
 
 // NodeInfo contains metadata about an agent in the mesh.
 type NodeInfo struct {
-	DisplayName string                 // Human-readable name (from config)
-	Hostname    string                 // System hostname
-	OS          string                 // Operating system (runtime.GOOS)
-	Arch        string                 // Architecture (runtime.GOARCH)
-	Version     string                 // Agent version
-	StartTime   int64                  // Agent start time (Unix timestamp)
-	IPAddresses []string               // Local IP addresses (non-loopback)
-	Peers       []PeerConnectionInfo   // Connected peers (max 50)
+	DisplayName      string                 // Human-readable name (from config)
+	Hostname         string                 // System hostname
+	OS               string                 // Operating system (runtime.GOOS)
+	Arch             string                 // Architecture (runtime.GOARCH)
+	Version          string                 // Agent version
+	StartTime        int64                  // Agent start time (Unix timestamp)
+	IPAddresses      []string               // Local IP addresses (non-loopback)
+	Peers            []PeerConnectionInfo   // Connected peers (max 50)
 	PublicKey        [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
 	UDPEnabled       bool                   // UDP relay enabled (for exit agents)
 	ForwardListeners []ForwardListenerInfo  // Port forward listeners (for ingress agents)

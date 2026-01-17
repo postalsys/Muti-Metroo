@@ -248,8 +248,8 @@ type DomainRouteDetails struct {
 // PortForwardRouteDetails contains detailed port forward route information for the dashboard.
 type PortForwardRouteDetails struct {
 	Key             string
-	ListenerAddress string             // Listener address if local agent has a listener for this key
-	Target          string             // Target address (propagated in route advertisements)
+	ListenerAddress string // Listener address if local agent has a listener for this key
+	Target          string // Target address (propagated in route advertisements)
 	NextHop         identity.AgentID
 	Origin          identity.AgentID
 	Metric          int
@@ -275,17 +275,17 @@ type Stats struct {
 
 // TopologyAgentInfo contains information about an agent for the topology API.
 type TopologyAgentInfo struct {
-	ID             string   `json:"id"`
-	ShortID        string   `json:"short_id"`
-	DisplayName    string   `json:"display_name"`
-	IsLocal        bool     `json:"is_local"`
-	IsConnected    bool     `json:"is_connected"`
-	Hostname       string   `json:"hostname,omitempty"`
-	OS             string   `json:"os,omitempty"`
-	Arch           string   `json:"arch,omitempty"`
-	Version        string   `json:"version,omitempty"`
-	UptimeHours    float64  `json:"uptime_hours,omitempty"`
-	IPAddresses    []string `json:"ip_addresses,omitempty"`
+	ID               string   `json:"id"`
+	ShortID          string   `json:"short_id"`
+	DisplayName      string   `json:"display_name"`
+	IsLocal          bool     `json:"is_local"`
+	IsConnected      bool     `json:"is_connected"`
+	Hostname         string   `json:"hostname,omitempty"`
+	OS               string   `json:"os,omitempty"`
+	Arch             string   `json:"arch,omitempty"`
+	Version          string   `json:"version,omitempty"`
+	UptimeHours      float64  `json:"uptime_hours,omitempty"`
+	IPAddresses      []string `json:"ip_addresses,omitempty"`
 	Roles            []string `json:"roles,omitempty"`             // Agent roles: "ingress", "exit", "transit", "forward_ingress", "forward_exit"
 	SOCKS5Addr       string   `json:"socks5_addr,omitempty"`       // SOCKS5 listen address (for ingress)
 	ExitRoutes       []string `json:"exit_routes,omitempty"`       // CIDR routes (for exit)
@@ -366,9 +366,9 @@ type DashboardPortForwardRouteInfo struct {
 
 // DashboardResponse is the response for the /api/dashboard endpoint.
 type DashboardResponse struct {
-	Agent        TopologyAgentInfo          `json:"agent"`
-	Stats        Stats                      `json:"stats"`
-	Peers        []DashboardPeerInfo        `json:"peers"`
+	Agent         TopologyAgentInfo               `json:"agent"`
+	Stats         Stats                           `json:"stats"`
+	Peers         []DashboardPeerInfo             `json:"peers"`
 	Routes        []DashboardRouteInfo            `json:"routes"`
 	DomainRoutes  []DashboardDomainRouteInfo      `json:"domain_routes,omitempty"`
 	ForwardRoutes []DashboardPortForwardRouteInfo `json:"forward_routes,omitempty"`

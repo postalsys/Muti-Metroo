@@ -882,20 +882,20 @@ func TestServer_handleTriggerAdvertise(t *testing.T) {
 
 // mockRemoteStatusProvider implements RemoteStatusProvider for testing.
 type mockRemoteStatusProvider struct {
-	id                  identity.AgentID
-	displayName         string
-	peerIDs             []identity.AgentID
-	knownAgentIDs       []identity.AgentID
-	peerDetails         []PeerDetails
-	routeDetails        []RouteDetails
-	domainRoutesList    []DomainRouteDetails
-	forwardRoutesList    []PortForwardRouteDetails
-	displayNames        map[identity.AgentID]string
-	allNodeInfo         map[identity.AgentID]*protocol.NodeInfo
-	localNodeInfo       *protocol.NodeInfo
-	socks5Info          SOCKS5Info
-	udpInfo             UDPInfo
-	forwardInfo          PortForwardInfo
+	id                identity.AgentID
+	displayName       string
+	peerIDs           []identity.AgentID
+	knownAgentIDs     []identity.AgentID
+	peerDetails       []PeerDetails
+	routeDetails      []RouteDetails
+	domainRoutesList  []DomainRouteDetails
+	forwardRoutesList []PortForwardRouteDetails
+	displayNames      map[identity.AgentID]string
+	allNodeInfo       map[identity.AgentID]*protocol.NodeInfo
+	localNodeInfo     *protocol.NodeInfo
+	socks5Info        SOCKS5Info
+	udpInfo           UDPInfo
+	forwardInfo       PortForwardInfo
 }
 
 func (m *mockRemoteStatusProvider) ID() identity.AgentID {

@@ -119,8 +119,8 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 			Transport: "quic",
 			Address:   c.Addresses[i],
 			TLS: config.TLSConfig{
-				Cert:               c.TLSCerts[i].CertFile,
-				Key:                c.TLSCerts[i].KeyFile,
+				Cert: c.TLSCerts[i].CertFile,
+				Key:  c.TLSCerts[i].KeyFile,
 			},
 		},
 	}
@@ -135,8 +135,7 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 				ID:        "auto", // Will be discovered during handshake
 				Transport: "quic",
 				Address:   c.Addresses[i+1],
-				TLS: config.TLSConfig{
-					},
+				TLS:       config.TLSConfig{},
 			},
 		}
 	}

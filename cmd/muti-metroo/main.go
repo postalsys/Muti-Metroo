@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/gorilla/websocket"
 	"github.com/postalsys/muti-metroo/internal/agent"
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
@@ -32,7 +33,6 @@ import (
 	"github.com/postalsys/muti-metroo/internal/shell"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/wizard"
-	"github.com/gorilla/websocket"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
@@ -2376,10 +2376,10 @@ func runPing(ctx context.Context, agentAddr, targetID string, destIP net.IP, cou
 
 		// Wait for reply
 		var reply struct {
-			Type     string `json:"type"`
-			Sequence int    `json:"sequence"`
+			Type     string  `json:"type"`
+			Sequence int     `json:"sequence"`
 			RTTMS    float64 `json:"rtt_ms,omitempty"`
-			Error    string `json:"error,omitempty"`
+			Error    string  `json:"error,omitempty"`
 		}
 		if err := conn.ReadJSON(&reply); err != nil {
 			if ctx.Err() != nil {

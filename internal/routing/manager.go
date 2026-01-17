@@ -46,17 +46,17 @@ type NodeInfoEntry struct {
 type Manager struct {
 	mu sync.RWMutex
 
-	localID      identity.AgentID
-	table        *Table
-	domainTable  *DomainTable // Domain-based routing table
+	localID       identity.AgentID
+	table         *Table
+	domainTable   *DomainTable  // Domain-based routing table
 	forwardTable  *ForwardTable // Port forward routing table
-	localRoutes  map[string]*LocalRoute
-	localDomains map[string]*LocalDomainRoute        // Local domain routes
-	localForwards map[string]*LocalForwardRoute        // Local port forward routes
-	displayNames map[identity.AgentID]string         // Agent ID -> Display Name mapping
-	nodeInfos    map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
-	sequence     uint64
-	sealedBox    *crypto.SealedBox // For decrypting NodeInfo (nil if not configured)
+	localRoutes   map[string]*LocalRoute
+	localDomains  map[string]*LocalDomainRoute        // Local domain routes
+	localForwards map[string]*LocalForwardRoute       // Local port forward routes
+	displayNames  map[identity.AgentID]string         // Agent ID -> Display Name mapping
+	nodeInfos     map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
+	sequence      uint64
+	sealedBox     *crypto.SealedBox // For decrypting NodeInfo (nil if not configured)
 
 	// Subscribers for route changes
 	subscribers []chan<- RouteChange
@@ -66,15 +66,15 @@ type Manager struct {
 // NewManager creates a new route manager.
 func NewManager(localID identity.AgentID) *Manager {
 	return &Manager{
-		localID:      localID,
-		table:        NewTable(localID),
-		domainTable:  NewDomainTable(localID),
+		localID:       localID,
+		table:         NewTable(localID),
+		domainTable:   NewDomainTable(localID),
 		forwardTable:  NewForwardTable(localID),
-		localRoutes:  make(map[string]*LocalRoute),
-		localDomains: make(map[string]*LocalDomainRoute),
+		localRoutes:   make(map[string]*LocalRoute),
+		localDomains:  make(map[string]*LocalDomainRoute),
 		localForwards: make(map[string]*LocalForwardRoute),
-		displayNames: make(map[identity.AgentID]string),
-		nodeInfos:    make(map[identity.AgentID]*NodeInfoEntry),
+		displayNames:  make(map[identity.AgentID]string),
+		nodeInfos:     make(map[identity.AgentID]*NodeInfoEntry),
 	}
 }
 

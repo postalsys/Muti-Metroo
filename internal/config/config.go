@@ -63,22 +63,22 @@ type Config struct {
 	// When set to "run", the agent starts automatically without requiring "./my-agent run".
 	DefaultAction string             `yaml:"default_action,omitempty"`
 	Agent         AgentConfig        `yaml:"agent"`
-	Protocol     ProtocolConfig     `yaml:"protocol,omitempty"`
-	TLS          GlobalTLSConfig    `yaml:"tls,omitempty"`
-	Management   ManagementConfig   `yaml:"management,omitempty"`
-	Listeners    []ListenerConfig   `yaml:"listeners,omitempty"`
-	Peers        []PeerConfig       `yaml:"peers,omitempty"`
-	SOCKS5       SOCKS5Config       `yaml:"socks5,omitempty"`
-	Exit         ExitConfig         `yaml:"exit,omitempty"`
-	Routing      RoutingConfig      `yaml:"routing,omitempty"`
-	Connections  ConnectionsConfig  `yaml:"connections,omitempty"`
-	Limits       LimitsConfig       `yaml:"limits,omitempty"`
-	HTTP         HTTPConfig         `yaml:"http,omitempty"`
-	FileTransfer FileTransferConfig `yaml:"file_transfer,omitempty"`
-	Shell        ShellConfig        `yaml:"shell,omitempty"`
-	UDP          UDPConfig          `yaml:"udp,omitempty"`
-	ICMP         ICMPConfig         `yaml:"icmp,omitempty"`
-	Forward      ForwardConfig      `yaml:"forward,omitempty"`
+	Protocol      ProtocolConfig     `yaml:"protocol,omitempty"`
+	TLS           GlobalTLSConfig    `yaml:"tls,omitempty"`
+	Management    ManagementConfig   `yaml:"management,omitempty"`
+	Listeners     []ListenerConfig   `yaml:"listeners,omitempty"`
+	Peers         []PeerConfig       `yaml:"peers,omitempty"`
+	SOCKS5        SOCKS5Config       `yaml:"socks5,omitempty"`
+	Exit          ExitConfig         `yaml:"exit,omitempty"`
+	Routing       RoutingConfig      `yaml:"routing,omitempty"`
+	Connections   ConnectionsConfig  `yaml:"connections,omitempty"`
+	Limits        LimitsConfig       `yaml:"limits,omitempty"`
+	HTTP          HTTPConfig         `yaml:"http,omitempty"`
+	FileTransfer  FileTransferConfig `yaml:"file_transfer,omitempty"`
+	Shell         ShellConfig        `yaml:"shell,omitempty"`
+	UDP           UDPConfig          `yaml:"udp,omitempty"`
+	ICMP          ICMPConfig         `yaml:"icmp,omitempty"`
+	Forward       ForwardConfig      `yaml:"forward,omitempty"`
 }
 
 // ProtocolConfig defines protocol identifiers used for transport negotiation.
@@ -362,11 +362,11 @@ type ProxyAuth struct {
 
 // SOCKS5Config defines SOCKS5 server settings.
 type SOCKS5Config struct {
-	Enabled        bool                   `yaml:"enabled,omitempty"`
-	Address        string                 `yaml:"address,omitempty"`
-	Auth           SOCKS5AuthConfig       `yaml:"auth,omitempty"`
-	MaxConnections int                    `yaml:"max_connections,omitempty"`
-	WebSocket      WebSocketSOCKS5Config  `yaml:"websocket,omitempty"`
+	Enabled        bool                  `yaml:"enabled,omitempty"`
+	Address        string                `yaml:"address,omitempty"`
+	Auth           SOCKS5AuthConfig      `yaml:"auth,omitempty"`
+	MaxConnections int                   `yaml:"max_connections,omitempty"`
+	WebSocket      WebSocketSOCKS5Config `yaml:"websocket,omitempty"`
 }
 
 // WebSocketSOCKS5Config defines WebSocket SOCKS5 listener settings.
@@ -700,9 +700,9 @@ func Default() *Config {
 		},
 		ICMP: ICMPConfig{
 			Enabled:     true,
-			MaxSessions: 100,               // Default limit
-			IdleTimeout: 60 * time.Second,  // Session idle timeout
-			EchoTimeout: 5 * time.Second,   // Per-echo timeout
+			MaxSessions: 100,              // Default limit
+			IdleTimeout: 60 * time.Second, // Session idle timeout
+			EchoTimeout: 5 * time.Second,  // Per-echo timeout
 		},
 		Forward: ForwardConfig{
 			Endpoints: []ForwardEndpoint{},

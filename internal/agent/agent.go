@@ -25,7 +25,9 @@ import (
 	"github.com/postalsys/muti-metroo/internal/exit"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/flood"
+	"github.com/postalsys/muti-metroo/internal/forward"
 	"github.com/postalsys/muti-metroo/internal/health"
+	"github.com/postalsys/muti-metroo/internal/icmp"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/logging"
 	"github.com/postalsys/muti-metroo/internal/peer"
@@ -37,8 +39,6 @@ import (
 	"github.com/postalsys/muti-metroo/internal/stream"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 	"github.com/postalsys/muti-metroo/internal/transport"
-	"github.com/postalsys/muti-metroo/internal/forward"
-	"github.com/postalsys/muti-metroo/internal/icmp"
 	"github.com/postalsys/muti-metroo/internal/udp"
 )
 
