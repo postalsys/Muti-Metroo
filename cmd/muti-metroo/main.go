@@ -977,6 +977,7 @@ user-level service that starts at logon.`,
 	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
 	cmd.Flags().BoolVar(&userMode, "user", false, "Install as user service (Linux: cron+nohup, Windows: Registry Run)")
 	cmd.Flags().StringVar(&dllPath, "dll", "", "Path to muti-metroo.dll (Windows --user mode only)")
+	_ = cmd.MarkFlagRequired("config")
 
 	return cmd
 }

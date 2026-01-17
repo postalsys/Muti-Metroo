@@ -603,19 +603,23 @@ func statusUserImpl() (string, error) {
 		return "not installed (registry entry missing)", nil
 	}
 
-	// Check if rundll32 is running with our DLL
-	// Use tasklist to find rundll32 processes
-	cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq rundll32.exe", "/FO", "CSV", "/NH")
+	// Check if rundll32 is running with our specific DLL using PowerShell Get-CimInstance
+	// This replaces the deprecated wmic command and provides accurate process detection
+	psScript := `Get-CimInstance Win32_Process -Filter "Name='rundll32.exe'" | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation`
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Sprintf("installed as '%s' (status unknown)", info.Name), nil
 	}
 
-	// Check if any rundll32 process exists (basic check)
-	if strings.Contains(string(output), "rundll32.exe") {
-		// For a more accurate check, we would need to check command line arguments
-		// but that requires additional Windows APIs or wmic
-		return fmt.Sprintf("running as '%s' (probable)", info.Name), nil
+	// Check if our specific DLL is in any rundll32 command line
+	if info.DLLPath != "" && strings.Contains(string(output), info.DLLPath) {
+		return fmt.Sprintf("running as '%s'", info.Name), nil
+	}
+
+	// Fallback: check for muti-metroo in command line (for older installations)
+	if strings.Contains(string(output), "muti-metroo") {
+		return fmt.Sprintf("running as '%s'", info.Name), nil
 	}
 
 	return fmt.Sprintf("stopped (installed as '%s')", info.Name), nil
@@ -655,28 +659,43 @@ func startUserImpl() error {
 
 // stopUserImpl stops the Windows user service by terminating rundll32 processes.
 func stopUserImpl() error {
-	// Use taskkill to terminate rundll32 processes
-	// Note: This is a broad approach - it may kill other rundll32 processes
-	// For a more targeted approach, we would need to track the PID
+	// Read service info to get the DLL path for targeted process termination
+	info := readUserServiceInfo()
 
-	// First, try to find and kill our specific rundll32 process
-	// We'll use wmic to get command lines
-	cmd := exec.Command("wmic", "process", "where", "name='rundll32.exe'", "get", "processid,commandline", "/format:csv")
+	// Use PowerShell Get-CimInstance to find rundll32 processes with our DLL
+	// This replaces the deprecated wmic command
+	psScript := `Get-CimInstance Win32_Process -Filter "Name='rundll32.exe'" | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation`
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
 	output, err := cmd.Output()
 	if err != nil {
-		// wmic may not be available, try taskkill as fallback
+		// PowerShell may not be available or failed
 		return nil // Can't determine which process to kill, skip
 	}
 
-	// Parse output to find our process
+	// Parse CSV output to find our process
+	// Format: "ProcessId","CommandLine"
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "muti-metroo") {
-			// Extract PID (last field in CSV)
-			fields := strings.Split(strings.TrimSpace(line), ",")
-			if len(fields) >= 2 {
-				pid := strings.TrimSpace(fields[len(fields)-1])
-				if pid != "" && pid != "ProcessId" {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, `"ProcessId"`) {
+			continue
+		}
+
+		// Check if this is our process by looking for our DLL path or muti-metroo
+		isOurProcess := false
+		if info != nil && info.DLLPath != "" && strings.Contains(line, info.DLLPath) {
+			isOurProcess = true
+		} else if strings.Contains(line, "muti-metroo") {
+			isOurProcess = true
+		}
+
+		if isOurProcess {
+			// Extract PID from CSV (first field after removing quotes)
+			// Line format: "1234","C:\...\rundll32.exe ..."
+			line = strings.TrimPrefix(line, `"`)
+			if idx := strings.Index(line, `"`); idx > 0 {
+				pid := line[:idx]
+				if pid != "" {
 					killCmd := exec.Command("taskkill", "/PID", pid, "/F")
 					killCmd.Run() // Ignore error
 				}
