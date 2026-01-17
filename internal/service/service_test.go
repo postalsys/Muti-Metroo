@@ -249,59 +249,59 @@ func TestStatusUserNotInstalled(t *testing.T) {
 	}
 }
 
-func TestInstallUserNonLinux(t *testing.T) {
-	// Skip on Linux
-	if runtime.GOOS == "linux" {
-		t.Skip("Skipping non-Linux test on Linux")
+func TestInstallUserUnsupportedPlatform(t *testing.T) {
+	// Skip on Linux and Windows (they support user service)
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
 	cfg := DefaultConfig("/tmp/test-config.yaml")
 	err := InstallUser(cfg)
 
-	// Should return an error on non-Linux platforms
+	// Should return an error on unsupported platforms (e.g., macOS)
 	if err == nil {
-		t.Error("InstallUser() should return error on non-Linux platform")
+		t.Error("InstallUser() should return error on unsupported platform")
 	}
 }
 
-func TestUninstallUserNonLinux(t *testing.T) {
-	// Skip on Linux
-	if runtime.GOOS == "linux" {
-		t.Skip("Skipping non-Linux test on Linux")
+func TestUninstallUserUnsupportedPlatform(t *testing.T) {
+	// Skip on Linux and Windows (they support user service)
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
 	err := UninstallUser()
 
-	// Should return an error on non-Linux platforms
+	// Should return an error on unsupported platforms (e.g., macOS)
 	if err == nil {
-		t.Error("UninstallUser() should return error on non-Linux platform")
+		t.Error("UninstallUser() should return error on unsupported platform")
 	}
 }
 
-func TestStartUserNonLinux(t *testing.T) {
-	// Skip on Linux
-	if runtime.GOOS == "linux" {
-		t.Skip("Skipping non-Linux test on Linux")
+func TestStartUserUnsupportedPlatform(t *testing.T) {
+	// Skip on Linux and Windows (they support user service)
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
 	err := StartUser()
 
-	// Should return an error on non-Linux platforms
+	// Should return an error on unsupported platforms (e.g., macOS)
 	if err == nil {
-		t.Error("StartUser() should return error on non-Linux platform")
+		t.Error("StartUser() should return error on unsupported platform")
 	}
 }
 
-func TestStopUserNonLinux(t *testing.T) {
-	// Skip on Linux
-	if runtime.GOOS == "linux" {
-		t.Skip("Skipping non-Linux test on Linux")
+func TestStopUserUnsupportedPlatform(t *testing.T) {
+	// Skip on Linux and Windows (they support user service)
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
 	err := StopUser()
 
-	// Should return an error on non-Linux platforms
+	// Should return an error on unsupported platforms (e.g., macOS)
 	if err == nil {
-		t.Error("StopUser() should return error on non-Linux platform")
+		t.Error("StopUser() should return error on unsupported platform")
 	}
 }
