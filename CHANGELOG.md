@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.11.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.0...muti-metroo-v2.11.1) (2026-01-17)
+
+
+### Bug Fixes
+
+* **service:** add service info display and improve documentation ([3f578dd](https://github.com/postalsys/Muti-Metroo/commit/3f578dd7ec1e68b9a033fbaf03cb67601b929b2f))
+* **service:** improve Windows process detection and restore required flag ([47d78c5](https://github.com/postalsys/Muti-Metroo/commit/47d78c5cc93b0365974bcfaa4c64470a98346689))
+
 ## [2.11.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.10.0...muti-metroo-v2.11.0) (2026-01-17)
 
 
