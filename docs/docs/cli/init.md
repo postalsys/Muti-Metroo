@@ -36,8 +36,12 @@ muti-metroo init -d /var/lib/muti-metroo
 
 1. Creates data directory if it doesn't exist
 2. Generates a unique 128-bit AgentID
-3. Saves AgentID to `agent_id` file in data directory
-4. Outputs the AgentID to stdout
+3. Generates an X25519 keypair for end-to-end encryption
+4. Saves identity files to data directory:
+   - `agent_id` - The 128-bit AgentID
+   - `agent_key` - X25519 private key (for E2E encryption)
+   - `agent_key.pub` - X25519 public key (advertised to peers)
+5. Outputs the AgentID to stdout
 
 ## Output
 

@@ -332,16 +332,12 @@ Syntax:
 
 ## Minimal Configuration
 
-The simplest working configuration:
+The simplest working configuration. TLS certificates are auto-generated if not specified:
 
 ```yaml
 agent:
   id: "auto"
   data_dir: "./data"
-
-tls:
-  cert: "./certs/agent.crt"
-  key: "./certs/agent.key"
 
 listeners:
   - transport: quic
@@ -360,3 +356,5 @@ http:
   enabled: true
   address: ":8080"
 ```
+
+For production deployments, you should provide your own TLS certificates using the `tls` section.

@@ -62,7 +62,11 @@ muti-metroo management-key public --private <private-key-hex>
 ```
 
 **Flags:**
-- `--private` (required): Private key in hex format (64 characters)
+- `--private`: Private key in hex format (64 characters)
+
+:::tip Interactive Mode
+If the `--private` flag is not provided, the CLI prompts interactively for the private key (input is hidden for security).
+:::
 
 **Example:**
 ```bash

@@ -35,6 +35,10 @@ muti-metroo setup -c /path/to/embedded-binary
 |------|-------|-------------|
 | `--config` | `-c` | Path to config file or binary with embedded config |
 
+:::warning Windows DLL Files
+DLL files cannot be used with `setup -c` for config embedding (UPX compression is incompatible). For DLL-based deployments, use a separate config file and specify its path when running via `rundll32.exe`.
+:::
+
 ## What It Does
 
 Guides you through 13 steps:

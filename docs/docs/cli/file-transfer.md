@@ -114,6 +114,10 @@ muti-metroo download --rate-limit 500KB --resume abc123 /data/huge.iso ./huge.is
 - File permissions are preserved
 - Streaming transfer (no size limits)
 
+:::tip Agent ID Prefix
+You can use a short agent ID prefix (e.g., `abc123`) instead of the full 32-character ID. The prefix is automatically resolved to the full agent ID.
+:::
+
 ## See Also
 
 - [File Transfer Feature](/features/file-transfer) - Detailed documentation

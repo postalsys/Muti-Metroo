@@ -28,7 +28,6 @@ icmp:
   max_sessions: 100          # Concurrent session limit (0 = unlimited)
   idle_timeout: 60s          # Session cleanup timeout
   echo_timeout: 5s           # Per-echo request timeout
-  max_concurrent_replies: 0  # Concurrent reply goroutines (0 = unlimited)
 ```
 
 ### enabled
@@ -71,21 +70,6 @@ Timeout for individual ICMP echo requests.
 
 This is the server-side timeout. The CLI also has its own timeout (`-t` flag) which may be shorter.
 
-### max_concurrent_replies
-
-Limits concurrent goroutines waiting for ICMP replies.
-
-| Type | Default |
-|------|---------|
-| int | `0` (unlimited) |
-
-Each echo request spawns a goroutine to wait for the reply. Under high load, this can consume resources. Set a limit to prevent goroutine exhaustion.
-
-```yaml
-icmp:
-  max_concurrent_replies: 50  # Max 50 concurrent reply waiters
-```
-
 ## Example Configurations
 
 ### Default (Enabled)
@@ -107,7 +91,6 @@ icmp:
   enabled: true
   max_sessions: 500
   idle_timeout: 30s
-  max_concurrent_replies: 100
 ```
 
 ### Disabled
@@ -175,8 +158,7 @@ macOS supports unprivileged ICMP sockets natively. No configuration is required.
 
 1. **E2E encryption**: All ICMP data is encrypted through the mesh
 2. **Session limits**: Use `max_sessions` to prevent resource exhaustion
-3. **Goroutine limits**: Use `max_concurrent_replies` to prevent goroutine exhaustion
-4. **No domain resolution**: Only IP addresses are accepted (no DNS)
+3. **No domain resolution**: Only IP addresses are accepted (no DNS)
 
 ## Usage
 

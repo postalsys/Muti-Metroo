@@ -126,7 +126,7 @@ Related settings in the `connections` section affect peer behavior:
 
 ```yaml
 connections:
-  idle_threshold: 30s      # Keepalive after idle time
+  idle_threshold: 5m       # Keepalive after idle time
   timeout: 90s             # Peer dead after no response
   keepalive_jitter: 0.2    # Timing jitter (OPSEC)
 
@@ -142,7 +142,7 @@ connections:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `idle_threshold` | duration | `30s` | Send keepalive after idle |
+| `idle_threshold` | duration | `5m` | Send keepalive after idle |
 | `timeout` | duration | `90s` | Declare peer dead |
 | `keepalive_jitter` | float | `0.2` | Timing randomization |
 

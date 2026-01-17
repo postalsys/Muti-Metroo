@@ -26,6 +26,13 @@ muti-metroo run -c <config-file>
 
 - `-c, --config <file>`: Path to configuration file (default: `./config.yaml`)
 
+:::info Embedded Configuration
+When using a binary with embedded configuration:
+- Embedded configuration takes precedence over the `-c` flag
+- If `default_action: run` is set in embedded config, the agent auto-starts without arguments
+- Run the embedded binary without `run` command: `./my-agent` instead of `./my-agent run`
+:::
+
 ## Examples
 
 ```bash

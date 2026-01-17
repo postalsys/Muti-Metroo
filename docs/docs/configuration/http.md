@@ -38,7 +38,7 @@ http:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enabled` | bool | `true` | Enable the HTTP API server |
+| `enabled` | bool | `false` | Enable the HTTP API server |
 | `address` | string | `:8080` | Bind address (`:8080` or `127.0.0.1:8080`) |
 | `read_timeout` | duration | `10s` | Maximum time to read request |
 | `write_timeout` | duration | `10s` | Maximum time to write response |

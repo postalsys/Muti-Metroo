@@ -32,8 +32,13 @@ muti-metroo shell [flags] <target-agent-id> [command] [args...]
 
 - `-a, --agent <addr>`: Agent HTTP API address (default: localhost:8080)
 - `-p, --password <pass>`: Shell password for authentication
-- `-t, --timeout <seconds>`: Session timeout (default: 0 = no timeout)
+- `-t, --timeout <duration>`: Session timeout as duration string, e.g., `30s`, `5m` (default: 0 = no timeout)
 - `--tty`: Interactive mode with PTY (for vim, htop, top, etc.)
+
+:::tip
+- **Default command**: If no command is specified, defaults to `bash`
+- **Agent ID prefix**: You can use a short agent ID prefix (e.g., `abc123`) instead of the full 32-character ID. The prefix is automatically resolved.
+:::
 
 ## Modes
 
