@@ -240,13 +240,20 @@ socks5:
 
 ### How do I run Muti Metroo as a service?
 
+The service auto-starts immediately after installation:
+
 ```bash
-# Linux
-sudo ./muti-metroo service install -c /etc/muti-metroo/config.yaml
-sudo systemctl enable --now muti-metroo
+# Linux (requires root)
+sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
+
+# Linux without root
+muti-metroo service install --user -c ~/muti-metroo/config.yaml
 
 # Windows (as Administrator)
 muti-metroo.exe service install -c C:\config\config.yaml
+
+# Windows without admin (requires DLL)
+muti-metroo service install --user --dll C:\path\to\muti-metroo.dll -c C:\config\config.yaml
 ```
 
 ### Can I run Muti Metroo in Docker?

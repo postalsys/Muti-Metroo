@@ -50,32 +50,32 @@ Install Muti Metroo as a system service for automatic startup.
 ### Linux (systemd)
 
 ```bash
-# Install as service (requires root)
+# Install as service (requires root) - auto-starts immediately
 sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
-
-# Enable and start
-sudo systemctl enable muti-metroo
-sudo systemctl start muti-metroo
 
 # Check status
 sudo systemctl status muti-metroo
 
 # View logs
 sudo journalctl -u muti-metroo -f
+
+# Restart (after config changes)
+sudo systemctl restart muti-metroo
 ```
 
 ### Windows
 
 ```powershell
-# Install as Windows Service (requires Administrator)
+# Install as Windows Service (requires Administrator) - auto-starts immediately
 muti-metroo.exe service install -c C:\ProgramData\muti-metroo\config.yaml
-
-# Start service
-sc start muti-metroo
 
 # Check status
 sc query muti-metroo
 ```
+
+:::tip No Manual Start Needed
+The `service install` command automatically enables and starts the service. You don't need to run additional commands or reboot.
+:::
 
 ### Uninstall Service
 

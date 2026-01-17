@@ -556,3 +556,8 @@ func hasCrontab() bool {
 
 // ErrCrontabNotFound is returned when crontab is not available.
 var ErrCrontabNotFound = errors.New("crontab command not found - install cron to use user service")
+
+// installUserWithDLLImpl is not supported on Linux.
+func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
+	return fmt.Errorf("DLL-based user service is only supported on Windows")
+}

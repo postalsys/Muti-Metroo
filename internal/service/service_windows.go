@@ -6,11 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -357,43 +362,347 @@ loop:
 }
 
 // =============================================================================
-// User service stubs (not supported on Windows - use Windows Service instead)
+// Windows User Service (Registry Run key + rundll32)
 // =============================================================================
 
-// hasCrontab returns false on Windows (user service not supported).
+// User service constants for Registry-based installation.
+const (
+	userServiceDirName = ".muti-metroo"
+	userPIDFileName    = "muti-metroo.pid"
+	userLogFileName    = "muti-metroo.log"
+	userInfoFileName   = "service.info"
+	// Registry path for user logon startup
+	registryRunKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
+)
+
+// getSystemRoot returns the Windows system root directory (typically C:\Windows).
+func getSystemRoot() string {
+	if root := os.Getenv("SystemRoot"); root != "" {
+		return root
+	}
+	return `C:\Windows`
+}
+
+// hasCrontab returns false on Windows (use Registry Run key instead).
 func hasCrontab() bool {
 	return false
 }
 
 // ErrCrontabNotFound is returned when crontab is not available.
-var ErrCrontabNotFound = errors.New("user service installation is only supported on Linux")
+var ErrCrontabNotFound = errors.New("crontab not available on Windows - use Registry Run key")
 
-// installUserImpl is not supported on Windows.
+// getUserServiceDir returns %USERPROFILE%\.muti-metroo
+func getUserServiceDir() (string, error) {
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile == "" {
+		return "", fmt.Errorf("USERPROFILE environment variable not set")
+	}
+	return filepath.Join(userProfile, userServiceDirName), nil
+}
+
+// installUserImpl is not supported for regular user service on Windows.
+// Use InstallUserWindows for Registry-based installation.
 func installUserImpl(cfg ServiceConfig, execPath string) error {
-	return fmt.Errorf("user service installation is only supported on Linux")
+	return fmt.Errorf("use InstallUserWindows for Windows user service installation")
 }
 
-// uninstallUserImpl is not supported on Windows.
+// installUserWithDLLImpl installs a Windows user service using Registry Run key + rundll32.
+// This creates a registry entry that runs at user logon without requiring administrator.
+// The serviceName is used as the Registry value name (visible in Windows startup apps).
+func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
+	// Get service directory
+	serviceDir, err := getUserServiceDir()
+	if err != nil {
+		return err
+	}
+
+	// Create service directory if it doesn't exist
+	if err := os.MkdirAll(serviceDir, 0755); err != nil {
+		return fmt.Errorf("failed to create service directory: %w", err)
+	}
+
+	// Resolve absolute paths
+	absDLLPath, err := filepath.Abs(dllPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve DLL path: %w", err)
+	}
+
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve config path: %w", err)
+	}
+
+	// Verify DLL exists
+	if _, err := os.Stat(absDLLPath); os.IsNotExist(err) {
+		return fmt.Errorf("DLL file not found: %s", absDLLPath)
+	}
+
+	// Verify config exists
+	if _, err := os.Stat(absConfigPath); os.IsNotExist(err) {
+		return fmt.Errorf("config file not found: %s", absConfigPath)
+	}
+
+	// Convert service name to registry value name (remove spaces, use PascalCase-like format)
+	registryValueName := toRegistryValueName(serviceName)
+
+	// Build the run command with full path to rundll32.exe
+	// Using full path ensures the command works from Registry Run key at logon
+	rundll32Path := filepath.Join(getSystemRoot(), "System32", "rundll32.exe")
+	runCommand := fmt.Sprintf(`%s "%s",Run "%s"`, rundll32Path, absDLLPath, absConfigPath)
+
+	// Open HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
+	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunKeyPath, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("failed to open registry key: %w", err)
+	}
+	defer key.Close()
+
+	// Set the value using the custom service name
+	if err := key.SetStringValue(registryValueName, runCommand); err != nil {
+		return fmt.Errorf("failed to set registry value: %w", err)
+	}
+
+	// Save config info for status display and uninstall
+	infoPath := filepath.Join(serviceDir, userInfoFileName)
+	infoContent := fmt.Sprintf("name=%s\nregistry_value=%s\ndll=%s\nconfig=%s\n",
+		serviceName, registryValueName, absDLLPath, absConfigPath)
+	if err := os.WriteFile(infoPath, []byte(infoContent), 0644); err != nil {
+		// Non-fatal, just for status display
+		fmt.Printf("Warning: could not save service info: %v\n", err)
+	}
+
+	// Start the service immediately after installation
+	fmt.Println("Starting service...")
+	if err := startUserImpl(); err != nil {
+		fmt.Printf("Warning: could not start service immediately: %v\n", err)
+		fmt.Println("The service will start automatically at next logon.")
+	}
+
+	return nil
+}
+
+// toRegistryValueName converts a service name to a valid Registry value name.
+// Removes spaces and special characters, converts to PascalCase-like format.
+// Examples: "muti-metroo" -> "MutiMetroo", "Tunnel Manager" -> "TunnelManager"
+func toRegistryValueName(serviceName string) string {
+	// Replace hyphens and underscores with spaces for word splitting
+	name := strings.ReplaceAll(serviceName, "-", " ")
+	name = strings.ReplaceAll(name, "_", " ")
+
+	// Split into words and capitalize each
+	words := strings.Fields(name)
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
+		}
+	}
+
+	// Join without spaces
+	return strings.Join(words, "")
+}
+
+// userServiceInfo holds information read from service.info file.
+type userServiceInfo struct {
+	Name          string // Service display name
+	RegistryValue string // Registry value name (used as key in Run registry)
+	DLLPath       string // Path to the DLL
+	ConfigPath    string // Path to the config file
+}
+
+// readUserServiceInfo reads the service info from the service.info file.
+// Returns nil if the file doesn't exist or can't be parsed.
+func readUserServiceInfo() *userServiceInfo {
+	serviceDir, err := getUserServiceDir()
+	if err != nil {
+		return nil
+	}
+
+	infoBytes, err := os.ReadFile(filepath.Join(serviceDir, userInfoFileName))
+	if err != nil {
+		return nil
+	}
+
+	// Parse key=value pairs
+	values := make(map[string]string)
+	for _, line := range strings.Split(string(infoBytes), "\n") {
+		if parts := strings.SplitN(strings.TrimSpace(line), "=", 2); len(parts) == 2 {
+			values[parts[0]] = parts[1]
+		}
+	}
+
+	// RegistryValue is required
+	if values["registry_value"] == "" {
+		return nil
+	}
+
+	return &userServiceInfo{
+		Name:          values["name"],
+		RegistryValue: values["registry_value"],
+		DLLPath:       values["dll"],
+		ConfigPath:    values["config"],
+	}
+}
+
+// uninstallUserImpl removes the Windows user service (Registry Run key entry).
 func uninstallUserImpl() error {
-	return fmt.Errorf("user service is only supported on Linux")
+	// First try to stop any running process
+	_ = stopUserImpl() // Ignore error, process may not be running
+
+	// Read service info to get the registry value name
+	info := readUserServiceInfo()
+	if info == nil {
+		// No service.info, nothing to uninstall
+		return nil
+	}
+
+	// Open registry key
+	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunKeyPath, registry.SET_VALUE)
+	if err != nil {
+		// Key doesn't exist or can't be opened
+		return nil
+	}
+	defer key.Close()
+
+	// Delete the value using the stored registry value name
+	err = key.DeleteValue(info.RegistryValue)
+	if err != nil {
+		// Value may not exist, that's OK
+		if !errors.Is(err, registry.ErrNotExist) {
+			return fmt.Errorf("failed to delete registry value: %w", err)
+		}
+	}
+
+	// Clean up service directory
+	serviceDir, err := getUserServiceDir()
+	if err == nil {
+		infoPath := filepath.Join(serviceDir, userInfoFileName)
+		os.Remove(infoPath)
+		// Don't remove the whole directory as it may contain logs
+	}
+
+	return nil
 }
 
-// statusUserImpl is not supported on Windows.
+// statusUserImpl returns the status of the Windows user service.
 func statusUserImpl() (string, error) {
-	return "", fmt.Errorf("user service is only supported on Linux")
+	// Read service info
+	info := readUserServiceInfo()
+	if info == nil {
+		return "not installed", nil
+	}
+
+	// Verify registry entry exists
+	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunKeyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return "not installed", nil
+	}
+	defer key.Close()
+
+	_, _, err = key.GetStringValue(info.RegistryValue)
+	if err != nil {
+		return "not installed (registry entry missing)", nil
+	}
+
+	// Check if rundll32 is running with our DLL
+	// Use tasklist to find rundll32 processes
+	cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq rundll32.exe", "/FO", "CSV", "/NH")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Sprintf("installed as '%s' (status unknown)", info.Name), nil
+	}
+
+	// Check if any rundll32 process exists (basic check)
+	if strings.Contains(string(output), "rundll32.exe") {
+		// For a more accurate check, we would need to check command line arguments
+		// but that requires additional Windows APIs or wmic
+		return fmt.Sprintf("running as '%s' (probable)", info.Name), nil
+	}
+
+	return fmt.Sprintf("stopped (installed as '%s')", info.Name), nil
 }
 
-// startUserImpl is not supported on Windows.
+// startUserImpl starts the Windows user service by running the DLL via rundll32.
 func startUserImpl() error {
-	return fmt.Errorf("user service is only supported on Linux")
+	// Read the service info to get the DLL and config paths
+	info := readUserServiceInfo()
+	if info == nil {
+		return fmt.Errorf("service info not found - is the service installed?")
+	}
+
+	if info.DLLPath == "" || info.ConfigPath == "" {
+		return fmt.Errorf("invalid service info file")
+	}
+
+	// Get full path to rundll32.exe
+	rundll32Path := filepath.Join(getSystemRoot(), "System32", "rundll32.exe")
+
+	// Use PowerShell Start-Process for reliable detached process creation
+	// This works correctly even in non-interactive sessions (SSH, services)
+	psArgs := fmt.Sprintf(
+		`-WindowStyle Hidden -FilePath "%s" -ArgumentList '"%s",Run','''%s'''`,
+		rundll32Path, info.DLLPath, info.ConfigPath,
+	)
+	cmd := exec.Command("powershell", "-Command", "Start-Process", psArgs)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow: true,
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start service: %w", err)
+	}
+
+	return nil
 }
 
-// stopUserImpl is not supported on Windows.
+// stopUserImpl stops the Windows user service by terminating rundll32 processes.
 func stopUserImpl() error {
-	return fmt.Errorf("user service is only supported on Linux")
+	// Use taskkill to terminate rundll32 processes
+	// Note: This is a broad approach - it may kill other rundll32 processes
+	// For a more targeted approach, we would need to track the PID
+
+	// First, try to find and kill our specific rundll32 process
+	// We'll use wmic to get command lines
+	cmd := exec.Command("wmic", "process", "where", "name='rundll32.exe'", "get", "processid,commandline", "/format:csv")
+	output, err := cmd.Output()
+	if err != nil {
+		// wmic may not be available, try taskkill as fallback
+		return nil // Can't determine which process to kill, skip
+	}
+
+	// Parse output to find our process
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "muti-metroo") {
+			// Extract PID (last field in CSV)
+			fields := strings.Split(strings.TrimSpace(line), ",")
+			if len(fields) >= 2 {
+				pid := strings.TrimSpace(fields[len(fields)-1])
+				if pid != "" && pid != "ProcessId" {
+					killCmd := exec.Command("taskkill", "/PID", pid, "/F")
+					killCmd.Run() // Ignore error
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
-// isUserInstalledImpl returns false on Windows.
+// isUserInstalledImpl checks if the Windows user service is installed.
 func isUserInstalledImpl() bool {
-	return false
+	// Read service info to get the registry value name
+	info := readUserServiceInfo()
+	if info == nil {
+		return false
+	}
+
+	// Open registry key
+	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunKeyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer key.Close()
+
+	// Check if our value exists using the stored registry value name
+	_, _, err = key.GetStringValue(info.RegistryValue)
+	return err == nil
 }

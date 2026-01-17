@@ -22,33 +22,31 @@ Install once, run forever. The agent starts automatically when the system boots 
 ### Installation
 
 ```bash
-# Install as service (requires root)
+# Install as service (requires root) - auto-starts immediately
 sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
 ```
 
-This creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`.
+This creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`, enables boot startup, and starts the service immediately.
 
 ### Service Management
 
 ```bash
-# Enable automatic start on boot
-sudo systemctl enable muti-metroo
-
-# Start the service
-sudo systemctl start muti-metroo
-
 # Check status
 sudo systemctl status muti-metroo
 
 # View logs
 sudo journalctl -u muti-metroo -f
 
-# Restart
+# Restart (after config changes)
 sudo systemctl restart muti-metroo
 
 # Stop
 sudo systemctl stop muti-metroo
 ```
+
+:::tip No Manual Start Needed
+The `service install` command automatically enables and starts the service. You don't need to run `systemctl enable` or `systemctl start` manually.
+:::
 
 ### Uninstall
 
@@ -171,7 +169,7 @@ muti-metroo.exe service install -c C:\ProgramData\muti-metroo\config.yaml
 ```
 
 :::tip Non-Admin Alternative
-Windows Service installation requires Administrator privileges. If you don't have admin access, use [DLL Mode](/deployment/dll-mode) with Task Scheduler instead - it provides similar background execution and can be configured to start at user login without requiring elevation.
+Windows Service installation requires Administrator privileges. If you don't have admin access, use [DLL Mode](/deployment/dll-mode) with the Registry Run key instead - it provides similar background execution and starts automatically at user login without requiring elevation.
 :::
 
 ### Service Management
@@ -247,6 +245,85 @@ http:
   enabled: true
   address: "127.0.0.1:8080"
 ```
+
+## Windows User Service (Registry Run)
+
+For users without Administrator access, install as a user service using the Registry Run key and the DLL.
+
+### Requirements
+
+- `muti-metroo.exe` - CLI for installation and management
+- `muti-metroo.dll` - DLL for background execution via rundll32
+- `config.yaml` - Configuration file
+
+### Installation
+
+```powershell
+# Install as user service (no admin required)
+muti-metroo service install --user --dll C:\path\to\muti-metroo.dll -c C:\path\to\config.yaml
+
+# Install with custom service name
+muti-metroo service install --user -n "My Tunnel" --dll C:\path\to\muti-metroo.dll -c C:\path\to\config.yaml
+```
+
+**Flags:**
+- `--user`: Install as user service (required for Registry Run mode)
+- `--dll <path>`: Path to muti-metroo.dll (required)
+- `-c, --config <path>`: Path to config file (required)
+- `-n, --name <name>`: Custom service name (default: muti-metroo). The name is converted to PascalCase for the Registry value (e.g., "My Tunnel" becomes "MyTunnel").
+
+This creates a Registry Run entry at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` that:
+- Starts immediately after installation (no reboot required)
+- Runs automatically at each user logon
+- Uses `rundll32.exe` to execute the DLL
+- Runs with current user privileges
+- No console window (background execution)
+
+### Service Management
+
+```powershell
+# Check status
+muti-metroo service status
+
+# View registry entry
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v MutiMetroo
+
+# Stop manually (if needed)
+taskkill /F /IM rundll32.exe
+```
+
+:::note
+The service starts automatically after installation and at each user logon. To restart the service, uninstall and reinstall it, or log out and log back in.
+:::
+
+### Uninstall
+
+```powershell
+# Uninstall (no admin required)
+muti-metroo service uninstall
+```
+
+### Comparison: Windows Service vs Registry Run
+
+| Feature | Windows Service | Registry Run |
+|---------|----------------|--------------|
+| Requires admin | Yes | No |
+| Auto-restart on crash | Yes | No |
+| Start timing | At boot (before login) | At user logon |
+| Console window | No | No |
+| Runs as | SYSTEM/service account | Current user |
+| Process name | `muti-metroo.exe` | `rundll32.exe` |
+| Requires DLL | No | Yes |
+
+**Choose Windows Service when:**
+- You have Administrator access
+- Agent must start before any user logs in
+- You need automatic crash recovery
+
+**Choose Registry Run when:**
+- You don't have Administrator access
+- User-level execution is acceptable
+- Minimal installation footprint desired
 
 ## macOS (launchd)
 

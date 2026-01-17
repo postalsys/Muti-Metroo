@@ -784,6 +784,7 @@ func serviceInstallCmd() *cobra.Command {
 	var configPath string
 	var serviceName string
 	var userMode bool
+	var dllPath string
 
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -795,17 +796,117 @@ On Linux:
   - With --user: Uses cron @reboot + nohup (no root required)
 
 On macOS: Uses launchd (requires root)
-On Windows: Uses Windows Service (requires Administrator)
 
-The --user flag is only available on Linux and allows non-root users
-to install the agent as a user-level service that starts on boot.`,
+On Windows:
+  - Without --user: Uses Windows Service (requires Administrator)
+  - With --user: Uses Registry Run key + rundll32 (no admin required)
+    Requires --dll flag to specify the DLL path
+
+The --user flag allows non-admin users to install the agent as a
+user-level service that starts at logon.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check platform support
 			if !service.IsSupported() {
 				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 			}
 
-			// Validate config file exists
+			// Handle user mode
+			if userMode {
+				switch runtime.GOOS {
+				case "linux":
+					// Linux user mode: cron + nohup
+					if configPath == "" {
+						return fmt.Errorf("config file is required: use -c flag")
+					}
+
+					absPath, err := filepath.Abs(configPath)
+					if err != nil {
+						return fmt.Errorf("failed to resolve config path: %w", err)
+					}
+
+					if _, err := os.Stat(absPath); os.IsNotExist(err) {
+						return fmt.Errorf("config file not found: %s", absPath)
+					}
+
+					// Check if user service already installed
+					if service.IsUserInstalled() {
+						return fmt.Errorf("user service is already installed")
+					}
+
+					cfg := service.DefaultConfig(absPath)
+					cfg.Name = serviceName
+
+					// Install user service
+					fmt.Printf("Installing user service...\n")
+					fmt.Printf("  Config: %s\n", absPath)
+					fmt.Printf("  Method: cron @reboot + nohup\n")
+
+					if err := service.InstallUser(cfg); err != nil {
+						return fmt.Errorf("failed to install user service: %w", err)
+					}
+
+					fmt.Println("\nUser service installed successfully.")
+					fmt.Println("\nManage the service with:")
+					fmt.Println("  muti-metroo service status")
+					fmt.Println("  muti-metroo service uninstall")
+					fmt.Println("\nView logs:")
+					fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log")
+
+				case "windows":
+					// Windows user mode: Registry Run key + rundll32
+					if dllPath == "" {
+						return fmt.Errorf("--dll flag is required for Windows user service installation")
+					}
+					if configPath == "" {
+						return fmt.Errorf("config file is required: use -c flag")
+					}
+
+					absConfigPath, err := filepath.Abs(configPath)
+					if err != nil {
+						return fmt.Errorf("failed to resolve config path: %w", err)
+					}
+
+					if _, err := os.Stat(absConfigPath); os.IsNotExist(err) {
+						return fmt.Errorf("config file not found: %s", absConfigPath)
+					}
+
+					absDLLPath, err := filepath.Abs(dllPath)
+					if err != nil {
+						return fmt.Errorf("failed to resolve DLL path: %w", err)
+					}
+
+					if _, err := os.Stat(absDLLPath); os.IsNotExist(err) {
+						return fmt.Errorf("DLL file not found: %s", absDLLPath)
+					}
+
+					// Check if user service already installed
+					if service.IsUserInstalled() {
+						return fmt.Errorf("user service is already installed")
+					}
+
+					fmt.Printf("Installing user service '%s'...\n", serviceName)
+					fmt.Printf("  DLL: %s\n", absDLLPath)
+					fmt.Printf("  Config: %s\n", absConfigPath)
+					fmt.Printf("  Method: Registry Run key + rundll32\n")
+
+					if err := service.InstallUserWindows(serviceName, absDLLPath, absConfigPath); err != nil {
+						return fmt.Errorf("failed to install user service: %w", err)
+					}
+
+					fmt.Println("\nUser service installed and started.")
+					fmt.Println("The service will also start automatically at user logon.")
+					fmt.Println("\nManage the service with:")
+					fmt.Println("  muti-metroo service status")
+					fmt.Println("  muti-metroo service uninstall")
+
+				default:
+					return fmt.Errorf("--user flag is only supported on Linux and Windows")
+				}
+
+				return nil
+			}
+
+			// System service installation
 			if configPath == "" {
 				return fmt.Errorf("config file is required: use -c flag")
 			}
@@ -823,36 +924,6 @@ to install the agent as a user-level service that starts on boot.`,
 			cfg := service.DefaultConfig(absPath)
 			cfg.Name = serviceName
 
-			// Handle user mode (Linux only)
-			if userMode {
-				if runtime.GOOS != "linux" {
-					return fmt.Errorf("--user flag is only supported on Linux")
-				}
-
-				// Check if user service already installed
-				if service.IsUserInstalled() {
-					return fmt.Errorf("user service is already installed")
-				}
-
-				// Install user service
-				fmt.Printf("Installing user service...\n")
-				fmt.Printf("  Config: %s\n", absPath)
-				fmt.Printf("  Method: cron @reboot + nohup\n")
-
-				if err := service.InstallUser(cfg); err != nil {
-					return fmt.Errorf("failed to install user service: %w", err)
-				}
-
-				fmt.Println("\nUser service installed successfully.")
-				fmt.Println("\nManage the service with:")
-				fmt.Println("  muti-metroo service status")
-				fmt.Println("  muti-metroo service uninstall")
-				fmt.Println("\nView logs:")
-				fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log")
-
-				return nil
-			}
-
 			// System service installation requires root
 			if !service.IsRoot() {
 				switch runtime.GOOS {
@@ -861,7 +932,7 @@ to install the agent as a user-level service that starts on boot.`,
 				case "darwin":
 					return fmt.Errorf("must run as root to install the service (try: sudo muti-metroo service install ...)")
 				case "windows":
-					return fmt.Errorf("must run as Administrator to install the service")
+					return fmt.Errorf("must run as Administrator to install the service. Use --user --dll for Registry Run key installation")
 				}
 			}
 
@@ -904,8 +975,8 @@ to install the agent as a user-level service that starts on boot.`,
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Path to config file (required)")
 	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
-	cmd.Flags().BoolVar(&userMode, "user", false, "Install as user service (Linux only, uses cron+nohup)")
-	cmd.MarkFlagRequired("config")
+	cmd.Flags().BoolVar(&userMode, "user", false, "Install as user service (Linux: cron+nohup, Windows: Registry Run)")
+	cmd.Flags().StringVar(&dllPath, "dll", "", "Path to muti-metroo.dll (Windows --user mode only)")
 
 	return cmd
 }
@@ -924,18 +995,21 @@ On Linux:
   - Removes cron+nohup user service (if installed with --user)
 
 On macOS: Unloads and removes the launchd service.
-On Windows: Stops and removes the Windows service.
+
+On Windows:
+  - Removes Windows service (if installed as Administrator)
+  - Removes Registry Run key user service (if installed with --user)
 
 Root/administrator privileges required for system service removal.
-User service can be removed without root.`,
+User service can be removed without root/admin.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check platform support
 			if !service.IsSupported() {
 				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 			}
 
-			// Check for user service first (Linux only)
-			if runtime.GOOS == "linux" && service.IsUserInstalled() {
+			// Check for user service first (Linux and Windows)
+			if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && service.IsUserInstalled() {
 				// Confirm unless force flag is set
 				if !force {
 					fmt.Println("This will stop and remove the user service.")
@@ -1014,17 +1088,23 @@ func serviceStatusCmd() *cobra.Command {
 				return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 			}
 
-			// Check for user service first (Linux only)
-			if runtime.GOOS == "linux" && service.IsUserInstalled() {
+			// Check for user service first (Linux and Windows)
+			if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && service.IsUserInstalled() {
 				status, err := service.StatusUser()
 				if err != nil {
 					return fmt.Errorf("failed to get user service status: %w", err)
 				}
 
-				fmt.Printf("Service: muti-metroo (user)\n")
+				fmt.Printf("Service: user service\n")
 				fmt.Printf("Status: %s\n", status)
-				fmt.Printf("Type: cron+nohup\n")
-				fmt.Printf("Log: ~/.muti-metroo/muti-metroo.log\n")
+
+				switch runtime.GOOS {
+				case "linux":
+					fmt.Printf("Type: cron+nohup\n")
+					fmt.Printf("Log: ~/.muti-metroo/muti-metroo.log\n")
+				case "windows":
+					fmt.Printf("Type: Registry Run key\n")
+				}
 
 				return nil
 			}

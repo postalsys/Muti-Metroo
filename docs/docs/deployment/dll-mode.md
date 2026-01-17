@@ -15,7 +15,7 @@ When launched via `rundll32.exe`, the agent runs as a **background process** - s
 - **No console window**: The process runs silently without any visible window
 - **No taskbar presence**: Does not appear in the taskbar
 - **Visible in Task Manager**: Appears as `rundll32.exe` in the process list
-- **No automatic restart**: Does not survive system reboots (use Task Scheduler for persistence)
+- **No automatic restart**: Does not survive system reboots (use Registry Run for persistence)
 - **No service management**: Cannot be controlled via `sc.exe` or Services console
 
 This makes DLL mode ideal for scenarios where you need background execution without the overhead of a full Windows service installation, but remember that you must configure persistence separately if needed.
@@ -79,71 +79,82 @@ Get-Process rundll32 | Where-Object { $_.MainModule.FileName -like "*muti-metroo
 
 The agent handles abrupt termination gracefully - peer connections will timeout and reconnect when the agent restarts.
 
-## Persistence with Task Scheduler
+## Persistence with Registry Run
 
-Since the DLL process does not survive reboots on its own, use Task Scheduler to start it automatically. No admin privileges are required to run the DLL itself.
+Since the DLL process does not survive reboots on its own, use the Registry Run key to start it automatically at user logon. No admin privileges are required.
 
-### Non-Admin: Run at User Login
+### Automated Installation (Recommended)
 
-Any user can create a scheduled task that runs when they log in:
-
-```powershell
-# Create a scheduled task that runs at user login (no admin required)
-$dir = "C:\Users\$env:USERNAME\muti-metroo"
-$dll = "$dir\muti-metroo.dll"
-$cfg = "$dir\config.yaml"
-
-$action = New-ScheduledTaskAction `
-    -Execute "rundll32.exe" `
-    -Argument "$dll,Run $cfg"
-
-$trigger = New-ScheduledTaskTrigger -AtLogon -User $env:USERNAME
-
-$settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable
-
-Register-ScheduledTask -TaskName "MutiMetroo" `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings
-```
-
-This runs with your user's privileges and only starts when you log in.
-
-### Admin: Run at System Startup
-
-For system-wide deployment that starts before any user logs in, use administrator privileges:
+The easiest way to set up persistence is using the CLI:
 
 ```powershell
-# Create a scheduled task that runs at system startup (requires admin)
-$dir = "C:\ProgramData\muti-metroo"
-$dll = "$dir\muti-metroo.dll"
-$cfg = "$dir\config.yaml"
+# Install as user service (no admin required)
+muti-metroo service install --user --dll C:\path\to\muti-metroo.dll -c C:\path\to\config.yaml
 
-$action = New-ScheduledTaskAction `
-    -Execute "rundll32.exe" `
-    -Argument "$dll,Run $cfg"
-
-$trigger = New-ScheduledTaskTrigger -AtStartup
-
-$settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable `
-    -RestartCount 3 `
-    -RestartInterval (New-TimeSpan -Minutes 1)
-
-Register-ScheduledTask -TaskName "MutiMetroo" `
-    -Action $action `
-    -Trigger $trigger `
-    -Settings $settings `
-    -RunLevel Highest `
-    -User "SYSTEM"
+# Install with custom service name
+muti-metroo service install --user -n "My Tunnel" --dll C:\path\to\muti-metroo.dll -c C:\path\to\config.yaml
 ```
 
-This runs as SYSTEM with elevated privileges, starting at boot before user login.
+**Flags:**
+- `--user`: Install as user service (required for Registry Run mode)
+- `--dll <path>`: Path to muti-metroo.dll (required)
+- `-c, --config <path>`: Path to config file (required)
+- `-n, --name <name>`: Custom service name (default: muti-metroo). The name is converted to PascalCase for the Registry value (e.g., "My Tunnel" becomes "MyTunnel").
+
+This creates a Registry Run entry at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` that:
+- Starts immediately after installation (no reboot required)
+- Runs automatically at each user logon
+- Uses `rundll32.exe` with the DLL
+- Runs with current user privileges
+- No console window (background execution)
+
+**Management commands:**
+
+```powershell
+# Check status
+muti-metroo service status
+
+# Uninstall
+muti-metroo service uninstall
+
+# View registry entry
+reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v MutiMetroo
+
+# Stop manually (if needed)
+taskkill /F /IM rundll32.exe
+```
+
+:::note
+To restart the service, uninstall and reinstall it, or log out and log back in.
+:::
+
+### Manual Setup
+
+Alternatively, create the registry entry manually:
+
+```powershell
+# Add Registry Run entry (no admin required)
+$dll = "C:\Users\$env:USERNAME\muti-metroo\muti-metroo.dll"
+$cfg = "C:\Users\$env:USERNAME\muti-metroo\config.yaml"
+$cmd = "rundll32.exe `"$dll`",Run `"$cfg`""
+
+Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
+    -Name "MutiMetroo" -Value $cmd
+
+# Verify
+Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "MutiMetroo"
+```
+
+### Admin: Windows Service (Alternative)
+
+For system-wide deployment that starts before any user logs in, use the Windows Service approach instead (requires Administrator):
+
+```powershell
+# Install as Windows Service (requires admin)
+muti-metroo.exe service install -c C:\ProgramData\muti-metroo\config.yaml
+```
+
+Windows Service runs as SYSTEM with elevated privileges, starting at boot before user login.
 
 ## Comparison: EXE vs DLL
 
@@ -152,7 +163,7 @@ This runs as SYSTEM with elevated privileges, starting at boot before user login
 | Console window | Yes (visible) | No (hidden) |
 | Signal handling (Ctrl+C) | Yes | No |
 | Service installation | Yes | No |
-| Survives reboot | Yes (as service) | No (needs Task Scheduler) |
+| Survives reboot | Yes (as service) | No (needs Registry Run) |
 | Background execution | Requires `start /b` | Native |
 | Embedded config | Yes | No (use config file) |
 | Interactive commands | Yes | No |
@@ -162,7 +173,7 @@ This runs as SYSTEM with elevated privileges, starting at boot before user login
 :::note Not a Windows Service
 The DLL runs as a regular background process, not a Windows service. This means:
 - It won't automatically restart after a crash
-- It won't start automatically after reboot (unless configured via Task Scheduler)
+- It won't start automatically after reboot (unless configured via Registry Run)
 - It cannot be managed through the Services console (`services.msc`)
 
 For true service behavior with automatic restart and boot persistence, use `muti-metroo.exe service install` instead.
@@ -171,7 +182,7 @@ For true service behavior with automatic restart and boot persistence, use `muti
 ## Limitations
 
 - **Not a real service**: Runs as a background process, not a Windows service
-- **No boot persistence**: Does not automatically start after reboot (use Task Scheduler)
+- **No boot persistence**: Does not automatically start after reboot (use Registry Run)
 - **No automatic restart**: Will not restart after a crash (unlike a Windows service)
 - **No graceful shutdown**: The DLL cannot receive Windows signals for graceful termination
 - **No embedded config**: Config embedding is incompatible with UPX compression; use a config file
@@ -192,7 +203,7 @@ agent:
 ## Security Considerations
 
 - The DLL runs with the same privileges as the `rundll32.exe` process
-- When running as SYSTEM via Task Scheduler, the agent has elevated privileges
+- When running as SYSTEM via Windows Service, the agent has elevated privileges
 - Consider running under a dedicated service account with minimal permissions
 - The DLL is subject to the same Windows code signing requirements as .exe files
 

@@ -1941,8 +1941,14 @@ func (w *Wizard) askSystemServiceInstallation(cfg service.ServiceConfig, service
 		return false, nil
 	}
 
-	// If not running as root/admin, show instructions instead
+	// If not running as root/admin, offer alternatives
 	if !service.IsRoot() {
+		// Windows non-admin: offer Registry Run key option
+		if runtime.GOOS == "windows" {
+			return w.askWindowsUserServiceInstallation(cfg, serviceName, embedded, embeddedBinaryPath)
+		}
+
+		// macOS: show instructions for sudo
 		prompt.PrintHeader("Service Installation",
 			fmt.Sprintf("To install as a %s, elevated privileges are required.\nYou can run the service install command later with %s.", platformName, privilegeCmd))
 
@@ -1957,21 +1963,9 @@ func (w *Wizard) askSystemServiceInstallation(cfg service.ServiceConfig, service
 			if embedded {
 				installPath := service.GetInstallPath(serviceName)
 				fmt.Printf("  1. Copy %s to %s\n", embeddedBinaryPath, installPath)
-				switch runtime.GOOS {
-				case "darwin":
-					fmt.Printf("  2. sudo muti-metroo service install -n %s --embedded\n", serviceName)
-				case "windows":
-					fmt.Printf("  2. muti-metroo service install -n %s --embedded\n", serviceName)
-					fmt.Println("     (Run this command as Administrator)")
-				}
+				fmt.Printf("  2. sudo muti-metroo service install -n %s --embedded\n", serviceName)
 			} else {
-				switch runtime.GOOS {
-				case "darwin":
-					fmt.Printf("  sudo muti-metroo service install -n %s -c %s\n", serviceName, cfg.ConfigPath)
-				case "windows":
-					fmt.Printf("  muti-metroo service install -n %s -c %s\n", serviceName, cfg.ConfigPath)
-					fmt.Println("  (Run this command as Administrator)")
-				}
+				fmt.Printf("  sudo muti-metroo service install -n %s -c %s\n", serviceName, cfg.ConfigPath)
 			}
 			fmt.Println()
 		}
@@ -2031,6 +2025,154 @@ func (w *Wizard) askSystemServiceInstallation(cfg service.ServiceConfig, service
 		fmt.Printf("  muti-metroo service uninstall -n %s  # Remove service\n", serviceName)
 	}
 	fmt.Println()
+
+	return true, nil
+}
+
+// askWindowsUserServiceInstallation handles Windows user service installation via Registry Run key.
+func (w *Wizard) askWindowsUserServiceInstallation(cfg service.ServiceConfig, serviceName string, embedded bool, embeddedBinaryPath string) (bool, error) {
+	prompt.PrintHeader("Service Installation",
+		"You are not running as Administrator.\n\n"+
+			"Options:\n"+
+			"  1. Install as user service (Registry Run + DLL) - no admin required\n"+
+			"  2. Show instructions for Windows Service (requires admin)")
+
+	options := []string{
+		"Install as user service (Registry Run)",
+		"Show Windows Service instructions",
+		"Skip service installation",
+	}
+
+	choice, err := prompt.Select("Choose an option:", options, 0)
+	if err != nil {
+		return false, err
+	}
+
+	switch choice {
+	case 0: // User service via Registry Run key
+		return w.installWindowsUserService(cfg, serviceName)
+
+	case 1: // Show instructions for admin
+		fmt.Println()
+		fmt.Println("To install as a Windows Service, run as Administrator:")
+		if embedded {
+			installPath := service.GetInstallPath(serviceName)
+			fmt.Printf("  1. Copy %s to %s\n", embeddedBinaryPath, installPath)
+			fmt.Printf("  2. muti-metroo service install -n %s --embedded\n", serviceName)
+		} else {
+			fmt.Printf("  muti-metroo service install -n %s -c %s\n", serviceName, cfg.ConfigPath)
+		}
+		fmt.Println()
+		return false, nil
+
+	case 2: // Skip
+		return false, nil
+	}
+
+	return false, nil
+}
+
+// installWindowsUserService installs the user service via Registry Run key.
+func (w *Wizard) installWindowsUserService(cfg service.ServiceConfig, serviceName string) (bool, error) {
+	prompt.PrintHeader("Windows User Service Setup",
+		"This will create a Registry Run entry that starts the DLL at user logon.\n\n"+
+			"Requirements:\n"+
+			"  - muti-metroo.dll file\n"+
+			"  - config.yaml file (or embedded config DLL)")
+
+	// Ask for DLL path
+	var dllPath string
+	var err error
+
+	// Try to find DLL in common locations
+	defaultDLL := ""
+	possiblePaths := []string{
+		"muti-metroo.dll",
+		"./muti-metroo.dll",
+		"./build/muti-metroo.dll",
+	}
+	for _, p := range possiblePaths {
+		if _, err := os.Stat(p); err == nil {
+			defaultDLL = p
+			break
+		}
+	}
+
+	dllPath, err = prompt.ReadLineValidated("Path to muti-metroo.dll", defaultDLL, func(s string) error {
+		if s == "" {
+			return fmt.Errorf("DLL path is required")
+		}
+		if _, err := os.Stat(s); os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", s)
+		}
+		if !strings.HasSuffix(strings.ToLower(s), ".dll") {
+			return fmt.Errorf("file must be a .dll")
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+
+	// Get absolute path
+	absDLLPath, err := filepath.Abs(dllPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to resolve DLL path: %w", err)
+	}
+
+	// Get config path - use cfg.ConfigPath if available
+	configPath := cfg.ConfigPath
+	if configPath == "" {
+		configPath, err = prompt.ReadLineValidated("Path to config file", "./config.yaml", func(s string) error {
+			if s == "" {
+				return fmt.Errorf("config path is required")
+			}
+			if _, err := os.Stat(s); os.IsNotExist(err) {
+				return fmt.Errorf("file not found: %s", s)
+			}
+			return nil
+		})
+		if err != nil {
+			return false, err
+		}
+	}
+
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to resolve config path: %w", err)
+	}
+
+	// Confirm installation
+	fmt.Println()
+	fmt.Printf("DLL:    %s\n", absDLLPath)
+	fmt.Printf("Config: %s\n", absConfigPath)
+	fmt.Println()
+
+	confirm, err := prompt.Confirm("Install user service?", true)
+	if err != nil {
+		return false, err
+	}
+	if !confirm {
+		return false, nil
+	}
+
+	// Install the service
+	fmt.Println()
+	fmt.Println("Installing user service...")
+
+	if err := service.InstallUserWindows(serviceName, absDLLPath, absConfigPath); err != nil {
+		fmt.Printf("\n[WARNING] Failed to install user service: %v\n", err)
+		fmt.Println("You can install the service manually with:")
+		fmt.Printf("  muti-metroo service install --user -n \"%s\" --dll \"%s\" -c \"%s\"\n", serviceName, absDLLPath, absConfigPath)
+		return false, nil
+	}
+
+	fmt.Println()
+	prompt.PrintSuccess("User service installed and started!")
+	fmt.Println("\nThe service is now running and will start automatically at user logon.")
+	fmt.Println("\nManage the service with:")
+	fmt.Println("  muti-metroo service status")
+	fmt.Println("  muti-metroo service uninstall")
 
 	return true, nil
 }

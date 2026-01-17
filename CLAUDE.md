@@ -509,58 +509,80 @@ Muti Metroo can be installed as a system service on Linux (systemd), macOS (laun
 ### Commands
 
 ```bash
-# Install as system service
+# Install as system service (auto-starts immediately)
 sudo muti-metroo service install -c /path/to/config.yaml
+
+# Install with custom service name
+sudo muti-metroo service install -n my-tunnel -c /path/to/config.yaml
 
 # Check service status
 muti-metroo service status
 
-# Uninstall service
+# Uninstall service (auto-detects system vs user service)
 sudo muti-metroo service uninstall
 ```
 
+**Available subcommands:** `install`, `uninstall`, `status` (no `start`/`stop` - use platform tools).
+
 ### Linux (systemd)
 
-The installer creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`:
+The installer creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`, enables it, and starts it immediately:
 
 ```bash
-# After installation
-sudo systemctl start muti-metroo
-sudo systemctl enable muti-metroo
+# View logs (service auto-starts after install)
 sudo journalctl -u muti-metroo -f
+
+# Restart after config changes
+sudo systemctl restart muti-metroo
 ```
 
 **User mode (no root required):**
 
 ```bash
-# Install as user service (uses cron @reboot + nohup)
+# Install as user service (uses cron @reboot + nohup, auto-starts immediately)
 muti-metroo service install --user -c /path/to/config.yaml
 
-# Uninstall user service
-muti-metroo service uninstall --user
+# Uninstall user service (auto-detected, no --user flag needed)
+muti-metroo service uninstall
 ```
 
 ### macOS (launchd)
 
-The installer creates a launchd plist at `/Library/LaunchDaemons/com.muti-metroo.plist`:
+The installer creates a launchd plist at `/Library/LaunchDaemons/com.muti-metroo.plist` and starts it immediately:
 
 ```bash
-# After installation
-sudo launchctl start com.muti-metroo
+# View logs (service auto-starts after install)
 tail -f /var/log/muti-metroo.out.log
 ```
 
 ### Windows
 
-On Windows, the agent registers as a Windows Service and can be managed via:
+**Windows Service (requires Administrator):**
 
 ```powershell
+# Install (auto-starts immediately)
+muti-metroo service install -c C:\path\to\config.yaml
+
 # Start/stop via Services console or:
 sc start muti-metroo
 sc stop muti-metroo
 ```
 
-**Note**: Service installation requires root/administrator privileges.
+**User service (no admin required, uses Registry Run key + DLL):**
+
+```powershell
+# Install with custom name (auto-starts immediately)
+muti-metroo service install --user -n "My Tunnel" --dll C:\path\to\muti-metroo.dll -c C:\path\to\config.yaml
+
+# The -n flag sets the Registry value name (converts to PascalCase: "My Tunnel" -> "MyTunnel")
+# Check status
+muti-metroo service status
+
+# Uninstall (auto-detected)
+muti-metroo service uninstall
+```
+
+**Note**: System service installation requires root/administrator privileges. User service does not.
 
 ## Remote Shell
 

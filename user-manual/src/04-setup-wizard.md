@@ -124,6 +124,14 @@ If running with elevated privileges, optionally install as a system service:
 - **macOS**: launchd service (requires root)
 - **Windows**: Windows Service (requires Administrator)
 
+For Windows without Administrator access, use the CLI after the wizard:
+
+```powershell
+muti-metroo service install --user --dll path\to\muti-metroo.dll -c path\to\config.yaml
+```
+
+This uses the Registry Run key for automatic startup at user logon.
+
 ## Example Wizard Session
 
 ```

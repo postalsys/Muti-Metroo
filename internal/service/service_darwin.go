@@ -264,3 +264,8 @@ func stopUserImpl() error {
 func isUserInstalledImpl() bool {
 	return false
 }
+
+// installUserWithDLLImpl is not supported on macOS.
+func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
+	return fmt.Errorf("DLL-based user service is only supported on Windows")
+}

@@ -66,7 +66,7 @@ The DLL runs as a background process (not a Windows service):
 
 - No console window - runs silently in the background
 - Appears as `rundll32.exe` in Task Manager
-- Does NOT survive reboots - use Task Scheduler for persistence
+- Does NOT survive reboots - use Registry Run for persistence
 - Cannot be managed via Services console (`services.msc`)
 
 To terminate: `taskkill /F /IM rundll32.exe`
@@ -83,37 +83,32 @@ To terminate: `taskkill /F /IM rundll32.exe`
 - Quick deployments without service installation
 - Scenarios where hiding the console is important
 
-**Persistence with Task Scheduler:**
+**Persistence with Registry Run (Recommended):**
 
-No admin privileges are required to run the DLL. For automatic startup:
+Use the CLI to install as a user service (no admin required):
 
 ```powershell
-# Non-admin: Run at user login
-$dir = "C:\Users\$env:USERNAME\muti-metroo"
-$dll = "$dir\muti-metroo.dll"
-$cfg = "$dir\config.yaml"
-$action = New-ScheduledTaskAction `
-    -Execute "rundll32.exe" `
-    -Argument "$dll,Run $cfg"
-$trigger = New-ScheduledTaskTrigger -AtLogon -User $env:USERNAME
-Register-ScheduledTask -TaskName "MutiMetroo" `
-    -Action $action -Trigger $trigger
+muti-metroo service install --user --dll C:\path\to\muti-metroo.dll -c C:\path\to\config.yaml
 ```
 
-For system-wide startup (requires admin):
+This creates a Registry Run entry at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` that starts automatically at user logon.
+
+**Manual Registry Setup:**
 
 ```powershell
-# Admin: Run at system startup as SYSTEM
-$dir = "C:\ProgramData\muti-metroo"
-$dll = "$dir\muti-metroo.dll"
-$cfg = "$dir\config.yaml"
-$action = New-ScheduledTaskAction `
-    -Execute "rundll32.exe" `
-    -Argument "$dll,Run $cfg"
-$trigger = New-ScheduledTaskTrigger -AtStartup
-Register-ScheduledTask -TaskName "MutiMetroo" `
-    -Action $action -Trigger $trigger `
-    -RunLevel Highest -User "SYSTEM"
+# Add Registry Run entry (no admin required)
+$dll = "C:\Users\$env:USERNAME\muti-metroo\muti-metroo.dll"
+$cfg = "C:\Users\$env:USERNAME\muti-metroo\config.yaml"
+$cmd = "rundll32.exe `"$dll`",Run `"$cfg`""
+
+Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
+    -Name "MutiMetroo" -Value $cmd
+```
+
+For system-wide startup (requires admin), use Windows Service instead:
+
+```powershell
+muti-metroo.exe service install -c C:\ProgramData\muti-metroo\config.yaml
 ```
 
 ## Docker Deployment

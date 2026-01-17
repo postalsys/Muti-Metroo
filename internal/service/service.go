@@ -161,8 +161,8 @@ func copyFile(src, dst string) error {
 // On macOS, this unloads and removes the launchd plist.
 // On Windows, this stops and removes the Windows service.
 func Uninstall(serviceName string) error {
-	// Check for user service first (Linux only)
-	if runtime.GOOS == "linux" && IsUserInstalled() {
+	// Check for user service first (Linux and Windows)
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && IsUserInstalled() {
 		return UninstallUser()
 	}
 
@@ -175,9 +175,10 @@ func Uninstall(serviceName string) error {
 
 // InstallUser installs as a user-level service (cron+nohup on Linux).
 // This does not require root privileges.
+// On Windows, use InstallUserWindows instead.
 func InstallUser(cfg ServiceConfig) error {
 	if runtime.GOOS != "linux" {
-		return fmt.Errorf("user service installation is only supported on Linux")
+		return fmt.Errorf("user service installation is only supported on Linux (use InstallUserWindows on Windows)")
 	}
 
 	// Check for crontab
@@ -200,42 +201,69 @@ func InstallUser(cfg ServiceConfig) error {
 	return installUserImpl(cfg, execPath)
 }
 
-// UninstallUser removes the user-level service (Linux only).
+// InstallUserWindows installs as a Windows user service using Registry Run key + DLL.
+// This does not require Administrator privileges.
+// The service runs at user logon via rundll32.exe with the specified DLL.
+// The serviceName is used as the Registry value name (visible in startup apps).
+func InstallUserWindows(serviceName, dllPath, configPath string) error {
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("InstallUserWindows is only supported on Windows")
+	}
+
+	// Check if already installed
+	if IsUserInstalled() {
+		return fmt.Errorf("user service is already installed")
+	}
+
+	return installUserWithDLLImpl(serviceName, dllPath, configPath)
+}
+
+// UninstallUser removes the user-level service.
+// On Linux: removes cron+nohup service
+// On Windows: removes Registry Run key entry
 func UninstallUser() error {
-	if runtime.GOOS != "linux" {
-		return fmt.Errorf("user service is only supported on Linux")
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		return fmt.Errorf("user service is only supported on Linux and Windows")
 	}
 	return uninstallUserImpl()
 }
 
-// IsUserInstalled checks if a user-level service is installed (Linux only).
+// IsUserInstalled checks if a user-level service is installed.
+// On Linux: checks for cron+nohup service
+// On Windows: checks for Registry Run key entry
 func IsUserInstalled() bool {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return false
 	}
 	return isUserInstalledImpl()
 }
 
-// StatusUser returns the status of the user-level service (Linux only).
+// StatusUser returns the status of the user-level service.
+// On Linux: checks cron+nohup service status
+// On Windows: checks Registry Run key and process status
 func StatusUser() (string, error) {
-	if runtime.GOOS != "linux" {
-		return "", fmt.Errorf("user service is only supported on Linux")
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		return "", fmt.Errorf("user service is only supported on Linux and Windows")
 	}
 	return statusUserImpl()
 }
 
-// StartUser starts the user-level service (Linux only).
+// StartUser starts the user-level service.
+// On Linux: starts the cron+nohup service
+// On Windows: starts the DLL via rundll32
 func StartUser() error {
-	if runtime.GOOS != "linux" {
-		return fmt.Errorf("user service is only supported on Linux")
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		return fmt.Errorf("user service is only supported on Linux and Windows")
 	}
 	return startUserImpl()
 }
 
-// StopUser stops the user-level service (Linux only).
+// StopUser stops the user-level service.
+// On Linux: stops the cron+nohup service
+// On Windows: terminates the rundll32 process
 func StopUser() error {
-	if runtime.GOOS != "linux" {
-		return fmt.Errorf("user service is only supported on Linux")
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		return fmt.Errorf("user service is only supported on Linux and Windows")
 	}
 	return stopUserImpl()
 }
@@ -243,8 +271,8 @@ func StopUser() error {
 // Status returns the current status of the service.
 // It auto-detects whether a system or user service is installed.
 func Status(serviceName string) (string, error) {
-	// Check for user service first (Linux only)
-	if runtime.GOOS == "linux" && IsUserInstalled() {
+	// Check for user service first (Linux and Windows)
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && IsUserInstalled() {
 		return StatusUser()
 	}
 	return statusImpl(serviceName)
