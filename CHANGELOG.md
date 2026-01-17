@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.10.0...muti-metroo-v2.11.0) (2026-01-17)
+
+
+### Features
+
+* **service:** add Windows user service via Registry Run key ([b9605d2](https://github.com/postalsys/Muti-Metroo/commit/b9605d2fdfc3b7b22a13be199d759c86fc588e69))
+
 ## [2.10.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.9.1...muti-metroo-v2.10.0) (2026-01-16)
 
 
