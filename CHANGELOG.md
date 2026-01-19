@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.13.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.12.0...muti-metroo-v2.13.0) (2026-01-19)
+
+
+### Features
+
+* **sleep:** add mesh hibernation mode ([57d271e](https://github.com/postalsys/Muti-Metroo/commit/57d271e74ce2d181e2eca808253a737a2cfb7bbb))
+
+
+### Bug Fixes
+
+* **sleep:** resolve wake race condition during poll cycles ([5207628](https://github.com/postalsys/Muti-Metroo/commit/5207628be25fafe16ee11ff9b49213af668089c6))
+
 ## [2.12.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.3...muti-metroo-v2.12.0) (2026-01-19)
 
 
