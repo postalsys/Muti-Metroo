@@ -907,11 +907,12 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 
 	// Build DialOptions from peer config with protocol identifiers
 	dialOpts := &transport.DialOptions{
-		StrictVerify:  strictVerify,
-		Timeout:       a.cfg.Connections.Timeout,
-		ALPNProtocol:  a.cfg.Protocol.ALPN,
-		HTTPHeader:    a.cfg.Protocol.HTTPHeader,
-		WSSubprotocol: a.cfg.Protocol.WSSubprotocol,
+		StrictVerify:      strictVerify,
+		Timeout:           a.cfg.Connections.Timeout,
+		ALPNProtocol:      a.cfg.Protocol.ALPN,
+		HTTPHeader:        a.cfg.Protocol.HTTPHeader,
+		WSSubprotocol:     a.cfg.Protocol.WSSubprotocol,
+		FingerprintPreset: a.cfg.TLS.Fingerprint.Preset,
 	}
 
 	// Build TLS config for peer connection

@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -35,6 +36,10 @@ func (t *QUICTransport) Type() TransportType {
 }
 
 // Dial connects to a remote peer using QUIC.
+// Note: TLS fingerprint customization (FingerprintPreset) is not currently supported
+// for QUIC transport. QUIC uses its own TLS 1.3 implementation within quic-go,
+// and integrating uTLS would require significant changes to quic-go internals.
+// For fingerprint evasion, consider using HTTP/2 or WebSocket transport instead.
 func (t *QUICTransport) Dial(ctx context.Context, addr string, opts DialOptions) (PeerConn, error) {
 	t.mu.Lock()
 	if t.closed {
@@ -42,6 +47,13 @@ func (t *QUICTransport) Dial(ctx context.Context, addr string, opts DialOptions)
 		return nil, fmt.Errorf("transport closed")
 	}
 	t.mu.Unlock()
+
+	// Log warning if fingerprinting is requested but not supported for QUIC
+	if IsFingerprintEnabled(opts.FingerprintPreset) {
+		slog.Warn("TLS fingerprinting is not supported for QUIC transport; using standard TLS",
+			slog.String("preset", opts.FingerprintPreset),
+			slog.String("addr", addr))
+	}
 
 	// Determine ALPN protocol to use
 	alpn := opts.ALPNProtocol

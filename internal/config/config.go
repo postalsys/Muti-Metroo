@@ -127,6 +127,28 @@ type GlobalTLSConfig struct {
 	// because the E2E layer provides security. When true, peer certificates
 	// must be signed by the configured CA.
 	Strict bool `yaml:"strict,omitempty"`
+
+	// Fingerprint configures TLS fingerprint customization (client-side only).
+	// This allows mimicking browser TLS fingerprints (JA3/JA4) to blend with
+	// legitimate traffic and evade network fingerprinting.
+	Fingerprint FingerprintConfig `yaml:"fingerprint,omitempty"`
+}
+
+// FingerprintConfig configures TLS fingerprint customization for client connections.
+// This uses uTLS to present browser-like TLS ClientHello messages.
+type FingerprintConfig struct {
+	// Preset selects a predefined browser fingerprint.
+	// Valid values:
+	//   - "disabled" or "": Use Go standard library TLS (default, no fingerprint customization)
+	//   - "chrome": Latest Chrome browser fingerprint
+	//   - "firefox": Latest Firefox browser fingerprint
+	//   - "safari": Safari browser fingerprint
+	//   - "edge": Microsoft Edge browser fingerprint
+	//   - "ios": iOS Safari fingerprint
+	//   - "android": Android Chrome fingerprint
+	//   - "random": Randomized fingerprint per connection
+	//   - "go": Explicit Go standard library fingerprint (same as disabled)
+	Preset string `yaml:"preset,omitempty"`
 }
 
 // GetCAPEM returns the CA certificate PEM content, reading from file if necessary.
@@ -963,7 +985,33 @@ func (c *Config) validateGlobalTLS() error {
 		return fmt.Errorf("tls.cert and tls.key must both be specified or both be empty")
 	}
 
+	// Validate fingerprint preset
+	if err := c.TLS.Fingerprint.Validate(); err != nil {
+		return fmt.Errorf("tls.fingerprint: %w", err)
+	}
+
 	return nil
+}
+
+// validFingerprintPresets lists all valid fingerprint preset values.
+var validFingerprintPresets = []string{
+	"", "disabled", "go", "chrome", "firefox", "safari", "edge", "ios", "android", "random",
+}
+
+// Validate checks if the fingerprint configuration is valid.
+func (f *FingerprintConfig) Validate() error {
+	if f.Preset == "" {
+		return nil
+	}
+	if !isOneOf(f.Preset, validFingerprintPresets...) {
+		return fmt.Errorf("invalid preset %q (valid values: chrome, firefox, safari, edge, ios, android, random, go, disabled)", f.Preset)
+	}
+	return nil
+}
+
+// IsEnabled returns true if TLS fingerprinting is enabled.
+func (f *FingerprintConfig) IsEnabled() bool {
+	return f.Preset != "" && f.Preset != "disabled" && f.Preset != "go"
 }
 
 // validateManagementKeys validates the management key configuration.

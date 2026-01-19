@@ -77,9 +77,30 @@ func (t *H2Transport) Dial(ctx context.Context, addr string, opts DialOptions) (
 	}
 	tlsConfig = ensureH2InNextProtos(tlsConfig)
 
-	h2Transport := &http2.Transport{
-		TLSClientConfig: tlsConfig,
-		AllowHTTP:       false,
+	var h2Transport *http2.Transport
+
+	// Use uTLS for fingerprinting if enabled
+	if IsFingerprintEnabled(opts.FingerprintPreset) {
+		h2Transport = &http2.Transport{
+			AllowHTTP: false,
+			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+				// Use uTLS with browser fingerprint
+				conn, err := DialUTLSWithALPN(ctx, network, addr, tlsConfig, opts.FingerprintPreset, []string{"h2"})
+				if err != nil {
+					return nil, err
+				}
+				if conn == nil {
+					// Fallback to standard TLS (shouldn't happen if IsFingerprintEnabled returned true)
+					return tls.Dial(network, addr, tlsConfig)
+				}
+				return conn, nil
+			},
+		}
+	} else {
+		h2Transport = &http2.Transport{
+			TLSClientConfig: tlsConfig,
+			AllowHTTP:       false,
+		}
 	}
 
 	// Create pipe for bidirectional streaming

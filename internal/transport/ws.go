@@ -455,7 +455,7 @@ func parseWebSocketURL(addr string) string {
 	return "wss://" + addr + wsDefaultPath
 }
 
-// buildHTTPClient creates an HTTP client with optional TLS and proxy settings.
+// buildHTTPClient creates an HTTP client with optional TLS, proxy, and fingerprint settings.
 func buildHTTPClient(opts DialOptions) (*http.Client, error) {
 	tlsConfig := opts.TLSConfig
 	if tlsConfig == nil {
@@ -468,8 +468,23 @@ func buildHTTPClient(opts DialOptions) (*http.Client, error) {
 		}
 	}
 
-	transport := &http.Transport{
-		TLSClientConfig: tlsConfig,
+	transport := &http.Transport{}
+
+	// Use uTLS for fingerprinting if enabled
+	if IsFingerprintEnabled(opts.FingerprintPreset) {
+		transport.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := DialUTLS(ctx, network, addr, tlsConfig, opts.FingerprintPreset)
+			if err != nil {
+				return nil, err
+			}
+			if conn == nil {
+				// Fallback to standard TLS (shouldn't happen if IsFingerprintEnabled returned true)
+				return tls.Dial(network, addr, tlsConfig)
+			}
+			return conn, nil
+		}
+	} else {
+		transport.TLSClientConfig = tlsConfig
 	}
 
 	// Configure proxy if specified

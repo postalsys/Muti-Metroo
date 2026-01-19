@@ -2977,16 +2977,17 @@ muti-metroo/
 
 ### 18.2 Dependencies
 
-| Package                             | Purpose                      |
-| ----------------------------------- | ---------------------------- |
-| `github.com/quic-go/quic-go`        | QUIC transport               |
-| `golang.org/x/net/http2`            | HTTP/2 transport             |
-| `nhooyr.io/websocket`               | WebSocket transport          |
-| `gopkg.in/yaml.v3`                  | Configuration parsing        |
-| `github.com/spf13/cobra`            | CLI framework                |
-| `log/slog`                          | Structured logging (stdlib)  |
-| `github.com/charmbracelet/huh`      | Interactive setup wizard TUI |
-| `github.com/charmbracelet/lipgloss` | Terminal styling             |
+| Package                             | Purpose                               |
+| ----------------------------------- | ------------------------------------- |
+| `github.com/quic-go/quic-go`        | QUIC transport                        |
+| `golang.org/x/net/http2`            | HTTP/2 transport                      |
+| `nhooyr.io/websocket`               | WebSocket transport                   |
+| `github.com/refraction-networking/utls` | TLS fingerprint customization (JA3/JA4 evasion) |
+| `gopkg.in/yaml.v3`                  | Configuration parsing                 |
+| `github.com/spf13/cobra`            | CLI framework                         |
+| `log/slog`                          | Structured logging (stdlib)           |
+| `github.com/charmbracelet/huh`      | Interactive setup wizard TUI          |
+| `github.com/charmbracelet/lipgloss` | Terminal styling                      |
 
 ---
 

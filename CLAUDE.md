@@ -286,7 +286,7 @@ An agent can serve multiple roles simultaneously:
 | `socks5`       | SOCKS5 server with no-auth and username/password methods, optional WebSocket transport      |
 | `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                      |
 | `sysinfo`      | System information collection for node info advertisements                                  |
-| `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations                      |
+| `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations, TLS fingerprinting  |
 | `udp`          | UDP relay handler for SOCKS5 UDP ASSOCIATE - association lifecycle, datagram forwarding     |
 | `webui`        | Embedded web dashboard with metro map visualization                                         |
 | `wizard`       | Interactive setup wizard with certificate generation                                        |

@@ -132,6 +132,58 @@ Based on traffic analysis lab testing with Suricata 8.0.3:
 
 To minimize network signature visibility:
 
+### TLS Fingerprint Customization
+
+TLS fingerprinting (JA3/JA4) is one of the most effective detection methods. Network defenders can identify unusual TLS clients by hashing their ClientHello parameters (cipher suites, extensions, curves).
+
+Muti Metroo supports TLS fingerprint customization to mimic popular browsers:
+
+```yaml
+tls:
+  fingerprint:
+    preset: "chrome"  # Mimic Chrome browser
+```
+
+Available presets:
+
+| Preset | Description | Use Case |
+|--------|-------------|----------|
+| `disabled` | Go standard library (default) | Backward compatible, no customization |
+| `chrome` | Latest Chrome browser | Blend with browser traffic |
+| `firefox` | Latest Firefox browser | Alternative browser mimicry |
+| `safari` | Safari browser | macOS/iOS environments |
+| `edge` | Microsoft Edge | Windows environments |
+| `ios` | iOS Safari | Mobile traffic mimicry |
+| `android` | Android Chrome | Mobile traffic mimicry |
+| `random` | Randomized per connection | Avoid consistent fingerprint |
+| `go` | Explicit Go standard | Same as disabled |
+
+**Transport support:**
+- **HTTP/2**: Full fingerprint customization
+- **WebSocket**: Full fingerprint customization
+- **QUIC**: Not supported (QUIC uses its own TLS 1.3 within quic-go)
+
+**Example: Maximum evasion configuration**
+
+```yaml
+tls:
+  fingerprint:
+    preset: "chrome"
+
+protocol:
+  alpn: ""           # Disable custom ALPN
+  http_header: ""    # Disable custom HTTP header
+  ws_subprotocol: "" # Disable custom WebSocket subprotocol
+
+listeners:
+  - transport: h2
+    address: ":443"  # Standard HTTPS port
+```
+
+:::note
+Fingerprint customization only affects outbound connections (peers). Listeners always use standard Go TLS since servers don't send ClientHello.
+:::
+
 ### Protocol Configuration
 
 ```yaml

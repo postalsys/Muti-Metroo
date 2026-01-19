@@ -128,6 +128,12 @@ type DialOptions struct {
 	// WSSubprotocol is the WebSocket subprotocol identifier.
 	// Default: "muti-metroo/1". Empty string disables subprotocol.
 	WSSubprotocol string
+
+	// FingerprintPreset specifies the TLS fingerprint preset to use for client connections.
+	// Valid values: "chrome", "firefox", "safari", "edge", "ios", "android", "random", "go", "disabled", "".
+	// Empty string or "disabled" uses standard Go TLS (no fingerprint customization).
+	// This allows mimicking browser TLS fingerprints (JA3/JA4) to blend with legitimate traffic.
+	FingerprintPreset string
 }
 
 // ListenOptions contains options for creating a listener.

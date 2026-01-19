@@ -72,7 +72,67 @@ tls:
   # Enable mutual TLS on listeners (require client certificates)
   # Requires CA to be configured
   mtls: true
+
+  # TLS fingerprint customization (client-side only)
+  fingerprint:
+    preset: "chrome"  # See below for available presets
 ```
+
+## TLS Fingerprint Customization
+
+Network defenders often use TLS fingerprinting (JA3/JA4) to identify unusual TLS clients. By default, Muti Metroo uses Go's standard TLS library, which produces a distinctive "generic Go application" fingerprint.
+
+To blend with legitimate browser traffic, configure a fingerprint preset:
+
+```yaml
+tls:
+  fingerprint:
+    preset: "chrome"  # Mimic Chrome browser TLS fingerprint
+```
+
+### Available Presets
+
+| Preset | Description |
+|--------|-------------|
+| `disabled` | Go standard library TLS (default) |
+| `chrome` | Latest Chrome browser fingerprint |
+| `firefox` | Latest Firefox browser fingerprint |
+| `safari` | Safari browser fingerprint |
+| `edge` | Microsoft Edge fingerprint |
+| `ios` | iOS Safari fingerprint |
+| `android` | Android Chrome fingerprint |
+| `random` | Randomized fingerprint per connection |
+| `go` | Explicit Go standard (same as disabled) |
+
+### Transport Support
+
+| Transport | Fingerprint Support |
+|-----------|---------------------|
+| HTTP/2 | Full support |
+| WebSocket | Full support |
+| QUIC | Not supported (uses quic-go's internal TLS) |
+
+### Scope
+
+Fingerprint customization only affects **outbound connections** (peer connections). Listeners always use standard Go TLS because:
+- Servers don't send ClientHello (only clients do)
+- The fingerprint is determined by the ClientHello message
+
+### Example Configuration
+
+```yaml
+tls:
+  ca: "./certs/ca.crt"
+  cert: "./certs/agent.crt"
+  key: "./certs/agent.key"
+  fingerprint:
+    preset: "chrome"
+
+protocol:
+  alpn: ""  # Disable custom ALPN for additional evasion
+```
+
+For more information on traffic analysis and detection evasion, see [Traffic Patterns & Detection](/security/traffic-patterns).
 
 ## Setup Options
 
