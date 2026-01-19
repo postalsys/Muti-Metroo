@@ -129,10 +129,10 @@ tls:
     preset: "chrome"
 
 protocol:
-  alpn: ""  # Disable custom ALPN for additional evasion
+  alpn: ""  # Disable custom ALPN to reduce distinctiveness
 ```
 
-For more information on traffic analysis and detection evasion, see [Traffic Patterns & Detection](/security/traffic-patterns).
+For more information on traffic analysis and reducing detectability, see [Traffic Patterns & Detection](/security/traffic-patterns).
 
 ## Setup Options
 

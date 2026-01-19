@@ -190,7 +190,7 @@ Even with E2E encryption, these patterns may be detectable:
 3. Track long-lived connections on mesh ports
 4. Correlate traffic patterns across nodes
 
-### For Evasion (Red Team)
+### For Reducing Detectability (Red Team)
 
 1. Use standard ALPN values (h2, http/1.1)
 2. Disable custom protocol headers

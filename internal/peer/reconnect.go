@@ -23,7 +23,7 @@ func DefaultReconnectConfig() ReconnectConfig {
 		MaxDelay:     60 * time.Second,
 		Multiplier:   2.0,
 		MaxAttempts:  0,   // Unlimited
-		Jitter:       0.2, // 20% jitter to avoid detectable beacon patterns
+		Jitter:       0.2, // 20% jitter makes timing patterns less distinguishable
 	}
 }
 

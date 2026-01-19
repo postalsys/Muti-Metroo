@@ -53,7 +53,7 @@ func DefaultManagerConfig(localID identity.AgentID, tr transport.Transport) Mana
 		HandshakeTimeout:  10 * time.Second,
 		KeepaliveInterval: 30 * time.Second,
 		KeepaliveTimeout:  10 * time.Second,
-		KeepaliveJitter:   0.2, // 20% jitter to avoid detectable beacon patterns
+		KeepaliveJitter:   0.2, // 20% jitter makes timing patterns less distinguishable
 		ReconnectConfig:   DefaultReconnectConfig(),
 	}
 }
@@ -334,7 +334,7 @@ func (m *Manager) keepaliveLoop(conn *Connection) {
 	defer recovery.RecoverWithLog(m.logger, "peer.keepaliveLoop")
 
 	// Use timer with jittered intervals instead of fixed ticker
-	// This avoids detectable beacon patterns in network traffic
+	// This makes timing patterns less distinguishable in network traffic
 	timer := time.NewTimer(m.jitteredKeepaliveInterval())
 	defer timer.Stop()
 

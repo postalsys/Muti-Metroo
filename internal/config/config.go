@@ -130,7 +130,7 @@ type GlobalTLSConfig struct {
 
 	// Fingerprint configures TLS fingerprint customization (client-side only).
 	// This allows mimicking browser TLS fingerprints (JA3/JA4) to blend with
-	// legitimate traffic and evade network fingerprinting.
+	// legitimate traffic and make fingerprinting harder.
 	Fingerprint FingerprintConfig `yaml:"fingerprint,omitempty"`
 }
 
@@ -682,7 +682,7 @@ func Default() *Config {
 		Connections: ConnectionsConfig{
 			IdleThreshold:   5 * time.Minute, // Long-running connections like SSH should stay alive
 			Timeout:         90 * time.Second,
-			KeepaliveJitter: 0.2, // 20% jitter to avoid detectable beacon patterns
+			KeepaliveJitter: 0.2, // 20% jitter makes timing patterns less distinguishable
 			Reconnect: ReconnectConfig{
 				InitialDelay: 1 * time.Second,
 				MaxDelay:     60 * time.Second,

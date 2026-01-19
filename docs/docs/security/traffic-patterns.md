@@ -163,7 +163,7 @@ Available presets:
 - **WebSocket**: Full fingerprint customization
 - **QUIC**: Not supported (QUIC uses its own TLS 1.3 within quic-go)
 
-**Example: Maximum evasion configuration**
+**Example: Configuration for reduced detectability**
 
 ```yaml
 tls:

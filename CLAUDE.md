@@ -380,7 +380,7 @@ Disabled endpoints return HTTP 404 and log access attempts at debug level.
 | Max Total Streams   | `limits.max_streams_total`       | 10000   | -           | Total concurrent streams across all peers      |
 | Max Pending Opens   | `limits.max_pending_opens`       | 100     | -           | Pending stream open requests                   |
 | Idle Threshold      | `connections.idle_threshold`     | 5m      | -           | Keepalive interval for idle connections        |
-| Keepalive Jitter    | `connections.keepalive_jitter`   | 0.2     | 0.0-1.0     | Timing jitter to avoid beacon pattern detection |
+| Keepalive Jitter    | `connections.keepalive_jitter`   | 0.2     | 0.0-1.0     | Timing jitter makes beacon patterns less distinguishable |
 | Connection Timeout  | `connections.timeout`            | 90s     | -           | Disconnect after this keepalive timeout        |
 
 ### Protocol Constants (Non-configurable)

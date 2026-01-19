@@ -2982,7 +2982,7 @@ muti-metroo/
 | `github.com/quic-go/quic-go`        | QUIC transport                        |
 | `golang.org/x/net/http2`            | HTTP/2 transport                      |
 | `nhooyr.io/websocket`               | WebSocket transport                   |
-| `github.com/refraction-networking/utls` | TLS fingerprint customization (JA3/JA4 evasion) |
+| `github.com/refraction-networking/utls` | TLS fingerprint customization (JA3/JA4 blending) |
 | `gopkg.in/yaml.v3`                  | Configuration parsing                 |
 | `github.com/spf13/cobra`            | CLI framework                         |
 | `log/slog`                          | Structured logging (stdlib)           |

@@ -39,7 +39,7 @@ func (t *QUICTransport) Type() TransportType {
 // Note: TLS fingerprint customization (FingerprintPreset) is not currently supported
 // for QUIC transport. QUIC uses its own TLS 1.3 implementation within quic-go,
 // and integrating uTLS would require significant changes to quic-go internals.
-// For fingerprint evasion, consider using HTTP/2 or WebSocket transport instead.
+// To reduce fingerprint distinctiveness, consider using HTTP/2 or WebSocket transport instead.
 func (t *QUICTransport) Dial(ctx context.Context, addr string, opts DialOptions) (PeerConn, error) {
 	t.mu.Lock()
 	if t.closed {
