@@ -53,10 +53,10 @@ type Server struct {
 
 	tracker *connTracker[net.Conn]
 
-	running  atomic.Bool
-	stopOnce sync.Once
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	running atomic.Bool
+	mu      sync.Mutex // Protects listener and stopCh
+	stopCh  chan struct{}
+	wg      sync.WaitGroup
 }
 
 // NewServer creates a new SOCKS5 server.
@@ -87,7 +87,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("listen: %w", err)
 	}
 
+	// Create a new stopCh for this run (supports restart after Stop)
+	s.mu.Lock()
 	s.listener = listener
+	s.stopCh = make(chan struct{})
+	s.mu.Unlock()
 	s.running.Store(true)
 
 	s.wg.Add(1)
@@ -98,24 +102,38 @@ func (s *Server) Start() error {
 
 // Stop gracefully stops the server.
 func (s *Server) Stop() error {
+	if !s.running.Load() {
+		return nil
+	}
+
+	s.running.Store(false)
+
+	// Close stopCh to signal accept loops
+	s.mu.Lock()
+	if s.stopCh != nil {
+		select {
+		case <-s.stopCh:
+			// Already closed
+		default:
+			close(s.stopCh)
+		}
+	}
+
+	// Close listener
 	var err error
-	s.stopOnce.Do(func() {
-		s.running.Store(false)
-		close(s.stopCh)
+	if s.listener != nil {
+		err = s.listener.Close()
+		s.listener = nil
+	}
+	s.mu.Unlock()
 
-		// Close listener
-		if s.listener != nil {
-			err = s.listener.Close()
-		}
+	// Stop WebSocket listener if running
+	if s.wsListener != nil {
+		s.wsListener.Stop()
+	}
 
-		// Stop WebSocket listener if running
-		if s.wsListener != nil {
-			s.wsListener.Stop()
-		}
-
-		// Close all active connections
-		s.tracker.closeAll()
-	})
+	// Close all active connections
+	s.tracker.closeAll()
 
 	// Wait for all goroutines to finish
 	s.wg.Wait()
@@ -223,11 +241,21 @@ func (s *Server) WebSocketConnectionCount() int64 {
 func (s *Server) acceptLoop() {
 	defer s.wg.Done()
 
+	// Capture listener and stopCh at start to handle server restart properly
+	s.mu.Lock()
+	listener := s.listener
+	stopCh := s.stopCh
+	s.mu.Unlock()
+
+	if listener == nil {
+		return
+	}
+
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			select {
-			case <-s.stopCh:
+			case <-stopCh:
 				return
 			default:
 				// Log error and continue

@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -144,6 +145,11 @@ type Agent struct {
 	// Route advertisement trigger channel
 	routeAdvertiseCh chan struct{}
 
+	// Wake signal channel for poll cycle synchronization
+	wakeSignalMu sync.Mutex
+	wakeSignal   chan struct{}
+	pollCancel   context.CancelFunc // Cancel function for active poll context
+
 	// State
 	running  atomic.Bool
 	stopOnce sync.Once
@@ -259,6 +265,7 @@ func (a *Agent) initComponents() error {
 		MaxAttempts:  a.cfg.Connections.Reconnect.MaxRetries,
 	}
 	peerCfg.OnPeerDisconnect = a.handlePeerDisconnect
+	peerCfg.OnPeerConnected = a.handlePeerConnected
 	a.peerMgr = peer.NewManager(peerCfg)
 
 	// Initialize management key encryption (sealed box) if configured
@@ -677,6 +684,7 @@ func (a *Agent) Start() error {
 			a.dataDir,
 			a.logger.With(logging.KeyComponent, "sleep"),
 		)
+		a.sleepMgr.SetLocalID(a.id) // Set local ID for deterministic window calculations
 		a.sleepMgr.SetCallbacks(sleep.Callbacks{
 			OnSleep: a.enterSleep,
 			OnWake:  a.exitSleep,
@@ -763,6 +771,32 @@ func (a *Agent) startListener(cfg config.ListenerConfig) error {
 	go a.acceptLoop(listener)
 
 	return nil
+}
+
+// startListenerWithRetry attempts to start a listener with retries.
+// This is useful when waking from sleep mode, as UDP sockets may not be
+// immediately released after closing poll listeners.
+func (a *Agent) startListenerWithRetry(cfg config.ListenerConfig, maxRetries int, retryDelay time.Duration) error {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		lastErr = a.startListener(cfg)
+		if lastErr == nil {
+			return nil
+		}
+		// Only retry for "address already in use" errors
+		if !strings.Contains(lastErr.Error(), "address already in use") {
+			return lastErr
+		}
+		if i < maxRetries-1 {
+			a.logger.Debug("listener start retry",
+				logging.KeyAddress, cfg.Address,
+				"attempt", i+1,
+				"max_retries", maxRetries,
+				logging.KeyError, lastErr)
+			time.Sleep(retryDelay)
+		}
+	}
+	return lastErr
 }
 
 // loadListenerTLSConfig loads TLS configuration for a listener.
@@ -2234,6 +2268,20 @@ func (a *Agent) getLocalRoutes() ([]byte, bool) {
 		return []byte(err.Error()), false
 	}
 	return data, true
+}
+
+// handlePeerConnected is called when a peer connection is established.
+// It forwards any pending wake commands to the new peer.
+func (a *Agent) handlePeerConnected(conn *peer.Connection) {
+	peerID := conn.RemoteID
+
+	a.logger.Debug("peer connected",
+		logging.KeyPeerID, peerID.ShortString())
+
+	// Forward any pending wake command to the new peer
+	if a.flooder != nil {
+		a.flooder.OnPeerConnected(peerID)
+	}
 }
 
 // handlePeerDisconnect is called when a peer connection is closed.
@@ -4931,6 +4979,9 @@ func (a *Agent) handleSleepCommand(peerID identity.AgentID, frame *protocol.Fram
 		return
 	}
 
+	// Brief delay to allow flood to propagate before disconnecting
+	time.Sleep(100 * time.Millisecond)
+
 	// New command - enter sleep mode
 	if a.sleepMgr != nil {
 		a.logger.Info("entering sleep mode from mesh command",
@@ -4961,9 +5012,48 @@ func (a *Agent) handleWakeCommand(peerID identity.AgentID, frame *protocol.Frame
 	if a.sleepMgr != nil {
 		a.logger.Info("waking from mesh command",
 			"origin", cmd.OriginAgent.ShortString())
+
+		// Always call Wake() first to set state to AWAKE
+		// This ensures the poll fallback check works even if signal is lost
 		if err := a.sleepMgr.Wake(); err != nil {
-			a.logger.Error("failed to wake from sleep mode",
-				logging.KeyError, err)
+			// ErrNotSleeping is expected if already awake
+			if err != sleep.ErrNotSleeping {
+				a.logger.Error("failed to wake from sleep mode",
+					logging.KeyError, err)
+			}
+		}
+
+		// If we're in a poll cycle, also signal it to stop waiting early
+		a.wakeSignalMu.Lock()
+		inPoll := a.wakeSignal != nil
+		a.wakeSignalMu.Unlock()
+
+		if inPoll {
+			a.signalWake()
+		}
+	}
+}
+
+// signalWake signals the wake channel if a poll cycle is active.
+// Also cancels the poll context to ensure doPoll exits promptly.
+func (a *Agent) signalWake() {
+	a.wakeSignalMu.Lock()
+	defer a.wakeSignalMu.Unlock()
+
+	// Cancel the poll context to force doPoll to exit the select
+	// This is critical: Wake() was already called before this,
+	// so state is AWAKE. When doPoll exits and checks state, it will
+	// see AWAKE and skip the DisconnectAll() call.
+	if a.pollCancel != nil {
+		a.pollCancel()
+	}
+
+	// Also send on wake signal in case doPoll is waiting on it
+	if a.wakeSignal != nil {
+		select {
+		case a.wakeSignal <- struct{}{}:
+		default:
+			// Channel not ready or already signaled
 		}
 	}
 }
@@ -5035,6 +5125,7 @@ func (a *Agent) enterSleep() error {
 	for _, listener := range a.listeners {
 		listener.Close()
 	}
+	a.listeners = nil // Clear slice to avoid accumulation on wake
 
 	return nil
 }
@@ -5043,13 +5134,20 @@ func (a *Agent) enterSleep() error {
 func (a *Agent) exitSleep() error {
 	a.logger.Info("exiting sleep mode - reconnecting")
 
-	// Restart listeners
-	for _, listenerCfg := range a.cfg.Listeners {
-		if err := a.startListener(listenerCfg); err != nil {
-			a.logger.Error("failed to restart listener",
-				logging.KeyAddress, listenerCfg.Address,
-				logging.KeyError, err)
+	// Restart listeners only if none exist (poll listeners may have been promoted)
+	if len(a.listeners) == 0 {
+		// No existing listeners, start new ones with retry logic
+		// UDP sockets may not be immediately released after poll listeners close
+		for _, listenerCfg := range a.cfg.Listeners {
+			if err := a.startListenerWithRetry(listenerCfg, 5, 200*time.Millisecond); err != nil {
+				a.logger.Error("failed to restart listener",
+					logging.KeyAddress, listenerCfg.Address,
+					logging.KeyError, err)
+			}
 		}
+	} else {
+		a.logger.Debug("listeners already exist (promoted from poll), skipping restart",
+			"count", len(a.listeners))
 	}
 
 	// Reconnect to all configured peers
@@ -5058,6 +5156,13 @@ func (a *Agent) exitSleep() error {
 		a.logger.Warn("error reconnecting peers",
 			logging.KeyError, err)
 	}
+
+	// Start aggressive reconnection in background to hit sleeping peers' poll windows
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.aggressiveReconnect()
+	}()
 
 	// Restart SOCKS5 server
 	if a.socks5Srv != nil {
@@ -5075,34 +5180,260 @@ func (a *Agent) exitSleep() error {
 	return nil
 }
 
+// aggressiveReconnect repeatedly attempts to reconnect to all peers
+// for multiple poll cycles to ensure we catch sleeping peers' poll windows.
+func (a *Agent) aggressiveReconnect() {
+	pollInterval := a.cfg.Sleep.PollInterval
+	pollDuration := a.cfg.Sleep.PollDuration
+
+	// Try to reconnect frequently for 3 poll cycles
+	totalDuration := 3*pollInterval + pollDuration
+	retryInterval := pollDuration / 2 // Try twice per poll window
+	if retryInterval < 500*time.Millisecond {
+		retryInterval = 500 * time.Millisecond
+	}
+
+	// Create a parent context that gets canceled when the agent stops
+	// This ensures in-flight reconnection operations are interrupted
+	parentCtx, parentCancel := context.WithCancel(context.Background())
+	defer parentCancel()
+
+	// Monitor stopCh and cancel the parent context
+	go func() {
+		select {
+		case <-a.stopCh:
+			parentCancel()
+		case <-parentCtx.Done():
+		}
+	}()
+
+	ticker := time.NewTicker(retryInterval)
+	defer ticker.Stop()
+	deadline := time.Now().Add(totalDuration)
+
+	a.logger.Debug("starting aggressive reconnection",
+		"total_duration", totalDuration,
+		"retry_interval", retryInterval)
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(parentCtx, retryInterval)
+			if err := a.peerMgr.ReconnectAll(ctx); err != nil {
+				// Don't log context canceled errors during shutdown
+				if !errors.Is(err, context.Canceled) {
+					a.logger.Debug("aggressive reconnect attempt",
+						logging.KeyError, err)
+				}
+			}
+			cancel()
+		case <-a.stopCh:
+			return
+		}
+	}
+
+	a.logger.Debug("aggressive reconnection complete")
+}
+
 // doPoll is called during a poll cycle while sleeping.
 func (a *Agent) doPoll() error {
 	a.logger.Debug("starting poll cycle")
 
-	// Temporarily reconnect to peers
-	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Sleep.PollDuration)
-	defer cancel()
+	// Create a context for this poll cycle
+	pollCtx, pollCancel := context.WithTimeout(context.Background(), a.cfg.Sleep.PollDuration)
+	defer pollCancel()
 
-	if err := a.peerMgr.ReconnectAll(ctx); err != nil {
+	// Create wake signal channel for this poll cycle and store cancel func
+	a.wakeSignalMu.Lock()
+	a.wakeSignal = make(chan struct{})
+	a.pollCancel = pollCancel // Store so wake handler can cancel poll early
+	a.wakeSignalMu.Unlock()
+	defer func() {
+		a.wakeSignalMu.Lock()
+		a.wakeSignal = nil
+		a.pollCancel = nil
+		a.wakeSignalMu.Unlock()
+	}()
+
+	// Start temporary listeners for the poll duration
+	// We use regular accept loops so connections persist if we wake up
+	var pollListeners []transport.Listener
+	for _, listenerCfg := range a.cfg.Listeners {
+		listener, err := a.createPollListener(listenerCfg)
+		if err != nil {
+			a.logger.Warn("failed to create poll listener",
+				logging.KeyAddress, listenerCfg.Address,
+				logging.KeyError, err)
+			continue
+		}
+		pollListeners = append(pollListeners, listener)
+		// Register immediately so connections are properly handled
+		a.listeners = append(a.listeners, listener)
+		// Start regular accept loop (not poll-specific)
+		a.wg.Add(1)
+		go a.acceptLoop(listener)
+	}
+
+	// Temporarily reconnect to peers
+	if err := a.peerMgr.ReconnectAll(pollCtx); err != nil {
 		a.logger.Warn("error reconnecting for poll",
 			logging.KeyError, err)
 	}
 
-	// Wait for poll duration to receive any queued messages
+	// Wait for poll duration OR wake signal
 	select {
-	case <-ctx.Done():
+	case <-pollCtx.Done():
+		// Poll timeout - check state below
+	case <-a.wakeSignal:
+		// Explicitly woken during poll - listeners are already registered
+		// Just call Wake() to trigger exitSleep() (which won't restart listeners)
+		a.logger.Debug("poll cycle received wake signal - keeping listeners")
+		if a.sleepMgr != nil {
+			if err := a.sleepMgr.Wake(); err != nil {
+				// ErrNotSleeping is expected if state already changed
+				if err != sleep.ErrNotSleeping {
+					a.logger.Debug("wake during poll", logging.KeyError, err)
+				}
+			}
+		}
+		return nil
 	case <-a.stopCh:
+		// Clean up listeners before returning
+		a.closePollListeners(pollListeners)
 		return nil
 	}
 
-	// Disconnect again
+	// Check if we were woken during the poll - if so, don't disconnect
+	// This is a fallback in case state changed but signal wasn't received
+	if a.sleepMgr != nil && a.sleepMgr.GetState() == sleep.StateAwake {
+		a.logger.Debug("poll cycle ended but agent is awake - keeping listeners")
+		// Listeners are already registered, nothing more to do
+		return nil
+	}
+
+	// Disconnect again (still sleeping)
 	if err := a.peerMgr.DisconnectAll(); err != nil {
 		a.logger.Warn("error disconnecting after poll",
 			logging.KeyError, err)
 	}
 
+	// Close poll listeners and remove from agent listeners
+	a.closePollListeners(pollListeners)
+
 	a.logger.Debug("poll cycle complete")
 	return nil
+}
+
+// closePollListeners closes poll listeners and removes them from the agent's listener list.
+// This is called when poll ends and we're still sleeping.
+func (a *Agent) closePollListeners(pollListeners []transport.Listener) {
+	// Create a set of poll listener addresses for fast lookup
+	pollAddrs := make(map[string]bool)
+	for _, listener := range pollListeners {
+		pollAddrs[listener.Addr().String()] = true
+		listener.Close()
+	}
+
+	// Remove poll listeners from agent's listener list
+	var remaining []transport.Listener
+	for _, listener := range a.listeners {
+		if !pollAddrs[listener.Addr().String()] {
+			remaining = append(remaining, listener)
+		}
+	}
+	a.listeners = remaining
+}
+
+// createPollListener creates a listener for a poll cycle without starting the regular accept loop.
+func (a *Agent) createPollListener(cfg config.ListenerConfig) (transport.Listener, error) {
+	// For plaintext WebSocket listeners (reverse proxy mode), skip TLS
+	var tlsConfig *tls.Config
+	if cfg.PlainText {
+		// Plaintext - no TLS
+	} else {
+		// Determine effective mTLS setting (per-listener override or global)
+		enableMTLS := a.cfg.TLS.MTLS
+		if cfg.TLS.MTLS != nil {
+			enableMTLS = *cfg.TLS.MTLS
+		}
+
+		// Load TLS config with mTLS support
+		var err error
+		tlsConfig, err = a.loadListenerTLSConfig(&cfg.TLS, enableMTLS)
+		if err != nil {
+			return nil, fmt.Errorf("load TLS config: %w", err)
+		}
+	}
+
+	// Select the appropriate transport based on config
+	transportType := transport.TransportType(cfg.Transport)
+	if transportType == "" {
+		transportType = transport.TransportQUIC // Default to QUIC
+	}
+
+	tr, ok := a.transports[transportType]
+	if !ok {
+		return nil, fmt.Errorf("unsupported transport type: %s", transportType)
+	}
+
+	// Listen
+	listener, err := tr.Listen(cfg.Address, transport.ListenOptions{
+		TLSConfig:     tlsConfig,
+		Path:          cfg.Path,
+		MaxStreams:    a.cfg.Limits.MaxStreamsTotal,
+		PlainText:     cfg.PlainText,
+		ALPNProtocol:  a.cfg.Protocol.ALPN,
+		HTTPHeader:    a.cfg.Protocol.HTTPHeader,
+		WSSubprotocol: a.cfg.Protocol.WSSubprotocol,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	a.logger.Debug("poll listener started",
+		logging.KeyAddress, listener.Addr(),
+		"transport", cfg.Transport)
+
+	return listener, nil
+}
+
+// pollAcceptLoop accepts connections on a poll listener until the context is cancelled.
+func (a *Agent) pollAcceptLoop(ctx context.Context, listener transport.Listener) {
+	defer recovery.RecoverWithLog(a.logger, "pollAcceptLoop")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-a.stopCh:
+			return
+		default:
+		}
+
+		// Short timeout for accept to allow checking context
+		acceptCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		peerConn, err := listener.Accept(acceptCtx)
+		cancel()
+
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-a.stopCh:
+				return
+			default:
+				// Timeout or other error - continue if context not done
+				if ctx.Err() != nil {
+					return
+				}
+				continue
+			}
+		}
+
+		// Handle the connection
+		a.wg.Add(1)
+		go a.handleIncomingConnection(peerConn)
+	}
 }
 
 // TriggerSleep initiates sleep mode for this agent and floods the command to the mesh.
@@ -5125,6 +5456,10 @@ func (a *Agent) TriggerSleep() error {
 			logging.KeyError, err)
 	}
 
+	// Brief delay to allow flood to propagate before disconnecting
+	// This ensures peers receive the sleep command before we close connections
+	time.Sleep(100 * time.Millisecond)
+
 	// Enter sleep mode locally
 	return a.sleepMgr.Sleep()
 }
@@ -5140,10 +5475,7 @@ func (a *Agent) TriggerWake() error {
 		return err
 	}
 
-	// Wait briefly for connections to establish
-	time.Sleep(2 * time.Second)
-
-	// Create wake command
+	// Create wake command once (same command ID for deduplication)
 	cmd := &protocol.WakeCommand{
 		OriginAgent: a.id,
 		CommandID:   uint64(time.Now().UnixNano()),
@@ -5151,7 +5483,36 @@ func (a *Agent) TriggerWake() error {
 		SeenBy:      []identity.AgentID{a.id},
 	}
 
-	// Flood command to mesh
+	// Flood multiple times during the wait period to catch peers at different poll windows.
+	// Total wait time should span at least 2 poll cycles to ensure all peers get the message.
+	totalWait := 2*a.cfg.Sleep.PollInterval + a.cfg.Sleep.PollDuration
+	if totalWait < 5*time.Second {
+		totalWait = 5 * time.Second
+	}
+
+	// Flood at intervals during the wait period
+	floodInterval := a.cfg.Sleep.PollDuration
+	if floodInterval < 500*time.Millisecond {
+		floodInterval = 500 * time.Millisecond
+	}
+
+	ticker := time.NewTicker(floodInterval)
+	defer ticker.Stop()
+	deadline := time.Now().Add(totalWait)
+
+	// Initial flood
+	a.flooder.FloodWakeCommand(cmd)
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ticker.C:
+			a.flooder.FloodWakeCommand(cmd)
+		case <-a.stopCh:
+			return nil
+		}
+	}
+
+	// Final flood
 	return a.flooder.FloodWakeCommand(cmd)
 }
 

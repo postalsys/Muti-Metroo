@@ -116,6 +116,11 @@ type Flooder struct {
 	sleepCmdMu        sync.RWMutex
 	sleepCmdSeenCache map[SleepCommandKey]*SeenSleepCommand
 
+	// Pending wake command to forward to new peers
+	pendingWakeMu  sync.RWMutex
+	pendingWakeCmd *protocol.WakeCommand
+	pendingWakeAt  time.Time
+
 	wg       sync.WaitGroup
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -1061,6 +1066,9 @@ func (f *Flooder) HandleWakeCommand(fromPeer identity.AgentID, cmd *protocol.Wak
 	newSeenBy := append(cmd.SeenBy, f.localID)
 	f.floodWakeCommand(fromPeer, cmd, newSeenBy)
 
+	// Store pending wake command for forwarding to new peers
+	f.storePendingWake(cmd)
+
 	return true
 }
 
@@ -1090,6 +1098,9 @@ func (f *Flooder) FloodSleepCommand(cmd *protocol.SleepCommand) error {
 // This is used to initiate mesh-wide wake from this agent.
 func (f *Flooder) FloodWakeCommand(cmd *protocol.WakeCommand) error {
 	f.markSleepCmdSeen(cmd.OriginAgent, cmd.CommandID, f.localID)
+
+	// Store pending wake command for forwarding to new peers
+	f.storePendingWake(cmd)
 
 	cmdWithSeen := &protocol.WakeCommand{
 		OriginAgent: cmd.OriginAgent,
@@ -1170,4 +1181,70 @@ func (f *Flooder) SleepCommandSeenCacheSize() int {
 	f.sleepCmdMu.RLock()
 	defer f.sleepCmdMu.RUnlock()
 	return len(f.sleepCmdSeenCache)
+}
+
+// storePendingWake stores a wake command to forward to new peers.
+func (f *Flooder) storePendingWake(cmd *protocol.WakeCommand) {
+	f.pendingWakeMu.Lock()
+	defer f.pendingWakeMu.Unlock()
+	f.pendingWakeCmd = cmd
+	f.pendingWakeAt = time.Now()
+}
+
+// ClearPendingWake clears any stored pending wake command.
+func (f *Flooder) ClearPendingWake() {
+	f.pendingWakeMu.Lock()
+	defer f.pendingWakeMu.Unlock()
+	f.pendingWakeCmd = nil
+	f.pendingWakeAt = time.Time{}
+}
+
+// OnPeerConnected forwards any pending wake command to a newly connected peer.
+// This should be called when a peer connection is established.
+func (f *Flooder) OnPeerConnected(peerID identity.AgentID) {
+	f.pendingWakeMu.RLock()
+	cmd := f.pendingWakeCmd
+	storedAt := f.pendingWakeAt
+	f.pendingWakeMu.RUnlock()
+
+	// No pending wake command
+	if cmd == nil {
+		return
+	}
+
+	// Expire pending wake after SeenCacheTTL (default 5 minutes)
+	if time.Since(storedAt) > f.cfg.SeenCacheTTL {
+		f.ClearPendingWake()
+		return
+	}
+
+	// Don't send to the origin agent
+	if peerID == cmd.OriginAgent {
+		return
+	}
+
+	f.logger.Debug("forwarding pending wake to new peer",
+		"origin", cmd.OriginAgent.ShortString(),
+		"command_id", cmd.CommandID,
+		"peer", peerID.ShortString())
+
+	// Create wake command with our local ID in SeenBy
+	fwdCmd := &protocol.WakeCommand{
+		OriginAgent: cmd.OriginAgent,
+		CommandID:   cmd.CommandID,
+		Timestamp:   cmd.Timestamp,
+		SeenBy:      []identity.AgentID{f.localID},
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameWakeCommand,
+		StreamID: protocol.ControlStreamID,
+		Payload:  fwdCmd.Encode(),
+	}
+
+	if err := f.sender.SendToPeer(peerID, frame); err != nil {
+		f.logger.Debug("failed to forward pending wake to new peer",
+			"peer", peerID.ShortString(),
+			logging.KeyError, err)
+	}
 }

@@ -19,7 +19,21 @@ services:
       dockerfile: Dockerfile
     command: ["--version"]
 
-  # 3-agent mesh testbed
+  # 6-agent mesh testbed with mixed transports
+  # Topology: A->B, B<-C, C->D, C<-E, E->F, D<-F
+  #
+  #     A (agent1)
+  #     |
+  #     v  QUIC
+  #     B (agent2) <--- C (agent3) ---> D (agent4)
+  #                H2        ^      WS       ^
+  #                          |               |
+  #                    QUIC  |               | WS
+  #                          |               |
+  #                    E (agent5) ---> F (agent6)
+  #                               H2
+
+  # Agent A: SOCKS5 ingress, connects to B via QUIC
   agent1:
     build:
       context: .
@@ -31,13 +45,14 @@ services:
       - ./testbed/agent1/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "31080:1080"   # SOCKS5 (mapped to 31080 to avoid conflicts)
+      - "1090:1080"   # SOCKS5
       - "8091:8080"   # Health/Metrics
     networks:
       - mesh
     depends_on:
       - agent2
 
+  # Agent B: Transit hub, receives from A (QUIC) and C (H2)
   agent2:
     build:
       context: .
@@ -49,12 +64,11 @@ services:
       - ./testbed/agent2/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "8082:8080"   # Health/Metrics
+      - "8092:8080"   # Health/Metrics
     networks:
       - mesh
-    depends_on:
-      - agent3
 
+  # Agent C: Central hub, connects to B (H2) and D (WS), receives from E (QUIC)
   agent3:
     build:
       context: .
@@ -66,12 +80,14 @@ services:
       - ./testbed/agent3/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "8083:8080"   # Health/Metrics
+      - "8093:8080"   # Health/Metrics
     networks:
       - mesh
     depends_on:
+      - agent2
       - agent4
 
+  # Agent D: Transit node, receives from C (WS) and F (WS)
   agent4:
     build:
       context: .
@@ -83,9 +99,46 @@ services:
       - ./testbed/agent4/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "8084:8080"   # Health/Metrics
+      - "8094:8080"   # Health/Metrics
     networks:
       - mesh
+
+  # Agent E: Transit node, connects to C (QUIC) and F (H2)
+  agent5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: muti-metroo-agent5
+    hostname: agent5
+    volumes:
+      - ./testbed/agent5/data:/app/data
+      - ./testbed/agent5/config.yaml:/app/config.yaml:ro
+      - ./testbed/certs:/app/certs:ro
+    ports:
+      - "8095:8080"   # Health/Metrics
+    networks:
+      - mesh
+    depends_on:
+      - agent3
+      - agent6
+
+  # Agent F: Exit node, connects to D (WS), receives from E (H2)
+  agent6:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: muti-metroo-agent6
+    hostname: agent6
+    volumes:
+      - ./testbed/agent6/data:/app/data
+      - ./testbed/agent6/config.yaml:/app/config.yaml:ro
+      - ./testbed/certs:/app/certs:ro
+    ports:
+      - "8096:8080"   # Health/Metrics
+    networks:
+      - mesh
+    depends_on:
+      - agent4
 
   # Target server for testing
   target:

@@ -682,6 +682,36 @@ type SleepConfig struct {
 	// Useful for covert deployments that should remain dormant until explicitly woken.
 	// Default: false.
 	AutoSleepOnStart bool `yaml:"auto_sleep_on_start,omitempty"`
+
+	// DeterministicWindows configures deterministic listening windows.
+	// When enabled, agents listen at predictable times derived from their AgentID,
+	// allowing peers to calculate when a sleeping agent will be available.
+	DeterministicWindows DeterministicWindowConfig `yaml:"deterministic_windows,omitempty"`
+}
+
+// DeterministicWindowConfig configures deterministic listening windows for sleep mode.
+// When enabled, sleeping agents listen at predictable times derived from their AgentID,
+// allowing peers to time their reconnection attempts efficiently.
+type DeterministicWindowConfig struct {
+	// Enabled controls whether deterministic windows are used.
+	// When false (default), legacy random jitter is used for poll timing.
+	// Default: false.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// WindowLength is the duration of each listening window.
+	// Maximum 30 seconds to limit exposure.
+	// Default: 30 seconds.
+	WindowLength time.Duration `yaml:"window_length,omitempty"`
+
+	// ClockTolerance accounts for clock drift between agents.
+	// Connection attempts start ClockTolerance before the predicted window.
+	// Default: 5 seconds.
+	ClockTolerance time.Duration `yaml:"clock_tolerance,omitempty"`
+
+	// Epoch is the reference point for window calculations (RFC3339 format).
+	// All agents should use the same epoch for interoperability.
+	// Default: Unix epoch (1970-01-01T00:00:00Z).
+	Epoch string `yaml:"epoch,omitempty"`
 }
 
 // Default returns a Config with default values.
@@ -777,6 +807,12 @@ func Default() *Config {
 			PersistState:       true,
 			MaxQueuedMessages:  1000,
 			AutoSleepOnStart:   false,
+			DeterministicWindows: DeterministicWindowConfig{
+				Enabled:        false,
+				WindowLength:   30 * time.Second,
+				ClockTolerance: 5 * time.Second,
+				Epoch:          "", // Empty = Unix epoch
+			},
 		},
 	}
 }

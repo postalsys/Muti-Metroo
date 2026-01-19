@@ -181,6 +181,20 @@ func (r *Reconnector) clearState(addr string) {
 	}
 }
 
+// ResetAll clears all reconnection state, stopping any pending timers.
+// This resets backoff delays to initial values for fresh reconnection attempts.
+func (r *Reconnector) ResetAll() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for addr, state := range r.states {
+		if state.timer != nil {
+			state.timer.Stop()
+		}
+		delete(r.states, addr)
+	}
+}
+
 // GetAttempts returns the number of reconnection attempts for an address.
 func (r *Reconnector) GetAttempts(addr string) int {
 	r.mu.Lock()

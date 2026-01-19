@@ -186,9 +186,12 @@ func (m *Manager) Accept(ctx context.Context, peerConn transport.PeerConn) (*Con
 func (m *Manager) registerConnection(conn *Connection) {
 	m.mu.Lock()
 	// Check if we already have a connection to this peer
-	if existing, ok := m.peers[conn.RemoteID]; ok {
-		// Close the existing connection
-		existing.Close()
+	if _, ok := m.peers[conn.RemoteID]; ok {
+		// Keep the existing connection, close the new one
+		// This prevents connection churn when both sides connect simultaneously
+		m.mu.Unlock()
+		conn.Close()
+		return
 	}
 	m.peers[conn.RemoteID] = conn
 	m.mu.Unlock()
@@ -518,7 +521,8 @@ func (m *Manager) DisconnectAll() error {
 // ReconnectAll re-establishes connections to all configured persistent peers.
 // This is used to resume from sleep mode.
 func (m *Manager) ReconnectAll(ctx context.Context) error {
-	// Resume reconnector
+	// Reset backoff delays and resume reconnector for fresh start after sleep
+	m.reconnector.ResetAll()
 	m.reconnector.Resume()
 
 	m.mu.RLock()
@@ -537,6 +541,16 @@ func (m *Manager) ReconnectAll(ctx context.Context) error {
 	var lastErr error
 	for i, addr := range addrs {
 		info := infos[i]
+
+		// Skip if already connected to this peer
+		if info.ExpectedID != (identity.AgentID{}) {
+			m.mu.RLock()
+			_, connected := m.peers[info.ExpectedID]
+			m.mu.RUnlock()
+			if connected {
+				continue
+			}
+		}
 
 		// Use peer-specific transport if available
 		var tr transport.Transport

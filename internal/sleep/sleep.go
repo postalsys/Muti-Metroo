@@ -103,6 +103,10 @@ type Manager struct {
 	nextPollTime   time.Time
 	pollTimer      *time.Timer
 
+	// Deterministic windows
+	localID    identity.AgentID
+	windowCalc *WindowCalculator
+
 	// Command tracking for deduplication
 	commandSeq atomic.Uint64
 	seenMu     sync.RWMutex
@@ -138,6 +142,32 @@ func NewManager(cfg config.SleepConfig, dataDir string, logger *slog.Logger) *Ma
 		seenCmds:  make(map[sleepCmdKey]time.Time),
 		queue:     NewStateQueue(cfg.MaxQueuedMessages),
 		stopCh:    make(chan struct{}),
+	}
+
+	// Initialize deterministic window calculator if enabled
+	if cfg.DeterministicWindows.Enabled {
+		windowCfg := DefaultWindowConfig()
+
+		// Use poll interval as cycle length (agents listen once per poll cycle)
+		windowCfg.CycleLength = cfg.PollInterval
+
+		if cfg.DeterministicWindows.WindowLength > 0 {
+			windowCfg.WindowLength = cfg.DeterministicWindows.WindowLength
+		}
+		if cfg.DeterministicWindows.ClockTolerance > 0 {
+			windowCfg.ClockTolerance = cfg.DeterministicWindows.ClockTolerance
+		}
+		if cfg.DeterministicWindows.Epoch != "" {
+			if epoch, err := time.Parse(time.RFC3339, cfg.DeterministicWindows.Epoch); err == nil {
+				windowCfg.Epoch = epoch
+			}
+		}
+
+		m.windowCalc = NewWindowCalculator(windowCfg)
+		m.logger.Info("deterministic windows enabled",
+			"cycle_length", windowCfg.CycleLength,
+			"window_length", windowCfg.WindowLength,
+			"clock_tolerance", windowCfg.ClockTolerance)
 	}
 
 	// Initialize state
@@ -378,24 +408,35 @@ func (m *Manager) GetStatus() StatusInfo {
 	m.stateMu.RLock()
 	defer m.stateMu.RUnlock()
 
-	return StatusInfo{
-		State:          m.state.Load().(State),
-		Enabled:        m.cfg.Enabled,
-		SleepStartTime: m.sleepStartTime,
-		LastPollTime:   m.lastPollTime,
-		NextPollTime:   m.nextPollTime,
-		QueuedPeers:    m.queue.PeerCount(),
+	status := StatusInfo{
+		State:                m.state.Load().(State),
+		Enabled:              m.cfg.Enabled,
+		SleepStartTime:       m.sleepStartTime,
+		LastPollTime:         m.lastPollTime,
+		NextPollTime:         m.nextPollTime,
+		QueuedPeers:          m.queue.PeerCount(),
+		DeterministicWindows: m.windowCalc != nil,
 	}
+
+	// Include window info if deterministic windows enabled
+	if m.windowCalc != nil && m.localID != (identity.AgentID{}) {
+		info := m.windowCalc.GetWindowInfo(m.localID, time.Now())
+		status.NextWindow = &info
+	}
+
+	return status
 }
 
 // StatusInfo contains detailed sleep status.
 type StatusInfo struct {
-	State          State     `json:"state"`
-	Enabled        bool      `json:"enabled"`
-	SleepStartTime time.Time `json:"sleep_start_time,omitempty"`
-	LastPollTime   time.Time `json:"last_poll_time,omitempty"`
-	NextPollTime   time.Time `json:"next_poll_time,omitempty"`
-	QueuedPeers    int       `json:"queued_peers"`
+	State                State       `json:"state"`
+	Enabled              bool        `json:"enabled"`
+	SleepStartTime       time.Time   `json:"sleep_start_time,omitempty"`
+	LastPollTime         time.Time   `json:"last_poll_time,omitempty"`
+	NextPollTime         time.Time   `json:"next_poll_time,omitempty"`
+	QueuedPeers          int         `json:"queued_peers"`
+	DeterministicWindows bool        `json:"deterministic_windows"`
+	NextWindow           *WindowInfo `json:"next_window,omitempty"`
 }
 
 // NextCommandID returns the next command ID for sleep/wake commands.
@@ -486,7 +527,38 @@ func (m *Manager) schedulePoll() {
 
 // schedulePollLocked schedules the next poll (must hold stateMu).
 func (m *Manager) schedulePollLocked() {
-	interval := m.jitteredInterval(m.cfg.PollInterval, m.cfg.PollIntervalJitter)
+	var interval time.Duration
+
+	// Use deterministic windows if enabled and we have a local ID
+	if m.windowCalc != nil && m.localID != (identity.AgentID{}) {
+		now := time.Now()
+		windowInfo := m.windowCalc.GetWindowInfo(m.localID, now)
+
+		// If we're currently in a window, schedule for the next one
+		if windowInfo.CurrentlyActive {
+			// Get next cycle's window
+			nextCycleStart := windowInfo.End.Add(m.cfg.PollInterval - m.windowCalc.cfg.WindowLength)
+			interval = nextCycleStart.Sub(now)
+			if interval < 0 {
+				interval = m.cfg.PollInterval
+			}
+		} else {
+			// Schedule for the upcoming window
+			interval = windowInfo.TimeUntil
+			if interval <= 0 {
+				// Fallback to jittered interval
+				interval = m.jitteredInterval(m.cfg.PollInterval, m.cfg.PollIntervalJitter)
+			}
+		}
+
+		m.logger.Debug("deterministic window scheduled",
+			"next_window_start", windowInfo.Start.Format(time.RFC3339),
+			"interval", interval)
+	} else {
+		// Fallback to jittered random interval
+		interval = m.jitteredInterval(m.cfg.PollInterval, m.cfg.PollIntervalJitter)
+	}
+
 	m.nextPollTime = time.Now().Add(interval)
 
 	if m.pollTimer != nil {
@@ -583,4 +655,47 @@ func (m *Manager) LoadState() error {
 func (m *Manager) IsSleeping() bool {
 	state := m.GetState()
 	return state == StateSleeping || state == StatePolling
+}
+
+// SetLocalID sets the local agent ID for deterministic window calculations.
+// Must be called before entering sleep mode if deterministic windows are enabled.
+func (m *Manager) SetLocalID(id identity.AgentID) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.localID = id
+}
+
+// GetNextWindowInfo returns the next listening window for the given agent ID.
+// Allows peers to calculate when a sleeping agent will be available.
+// Returns nil if deterministic windows are not enabled.
+func (m *Manager) GetNextWindowInfo(agentID identity.AgentID) *WindowInfo {
+	if m.windowCalc == nil {
+		return nil
+	}
+	info := m.windowCalc.GetWindowInfo(agentID, time.Now())
+	return &info
+}
+
+// GetLocalWindowInfo returns the next listening window for the local agent.
+// Returns nil if deterministic windows are not enabled or local ID is not set.
+func (m *Manager) GetLocalWindowInfo() *WindowInfo {
+	if m.windowCalc == nil {
+		return nil
+	}
+
+	m.stateMu.RLock()
+	localID := m.localID
+	m.stateMu.RUnlock()
+
+	if localID == (identity.AgentID{}) {
+		return nil
+	}
+
+	info := m.windowCalc.GetWindowInfo(localID, time.Now())
+	return &info
+}
+
+// HasDeterministicWindows returns true if deterministic windows are enabled.
+func (m *Manager) HasDeterministicWindows() bool {
+	return m.windowCalc != nil
 }
