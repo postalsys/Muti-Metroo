@@ -1,20 +1,20 @@
 # Sleep Mode
 
-Sleep mode enables mesh hibernation - agents close all peer connections and enter a low-profile dormant state, periodically polling for queued messages.
+Sleep mode enables mesh hibernation - agents close all peer connections and enter an idle state, periodically polling for queued messages.
 
 ## Overview
 
 When sleep mode is enabled, agents transition between three states:
 
 - **AWAKE**: Normal operation with all connections active
-- **SLEEPING**: Dormant state with all peer connections closed
+- **SLEEPING**: Idle state with all peer connections closed
 - **POLLING**: Briefly reconnected to receive queued messages
 
 Sleep and wake commands flood through the mesh, allowing you to hibernate or wake the entire network from any connected agent.
 
 ## Use Cases
 
-- **Covert deployments**: Keep agents dormant until explicitly needed
+- **On-demand deployments**: Keep agents idle until explicitly needed
 - **Resource conservation**: Reduce network and memory footprint during inactive periods
 - **Traffic pattern reduction**: Minimize network connections when not in use
 - **Scheduled operations**: Sleep during off-hours, wake for maintenance windows
@@ -129,7 +129,7 @@ When `persist_state` is enabled, sleep state survives agent restarts:
 
 ## Auto-Sleep on Start
 
-For covert deployments, enable `auto_sleep_on_start`:
+For on-demand deployments, enable `auto_sleep_on_start`:
 
 ```yaml
 sleep:
@@ -142,7 +142,7 @@ The agent will:
 1. Start and initialize normally
 2. Wait 5 seconds for connections to establish
 3. Automatically enter sleep mode
-4. Remain dormant until explicitly woken
+4. Remain idle until explicitly woken
 
 ## HTTP API
 
@@ -195,7 +195,7 @@ sleep:
   poll_duration: 15s
 ```
 
-### Low-Profile Covert Mode
+### Low-Activity Mode
 
 Minimize network activity:
 

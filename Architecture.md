@@ -1414,7 +1414,7 @@ internal/icmp/
 
 ## 6.8 Sleep Mode Protocol
 
-Sleep mode enables mesh hibernation - agents can close all peer connections and enter a low-profile dormant state, periodically polling for queued messages with randomized timing to avoid traffic pattern detection.
+Sleep mode enables mesh hibernation - agents can close all peer connections and enter an idle state, periodically polling for queued messages with randomized timing.
 
 ### Overview
 
@@ -1425,7 +1425,7 @@ Sleep mode enables mesh hibernation - agents can close all peer connections and 
 │  ┌─────────┐        Sleep()        ┌──────────┐       Poll Timer      ┌────────┐
 │  │  AWAKE  │ ─────────────────────►│ SLEEPING │ ────────────────────► │POLLING │
 │  │         │                       │          │                       │        │
-│  │ Normal  │ ◄─────────────────────│  Dormant │ ◄──────────────────── │ Brief  │
+│  │ Normal  │ ◄─────────────────────│   Idle   │ ◄──────────────────── │ Brief  │
 │  │ Operation│        Wake()        │ No conns │    Poll Duration      │Reconnect
 │  └─────────┘                       └──────────┘                       └────────┘
 │                                                                             │

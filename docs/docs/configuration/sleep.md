@@ -118,11 +118,11 @@ sleep:
 - **Type**: boolean
 - **Default**: `false`
 
-Useful for covert deployments. The agent will:
+Useful for on-demand deployments. The agent will:
 1. Initialize and connect briefly
 2. Wait 5 seconds
 3. Enter sleep mode automatically
-4. Remain dormant until explicitly woken
+4. Remain idle until explicitly woken
 
 ## Example Configurations
 
@@ -148,7 +148,7 @@ sleep:
   poll_duration: 15s
 ```
 
-### Low-Profile Covert Mode
+### Low-Activity Mode
 
 Minimize network activity:
 
