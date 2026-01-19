@@ -24,6 +24,7 @@ The architecture provides end-to-end encryption using X25519 key exchange and Ch
    - [6.5 UDP Relay Protocol](#65-udp-relay-protocol)
    - [6.6 Port Forwarding](#66-port-forwarding-reverse-tunnel)
    - [6.7 ICMP Echo Protocol](#67-icmp-echo-protocol)
+   - [6.8 Sleep Mode Protocol](#68-sleep-mode-protocol)
 7. [Stream Management](#7-stream-management)
 8. [Routing System](#8-routing-system)
 9. [Flood Protocol](#9-flood-protocol)
@@ -1407,6 +1408,205 @@ internal/icmp/
 ├── config.go        # Configuration structure
 ├── handler_test.go  # Handler unit tests
 └── session_test.go  # Session unit tests
+```
+
+---
+
+## 6.8 Sleep Mode Protocol
+
+Sleep mode enables mesh hibernation - agents can close all peer connections and enter a low-profile dormant state, periodically polling for queued messages with randomized timing to avoid traffic pattern detection.
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           SLEEP MODE STATES                                  │
+│                                                                             │
+│  ┌─────────┐        Sleep()        ┌──────────┐       Poll Timer      ┌────────┐
+│  │  AWAKE  │ ─────────────────────►│ SLEEPING │ ────────────────────► │POLLING │
+│  │         │                       │          │                       │        │
+│  │ Normal  │ ◄─────────────────────│  Dormant │ ◄──────────────────── │ Brief  │
+│  │ Operation│        Wake()        │ No conns │    Poll Duration      │Reconnect
+│  └─────────┘                       └──────────┘                       └────────┘
+│                                                                             │
+│  State Transitions:                                                         │
+│  • AWAKE -> SLEEPING:  Sleep() called, all connections closed               │
+│  • SLEEPING -> POLLING: Poll timer fires (jittered interval)                │
+│  • POLLING -> SLEEPING: Poll duration ends, connections closed              │
+│  • SLEEPING/POLLING -> AWAKE: Wake() called, connections restored           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Frame Types
+
+| Type | Value | Direction | Description |
+|------|-------|-----------|-------------|
+| SLEEP_COMMAND | 0x50 | Flooded | Instructs mesh to enter sleep mode |
+| WAKE_COMMAND | 0x51 | Flooded | Instructs mesh to exit sleep mode |
+| QUEUED_STATE | 0x52 | Point-to-point | Delivers queued state to reconnecting agent |
+
+### Frame Formats
+
+#### SLEEP_COMMAND (0x50)
+
+Flooded through the mesh to instruct all agents to hibernate.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      SLEEP_COMMAND Frame                        │
+├─────────────────────────────────────────────────────────────────┤
+│ OriginAgent   │ 16 bytes │ Agent that initiated the command    │
+├─────────────────────────────────────────────────────────────────┤
+│ CommandID     │ 8 bytes  │ Unique ID for deduplication         │
+├─────────────────────────────────────────────────────────────────┤
+│ Timestamp     │ 8 bytes  │ Unix timestamp when issued          │
+├─────────────────────────────────────────────────────────────────┤
+│ SeenByCount   │ 1 byte   │ Number of agents in SeenBy list     │
+├─────────────────────────────────────────────────────────────────┤
+│ SeenBy[]      │ Variable │ Agent IDs for loop prevention       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### WAKE_COMMAND (0x51)
+
+Identical structure to SLEEP_COMMAND, instructs agents to resume normal operation.
+
+#### QUEUED_STATE (0x52)
+
+Sent to agents when they reconnect after sleeping, containing accumulated state updates.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       QUEUED_STATE Frame                        │
+├─────────────────────────────────────────────────────────────────┤
+│ RouteCount    │ 2 bytes  │ Number of route advertisements      │
+├─────────────────────────────────────────────────────────────────┤
+│ Routes[]      │ Variable │ Length-prefixed RouteAdvertise[]    │
+├─────────────────────────────────────────────────────────────────┤
+│ WithdrawCount │ 2 bytes  │ Number of route withdrawals         │
+├─────────────────────────────────────────────────────────────────┤
+│ Withdraws[]   │ Variable │ Length-prefixed RouteWithdraw[]     │
+├─────────────────────────────────────────────────────────────────┤
+│ NodeInfoCount │ 2 bytes  │ Number of node info updates         │
+├─────────────────────────────────────────────────────────────────┤
+│ NodeInfos[]   │ Variable │ Length-prefixed NodeInfoAdvertise[] │
+├─────────────────────────────────────────────────────────────────┤
+│ HasSleepCmd   │ 1 byte   │ 1 if SleepCommand present           │
+├─────────────────────────────────────────────────────────────────┤
+│ SleepCmd      │ Variable │ SleepCommand (if HasSleepCmd=1)     │
+├─────────────────────────────────────────────────────────────────┤
+│ HasWakeCmd    │ 1 byte   │ 1 if WakeCommand present            │
+├─────────────────────────────────────────────────────────────────┤
+│ WakeCmd       │ Variable │ WakeCommand (if HasWakeCmd=1)       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Sleep/Wake Command Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         SLEEP COMMAND PROPAGATION                           │
+│                                                                             │
+│  Operator triggers sleep via CLI or HTTP API on Agent1                      │
+│                                                                             │
+│  Agent1                    Agent2                    Agent3                 │
+│    │                         │                         │                    │
+│    │──SLEEP_COMMAND─────────►│                         │                    │
+│    │  (SeenBy: [A1])         │──SLEEP_COMMAND─────────►│                    │
+│    │                         │  (SeenBy: [A1,A2])      │                    │
+│    │                         │                         │                    │
+│    │    [Enter Sleep]        │    [Enter Sleep]        │    [Enter Sleep]  │
+│    │                         │                         │                    │
+│    X─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ X─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ X                    │
+│       (connections closed)      (connections closed)                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Poll Cycle
+
+During sleep mode, agents periodically reconnect to receive queued state updates:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              POLL CYCLE                                     │
+│                                                                             │
+│  Time    │ Agent State │ Actions                                            │
+│  ────────┼─────────────┼──────────────────────────────────────────────────  │
+│  T+0     │ SLEEPING    │ Waiting (jittered interval: 5min +/- 30%)          │
+│  T+4.2m  │ POLLING     │ Poll timer fires, reconnect to peers               │
+│  T+4.2m  │ POLLING     │ Receive queued RouteAdvertise, NodeInfo            │
+│  T+4.2m  │ POLLING     │ Check for WAKE_COMMAND in queued state             │
+│  T+4.7m  │ SLEEPING    │ Poll duration (30s) ends, disconnect               │
+│  T+4.7m  │ SLEEPING    │ Schedule next poll (jittered)                      │
+│  ...     │             │                                                    │
+│                                                                             │
+│  Jitter prevents predictable connection patterns                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### State Queue
+
+Awake agents queue state updates for sleeping peers:
+
+- **Route Advertisements**: Queued with deduplication (same origin + sequence)
+- **Route Withdrawals**: Queued with deduplication
+- **Node Info Updates**: Latest per-origin only (older superseded)
+- **Sleep/Wake Commands**: Latest command retained
+
+Queue limits prevent memory exhaustion (configurable `max_queued_messages`).
+
+### Command Deduplication
+
+Sleep and wake commands use a seen-cache to prevent duplicate processing:
+
+- Key: `(OriginAgent, CommandID)`
+- TTL: 30 minutes
+- Commands already seen are silently dropped
+
+### Configuration
+
+```yaml
+sleep:
+  enabled: true
+  poll_interval: 5m          # Base interval between polls
+  poll_interval_jitter: 0.3  # +/- 30% variation
+  poll_duration: 30s         # How long to stay connected during poll
+  persist_state: true        # Survive agent restarts
+  max_queued_messages: 1000  # Queue limit per peer
+  auto_sleep_on_start: false # Start in sleep mode
+```
+
+### State Persistence
+
+When `persist_state` is enabled, sleep state is saved to `sleep_state.json`:
+
+```json
+{
+  "state": 1,
+  "sleep_start_time": "2026-01-19T10:30:00Z",
+  "last_poll_time": "2026-01-19T10:35:00Z",
+  "command_seq": 5
+}
+```
+
+This allows agents to resume sleep mode after restart without losing context.
+
+### Security Considerations
+
+- Sleep/wake commands flood to all mesh agents - use in trusted meshes
+- Poll timing jitter helps avoid traffic analysis detection
+- Persistent state is stored unencrypted - protect the data directory
+
+### Package Structure
+
+```
+internal/sleep/
+├── sleep.go        # Manager state machine, callbacks, persistence
+├── queue.go        # StateQueue for sleeping peer message queuing
+└── sleep_test.go   # Unit tests
 ```
 
 ---

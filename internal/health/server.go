@@ -264,6 +264,28 @@ type RouteAdvertiseTrigger interface {
 	TriggerRouteAdvertise()
 }
 
+// SleepStatusInfo contains sleep status information.
+type SleepStatusInfo struct {
+	State          string    `json:"state"`
+	Enabled        bool      `json:"enabled"`
+	SleepStartTime time.Time `json:"sleep_start_time,omitempty"`
+	LastPollTime   time.Time `json:"last_poll_time,omitempty"`
+	NextPollTime   time.Time `json:"next_poll_time,omitempty"`
+	QueuedPeers    int       `json:"queued_peers"`
+}
+
+// SleepProvider provides sleep mode functionality.
+type SleepProvider interface {
+	// TriggerSleep puts the mesh into sleep mode.
+	TriggerSleep() error
+	// TriggerWake wakes the mesh from sleep mode.
+	TriggerWake() error
+	// GetSleepStatus returns the current sleep status.
+	GetSleepStatus() SleepStatusInfo
+	// IsSleepEnabled returns true if sleep mode is enabled.
+	IsSleepEnabled() bool
+}
+
 // Stats contains agent health statistics.
 type Stats struct {
 	PeerCount      int  `json:"peer_count"`
@@ -418,6 +440,7 @@ type Server struct {
 	routeTrigger   RouteAdvertiseTrigger
 	shellProvider  ShellProvider     // For shell WebSocket sessions
 	icmpProvider   ICMPProvider      // For ICMP WebSocket sessions
+	sleepProvider  SleepProvider     // For sleep mode endpoints
 	sealedBox      *crypto.SealedBox // For checking decrypt capability
 	server         *http.Server
 	listener       net.Listener
@@ -527,15 +550,22 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/ready", s.handleReady)
 
-	// Remote API endpoints: /agents, /agents/*, /routes/advertise
+	// Remote API endpoints: /agents, /agents/*, /routes/advertise, /sleep/*
 	if cfg.EnableRemoteAPI {
 		mux.HandleFunc("/agents", s.handleListAgents)
 		mux.HandleFunc("/agents/", s.handleAgentInfo)
 		mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
+		// Sleep mode endpoints
+		mux.HandleFunc("/sleep", s.handleSleep)
+		mux.HandleFunc("/sleep/status", s.handleSleepStatus)
+		mux.HandleFunc("/wake", s.handleWake)
 	} else {
 		mux.HandleFunc("/agents", disabledHandler("agents"))
 		mux.HandleFunc("/agents/", disabledHandler("agents"))
 		mux.HandleFunc("/routes/advertise", disabledHandler("routes_advertise"))
+		mux.HandleFunc("/sleep", disabledHandler("sleep"))
+		mux.HandleFunc("/sleep/status", disabledHandler("sleep_status"))
+		mux.HandleFunc("/wake", disabledHandler("wake"))
 	}
 
 	// Dashboard API and Web UI endpoints
@@ -606,6 +636,12 @@ func (s *Server) SetRouteAdvertiseTrigger(trigger RouteAdvertiseTrigger) {
 // This is called after the agent is initialized.
 func (s *Server) SetSealedBox(sealedBox *crypto.SealedBox) {
 	s.sealedBox = sealedBox
+}
+
+// SetSleepProvider sets the sleep mode provider.
+// This is called after the agent is initialized.
+func (s *Server) SetSleepProvider(provider SleepProvider) {
+	s.sleepProvider = provider
 }
 
 // CanDecryptManagement returns true if management key decryption is available.
@@ -1170,6 +1206,71 @@ func (s *Server) handleTriggerAdvertise(w http.ResponseWriter, r *http.Request) 
 		"status":  "triggered",
 		"message": "route advertisement triggered",
 	})
+}
+
+// handleSleep handles POST /sleep to trigger mesh-wide sleep mode.
+func (s *Server) handleSleep(w http.ResponseWriter, r *http.Request) {
+	if !requirePOST(w, r) {
+		return
+	}
+	if s.sleepProvider == nil || !s.sleepProvider.IsSleepEnabled() {
+		http.Error(w, "sleep mode not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := s.sleepProvider.TriggerSleep(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "triggered",
+		"message": "sleep command triggered",
+	})
+}
+
+// handleWake handles POST /wake to trigger mesh-wide wake.
+func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
+	if !requirePOST(w, r) {
+		return
+	}
+	if s.sleepProvider == nil || !s.sleepProvider.IsSleepEnabled() {
+		http.Error(w, "sleep mode not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := s.sleepProvider.TriggerWake(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "triggered",
+		"message": "wake command triggered",
+	})
+}
+
+// handleSleepStatus handles GET /sleep/status to get current sleep status.
+func (s *Server) handleSleepStatus(w http.ResponseWriter, r *http.Request) {
+	if !requireGET(w, r) {
+		return
+	}
+	if s.sleepProvider == nil {
+		// Return default awake status if not configured
+		writeJSON(w, http.StatusOK, SleepStatusInfo{
+			State:   "AWAKE",
+			Enabled: false,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, s.sleepProvider.GetSleepStatus())
 }
 
 // handleTopology handles GET /api/topology for the metro map visualization.

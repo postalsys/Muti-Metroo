@@ -79,6 +79,7 @@ type Config struct {
 	UDP           UDPConfig          `yaml:"udp,omitempty"`
 	ICMP          ICMPConfig         `yaml:"icmp,omitempty"`
 	Forward       ForwardConfig      `yaml:"forward,omitempty"`
+	Sleep         SleepConfig        `yaml:"sleep,omitempty"`
 }
 
 // ProtocolConfig defines protocol identifiers used for transport negotiation.
@@ -645,6 +646,44 @@ type ForwardListener struct {
 	MaxConnections int `yaml:"max_connections,omitempty"`
 }
 
+// SleepConfig configures sleep mode for mesh hibernation.
+// When enabled, agents can enter a low-profile sleep state where all peer
+// connections are closed and the agent periodically polls for queued messages.
+type SleepConfig struct {
+	// Enabled controls whether sleep mode is available on this agent.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// PollInterval is the base interval between polls while sleeping.
+	// Actual interval varies by +/- PollIntervalJitter.
+	// Default: 5 minutes.
+	PollInterval time.Duration `yaml:"poll_interval,omitempty"`
+
+	// PollIntervalJitter is the jitter fraction applied to PollInterval.
+	// For example, 0.3 means +/- 30% variation.
+	// Default: 0.3 (30%).
+	PollIntervalJitter float64 `yaml:"poll_interval_jitter,omitempty"`
+
+	// PollDuration is how long to stay connected during each poll.
+	// Should be long enough to receive queued state and check for wake commands.
+	// Default: 30 seconds.
+	PollDuration time.Duration `yaml:"poll_duration,omitempty"`
+
+	// PersistState enables saving sleep state to disk.
+	// When true, sleep state survives agent restarts.
+	// Default: true.
+	PersistState bool `yaml:"persist_state,omitempty"`
+
+	// MaxQueuedMessages limits the number of messages queued per sleeping peer.
+	// Older messages are evicted when this limit is exceeded.
+	// Default: 1000.
+	MaxQueuedMessages int `yaml:"max_queued_messages,omitempty"`
+
+	// AutoSleepOnStart starts the agent in sleep mode.
+	// Useful for covert deployments that should remain dormant until explicitly woken.
+	// Default: false.
+	AutoSleepOnStart bool `yaml:"auto_sleep_on_start,omitempty"`
+}
+
 // Default returns a Config with default values.
 func Default() *Config {
 	return &Config{
@@ -729,6 +768,15 @@ func Default() *Config {
 		Forward: ForwardConfig{
 			Endpoints: []ForwardEndpoint{},
 			Listeners: []ForwardListener{},
+		},
+		Sleep: SleepConfig{
+			Enabled:            false,
+			PollInterval:       5 * time.Minute,
+			PollIntervalJitter: 0.3,
+			PollDuration:       30 * time.Second,
+			PersistState:       true,
+			MaxQueuedMessages:  1000,
+			AutoSleepOnStart:   false,
 		},
 	}
 }

@@ -35,6 +35,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/recovery"
 	"github.com/postalsys/muti-metroo/internal/routing"
 	"github.com/postalsys/muti-metroo/internal/shell"
+	"github.com/postalsys/muti-metroo/internal/sleep"
 	"github.com/postalsys/muti-metroo/internal/socks5"
 	"github.com/postalsys/muti-metroo/internal/stream"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
@@ -105,6 +106,7 @@ type Agent struct {
 	socks5Srv    *socks5.Server
 	exitHandler  *exit.Handler
 	healthServer *health.Server
+	sleepMgr     *sleep.Manager    // Sleep mode manager (nil if not enabled)
 	sealedBox    *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	// File transfer (stream-based)
@@ -367,6 +369,7 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetSealedBox(a.sealedBox)   // Enable management key decrypt checks
 		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
 		a.healthServer.SetICMPProvider(a)          // Enable ICMP ping via HTTP API
+		a.healthServer.SetSleepProvider(a)         // Enable sleep mode via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -665,6 +668,35 @@ func (a *Agent) Start() error {
 		}
 		a.logger.Info("HTTP server started",
 			logging.KeyAddress, a.healthServer.Address())
+	}
+
+	// Initialize sleep manager if enabled
+	if a.cfg.Sleep.Enabled {
+		a.sleepMgr = sleep.NewManager(
+			a.cfg.Sleep,
+			a.dataDir,
+			a.logger.With(logging.KeyComponent, "sleep"),
+		)
+		a.sleepMgr.SetCallbacks(sleep.Callbacks{
+			OnSleep: a.enterSleep,
+			OnWake:  a.exitSleep,
+			OnPoll:  a.doPoll,
+		})
+		if err := a.sleepMgr.LoadState(); err != nil {
+			a.logger.Warn("failed to load sleep state",
+				logging.KeyError, err)
+		}
+		// Start in sleep mode if configured or previously sleeping
+		if a.cfg.Sleep.AutoSleepOnStart || a.sleepMgr.GetState() == sleep.StateSleeping {
+			a.logger.Info("starting in sleep mode")
+			if err := a.sleepMgr.Sleep(); err != nil {
+				a.logger.Warn("failed to enter sleep mode on start",
+					logging.KeyError, err)
+			}
+		}
+		a.logger.Info("sleep manager initialized",
+			"poll_interval", a.cfg.Sleep.PollInterval,
+			"poll_jitter", a.cfg.Sleep.PollIntervalJitter)
 	}
 
 	a.logger.Info("agent started",
@@ -1315,6 +1347,13 @@ func (a *Agent) processFrame(peerID identity.AgentID, frame *protocol.Frame) {
 		a.handleICMPEcho(peerID, frame)
 	case protocol.FrameICMPClose:
 		a.handleICMPClose(peerID, frame)
+	// Sleep/Wake frames
+	case protocol.FrameSleepCommand:
+		a.handleSleepCommand(peerID, frame)
+	case protocol.FrameWakeCommand:
+		a.handleWakeCommand(peerID, frame)
+	case protocol.FrameQueuedState:
+		a.handleQueuedState(peerID, frame)
 	}
 }
 
@@ -4875,4 +4914,277 @@ func (a *Agent) handleShellClientClose(streamID uint64) bool {
 	// adapter.Close() will call cleanupShellClientStream via closeFunc
 	adapter.Close()
 	return true
+}
+
+// handleSleepCommand processes an incoming sleep command.
+func (a *Agent) handleSleepCommand(peerID identity.AgentID, frame *protocol.Frame) {
+	cmd, err := protocol.DecodeSleepCommand(frame.Payload)
+	if err != nil {
+		a.logger.Debug("failed to decode sleep command",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
+		return
+	}
+
+	// Process through flooder for deduplication and forwarding
+	if !a.flooder.HandleSleepCommand(peerID, cmd) {
+		return
+	}
+
+	// New command - enter sleep mode
+	if a.sleepMgr != nil {
+		a.logger.Info("entering sleep mode from mesh command",
+			"origin", cmd.OriginAgent.ShortString())
+		if err := a.sleepMgr.Sleep(); err != nil {
+			a.logger.Error("failed to enter sleep mode",
+				logging.KeyError, err)
+		}
+	}
+}
+
+// handleWakeCommand processes an incoming wake command.
+func (a *Agent) handleWakeCommand(peerID identity.AgentID, frame *protocol.Frame) {
+	cmd, err := protocol.DecodeWakeCommand(frame.Payload)
+	if err != nil {
+		a.logger.Debug("failed to decode wake command",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
+		return
+	}
+
+	// Process through flooder for deduplication and forwarding
+	if !a.flooder.HandleWakeCommand(peerID, cmd) {
+		return
+	}
+
+	// New command - wake up
+	if a.sleepMgr != nil {
+		a.logger.Info("waking from mesh command",
+			"origin", cmd.OriginAgent.ShortString())
+		if err := a.sleepMgr.Wake(); err != nil {
+			a.logger.Error("failed to wake from sleep mode",
+				logging.KeyError, err)
+		}
+	}
+}
+
+// handleQueuedState processes queued state received from a peer.
+func (a *Agent) handleQueuedState(peerID identity.AgentID, frame *protocol.Frame) {
+	state, err := protocol.DecodeQueuedState(frame.Payload)
+	if err != nil {
+		a.logger.Debug("failed to decode queued state",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
+		return
+	}
+
+	a.logger.Debug("received queued state",
+		logging.KeyPeerID, peerID.ShortString(),
+		"routes", len(state.Routes),
+		"withdraws", len(state.Withdraws),
+		"node_infos", len(state.NodeInfos))
+
+	// Process queued routes
+	for _, route := range state.Routes {
+		a.flooder.HandleRouteAdvertise(peerID, route.OriginAgent, route.OriginDisplayName, route.Sequence, route.Routes, route.EncPath, route.SeenBy)
+	}
+
+	// Process queued withdraws
+	for _, withdraw := range state.Withdraws {
+		a.flooder.HandleRouteWithdraw(peerID, withdraw.OriginAgent, withdraw.Sequence, withdraw.Routes, withdraw.SeenBy)
+	}
+
+	// Process queued node infos
+	for _, nodeInfo := range state.NodeInfos {
+		a.flooder.HandleNodeInfoAdvertise(peerID, nodeInfo.OriginAgent, nodeInfo.Sequence, nodeInfo.EncInfo, nodeInfo.SeenBy)
+	}
+
+	// Check for sleep/wake commands in queued state
+	if state.SleepCmd != nil && a.sleepMgr != nil {
+		a.logger.Info("entering sleep mode from queued command")
+		if err := a.sleepMgr.Sleep(); err != nil {
+			a.logger.Error("failed to enter sleep mode from queued command",
+				logging.KeyError, err)
+		}
+	}
+	if state.WakeCmd != nil && a.sleepMgr != nil {
+		a.logger.Info("waking from queued command")
+		if err := a.sleepMgr.Wake(); err != nil {
+			a.logger.Error("failed to wake from queued command",
+				logging.KeyError, err)
+		}
+	}
+}
+
+// enterSleep is called when transitioning to sleep mode.
+func (a *Agent) enterSleep() error {
+	a.logger.Info("entering sleep mode - disconnecting all peers")
+
+	// Stop SOCKS5 server temporarily
+	if a.socks5Srv != nil {
+		a.socks5Srv.Stop()
+	}
+
+	// Close all peer connections
+	if err := a.peerMgr.DisconnectAll(); err != nil {
+		a.logger.Warn("error disconnecting peers",
+			logging.KeyError, err)
+	}
+
+	// Stop accepting new connections on listeners
+	for _, listener := range a.listeners {
+		listener.Close()
+	}
+
+	return nil
+}
+
+// exitSleep is called when transitioning from sleep to awake.
+func (a *Agent) exitSleep() error {
+	a.logger.Info("exiting sleep mode - reconnecting")
+
+	// Restart listeners
+	for _, listenerCfg := range a.cfg.Listeners {
+		if err := a.startListener(listenerCfg); err != nil {
+			a.logger.Error("failed to restart listener",
+				logging.KeyAddress, listenerCfg.Address,
+				logging.KeyError, err)
+		}
+	}
+
+	// Reconnect to all configured peers
+	ctx := context.Background()
+	if err := a.peerMgr.ReconnectAll(ctx); err != nil {
+		a.logger.Warn("error reconnecting peers",
+			logging.KeyError, err)
+	}
+
+	// Restart SOCKS5 server
+	if a.socks5Srv != nil {
+		if err := a.socks5Srv.Start(); err != nil {
+			a.logger.Error("failed to restart SOCKS5 server",
+				logging.KeyError, err)
+		}
+	}
+
+	// Re-announce routes
+	if a.cfg.Exit.Enabled || len(a.cfg.Forward.Endpoints) > 0 {
+		a.flooder.AnnounceLocalRoutes()
+	}
+
+	return nil
+}
+
+// doPoll is called during a poll cycle while sleeping.
+func (a *Agent) doPoll() error {
+	a.logger.Debug("starting poll cycle")
+
+	// Temporarily reconnect to peers
+	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Sleep.PollDuration)
+	defer cancel()
+
+	if err := a.peerMgr.ReconnectAll(ctx); err != nil {
+		a.logger.Warn("error reconnecting for poll",
+			logging.KeyError, err)
+	}
+
+	// Wait for poll duration to receive any queued messages
+	select {
+	case <-ctx.Done():
+	case <-a.stopCh:
+		return nil
+	}
+
+	// Disconnect again
+	if err := a.peerMgr.DisconnectAll(); err != nil {
+		a.logger.Warn("error disconnecting after poll",
+			logging.KeyError, err)
+	}
+
+	a.logger.Debug("poll cycle complete")
+	return nil
+}
+
+// TriggerSleep initiates sleep mode for this agent and floods the command to the mesh.
+func (a *Agent) TriggerSleep() error {
+	if a.sleepMgr == nil {
+		return fmt.Errorf("sleep mode not enabled")
+	}
+
+	// Create sleep command
+	cmd := &protocol.SleepCommand{
+		OriginAgent: a.id,
+		CommandID:   uint64(time.Now().UnixNano()),
+		Timestamp:   uint64(time.Now().Unix()),
+		SeenBy:      []identity.AgentID{a.id},
+	}
+
+	// Flood command to mesh first (while we have connections)
+	if err := a.flooder.FloodSleepCommand(cmd); err != nil {
+		a.logger.Warn("failed to flood sleep command",
+			logging.KeyError, err)
+	}
+
+	// Enter sleep mode locally
+	return a.sleepMgr.Sleep()
+}
+
+// TriggerWake initiates wake mode for this agent and floods the command to the mesh.
+func (a *Agent) TriggerWake() error {
+	if a.sleepMgr == nil {
+		return fmt.Errorf("sleep mode not enabled")
+	}
+
+	// Wake locally first (to establish connections for flooding)
+	if err := a.sleepMgr.Wake(); err != nil {
+		return err
+	}
+
+	// Wait briefly for connections to establish
+	time.Sleep(2 * time.Second)
+
+	// Create wake command
+	cmd := &protocol.WakeCommand{
+		OriginAgent: a.id,
+		CommandID:   uint64(time.Now().UnixNano()),
+		Timestamp:   uint64(time.Now().Unix()),
+		SeenBy:      []identity.AgentID{a.id},
+	}
+
+	// Flood command to mesh
+	return a.flooder.FloodWakeCommand(cmd)
+}
+
+// GetSleepState returns the current sleep state.
+func (a *Agent) GetSleepState() sleep.State {
+	if a.sleepMgr == nil {
+		return sleep.StateAwake
+	}
+	return a.sleepMgr.GetState()
+}
+
+// GetSleepStatus returns detailed sleep status information.
+// Implements health.SleepProvider interface.
+func (a *Agent) GetSleepStatus() health.SleepStatusInfo {
+	if a.sleepMgr == nil {
+		return health.SleepStatusInfo{
+			State:   "AWAKE",
+			Enabled: false,
+		}
+	}
+	status := a.sleepMgr.GetStatus()
+	return health.SleepStatusInfo{
+		State:          status.State.String(),
+		Enabled:        status.Enabled,
+		SleepStartTime: status.SleepStartTime,
+		LastPollTime:   status.LastPollTime,
+		NextPollTime:   status.NextPollTime,
+		QueuedPeers:    status.QueuedPeers,
+	}
+}
+
+// IsSleepEnabled returns true if sleep mode is enabled.
+// Implements health.SleepProvider interface.
+func (a *Agent) IsSleepEnabled() bool {
+	return a.cfg.Sleep.Enabled
 }

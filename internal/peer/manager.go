@@ -487,3 +487,97 @@ func (m *Manager) SetFrameCallback(callback func(identity.AgentID, *protocol.Fra
 		}
 	}
 }
+
+// DisconnectAll closes all peer connections without removing peer configurations.
+// This is used for sleep mode - connections can be re-established later.
+// Unlike Close(), this does not stop the manager or reconnector.
+func (m *Manager) DisconnectAll() error {
+	m.mu.Lock()
+	conns := make([]*Connection, 0, len(m.peers))
+	for _, conn := range m.peers {
+		conns = append(conns, conn)
+	}
+	m.peers = make(map[identity.AgentID]*Connection)
+	m.mu.Unlock()
+
+	// Stop reconnector temporarily to prevent immediate reconnection
+	m.reconnector.Pause()
+
+	// Close all connections
+	var lastErr error
+	for _, conn := range conns {
+		if err := conn.Close(); err != nil {
+			lastErr = err
+		}
+	}
+
+	m.logger.Info("disconnected all peers", "count", len(conns))
+	return lastErr
+}
+
+// ReconnectAll re-establishes connections to all configured persistent peers.
+// This is used to resume from sleep mode.
+func (m *Manager) ReconnectAll(ctx context.Context) error {
+	// Resume reconnector
+	m.reconnector.Resume()
+
+	m.mu.RLock()
+	infos := make([]*PeerInfo, 0)
+	addrs := make([]string, 0)
+	for addr, info := range m.peerInfos {
+		if info.Persistent {
+			infos = append(infos, info)
+			addrs = append(addrs, addr)
+		}
+	}
+	m.mu.RUnlock()
+
+	m.logger.Info("reconnecting to peers", "count", len(addrs))
+
+	var lastErr error
+	for i, addr := range addrs {
+		info := infos[i]
+
+		// Use peer-specific transport if available
+		var tr transport.Transport
+		if info.Transport != nil {
+			tr = info.Transport
+		} else {
+			tr = m.cfg.Transport
+		}
+
+		connCtx, cancel := context.WithTimeout(ctx, m.cfg.HandshakeTimeout+m.cfg.DialOptions.Timeout)
+		_, err := m.connectWithTransport(connCtx, tr, addr)
+		cancel()
+
+		if err != nil {
+			m.logger.Debug("failed to reconnect to peer",
+				"addr", addr,
+				logging.KeyError, err)
+			lastErr = err
+			// Schedule for reconnection
+			m.reconnector.Schedule(addr)
+		}
+	}
+
+	return lastErr
+}
+
+// GetPeerInfos returns a copy of all configured peer infos.
+// This is useful for resuming connections after sleep.
+func (m *Manager) GetPeerInfos() map[string]*PeerInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	infos := make(map[string]*PeerInfo, len(m.peerInfos))
+	for addr, info := range m.peerInfos {
+		infoCopy := *info
+		infos[addr] = &infoCopy
+	}
+	return infos
+}
+
+// IsPaused returns true if the reconnector is paused.
+func (m *Manager) IsPaused() bool {
+	return m.reconnector.IsPaused()
+}

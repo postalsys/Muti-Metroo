@@ -41,6 +41,19 @@ type SeenNodeInfo struct {
 	SeenFrom identity.AgentID
 }
 
+// SleepCommandKey uniquely identifies a sleep/wake command for dedup.
+type SleepCommandKey struct {
+	OriginAgent identity.AgentID
+	CommandID   uint64
+}
+
+// SeenSleepCommand tracks a seen sleep/wake command.
+type SeenSleepCommand struct {
+	Key      SleepCommandKey
+	SeenAt   time.Time
+	SeenFrom identity.AgentID
+}
+
 // FloodConfig contains configuration for the flood protocol.
 type FloodConfig struct {
 	// SeenCacheTTL is how long to remember seen advertisements
@@ -99,6 +112,10 @@ type Flooder struct {
 	nodeInfoSeenCache map[NodeInfoKey]*SeenNodeInfo
 	nodeInfoSeq       uint64
 
+	// Sleep command seen cache
+	sleepCmdMu        sync.RWMutex
+	sleepCmdSeenCache map[SleepCommandKey]*SeenSleepCommand
+
 	wg       sync.WaitGroup
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -121,6 +138,7 @@ func NewFlooder(cfg FloodConfig, localID identity.AgentID, routeMgr *routing.Man
 		sealedBox:         cfg.SealedBox,
 		seenCache:         make(map[AdvertisementKey]*SeenAdvertisement),
 		nodeInfoSeenCache: make(map[NodeInfoKey]*SeenNodeInfo),
+		sleepCmdSeenCache: make(map[SleepCommandKey]*SeenSleepCommand),
 		stopCh:            make(chan struct{}),
 	}
 
@@ -606,6 +624,11 @@ func (f *Flooder) cleanup() {
 	f.nodeInfoMu.Lock()
 	f.cleanupNodeInfoCache(now, expiry)
 	f.nodeInfoMu.Unlock()
+
+	// Cleanup sleep command cache
+	f.sleepCmdMu.Lock()
+	f.cleanupSleepCmdCache(now, expiry)
+	f.sleepCmdMu.Unlock()
 }
 
 // cleanupSeenCache removes expired entries from the seen cache.
@@ -649,6 +672,30 @@ func (f *Flooder) cleanupNodeInfoCache(now time.Time, expiry time.Duration) {
 	removed := 0
 	for key := range f.nodeInfoSeenCache {
 		delete(f.nodeInfoSeenCache, key)
+		removed++
+		if removed >= excess {
+			break
+		}
+	}
+}
+
+// cleanupSleepCmdCache removes expired entries from the sleep command cache.
+// Must be called with f.sleepCmdMu held.
+func (f *Flooder) cleanupSleepCmdCache(now time.Time, expiry time.Duration) {
+	for key, entry := range f.sleepCmdSeenCache {
+		if now.Sub(entry.SeenAt) > expiry {
+			delete(f.sleepCmdSeenCache, key)
+		}
+	}
+
+	// If still too large, remove oldest entries
+	excess := len(f.sleepCmdSeenCache) - f.cfg.MaxSeenCacheSize
+	if excess <= 0 {
+		return
+	}
+	removed := 0
+	for key := range f.sleepCmdSeenCache {
+		delete(f.sleepCmdSeenCache, key)
 		removed++
 		if removed >= excess {
 			break
@@ -945,4 +992,182 @@ func (f *Flooder) NodeInfoSeenCacheSize() int {
 	f.nodeInfoMu.RLock()
 	defer f.nodeInfoMu.RUnlock()
 	return len(f.nodeInfoSeenCache)
+}
+
+// markSleepCmdSeen checks if a sleep/wake command has been seen and marks it as seen.
+// Returns true if this is a new command.
+func (f *Flooder) markSleepCmdSeen(originAgent identity.AgentID, commandID uint64, fromPeer identity.AgentID) bool {
+	key := SleepCommandKey{
+		OriginAgent: originAgent,
+		CommandID:   commandID,
+	}
+
+	f.sleepCmdMu.Lock()
+	defer f.sleepCmdMu.Unlock()
+
+	if existing, ok := f.sleepCmdSeenCache[key]; ok {
+		if existing.SeenFrom != fromPeer {
+			existing.SeenAt = time.Now()
+		}
+		return false
+	}
+
+	f.sleepCmdSeenCache[key] = &SeenSleepCommand{
+		Key:      key,
+		SeenAt:   time.Now(),
+		SeenFrom: fromPeer,
+	}
+	return true
+}
+
+// HandleSleepCommand processes an incoming SLEEP_COMMAND frame.
+// Returns true if the command was new and should be processed.
+func (f *Flooder) HandleSleepCommand(fromPeer identity.AgentID, cmd *protocol.SleepCommand) bool {
+	if !f.markSleepCmdSeen(cmd.OriginAgent, cmd.CommandID, fromPeer) {
+		return false
+	}
+
+	if containsAgent(cmd.SeenBy, f.localID) {
+		return false
+	}
+
+	f.logger.Debug("new sleep command received",
+		"origin", cmd.OriginAgent.ShortString(),
+		"command_id", cmd.CommandID,
+		"from_peer", fromPeer.ShortString())
+
+	newSeenBy := append(cmd.SeenBy, f.localID)
+	f.floodSleepCommand(fromPeer, cmd, newSeenBy)
+
+	return true
+}
+
+// HandleWakeCommand processes an incoming WAKE_COMMAND frame.
+// Returns true if the command was new and should be processed.
+func (f *Flooder) HandleWakeCommand(fromPeer identity.AgentID, cmd *protocol.WakeCommand) bool {
+	if !f.markSleepCmdSeen(cmd.OriginAgent, cmd.CommandID, fromPeer) {
+		return false
+	}
+
+	if containsAgent(cmd.SeenBy, f.localID) {
+		return false
+	}
+
+	f.logger.Debug("new wake command received",
+		"origin", cmd.OriginAgent.ShortString(),
+		"command_id", cmd.CommandID,
+		"from_peer", fromPeer.ShortString())
+
+	newSeenBy := append(cmd.SeenBy, f.localID)
+	f.floodWakeCommand(fromPeer, cmd, newSeenBy)
+
+	return true
+}
+
+// FloodSleepCommand sends a sleep command to all peers.
+// This is used to initiate mesh-wide sleep from this agent.
+func (f *Flooder) FloodSleepCommand(cmd *protocol.SleepCommand) error {
+	f.markSleepCmdSeen(cmd.OriginAgent, cmd.CommandID, f.localID)
+
+	cmdWithSeen := &protocol.SleepCommand{
+		OriginAgent: cmd.OriginAgent,
+		CommandID:   cmd.CommandID,
+		Timestamp:   cmd.Timestamp,
+		SeenBy:      []identity.AgentID{f.localID},
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameSleepCommand,
+		StreamID: protocol.ControlStreamID,
+		Payload:  cmdWithSeen.Encode(),
+	}
+
+	f.broadcastFrame(frame, "sleep command")
+	return nil
+}
+
+// FloodWakeCommand sends a wake command to all peers.
+// This is used to initiate mesh-wide wake from this agent.
+func (f *Flooder) FloodWakeCommand(cmd *protocol.WakeCommand) error {
+	f.markSleepCmdSeen(cmd.OriginAgent, cmd.CommandID, f.localID)
+
+	cmdWithSeen := &protocol.WakeCommand{
+		OriginAgent: cmd.OriginAgent,
+		CommandID:   cmd.CommandID,
+		Timestamp:   cmd.Timestamp,
+		SeenBy:      []identity.AgentID{f.localID},
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameWakeCommand,
+		StreamID: protocol.ControlStreamID,
+		Payload:  cmdWithSeen.Encode(),
+	}
+
+	f.broadcastFrame(frame, "wake command")
+	return nil
+}
+
+// broadcastFrame sends a frame to all peers and logs the result.
+func (f *Flooder) broadcastFrame(frame *protocol.Frame, cmdType string) {
+	peerIDs := f.sender.GetPeerIDs()
+	for _, peerID := range peerIDs {
+		if err := f.sender.SendToPeer(peerID, frame); err != nil {
+			f.logger.Debug("failed to send "+cmdType,
+				logging.KeyPeerID, peerID.ShortString(),
+				logging.KeyError, err)
+		}
+	}
+	f.logger.Info("flooded "+cmdType, "peers", len(peerIDs))
+}
+
+// floodSleepCommand forwards a sleep command to all peers except the source.
+func (f *Flooder) floodSleepCommand(
+	fromPeer identity.AgentID,
+	cmd *protocol.SleepCommand,
+	seenBy []identity.AgentID,
+) {
+	fwdCmd := &protocol.SleepCommand{
+		OriginAgent: cmd.OriginAgent,
+		CommandID:   cmd.CommandID,
+		Timestamp:   cmd.Timestamp,
+		SeenBy:      seenBy,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameSleepCommand,
+		StreamID: protocol.ControlStreamID,
+		Payload:  fwdCmd.Encode(),
+	}
+
+	f.floodFrame(fromPeer, seenBy, frame, "failed to forward sleep command")
+}
+
+// floodWakeCommand forwards a wake command to all peers except the source.
+func (f *Flooder) floodWakeCommand(
+	fromPeer identity.AgentID,
+	cmd *protocol.WakeCommand,
+	seenBy []identity.AgentID,
+) {
+	fwdCmd := &protocol.WakeCommand{
+		OriginAgent: cmd.OriginAgent,
+		CommandID:   cmd.CommandID,
+		Timestamp:   cmd.Timestamp,
+		SeenBy:      seenBy,
+	}
+
+	frame := &protocol.Frame{
+		Type:     protocol.FrameWakeCommand,
+		StreamID: protocol.ControlStreamID,
+		Payload:  fwdCmd.Encode(),
+	}
+
+	f.floodFrame(fromPeer, seenBy, frame, "failed to forward wake command")
+}
+
+// SleepCommandSeenCacheSize returns the current size of the sleep command seen cache.
+func (f *Flooder) SleepCommandSeenCacheSize() int {
+	f.sleepCmdMu.RLock()
+	defer f.sleepCmdMu.RUnlock()
+	return len(f.sleepCmdSeenCache)
 }

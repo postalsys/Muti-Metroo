@@ -39,6 +39,11 @@ const (
 	FrameICMPOpenErr uint8 = 0x42 // Session failed
 	FrameICMPEcho    uint8 = 0x43 // Echo request/reply data
 	FrameICMPClose   uint8 = 0x44 // Close session
+
+	// Sleep/Wake control frames (for mesh hibernation)
+	FrameSleepCommand uint8 = 0x50 // Sleep command (flooded to mesh)
+	FrameWakeCommand  uint8 = 0x51 // Wake command (flooded to mesh)
+	FrameQueuedState  uint8 = 0x52 // Queued state for reconnecting agents
 )
 
 // Control request types
@@ -220,6 +225,12 @@ func FrameTypeName(t uint8) string {
 		return "ICMP_ECHO"
 	case FrameICMPClose:
 		return "ICMP_CLOSE"
+	case FrameSleepCommand:
+		return "SLEEP_COMMAND"
+	case FrameWakeCommand:
+		return "WAKE_COMMAND"
+	case FrameQueuedState:
+		return "QUEUED_STATE"
 	default:
 		return "UNKNOWN"
 	}
@@ -314,4 +325,9 @@ func IsUDPFrame(t uint8) bool {
 // IsICMPFrame returns true if the frame type is an ICMP-related frame.
 func IsICMPFrame(t uint8) bool {
 	return t >= FrameICMPOpen && t <= FrameICMPClose
+}
+
+// IsSleepFrame returns true if the frame type is a sleep/wake-related frame.
+func IsSleepFrame(t uint8) bool {
+	return t >= FrameSleepCommand && t <= FrameQueuedState
 }

@@ -43,6 +43,7 @@ type Reconnector struct {
 	mu     sync.Mutex
 	states map[string]*reconnectState
 	closed bool
+	paused bool
 }
 
 // NewReconnector creates a new reconnector.
@@ -59,7 +60,7 @@ func (r *Reconnector) Schedule(addr string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.closed {
+	if r.closed || r.paused {
 		return
 	}
 
@@ -213,6 +214,43 @@ func (r *Reconnector) Stop() {
 		}
 		delete(r.states, addr)
 	}
+}
+
+// Pause temporarily stops all reconnection attempts without clearing state.
+// Pending timers are stopped but state is preserved for Resume().
+func (r *Reconnector) Pause() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.paused || r.closed {
+		return
+	}
+
+	r.paused = true
+
+	// Stop all pending timers
+	for _, state := range r.states {
+		if state.timer != nil {
+			state.timer.Stop()
+			state.timer = nil
+		}
+	}
+}
+
+// Resume resumes reconnection attempts after Pause.
+// Does not automatically reschedule - call Schedule() for specific addresses.
+func (r *Reconnector) Resume() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.paused = false
+}
+
+// IsPaused returns true if the reconnector is paused.
+func (r *Reconnector) IsPaused() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.paused
 }
 
 // BackoffCalculator calculates backoff delays.

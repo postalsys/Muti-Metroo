@@ -1829,6 +1829,279 @@ func DecodeICMPClose(buf []byte) (*ICMPClose, error) {
 }
 
 // ============================================================================
+// Sleep/Wake control frames
+// ============================================================================
+
+// SleepCommand is the payload for SLEEP_COMMAND frames.
+// This command floods through the mesh to instruct agents to hibernate.
+type SleepCommand struct {
+	OriginAgent identity.AgentID   // Agent that initiated the sleep command
+	CommandID   uint64             // Unique command ID for deduplication
+	Timestamp   uint64             // Unix timestamp when command was issued
+	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
+}
+
+// Encode serializes SleepCommand to bytes.
+func (s *SleepCommand) Encode() []byte {
+	w := newBufferWriter(16 + 8 + 8 + 1 + len(s.SeenBy)*16)
+	w.writeBytes(s.OriginAgent[:])
+	w.writeUint64(s.CommandID)
+	w.writeUint64(s.Timestamp)
+	w.writeAgentIDs(s.SeenBy)
+
+	return w.bytes()
+}
+
+// DecodeSleepCommand deserializes SleepCommand from bytes.
+func DecodeSleepCommand(buf []byte) (*SleepCommand, error) {
+	if len(buf) < 33 { // 16 + 8 + 8 + 1 minimum
+		return nil, fmt.Errorf("%w: SleepCommand too short", ErrInvalidFrame)
+	}
+
+	r := newBufferReader(buf, "SleepCommand")
+	s := &SleepCommand{
+		OriginAgent: r.readAgentID(),
+		CommandID:   r.readUint64(),
+		Timestamp:   r.readUint64(),
+		SeenBy:      r.readAgentIDs(),
+	}
+
+	if r.err != nil {
+		return nil, r.err
+	}
+	return s, nil
+}
+
+// WakeCommand is the payload for WAKE_COMMAND frames.
+// This command floods through the mesh to instruct agents to wake from sleep.
+type WakeCommand struct {
+	OriginAgent identity.AgentID   // Agent that initiated the wake command
+	CommandID   uint64             // Unique command ID for deduplication
+	Timestamp   uint64             // Unix timestamp when command was issued
+	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
+}
+
+// Encode serializes WakeCommand to bytes.
+func (w *WakeCommand) Encode() []byte {
+	bw := newBufferWriter(16 + 8 + 8 + 1 + len(w.SeenBy)*16)
+	bw.writeBytes(w.OriginAgent[:])
+	bw.writeUint64(w.CommandID)
+	bw.writeUint64(w.Timestamp)
+	bw.writeAgentIDs(w.SeenBy)
+
+	return bw.bytes()
+}
+
+// DecodeWakeCommand deserializes WakeCommand from bytes.
+func DecodeWakeCommand(buf []byte) (*WakeCommand, error) {
+	if len(buf) < 33 { // 16 + 8 + 8 + 1 minimum
+		return nil, fmt.Errorf("%w: WakeCommand too short", ErrInvalidFrame)
+	}
+
+	r := newBufferReader(buf, "WakeCommand")
+	w := &WakeCommand{
+		OriginAgent: r.readAgentID(),
+		CommandID:   r.readUint64(),
+		Timestamp:   r.readUint64(),
+		SeenBy:      r.readAgentIDs(),
+	}
+
+	if r.err != nil {
+		return nil, r.err
+	}
+	return w, nil
+}
+
+// SleepState represents the sleep state for queued state messages.
+type SleepState uint8
+
+const (
+	SleepStateAwake    SleepState = 0 // Normal operation
+	SleepStateSleeping SleepState = 1 // Hibernated
+	SleepStatePolling  SleepState = 2 // Temporarily reconnected during sleep
+)
+
+// QueuedState is the payload for QUEUED_STATE frames.
+// Sent to agents when they reconnect after sleeping, containing queued state updates.
+type QueuedState struct {
+	Routes    []RouteAdvertise    // Queued route advertisements
+	Withdraws []RouteWithdraw     // Queued route withdrawals
+	NodeInfos []NodeInfoAdvertise // Queued node info updates
+	SleepCmd  *SleepCommand       // Last sleep command (if still sleeping)
+	WakeCmd   *WakeCommand        // Last wake command (if woken)
+}
+
+// Encode serializes QueuedState to bytes.
+func (q *QueuedState) Encode() []byte {
+	// Calculate size
+	// Routes: count(2) + each route's encoded bytes
+	// Withdraws: count(2) + each withdraw's encoded bytes
+	// NodeInfos: count(2) + each nodeinfo's encoded bytes
+	// SleepCmd: present(1) + encoded bytes
+	// WakeCmd: present(1) + encoded bytes
+
+	// Pre-encode all items to get their sizes
+	routeBytes := make([][]byte, len(q.Routes))
+	totalRouteSize := 0
+	for i, r := range q.Routes {
+		routeBytes[i] = r.Encode()
+		totalRouteSize += 2 + len(routeBytes[i]) // 2 bytes for length prefix
+	}
+
+	withdrawBytes := make([][]byte, len(q.Withdraws))
+	totalWithdrawSize := 0
+	for i, w := range q.Withdraws {
+		withdrawBytes[i] = w.Encode()
+		totalWithdrawSize += 2 + len(withdrawBytes[i])
+	}
+
+	nodeInfoBytes := make([][]byte, len(q.NodeInfos))
+	totalNodeInfoSize := 0
+	for i, n := range q.NodeInfos {
+		nodeInfoBytes[i] = n.Encode()
+		totalNodeInfoSize += 2 + len(nodeInfoBytes[i])
+	}
+
+	var sleepCmdBytes []byte
+	if q.SleepCmd != nil {
+		sleepCmdBytes = q.SleepCmd.Encode()
+	}
+
+	var wakeCmdBytes []byte
+	if q.WakeCmd != nil {
+		wakeCmdBytes = q.WakeCmd.Encode()
+	}
+
+	size := 2 + totalRouteSize + 2 + totalWithdrawSize + 2 + totalNodeInfoSize
+	size += 1 + len(sleepCmdBytes) // present flag + data
+	size += 1 + len(wakeCmdBytes)  // present flag + data
+
+	w := newBufferWriter(size)
+
+	// Routes
+	w.writeUint16(uint16(len(q.Routes)))
+	for _, rb := range routeBytes {
+		w.writeUint16(uint16(len(rb)))
+		w.writeBytes(rb)
+	}
+
+	// Withdraws
+	w.writeUint16(uint16(len(q.Withdraws)))
+	for _, wb := range withdrawBytes {
+		w.writeUint16(uint16(len(wb)))
+		w.writeBytes(wb)
+	}
+
+	// NodeInfos
+	w.writeUint16(uint16(len(q.NodeInfos)))
+	for _, nb := range nodeInfoBytes {
+		w.writeUint16(uint16(len(nb)))
+		w.writeBytes(nb)
+	}
+
+	// SleepCmd
+	if q.SleepCmd != nil {
+		w.writeBool(true)
+		w.writeBytes(sleepCmdBytes)
+	} else {
+		w.writeBool(false)
+	}
+
+	// WakeCmd
+	if q.WakeCmd != nil {
+		w.writeBool(true)
+		w.writeBytes(wakeCmdBytes)
+	} else {
+		w.writeBool(false)
+	}
+
+	return w.bytes()
+}
+
+// DecodeQueuedState deserializes QueuedState from bytes.
+func DecodeQueuedState(buf []byte) (*QueuedState, error) {
+	if len(buf) < 8 { // 2+2+2+1+1 minimum (empty arrays, no commands)
+		return nil, fmt.Errorf("%w: QueuedState too short", ErrInvalidFrame)
+	}
+
+	r := newBufferReader(buf, "QueuedState")
+	q := &QueuedState{}
+
+	// Routes
+	routeCount := int(r.readUint16())
+	q.Routes = make([]RouteAdvertise, 0, routeCount)
+	for i := 0; i < routeCount && r.err == nil; i++ {
+		length := int(r.readUint16())
+		data := r.readBytes(length)
+		if r.err != nil {
+			break
+		}
+		adv, err := DecodeRouteAdvertise(data)
+		if err != nil {
+			continue // Skip malformed entries
+		}
+		q.Routes = append(q.Routes, *adv)
+	}
+
+	// Withdraws
+	withdrawCount := int(r.readUint16())
+	q.Withdraws = make([]RouteWithdraw, 0, withdrawCount)
+	for i := 0; i < withdrawCount && r.err == nil; i++ {
+		length := int(r.readUint16())
+		data := r.readBytes(length)
+		if r.err != nil {
+			break
+		}
+		w, err := DecodeRouteWithdraw(data)
+		if err != nil {
+			continue
+		}
+		q.Withdraws = append(q.Withdraws, *w)
+	}
+
+	// NodeInfos
+	nodeInfoCount := int(r.readUint16())
+	q.NodeInfos = make([]NodeInfoAdvertise, 0, nodeInfoCount)
+	for i := 0; i < nodeInfoCount && r.err == nil; i++ {
+		length := int(r.readUint16())
+		data := r.readBytes(length)
+		if r.err != nil {
+			break
+		}
+		n, err := DecodeNodeInfoAdvertise(data)
+		if err != nil {
+			continue
+		}
+		q.NodeInfos = append(q.NodeInfos, *n)
+	}
+
+	// SleepCmd
+	if r.readBool() {
+		// Read remaining bytes for sleep command
+		sleepData := r.buf[r.offset:]
+		sleepCmd, err := DecodeSleepCommand(sleepData)
+		if err == nil {
+			q.SleepCmd = sleepCmd
+			r.offset += 33 + len(sleepCmd.SeenBy)*16 // Advance past sleep command
+		}
+	}
+
+	// WakeCmd
+	if r.readBool() && r.err == nil {
+		wakeData := r.buf[r.offset:]
+		wakeCmd, err := DecodeWakeCommand(wakeData)
+		if err == nil {
+			q.WakeCmd = wakeCmd
+		}
+	}
+
+	if r.err != nil {
+		return nil, r.err
+	}
+	return q, nil
+}
+
+// ============================================================================
 // Frame Reader/Writer
 // ============================================================================
 

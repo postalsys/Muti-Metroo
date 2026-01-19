@@ -122,6 +122,18 @@ root privileges.`,
 	pingC.GroupID = "remote"
 	rootCmd.AddCommand(pingC)
 
+	sleepC := sleepCmd()
+	sleepC.GroupID = "remote"
+	rootCmd.AddCommand(sleepC)
+
+	wakeC := wakeCmd()
+	wakeC.GroupID = "remote"
+	rootCmd.AddCommand(wakeC)
+
+	sleepStatusC := sleepStatusCmd()
+	sleepStatusC.GroupID = "remote"
+	rootCmd.AddCommand(sleepStatusC)
+
 	// Administration commands
 	svc := serviceCmd()
 	svc.GroupID = "admin"
@@ -2864,4 +2876,219 @@ func (p *progressTrackingWriter) Write(buf []byte) (int, error) {
 		}
 	}
 	return n, err
+}
+
+// sleepCmd creates the sleep command.
+func sleepCmd() *cobra.Command {
+	var agentAddr string
+
+	cmd := &cobra.Command{
+		Use:   "sleep",
+		Short: "Put mesh into sleep mode",
+		Long: `Put the mesh network into sleep mode.
+
+When triggered, sleep mode:
+  - Floods a sleep command to all agents in the mesh
+  - Closes all peer connections
+  - Stops SOCKS5 and listener services
+  - Periodically polls for queued messages
+
+Note: Sleep mode must be enabled in the agent configuration:
+  sleep:
+    enabled: true
+    poll_interval: 5m
+
+Examples:
+  # Put mesh to sleep via local agent
+  muti-metroo sleep
+
+  # Via a different agent
+  muti-metroo sleep -a 192.168.1.10:8080`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			url := fmt.Sprintf("http://%s/sleep", agentAddr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Error   string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("sleep failed: %s", result.Error)
+				}
+				return fmt.Errorf("sleep failed: %s", resp.Status)
+			}
+
+			fmt.Printf("Sleep mode triggered: %s\n", result.Message)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+
+	return cmd
+}
+
+// wakeCmd creates the wake command.
+func wakeCmd() *cobra.Command {
+	var agentAddr string
+
+	cmd := &cobra.Command{
+		Use:   "wake",
+		Short: "Wake mesh from sleep mode",
+		Long: `Wake the mesh network from sleep mode.
+
+When triggered, wake mode:
+  - Reconnects to all configured peers
+  - Restarts SOCKS5 and listener services
+  - Floods a wake command to all agents in the mesh
+
+Note: Sleep mode must be enabled in the agent configuration.
+
+Examples:
+  # Wake mesh via local agent
+  muti-metroo wake
+
+  # Via a different agent
+  muti-metroo wake -a 192.168.1.10:8080`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			url := fmt.Sprintf("http://%s/wake", agentAddr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Error   string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("wake failed: %s", result.Error)
+				}
+				return fmt.Errorf("wake failed: %s", resp.Status)
+			}
+
+			fmt.Printf("Wake mode triggered: %s\n", result.Message)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+
+	return cmd
+}
+
+// sleepStatusCmd creates the sleep-status command.
+func sleepStatusCmd() *cobra.Command {
+	var agentAddr string
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "sleep-status",
+		Short: "Check sleep mode status",
+		Long: `Display the current sleep mode status of the agent.
+
+Shows:
+  - Current state (AWAKE, SLEEPING, or POLLING)
+  - Whether sleep mode is enabled
+  - Sleep start time (if sleeping)
+  - Last poll time
+  - Next scheduled poll time
+  - Number of peers with queued state
+
+Examples:
+  # Check sleep status of local agent
+  muti-metroo sleep-status
+
+  # Via a different agent with JSON output
+  muti-metroo sleep-status -a 192.168.1.10:8080 --json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			url := fmt.Sprintf("http://%s/sleep/status", agentAddr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var status struct {
+				State          string    `json:"state"`
+				Enabled        bool      `json:"enabled"`
+				SleepStartTime time.Time `json:"sleep_start_time,omitempty"`
+				LastPollTime   time.Time `json:"last_poll_time,omitempty"`
+				NextPollTime   time.Time `json:"next_poll_time,omitempty"`
+				QueuedPeers    int       `json:"queued_peers"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(status)
+			}
+
+			fmt.Printf("Sleep Mode Status\n")
+			fmt.Printf("=================\n")
+			fmt.Printf("State:          %s\n", status.State)
+			fmt.Printf("Enabled:        %v\n", status.Enabled)
+			if !status.SleepStartTime.IsZero() {
+				fmt.Printf("Sleep Started:  %s\n", status.SleepStartTime.Format(time.RFC3339))
+			}
+			if !status.LastPollTime.IsZero() {
+				fmt.Printf("Last Poll:      %s\n", status.LastPollTime.Format(time.RFC3339))
+			}
+			if !status.NextPollTime.IsZero() {
+				fmt.Printf("Next Poll:      %s\n", status.NextPollTime.Format(time.RFC3339))
+			}
+			fmt.Printf("Queued Peers:   %d\n", status.QueuedPeers)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+
+	return cmd
 }
