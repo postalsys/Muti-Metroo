@@ -1,0 +1,150 @@
+# Suricata configuration for Muti Metroo Traffic Analysis Lab
+# Captures traffic on agent2 (transit node) to analyze protocol patterns
+
+%YAML 1.1
+---
+
+# Global settings
+vars:
+  address-groups:
+    HOME_NET: "[172.28.0.0/16]"
+    EXTERNAL_NET: "!$HOME_NET"
+  port-groups:
+    QUIC_PORTS: "4433"
+    H2_PORTS: "8443"
+    WS_PORTS: "8888"
+
+# Default log directory
+default-log-dir: /var/log/suricata/
+
+# Stats configuration
+stats:
+  enabled: yes
+  interval: 10
+
+# Outputs
+outputs:
+  # Fast log for quick alert viewing
+  - fast:
+      enabled: yes
+      filename: fast.log
+      append: yes
+
+  # EVE JSON log for structured analysis
+  - eve-log:
+      enabled: yes
+      filename: eve.json
+      filetype: regular
+      append: no
+      types:
+        - alert:
+            tagged-packets: yes
+        - anomaly:
+            enabled: yes
+        - http:
+            extended: yes
+        - dns:
+            version: 2
+        - tls:
+            extended: yes
+        - files:
+            force-magic: no
+        - drop:
+            enabled: yes
+        - smtp:
+            extended: yes
+        - flow
+        - netflow
+        - stats:
+            totals: yes
+            threads: no
+            deltas: no
+
+  # PCAP logging
+  - pcap-log:
+      enabled: yes
+      filename: capture.pcap
+      limit: 100mb
+      max-files: 10
+      mode: normal
+      dir: /var/log/suricata/pcaps
+      use-stream-depth: no
+
+  # Stats log
+  - stats:
+      enabled: yes
+      filename: stats.log
+      append: yes
+      totals: yes
+      threads: no
+
+# Packet acquisition
+af-packet:
+  - interface: any
+    threads: auto
+    cluster-type: cluster_flow
+    defrag: yes
+    use-mmap: yes
+    ring-size: 2048
+    block-size: 32768
+    tpacket-v3: yes
+
+# Protocol detection
+app-layer:
+  protocols:
+    # TLS/SSL
+    tls:
+      enabled: yes
+      detection-ports:
+        dp: 443, 4433, 8443
+
+    # QUIC
+    quic:
+      enabled: yes
+
+    # HTTP/2
+    http2:
+      enabled: yes
+
+    # HTTP
+    http:
+      enabled: yes
+      libhtp:
+        default-config:
+          personality: IDS
+          request-body-limit: 100kb
+          response-body-limit: 100kb
+
+    # DNS
+    dns:
+      enabled: yes
+
+# PCRE options
+pcre:
+  match-limit: 3500
+  match-limit-recursion: 1500
+
+# Detection engine
+detect:
+  profile: medium
+  custom-values:
+    toclient-groups: 3
+    toserver-groups: 25
+  sgh-mpm-context: auto
+  inspection-recursion-limit: 3000
+  prefilter:
+    default: mpm
+
+# Threading
+threading:
+  set-cpu-affinity: no
+  detect-thread-ratio: 1.0
+
+# Rule files
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - muti-metroo.rules
+
+# Classification and reference config
+classification-file: /etc/suricata/classification.config
+reference-config-file: /etc/suricata/reference.config

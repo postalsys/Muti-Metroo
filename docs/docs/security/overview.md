@@ -72,7 +72,7 @@ All peer connections use TLS 1.3:
 |------|---------------------|
 | CA private key stolen | Store it securely (HSM, vault, encrypted disk) |
 | Ingress or exit host compromised | Harden your endpoints - they see your data |
-| Traffic pattern analysis | Use additional anonymization (Tor) if needed |
+| Traffic pattern analysis | Disable protocol identifiers, use standard ports. See [Traffic Patterns](/security/traffic-patterns) |
 | Insider with valid credentials | Monitor logs, rotate credentials |
 
 ## Security Checklist
@@ -125,6 +125,7 @@ For detailed hardening guidance, see [Best Practices](/security/best-practices).
 | [Authentication](/security/authentication) | Client and shell authentication |
 | [Access Control](/security/access-control) | Route and command restrictions |
 | [Best Practices](/security/best-practices) | Production hardening guide |
+| [Traffic Patterns](/security/traffic-patterns) | Network detection and analysis |
 
 ## Reporting Security Issues
 
@@ -141,3 +142,4 @@ If you discover a security vulnerability:
 - [TLS/mTLS Configuration](/security/tls-mtls)
 - [Authentication](/security/authentication)
 - [Best Practices](/security/best-practices)
+- [Traffic Patterns & Detection](/security/traffic-patterns)

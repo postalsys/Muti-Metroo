@@ -1,0 +1,32 @@
+# Agent2: Transit Node for Traffic Analysis Lab
+# Suricata runs as a sidecar capturing traffic on this node
+agent:
+  display_name: "ta-agent2-transit"
+  data_dir: "/app/data"
+
+tls:
+  ca: "/app/certs/ca.crt"
+  cert: "/app/certs/ta-agent2.crt"
+  key: "/app/certs/ta-agent2.key"
+
+# All three transport listeners for testing
+listeners:
+  - transport: quic
+    address: ":4433"
+  - transport: h2
+    address: ":8443"
+    path: "/h2"
+  - transport: ws
+    address: ":8888"
+    path: "/mesh"
+
+# Peer connection to agent3
+peers:
+  - id: "7eccbc1158f04e2cbc43823c88060287"
+    transport: quic
+    address: "agent3:4433"
+
+http:
+  enabled: true
+  address: ":8080"
+  dashboard: true

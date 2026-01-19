@@ -102,6 +102,7 @@ const sidebars: SidebarsConfig = {
         'security/authentication',
         'security/access-control',
         'security/best-practices',
+        'security/traffic-patterns',
       ],
     },
     {

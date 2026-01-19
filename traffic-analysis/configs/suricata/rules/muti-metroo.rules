@@ -1,0 +1,96 @@
+# Muti Metroo Detection Rules for Traffic Analysis Lab
+# These rules detect protocol identifiers across all three transport types
+# Tested with Suricata 8.0.3
+
+# =============================================================================
+# QUIC Transport Detection (UDP :4433)
+# =============================================================================
+
+# QUIC traffic on default Muti Metroo port (behavioral)
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Port Activity"; flow:to_server; dsize:>100; classtype:misc-activity; sid:1000001; rev:2;)
+
+# QUIC Initial packet (long header, type 0 = Initial)
+# First byte: 11xxxxxx where xx is packet type (00 = Initial)
+# 0xc0 = 1100 0000 (Initial, QUIC v1)
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Initial Packet"; content:"|c0|"; depth:1; classtype:misc-activity; sid:1000002; rev:2;)
+
+# QUIC Handshake packet (long header, type 2 = Handshake)
+# 0xe0 = 1110 0000 (Handshake)
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Handshake Packet"; content:"|e0|"; depth:1; classtype:misc-activity; sid:1000003; rev:2;)
+
+# QUIC 0-RTT packet (long header, type 1 = 0-RTT)
+# 0xd0 = 1101 0000 (0-RTT)
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC 0-RTT Packet"; content:"|d0|"; depth:1; classtype:misc-activity; sid:1000004; rev:1;)
+
+# QUIC version detection (version 1 = 0x00000001)
+# Version field is at bytes 1-4 in long header packets
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Version 1"; content:"|00 00 00 01|"; offset:1; depth:4; classtype:misc-activity; sid:1000005; rev:1;)
+
+# QUIC session tracking - mark UDP flows to QUIC port
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Session Start"; dsize:>1200; flowbits:set,mm_quic_session; classtype:misc-activity; sid:1000006; rev:1;)
+
+# QUIC short header (1-RTT data) - first bit is 0 for short header
+# Short header: 01xxxxxx (0x40-0x7f range, but commonly 0x40-0x5f)
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Short Header Data"; content:"|40|"; depth:1; flowbits:isset,mm_quic_session; classtype:misc-activity; sid:1000007; rev:1;)
+
+# =============================================================================
+# TLS/HTTP2 Transport Detection (TCP :8443)
+# =============================================================================
+
+# TLS ALPN detection for muti-metroo/1
+alert tls any any -> any any (msg:"MUTI-METROO TLS ALPN Detected"; tls.alpn; content:"muti-metroo/1"; nocase; classtype:misc-activity; sid:1000010; rev:1;)
+
+# TLS ClientHello on H2 port (record type 0x16, version 0x0301 or 0x0303)
+alert tcp any any -> any 8443 (msg:"MUTI-METROO H2 Port TLS Handshake"; flow:to_server,established; content:"|16 03|"; depth:2; classtype:misc-activity; sid:1000011; rev:1;)
+
+# H2 Session start tracking
+alert tcp any any -> any 8443 (msg:"MUTI-METROO H2 Session Start"; flow:to_server; flags:S; flowbits:set,mm_session; classtype:misc-activity; sid:1000012; rev:1;)
+
+# HTTP/2 with custom protocol header (post-TLS inspection)
+alert http2 any any -> any any (msg:"MUTI-METROO HTTP/2 Protocol Header"; http.header; content:"X-Muti-Metroo-Protocol"; nocase; classtype:misc-activity; sid:1000013; rev:1;)
+
+# =============================================================================
+# WebSocket Transport Detection (TCP :8888)
+# =============================================================================
+
+# WebSocket upgrade with muti-metroo subprotocol
+alert http any any -> any any (msg:"MUTI-METROO WebSocket Subprotocol"; flow:to_server,established; http.header; content:"Sec-WebSocket-Protocol"; content:"muti-metroo/1"; distance:0; classtype:misc-activity; sid:1000020; rev:1;)
+
+# WebSocket upgrade request to /mesh path
+alert http any any -> any any (msg:"MUTI-METROO WebSocket Upgrade Path"; flow:to_server,established; http.uri; content:"/mesh"; http.header; content:"Upgrade"; content:"websocket"; distance:0; classtype:misc-activity; sid:1000021; rev:1;)
+
+# WS port TLS handshake
+alert tcp any any -> any 8888 (msg:"MUTI-METROO WS Port TLS Handshake"; flow:to_server,established; content:"|16 03|"; depth:2; classtype:misc-activity; sid:1000022; rev:1;)
+
+# WS Session start tracking
+alert tcp any any -> any 8888 (msg:"MUTI-METROO WS Session Start"; flow:to_server; flags:S; flowbits:set,mm_session; classtype:misc-activity; sid:1000023; rev:1;)
+
+# =============================================================================
+# Behavioral Patterns (All Transports)
+# =============================================================================
+
+# Large data transfer burst (file upload/download) - TCP
+alert tcp any any -> any any (msg:"MUTI-METROO TCP Large Data Transfer"; flow:established; dsize:>15000; flowbits:isset,mm_session; classtype:misc-activity; sid:1000030; rev:2;)
+
+# Large data transfer burst (file upload/download) - QUIC
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Large Data Transfer"; dsize:>1400; flowbits:isset,mm_quic_session; classtype:misc-activity; sid:1000031; rev:1;)
+
+# Keepalive pattern detection (small packets on established session)
+alert tcp any any -> any any (msg:"MUTI-METROO TCP Keepalive Pattern"; flow:established; dsize:14<>50; flowbits:isset,mm_session; threshold:type threshold, track by_flow, count 5, seconds 300; classtype:misc-activity; sid:1000032; rev:2;)
+
+# =============================================================================
+# Multi-Port Detection (Any Muti Metroo Port)
+# =============================================================================
+
+# Detect TLS on any of the three standard ports
+alert tcp any any -> any [4433,8443,8888] (msg:"MUTI-METROO Multi-Port TLS"; flow:to_server,established; content:"|16 03|"; depth:2; classtype:misc-activity; sid:1000040; rev:1;)
+
+# =============================================================================
+# Connection Patterns
+# =============================================================================
+
+# Multiple QUIC connections from same source (mesh topology indicator)
+alert udp any any -> any 4433 (msg:"MUTI-METROO QUIC Mesh Topology"; threshold:type both, track by_src, count 3, seconds 60; classtype:misc-activity; sid:1000050; rev:1;)
+
+# Multiple TCP connections from same source to mesh ports
+alert tcp any any -> any [8443,8888] (msg:"MUTI-METROO TCP Mesh Topology"; flow:to_server; flags:S; threshold:type both, track by_src, count 3, seconds 60; classtype:misc-activity; sid:1000051; rev:1;)

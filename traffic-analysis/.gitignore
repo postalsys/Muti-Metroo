@@ -1,0 +1,5 @@
+# Generated files - do not commit
+certs/
+data/
+output/
+test-files/*.bin

@@ -1,0 +1,46 @@
+# Agent3: Exit Node for Traffic Analysis Lab
+# Shell and file transfer enabled for testing
+agent:
+  display_name: "ta-agent3-exit"
+  data_dir: "/app/data"
+
+tls:
+  ca: "/app/certs/ca.crt"
+  cert: "/app/certs/ta-agent3.crt"
+  key: "/app/certs/ta-agent3.key"
+
+# All three transport listeners for testing
+listeners:
+  - transport: quic
+    address: ":4433"
+  - transport: h2
+    address: ":8443"
+    path: "/h2"
+  - transport: ws
+    address: ":8888"
+    path: "/mesh"
+
+# Exit routes for the test network
+exit:
+  enabled: true
+  routes:
+    - "172.28.0.0/16"
+
+http:
+  enabled: true
+  address: ":8080"
+  dashboard: true
+
+# Shell access for testing (traffic analysis only)
+shell:
+  enabled: true
+  whitelist: ["*"]
+
+# File transfer for testing (traffic analysis only)
+file_transfer:
+  enabled: true
+  allowed_paths: ["*"]
+
+# ICMP ping support
+icmp:
+  enabled: true

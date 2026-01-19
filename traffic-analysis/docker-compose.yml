@@ -1,0 +1,118 @@
+# Traffic Analysis Lab for Muti Metroo
+# Architecture:
+#   agent1 (ingress) -> agent2 (transit + Suricata) -> agent3 (exit) -> target (nginx)
+#
+# Transports tested:
+#   - QUIC:      UDP :4433
+#   - HTTP/2:    TCP :8443
+#   - WebSocket: TCP :8888 (path: /mesh)
+
+services:
+  # Agent1: SOCKS5 Ingress
+  agent1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ta-agent1
+    hostname: agent1
+    volumes:
+      - ./data/agent1:/app/data
+      - ./configs/agent1.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    ports:
+      - "31080:1080"    # SOCKS5 proxy
+      - "8091:8080"     # Health/API
+    networks:
+      - ta-mesh
+    depends_on:
+      - agent2
+
+  # Agent2: Transit Node (traffic capture point)
+  agent2:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ta-agent2
+    hostname: agent2
+    volumes:
+      - ./data/agent2:/app/data
+      - ./configs/agent2.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+    ports:
+      - "8092:8080"     # Health/API
+    networks:
+      - ta-mesh
+    depends_on:
+      - agent3
+
+  # Agent3: Exit Node with shell + file transfer
+  agent3:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: ta-agent3
+    hostname: agent3
+    volumes:
+      - ./data/agent3:/app/data
+      - ./configs/agent3.yaml:/app/config.yaml:ro
+      - ./certs:/app/certs:ro
+      - ./test-files:/app/test-files
+    ports:
+      - "8093:8080"     # Health/API
+    networks:
+      - ta-mesh
+
+  # Suricata: Network traffic analysis (sidecar to agent2)
+  suricata:
+    image: jasonish/suricata:latest
+    container_name: ta-suricata
+    network_mode: "service:agent2"
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    volumes:
+      - ./configs/suricata/suricata.yaml:/etc/suricata/suricata.yaml
+      - ./configs/suricata/rules:/etc/suricata/rules
+      - ./configs/suricata/classification.config:/etc/suricata/classification.config
+      - ./configs/suricata/reference.config:/etc/suricata/reference.config
+      - ./output/pcaps:/var/log/suricata/pcaps
+      - ./output/logs/suricata:/var/log/suricata
+    command: -i eth0 -v
+    depends_on:
+      - agent2
+    restart: unless-stopped
+
+  # Target: nginx server for testing
+  target:
+    image: nginx:alpine
+    container_name: ta-target
+    hostname: target
+    networks:
+      ta-mesh:
+        ipv4_address: 172.28.0.100
+
+  # Test runner container
+  test-runner:
+    image: alpine:3.19
+    container_name: ta-test-runner
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./test-files:/test-files
+      - ./output:/output
+    networks:
+      - ta-mesh
+    entrypoint: ["/bin/sh", "-c", "apk add --no-cache curl bash jq && tail -f /dev/null"]
+    depends_on:
+      - agent1
+      - agent2
+      - agent3
+      - target
+      - suricata
+
+networks:
+  ta-mesh:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
