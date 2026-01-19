@@ -283,7 +283,7 @@ An agent can serve multiple roles simultaneously:
 | `routing`      | Route table with CIDR longest-prefix match and domain pattern matching, route manager       |
 | `service`      | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service       |
 | `shell`        | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
-| `sleep`        | Mesh hibernation - state machine, jittered polling, command deduplication, persistence      |
+| `sleep`        | Mesh hibernation - state machine, jittered polling, command deduplication, persistence, deterministic windows |
 | `socks5`       | SOCKS5 server with no-auth and username/password methods, optional WebSocket transport      |
 | `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                      |
 | `sysinfo`      | System information collection for node info advertisements                                  |

@@ -1600,13 +1600,60 @@ This allows agents to resume sleep mode after restart without losing context.
 - Poll timing jitter helps avoid traffic analysis detection
 - Persistent state is stored unencrypted - protect the data directory
 
+### Deterministic Listening Windows
+
+To enable coordinated reconnection during sleep mode, agents can calculate when other agents will be listening using deterministic window calculations. This allows an active agent to know precisely when a sleeping peer will open its listening window.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DETERMINISTIC LISTENING WINDOWS                          │
+│                                                                             │
+│  CycleLength: 5 minutes                                                     │
+│  WindowLength: 30 seconds                                                   │
+│  Offset: Derived from AgentID (deterministic, unique per agent)             │
+│                                                                             │
+│  Timeline for Agent X (offset = 2m):                                        │
+│  ├────────────┬────────────┬────────────┬────────────┬────────────┤         │
+│  0m           2m        2m30s         5m          7m        7m30s          │
+│  │            │==LISTEN===│            │           │==LISTEN===│            │
+│  │            ▲           ▲            │           ▲           ▲            │
+│  │        WindowStart  WindowEnd      │       WindowStart  WindowEnd       │
+│  │                                     │                                    │
+│  │◄──────── Cycle 1 ─────────────────►│◄──────── Cycle 2 ──────────────►│  │
+│                                                                             │
+│  Clock Tolerance: +/- 5 seconds around window for connection attempts       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**WindowCalculator API:**
+
+```go
+// Calculate next listening window for a remote agent
+calc := sleep.NewWindowCalculator(sleep.DefaultWindowConfig())
+info := calc.GetWindowInfo(remoteAgentID, time.Now())
+
+// info.Start, info.End - exact window boundaries
+// info.SafeStart, info.SafeEnd - with clock tolerance
+// info.TimeUntil - duration until window opens
+// info.CurrentlyActive - true if currently in window
+```
+
+**Use Cases:**
+
+- **Awake agent connecting to sleeping peer**: Calculate when peer's window opens, connect at optimal time
+- **Mesh coordination**: Agents can predict each other's availability without explicit communication
+- **Wake command delivery**: Route wake commands through agents whose windows overlap
+
 ### Package Structure
 
 ```
 internal/sleep/
 ├── sleep.go        # Manager state machine, callbacks, persistence
 ├── queue.go        # StateQueue for sleeping peer message queuing
-└── sleep_test.go   # Unit tests
+├── window.go       # Deterministic listening window calculator
+├── sleep_test.go   # Sleep manager unit tests
+└── window_test.go  # Window calculator unit tests
 ```
 
 ---
@@ -3129,7 +3176,9 @@ muti-metroo/
 │   ├── sleep/
 │   │   ├── sleep.go                # Sleep manager state machine, persistence
 │   │   ├── queue.go                # State queue for sleeping peers
-│   │   └── sleep_test.go           # Sleep tests
+│   │   ├── window.go               # Deterministic listening window calculator
+│   │   ├── sleep_test.go           # Sleep tests
+│   │   └── window_test.go          # Window calculator tests
 │   │
 │   ├── filetransfer/
 │   │   ├── stream.go               # Stream-based file transfer protocol
