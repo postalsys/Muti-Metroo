@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.12.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.3...muti-metroo-v2.12.0) (2026-01-19)
+
+
+### Features
+
+* add traffic analysis lab with Suricata IDS ([4914767](https://github.com/postalsys/Muti-Metroo/commit/4914767241956afc1fa65c1507b5bee2755c369d))
+* **transport:** add TLS fingerprint customization for JA3/JA4 evasion ([32f4172](https://github.com/postalsys/Muti-Metroo/commit/32f41720805b2ca576f37a4e48c0851126d6c424))
+
 ## [2.11.3](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.11.2...muti-metroo-v2.11.3) (2026-01-17)
 
 
