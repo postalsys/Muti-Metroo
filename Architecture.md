@@ -3126,6 +3126,11 @@ muti-metroo/
 │   │   ├── streaming.go            # Non-PTY streaming command execution
 │   │   └── shell_test.go           # Shell tests
 │   │
+│   ├── sleep/
+│   │   ├── sleep.go                # Sleep manager state machine, persistence
+│   │   ├── queue.go                # State queue for sleeping peers
+│   │   └── sleep_test.go           # Sleep tests
+│   │
 │   ├── filetransfer/
 │   │   ├── stream.go               # Stream-based file transfer protocol
 │   │   ├── tar.go                  # Directory tar/untar with gzip compression
@@ -3382,6 +3387,9 @@ docker run --rm muti-metroo-test
 | 0x32 | UDP_OPEN_ERR        | Association failed     |
 | 0x33 | UDP_DATAGRAM        | UDP datagram payload   |
 | 0x34 | UDP_CLOSE           | Close association      |
+| 0x50 | SLEEP_COMMAND       | Mesh-wide sleep        |
+| 0x51 | WAKE_COMMAND        | Mesh-wide wake         |
+| 0x52 | QUEUED_STATE        | Queued state for peer  |
 
 ### Error Codes
 
@@ -3450,6 +3458,9 @@ docker run --rm muti-metroo-test
 | `service install`   | Install as system service              |
 | `service uninstall` | Remove system service                  |
 | `service status`    | Check service status                   |
+| `sleep`             | Put mesh into sleep mode               |
+| `wake`              | Wake mesh from sleep mode              |
+| `sleep-status`      | Check sleep mode status                |
 
 ---
 

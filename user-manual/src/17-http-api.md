@@ -158,6 +158,67 @@ Response:
 }
 ```
 
+## Sleep Mode Endpoints
+
+Control mesh hibernation via HTTP.
+
+### POST /sleep
+
+Put the mesh into sleep mode:
+
+```bash
+curl -X POST http://localhost:8080/sleep
+```
+
+Response:
+
+```json
+{
+  "status": "triggered",
+  "message": "sleep command triggered"
+}
+```
+
+### POST /wake
+
+Wake the mesh from sleep mode:
+
+```bash
+curl -X POST http://localhost:8080/wake
+```
+
+Response:
+
+```json
+{
+  "status": "triggered",
+  "message": "wake command triggered"
+}
+```
+
+### GET /sleep/status
+
+Get current sleep status:
+
+```bash
+curl http://localhost:8080/sleep/status | jq
+```
+
+Response:
+
+```json
+{
+  "state": "SLEEPING",
+  "enabled": true,
+  "sleep_start_time": "2026-01-19T10:30:00Z",
+  "last_poll_time": "2026-01-19T10:35:00Z",
+  "next_poll_time": "2026-01-19T10:40:00Z",
+  "queued_peers": 2
+}
+```
+
+States: `AWAKE`, `SLEEPING`, `POLLING`
+
 ## CLI Commands
 
 Use CLI for convenient access:
