@@ -43,6 +43,60 @@ protocol:
 
 Choose an ALPN value that matches your network environment.
 
+## TLS Fingerprint Customization
+
+TLS fingerprinting (JA3/JA4) identifies clients by hashing their TLS ClientHello parameters - cipher suites, extensions, and curves. Network monitoring tools use these fingerprints to detect unusual TLS clients.
+
+Muti Metroo can mimic popular browser fingerprints for outbound connections:
+
+```yaml
+tls:
+  fingerprint:
+    preset: "chrome"  # Mimic Chrome browser
+```
+
+### Available Presets
+
+| Preset | Description |
+|--------|-------------|
+| `disabled` | Go standard library (default) |
+| `chrome` | Latest Chrome browser |
+| `firefox` | Latest Firefox browser |
+| `safari` | Safari browser |
+| `edge` | Microsoft Edge |
+| `ios` | iOS Safari |
+| `android` | Android Chrome |
+| `random` | Randomized per connection |
+
+### Transport Support
+
+| Transport | Fingerprint Support |
+|-----------|---------------------|
+| HTTP/2 | Full customization |
+| WebSocket | Full customization |
+| QUIC | Not supported (QUIC uses internal TLS 1.3) |
+
+### Usage Notes
+
+- Fingerprint customization only affects **outbound** peer connections
+- Listeners (servers) are not affected - servers don't send ClientHello
+- Combine with protocol identifier customization for maximum effectiveness:
+
+```yaml
+tls:
+  fingerprint:
+    preset: "chrome"
+
+protocol:
+  alpn: ""           # Disable custom ALPN
+  http_header: ""    # Disable custom header
+  ws_subprotocol: "" # Disable custom subprotocol
+
+listeners:
+  - transport: h2
+    address: ":443"  # Standard HTTPS port
+```
+
 ## HTTP Endpoint Security
 
 The HTTP API exposes operational information. Minimize exposure based on your security requirements:
@@ -143,6 +197,10 @@ agent:
   log_level: "warn"
   log_format: "json"
 
+tls:
+  fingerprint:
+    preset: "chrome"
+
 protocol:
   alpn: "h2"
   http_header: ""
@@ -194,6 +252,7 @@ management:
 Before deployment, verify:
 
 - [ ] Protocol identifiers configured appropriately
+- [ ] TLS fingerprint preset configured (if using HTTP/2 or WebSocket)
 - [ ] HTTP API bound to localhost or disabled
 - [ ] Dashboard disabled on remote agents
 - [ ] pprof disabled in production
