@@ -161,10 +161,10 @@ The probe provides helpful error messages for common failure scenarios:
 
 ### Pre-deployment Verification
 
-Before deploying an agent to a target machine, verify the listener is reachable:
+Before deploying an agent to a remote machine, verify the listener is reachable:
 
 ```bash
-# On the target machine (or a machine with similar network access)
+# On the remote machine (or a machine with similar network access)
 muti-metroo probe --insecure relay.example.com:4433
 ```
 

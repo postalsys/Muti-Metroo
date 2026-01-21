@@ -12,7 +12,7 @@ sidebar_position: 1
 Your traffic stays private even when it passes through transit nodes you don't control. Only the ingress and exit see your data - everything in between sees encrypted bytes they cannot decrypt.
 
 **What this means for you:**
-- Compromise a transit node? Attacker sees nothing useful
+- Compromise a transit node? They see nothing useful
 - Network tapped between agents? Traffic is encrypted
 - Unauthorized client tries to connect? Rejected by authentication
 
@@ -60,7 +60,7 @@ All peer connections use TLS 1.3:
 |--------------------|----------------------------|
 | Someone captures traffic between agents | It's encrypted - they see random bytes |
 | Transit node is compromised | E2E encryption - transit can't decrypt your data |
-| Attacker replays captured traffic | Nonce-based encryption detects replays |
+| Someone replays captured traffic | Nonce-based encryption detects replays |
 | Someone modifies traffic in transit | Authenticated encryption detects tampering |
 | Unauthorized peer tries to connect | mTLS rejects unknown certificates |
 | Unauthorized client tries to use proxy | SOCKS5 authentication blocks them |

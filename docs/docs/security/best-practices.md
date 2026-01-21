@@ -12,7 +12,7 @@ sidebar_position: 6
 Production deployments need additional hardening beyond the secure defaults. This guide covers certificate management, system hardening, and incident response.
 
 **The three most important things:**
-1. **Protect your CA private key** - if stolen, attackers can create valid certificates
+1. **Protect your CA private key** - if stolen, unauthorized parties can create valid certificates
 2. **Enable mTLS** - only agents with your certificates can connect
 3. **Disable unused features** - shell and file transfer are disabled by default for a reason
 

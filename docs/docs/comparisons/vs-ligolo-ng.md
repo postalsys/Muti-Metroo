@@ -34,7 +34,7 @@ Ligolo-ng uses a **proxy-agent model** where agents connect back to a central pr
 
 ```mermaid
 flowchart TB
-    subgraph Attacker["Attacker Machine"]
+    subgraph Operator["Operator Machine"]
         Tools[Security Tools]
         TUN[TUN Interface]
         Proxy[Proxy Server]
@@ -52,7 +52,7 @@ flowchart TB
 ```
 
 **How it works:**
-1. Start the proxy server on your attack machine (creates TUN interface)
+1. Start the proxy server on your operator machine (creates TUN interface)
 2. Deploy agent on target network (connects back to proxy)
 3. Configure routes on the proxy to point to the TUN interface
 4. Traffic from your tools goes through TUN to agent to targets
@@ -97,7 +97,7 @@ flowchart TB
 
 ### Ligolo-ng: Server-Side TUN
 
-The TUN interface lives on the **proxy server** (typically your attack machine):
+The TUN interface lives on the **proxy server** (typically your operator machine):
 
 - **Advantage**: Transparent to all tools - anything that uses the network stack works
 - **Requirement**: Root/admin on the proxy server to create TUN
@@ -141,7 +141,7 @@ To reach networks behind multiple hops (double pivoting), Ligolo-ng requires man
 
 ```mermaid
 flowchart LR
-    subgraph Attacker["Attacker Machine"]
+    subgraph Operator["Operator Machine"]
         Tools[Tools]
         TUN1[TUN ligolo]
         TUN2[TUN ligolo-double]
@@ -170,7 +170,7 @@ flowchart LR
 **Connection flow:**
 - Agent 1 connects directly back to the Proxy (reverse connection)
 - Agent 2 connects to Agent 1's listener (port 11601), which tunnels to the Proxy
-- Both TUN interfaces exist on the attacker machine, routing to different networks
+- Both TUN interfaces exist on the operator machine, routing to different networks
 
 **Step-by-step double pivot setup:**
 

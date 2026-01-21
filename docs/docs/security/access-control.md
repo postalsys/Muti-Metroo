@@ -180,7 +180,7 @@ file_transfer:
   password_hash: "$2a$12$..."
 ```
 
-This configuration requires an attacker to bypass six layers to cause damage.
+This configuration requires bypassing six layers to cause damage.
 
 ## Access Control Checklist
 
