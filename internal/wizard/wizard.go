@@ -331,7 +331,8 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 		return
 	}
 
-	prompt.PrintHeader("Basic Setup", "Configure the essential paths for your agent.")
+	prompt.PrintHeader("Basic Setup", "Configure the essential paths for your agent.\n"+
+		"Note: A config file is always generated, even if you later choose embedded deployment.")
 
 	// First, ask for config path so we can try to load existing config
 	configPath, err = prompt.ReadLineValidated("Config File Path", "./config.yaml", func(s string) error {
@@ -356,6 +357,8 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 	}
 
 	// Now ask for remaining settings with defaults from existing config
+	fmt.Println("\n  [INFO] Data directory stores agent identity. With embedded deployment,")
+	fmt.Println("         identity is stored in config instead, so this directory may not be created.")
 	dataDir, err = prompt.ReadLineValidated("Data Directory", dataDir, func(s string) error {
 		if s == "" {
 			return fmt.Errorf("data directory is required")
@@ -2309,7 +2312,8 @@ func (w *Wizard) askLinuxServiceInstallationEmbedded(cfg service.ServiceConfig, 
 func (w *Wizard) askConfigDelivery() (embedConfig bool, serviceName string, err error) {
 	prompt.PrintHeader("Configuration Delivery",
 		"Choose how to deploy the configuration.\n"+
-			"Embedding creates a single-file binary with config baked in.")
+			"Embedding creates a single-file binary with config baked in.\n"+
+			"Note: The config file is saved as a backup in either case.")
 
 	options := []string{
 		"Save to config file (traditional)",
