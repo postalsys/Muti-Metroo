@@ -44,6 +44,11 @@ type Options struct {
 	// ClientKey is the path to a client key file for mTLS
 	ClientKey string
 
+	// PlainText enables plaintext mode (no TLS) for WebSocket transport.
+	// Use this when connecting to a listener behind a reverse proxy that handles TLS.
+	// Only valid for WebSocket transport.
+	PlainText bool
+
 	// Protocol identifiers for OPSEC
 	ALPNProtocol  string
 	HTTPHeader    string
@@ -99,12 +104,23 @@ func Probe(ctx context.Context, opts Options) *Result {
 	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
-	// Create TLS config
-	tlsConfig, err := buildTLSConfig(opts)
-	if err != nil {
-		result.Error = err
-		result.ErrorDetail = classifyError(err)
+	// Validate plaintext option
+	if opts.PlainText && opts.Transport != "ws" {
+		result.Error = fmt.Errorf("plaintext mode is only supported for WebSocket transport")
+		result.ErrorDetail = "plaintext mode is only supported for WebSocket transport"
 		return result
+	}
+
+	// Create TLS config (nil for plaintext mode)
+	var tlsConfig *tls.Config
+	var err error
+	if !opts.PlainText {
+		tlsConfig, err = buildTLSConfig(opts)
+		if err != nil {
+			result.Error = err
+			result.ErrorDetail = classifyError(err)
+			return result
+		}
 	}
 
 	// Create transport
@@ -126,33 +142,8 @@ func Probe(ctx context.Context, opts Options) *Result {
 		WSSubprotocol: opts.WSSubprotocol,
 	}
 
-	// For HTTP-based transports, format as full URL with path
-	addr := opts.Address
-	if opts.Transport == "h2" {
-		// H2 transport expects https:// or http:// URLs
-		if !strings.HasPrefix(addr, "https://") && !strings.HasPrefix(addr, "http://") {
-			addr = "https://" + addr
-		}
-		// Add path if not already in URL (check after scheme)
-		if idx := strings.Index(addr, "://"); idx >= 0 {
-			rest := addr[idx+3:]
-			if !strings.Contains(rest, "/") && opts.Path != "" {
-				addr = addr + opts.Path
-			}
-		}
-	} else if opts.Transport == "ws" {
-		// WS transport expects wss:// or ws:// URLs
-		if !strings.HasPrefix(addr, "wss://") && !strings.HasPrefix(addr, "ws://") {
-			addr = "wss://" + addr
-		}
-		// Add path if not already in URL
-		if idx := strings.Index(addr, "://"); idx >= 0 {
-			rest := addr[idx+3:]
-			if !strings.Contains(rest, "/") && opts.Path != "" {
-				addr = addr + opts.Path
-			}
-		}
-	}
+	// Format address for HTTP-based transports
+	addr := formatTransportAddress(opts.Transport, opts.Address, opts.Path, opts.PlainText)
 
 	// Dial the listener
 	startTime := time.Now()
@@ -296,6 +287,47 @@ func buildTLSConfig(opts Options) (*tls.Config, error) {
 	return config, nil
 }
 
+// formatTransportAddress formats the address for HTTP-based transports by adding
+// the appropriate scheme and path if not already present.
+func formatTransportAddress(transportType, address, path string, plaintext bool) string {
+	switch transportType {
+	case "h2":
+		return formatURLWithScheme(address, path, "https://", "http://")
+	case "ws":
+		if plaintext {
+			return formatURLWithScheme(address, path, "ws://", "ws://")
+		}
+		return formatURLWithScheme(address, path, "wss://", "ws://")
+	default:
+		return address
+	}
+}
+
+// formatURLWithScheme adds the scheme prefix and path to an address if not present.
+func formatURLWithScheme(address, path, secureScheme, insecureScheme string) string {
+	// Check if scheme is already present
+	if strings.HasPrefix(address, secureScheme) || strings.HasPrefix(address, insecureScheme) {
+		return appendPathIfMissing(address, path)
+	}
+	return appendPathIfMissing(secureScheme+address, path)
+}
+
+// appendPathIfMissing adds the path to a URL if it doesn't already have one.
+func appendPathIfMissing(url, path string) string {
+	if path == "" {
+		return url
+	}
+	idx := strings.Index(url, "://")
+	if idx < 0 {
+		return url
+	}
+	rest := url[idx+3:]
+	if strings.Contains(rest, "/") {
+		return url
+	}
+	return url + path
+}
+
 // classifyError returns a human-readable description for common errors.
 func classifyError(err error) string {
 	if err == nil {
@@ -315,17 +347,15 @@ func classifyError(err error) string {
 
 	// Connection errors
 	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		if opErr.Op == "dial" {
-			if strings.Contains(errStr, "connection refused") {
-				return "Connection refused - listener not running or port blocked"
-			}
-			if strings.Contains(errStr, "no route to host") {
-				return "No route to host - network unreachable"
-			}
-			if strings.Contains(errStr, "network is unreachable") {
-				return "Network unreachable"
-			}
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		if strings.Contains(errStr, "connection refused") {
+			return "Connection refused - listener not running or port blocked"
+		}
+		if strings.Contains(errStr, "no route to host") {
+			return "No route to host - network unreachable"
+		}
+		if strings.Contains(errStr, "network is unreachable") {
+			return "Network unreachable"
 		}
 	}
 
@@ -355,6 +385,5 @@ func classifyError(err error) string {
 		return "Connected but handshake failed - not a Muti Metroo listener?"
 	}
 
-	// Default
 	return err.Error()
 }

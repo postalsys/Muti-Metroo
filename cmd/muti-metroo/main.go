@@ -643,6 +643,7 @@ func probeCmd() *cobra.Command {
 		clientCert string
 		clientKey  string
 		insecure   bool
+		plaintext  bool
 		jsonOutput bool
 	)
 
@@ -668,6 +669,9 @@ The probe does not require a running agent - it operates standalone.`,
   # Test WebSocket listener
   muti-metroo probe --transport ws server.example.com:443 --path /mesh
 
+  # Test plaintext WebSocket (behind reverse proxy)
+  muti-metroo probe --transport ws --plaintext localhost:8080 --path /mesh
+
   # Test with self-signed certificate
   muti-metroo probe --insecure server.example.com:4433
 
@@ -689,6 +693,11 @@ The probe does not require a running agent - it operates standalone.`,
 				return fmt.Errorf("invalid timeout: %w", err)
 			}
 
+			// Validate plaintext option
+			if plaintext && transport != "ws" {
+				return fmt.Errorf("--plaintext is only supported for WebSocket transport (-T ws)")
+			}
+
 			// Build probe options
 			opts := probe.Options{
 				Transport:    transport,
@@ -699,11 +708,16 @@ The probe does not require a running agent - it operates standalone.`,
 				CACert:       caCert,
 				ClientCert:   clientCert,
 				ClientKey:    clientKey,
+				PlainText:    plaintext,
 			}
 
 			// Run probe
 			if !jsonOutput {
-				fmt.Printf("Probing %s://%s...\n", transport, address)
+				scheme := transport
+				if transport == "ws" && plaintext {
+					scheme = "ws (plaintext)"
+				}
+				fmt.Printf("Probing %s://%s...\n", scheme, address)
 			}
 
 			ctx := context.Background()
@@ -768,7 +782,207 @@ The probe does not require a running agent - it operates standalone.`,
 	cmd.Flags().StringVar(&clientCert, "cert", "", "Client certificate file for mTLS")
 	cmd.Flags().StringVar(&clientKey, "key", "", "Client key file for mTLS")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "Skip TLS certificate verification")
+	cmd.Flags().BoolVar(&plaintext, "plaintext", false, "Plaintext mode (no TLS) for WebSocket behind reverse proxy")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
+
+	// Add listen subcommand
+	cmd.AddCommand(probeListenCmd())
+
+	return cmd
+}
+
+func probeListenCmd() *cobra.Command {
+	var (
+		transport     string
+		address       string
+		path          string
+		tlsCert       string
+		tlsKey        string
+		tlsCA         string
+		plaintext     bool
+		displayName   string
+		jsonOutput    bool
+		alpnProtocol  string
+		httpHeader    string
+		wsSubprotocol string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "listen",
+		Short: "Start a test listener for connectivity probing",
+		Long: `Start a minimal test listener to validate transport configurations.
+
+This command creates a temporary listener that accepts probe connections
+and responds with PEER_HELLO_ACK. Use this to verify that your TLS
+certificates and transport configuration work correctly before deploying
+a full agent.
+
+The listener runs until interrupted (Ctrl+C).`,
+		Example: `  # Start QUIC listener with ephemeral TLS certificate (default)
+  muti-metroo probe listen -T quic -a 0.0.0.0:4433
+
+  # Start HTTP/2 listener
+  muti-metroo probe listen -T h2 -a 0.0.0.0:443 --path /mesh
+
+  # Start WebSocket listener
+  muti-metroo probe listen -T ws -a 0.0.0.0:443 --path /mesh
+
+  # Plaintext WebSocket (behind reverse proxy that handles TLS)
+  muti-metroo probe listen -T ws -a 127.0.0.1:8080 --path /mesh --plaintext
+
+  # With static TLS certificates
+  muti-metroo probe listen -T quic -a 0.0.0.0:4433 --cert ./certs/agent.crt --key ./certs/agent.key
+
+  # With mTLS (require client certificates)
+  muti-metroo probe listen -T quic -a 0.0.0.0:4433 --cert ./certs/agent.crt --key ./certs/agent.key --ca ./certs/ca.crt
+
+  # Output connection events as JSON
+  muti-metroo probe listen --json -T quic -a 0.0.0.0:4433
+
+  # Custom display name
+  muti-metroo probe listen --name "test-server" -T quic -a 0.0.0.0:4433`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Validate plaintext option
+			if plaintext && transport != "ws" {
+				return fmt.Errorf("--plaintext is only supported for WebSocket transport (-T ws)")
+			}
+
+			// Validate cert/key are provided together
+			if (tlsCert != "") != (tlsKey != "") {
+				return fmt.Errorf("both --cert and --key must be provided together")
+			}
+
+			// Verify certificate files exist if provided
+			for _, file := range []struct{ path, desc string }{
+				{tlsCert, "certificate"},
+				{tlsKey, "key"},
+				{tlsCA, "CA certificate"},
+			} {
+				if file.path != "" {
+					if _, err := os.Stat(file.path); os.IsNotExist(err) {
+						return fmt.Errorf("%s file not found: %s", file.desc, file.path)
+					}
+				}
+			}
+
+			// Build listen options
+			opts := probe.ListenOptions{
+				Transport:     transport,
+				Address:       address,
+				Path:          path,
+				TLSCert:       tlsCert,
+				TLSKey:        tlsKey,
+				TLSCA:         tlsCA,
+				PlainText:     plaintext,
+				DisplayName:   displayName,
+				ALPNProtocol:  alpnProtocol,
+				HTTPHeader:    httpHeader,
+				WSSubprotocol: wsSubprotocol,
+			}
+
+			// Print header
+			if !jsonOutput {
+				fmt.Printf("Probe Listener\n")
+				fmt.Printf("==============\n")
+				fmt.Printf("Transport:  %s\n", transport)
+				fmt.Printf("Address:    %s\n", address)
+				if transport != "quic" {
+					fmt.Printf("Path:       %s\n", path)
+				}
+				fmt.Printf("Name:       %s\n", displayName)
+				if plaintext {
+					fmt.Printf("TLS:        disabled (plaintext)\n")
+				} else if tlsCert != "" {
+					fmt.Printf("TLS:        enabled (static certificates)\n")
+					if tlsCA != "" {
+						fmt.Printf("mTLS:       enabled (client certs required)\n")
+					}
+				} else {
+					fmt.Printf("TLS:        enabled (ephemeral certificates)\n")
+				}
+				fmt.Printf("\nListening for connections... (Ctrl+C to stop)\n\n")
+			}
+
+			// Setup signal handling
+			ctx, cancel := context.WithCancel(context.Background())
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+			go func() {
+				<-sigChan
+				if !jsonOutput {
+					fmt.Printf("\nShutting down...\n")
+				}
+				cancel()
+			}()
+
+			// Create event channel
+			eventChan := make(chan probe.ConnectionEvent, 100)
+
+			// Track statistics
+			var totalConnections, successfulConnections int
+
+			// Start event printer
+			go func() {
+				for event := range eventChan {
+					totalConnections++
+					if event.Success {
+						successfulConnections++
+					}
+
+					if jsonOutput {
+						enc := json.NewEncoder(os.Stdout)
+						enc.Encode(event)
+					} else {
+						timestamp := event.Timestamp.Format("2006-01-02 15:04:05")
+						if event.Success {
+							fmt.Printf("[%s] [OK] %s\n", timestamp, event.RemoteAddr)
+							if event.RemoteID != "" {
+								fmt.Printf("  Remote ID:   %s\n", event.RemoteID)
+							}
+							if event.RemoteName != "" {
+								fmt.Printf("  Remote Name: %s\n", event.RemoteName)
+							}
+							fmt.Printf("  RTT:         %.0fms\n", event.RTTMs)
+						} else {
+							fmt.Printf("[%s] [FAIL] %s\n", timestamp, event.RemoteAddr)
+							fmt.Printf("  Error: %s\n", event.Error)
+						}
+						fmt.Println()
+					}
+				}
+			}()
+
+			// Run listener
+			err := probe.Listen(ctx, opts, eventChan)
+			close(eventChan)
+
+			// Print summary
+			if !jsonOutput && totalConnections > 0 {
+				fmt.Printf("Total connections: %d (%d successful, %d failed)\n",
+					totalConnections, successfulConnections, totalConnections-successfulConnections)
+			}
+
+			// Don't return context.Canceled as an error
+			if err == context.Canceled {
+				return nil
+			}
+			return err
+		},
+	}
+
+	cmd.Flags().StringVarP(&transport, "transport", "T", "quic", "Transport type: quic, h2, ws")
+	cmd.Flags().StringVarP(&address, "address", "a", "0.0.0.0:4433", "Listen address")
+	cmd.Flags().StringVar(&path, "path", "/mesh", "HTTP path for h2/ws transports")
+	cmd.Flags().StringVar(&tlsCert, "cert", "", "TLS certificate file (optional, ephemeral cert used if not provided)")
+	cmd.Flags().StringVar(&tlsKey, "key", "", "TLS private key file (optional, ephemeral key used if not provided)")
+	cmd.Flags().StringVar(&tlsCA, "ca", "", "CA certificate for client verification (mTLS)")
+	cmd.Flags().BoolVar(&plaintext, "plaintext", false, "Plaintext mode (no TLS) for WebSocket behind reverse proxy")
+	cmd.Flags().StringVarP(&displayName, "name", "n", "probe-listener", "Display name for this test listener")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output connection events as JSON")
+	cmd.Flags().StringVar(&alpnProtocol, "alpn", "", "Custom ALPN protocol (empty for transport default)")
+	cmd.Flags().StringVar(&httpHeader, "http-header", "", "Custom HTTP header for h2 transport")
+	cmd.Flags().StringVar(&wsSubprotocol, "ws-subprotocol", "", "Custom WebSocket subprotocol")
 
 	return cmd
 }

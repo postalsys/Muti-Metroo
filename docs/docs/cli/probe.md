@@ -45,6 +45,7 @@ The probe operates standalone - no running agent needed.
 | `--cert` | | | Client certificate file for mTLS |
 | `--key` | | | Client key file for mTLS |
 | `--insecure` | | `false` | Skip TLS certificate verification |
+| `--plaintext` | | `false` | Plaintext mode (no TLS) for WebSocket behind reverse proxy |
 | `--json` | | `false` | Output results as JSON |
 | `-h, --help` | | | Show help |
 
@@ -81,6 +82,14 @@ muti-metroo probe --transport h2 server.example.com:443 --path /mesh
 
 ```bash
 muti-metroo probe --transport ws server.example.com:443 --path /mesh
+```
+
+### Test Plaintext WebSocket (Behind Reverse Proxy)
+
+When the listener is behind a reverse proxy that handles TLS termination:
+
+```bash
+muti-metroo probe --transport ws --plaintext localhost:8080 --path /mesh
 ```
 
 ### Test with Self-Signed Certificate
@@ -219,6 +228,183 @@ If the connection fails, you can choose to:
 |------|---------|
 | 0 | Probe successful |
 | 1 | Probe failed or error |
+
+---
+
+# muti-metroo probe listen
+
+Start a test listener to validate transport configurations before deploying a full agent. The listener accepts probe connections and responds to handshakes, making it useful for testing TLS certificates, firewall rules, and transport settings.
+
+## Synopsis
+
+```bash
+muti-metroo probe listen [flags]
+```
+
+## What It Does
+
+1. **Starts a minimal listener** - Binds to the specified address using the chosen transport
+2. **Accepts probe connections** - Waits for incoming connections from `muti-metroo probe`
+3. **Responds to handshakes** - Performs PEER_HELLO/PEER_HELLO_ACK exchange
+4. **Reports connection events** - Displays information about each connection attempt
+
+The listener runs until interrupted (Ctrl+C).
+
+## Flags
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--transport` | `-T` | `quic` | Transport type: `quic`, `h2`, `ws` |
+| `--address` | `-a` | `0.0.0.0:4433` | Listen address |
+| `--path` | | `/mesh` | HTTP path for h2/ws transports |
+| `--cert` | | | TLS certificate file (ephemeral cert if not provided) |
+| `--key` | | | TLS private key file (ephemeral key if not provided) |
+| `--ca` | | | CA certificate for client verification (mTLS) |
+| `--plaintext` | | `false` | Plaintext mode (no TLS) for WebSocket behind reverse proxy |
+| `--name` | `-n` | `probe-listener` | Display name for this listener |
+| `--json` | | `false` | Output connection events as JSON |
+| `--alpn` | | | Custom ALPN protocol |
+| `--http-header` | | | Custom HTTP header for h2 transport |
+| `--ws-subprotocol` | | | Custom WebSocket subprotocol |
+| `-h, --help` | | | Show help |
+
+## Examples
+
+### Basic QUIC Listener
+
+Start a listener with ephemeral self-signed certificates (no cert files needed):
+
+```bash
+muti-metroo probe listen -T quic -a 0.0.0.0:4433
+```
+
+Output:
+
+```
+Probe Listener
+==============
+Transport:  quic
+Address:    0.0.0.0:4433
+Name:       probe-listener
+TLS:        enabled (ephemeral certificates)
+
+Listening for connections... (Ctrl+C to stop)
+
+[2026-01-21 10:30:45] [OK] 192.168.1.100:54321
+  Remote ID:   abc123def456789012345678
+  Remote Name: probe
+  RTT:         5ms
+```
+
+### HTTP/2 Listener
+
+```bash
+muti-metroo probe listen -T h2 -a 0.0.0.0:443 --path /mesh
+```
+
+### WebSocket Listener
+
+```bash
+muti-metroo probe listen -T ws -a 0.0.0.0:443 --path /mesh
+```
+
+### Plaintext WebSocket (Behind Reverse Proxy)
+
+When running behind nginx, Caddy, or another reverse proxy that handles TLS:
+
+```bash
+muti-metroo probe listen -T ws -a 127.0.0.1:8080 --path /mesh --plaintext
+```
+
+### With Static TLS Certificates
+
+```bash
+muti-metroo probe listen -T quic -a 0.0.0.0:4433 \
+  --cert ./certs/server.crt \
+  --key ./certs/server.key
+```
+
+### With mTLS (Require Client Certificates)
+
+```bash
+muti-metroo probe listen -T quic -a 0.0.0.0:4433 \
+  --cert ./certs/server.crt \
+  --key ./certs/server.key \
+  --ca ./certs/ca.crt
+```
+
+### JSON Output for Scripting
+
+```bash
+muti-metroo probe listen --json -T quic -a 0.0.0.0:4433
+```
+
+Each connection event is output as a JSON line:
+
+```json
+{"timestamp":"2026-01-21T10:30:45Z","remote_addr":"192.168.1.100:54321","remote_id":"abc123def456","remote_name":"probe","success":true,"rtt_ms":5}
+```
+
+### Custom Display Name
+
+```bash
+muti-metroo probe listen --name "test-server-east" -T quic -a 0.0.0.0:4433
+```
+
+## Use Cases
+
+### TLS Certificate Validation
+
+Test that your certificates work correctly before deploying:
+
+```bash
+# Terminal 1: Start listener with your certificates
+muti-metroo probe listen -T quic -a 0.0.0.0:4433 \
+  --cert ./certs/server.crt --key ./certs/server.key
+
+# Terminal 2: Test connection with CA verification
+muti-metroo probe --ca ./certs/ca.crt localhost:4433
+```
+
+### mTLS Configuration Testing
+
+Verify mutual TLS is configured correctly:
+
+```bash
+# Terminal 1: Listener requiring client certs
+muti-metroo probe listen -T quic -a 0.0.0.0:4433 \
+  --cert ./certs/server.crt --key ./certs/server.key \
+  --ca ./certs/ca.crt
+
+# Terminal 2: Client with certificate
+muti-metroo probe --ca ./certs/ca.crt \
+  --cert ./certs/client.crt --key ./certs/client.key \
+  localhost:4433
+```
+
+### Reverse Proxy Testing
+
+Test WebSocket configuration behind a reverse proxy:
+
+```bash
+# Start plaintext listener (proxy handles TLS)
+muti-metroo probe listen -T ws -a 127.0.0.1:8080 --path /mesh --plaintext
+
+# Test through the proxy
+muti-metroo probe -T ws proxy.example.com:443 --path /mesh
+```
+
+### Network Path Verification
+
+Test that a specific port/protocol is reachable:
+
+```bash
+# On server: start listener
+muti-metroo probe listen -T quic -a 0.0.0.0:4433
+
+# On client: verify connectivity
+muti-metroo probe --insecure server.example.com:4433
+```
 
 ## Related
 

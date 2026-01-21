@@ -75,6 +75,7 @@ Available for all commands:
 | `routes` | List route table via HTTP API |
 | `ping` | Send ICMP echo requests through the mesh |
 | `probe` | Test connectivity to a listener (standalone) |
+| `probe listen` | Start a test listener for connectivity probing |
 | `shell` | Interactive or streaming remote shell |
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
@@ -105,6 +106,9 @@ muti-metroo status -a localhost:9090
 # Test connectivity to a listener (no running agent needed)
 muti-metroo probe server.example.com:4433
 muti-metroo probe --transport h2 server.example.com:443
+
+# Start a test listener (ephemeral certs, no config needed)
+muti-metroo probe listen -T quic -a 0.0.0.0:4433
 
 # List connected peers
 muti-metroo peers

@@ -18,6 +18,7 @@
 | `muti-metroo peers` | List connected peers |
 | `muti-metroo routes` | List route table |
 | `muti-metroo probe <address>` | Test connectivity to listener |
+| `muti-metroo probe listen` | Start test listener for probing |
 
 ### Remote Operations
 
@@ -276,8 +277,35 @@ ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@host
 
 ### Probe Connectivity
 
+Test if a listener is reachable (no running agent needed):
+
 ```bash
+# Test different transports
 muti-metroo probe -T quic target.example.com:4433
 muti-metroo probe -T h2 target.example.com:8443
 muti-metroo probe -T ws target.example.com:443
+
+# Plaintext WebSocket (behind reverse proxy)
+muti-metroo probe -T ws --plaintext localhost:8080
+```
+
+### Probe Listener
+
+Start a test listener to validate transport and TLS configuration:
+
+```bash
+# Start with ephemeral certificates (no cert files needed)
+muti-metroo probe listen -T quic -a 0.0.0.0:4433
+
+# With static certificates
+muti-metroo probe listen -T quic -a 0.0.0.0:4433 \
+  --cert ./certs/server.crt --key ./certs/server.key
+
+# Plaintext WebSocket (behind reverse proxy)
+muti-metroo probe listen -T ws -a 127.0.0.1:8080 --plaintext
+
+# With mTLS (require client certificates)
+muti-metroo probe listen -T quic -a 0.0.0.0:4433 \
+  --cert ./certs/server.crt --key ./certs/server.key \
+  --ca ./certs/ca.crt
 ```
