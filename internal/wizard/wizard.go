@@ -1979,10 +1979,8 @@ func (w *Wizard) askSystemServiceInstallation(cfg service.ServiceConfig, service
 	prompt.PrintHeader("Service Installation",
 		fmt.Sprintf("You are running as %s.\nWould you like to install %s as a %s?\n\nThe service will start automatically on boot.", w.privilegeLevel(), serviceName, platformName))
 
-	if embedded {
-		installPath := service.GetInstallPath(serviceName)
-		fmt.Printf("Binary will be installed to: %s\n\n", installPath)
-	}
+	installPath := service.GetInstallPath(serviceName)
+	fmt.Printf("Binary will be installed to: %s\n\n", installPath)
 
 	installService, err := prompt.Confirm(fmt.Sprintf("Install as %s?", platformName), false)
 	if err != nil {
@@ -2000,7 +1998,8 @@ func (w *Wizard) askSystemServiceInstallation(cfg service.ServiceConfig, service
 	if embedded {
 		installErr = service.InstallWithEmbedded(cfg, embeddedBinaryPath)
 	} else {
-		installErr = service.Install(cfg)
+		// For traditional config, also deploy the binary to system location
+		installErr = service.InstallWithDeployment(cfg)
 	}
 
 	if installErr != nil {
@@ -2189,6 +2188,9 @@ func (w *Wizard) askLinuxServiceInstallationWithConfig(cfg service.ServiceConfig
 		prompt.PrintHeader("Service Installation",
 			fmt.Sprintf("You are running as root.\nChoose how to install %s as a service.\n\nThe service will start automatically on boot.", cfg.Name))
 
+		installPath := service.GetInstallPath(cfg.Name)
+		fmt.Printf("Binary will be installed to: %s\n\n", installPath)
+
 		options := []string{
 			"systemd (recommended)",
 			"Don't install as service",
@@ -2202,11 +2204,11 @@ func (w *Wizard) askLinuxServiceInstallationWithConfig(cfg service.ServiceConfig
 			return false, nil
 		}
 
-		// systemd installation
+		// systemd installation with binary deployment
 		fmt.Println()
 		fmt.Println("Installing systemd service...")
 
-		installErr := service.Install(cfg)
+		installErr := service.InstallWithDeployment(cfg)
 		if installErr != nil {
 			fmt.Printf("\n[WARNING] Failed to install service: %v\n", installErr)
 			fmt.Println("You can install the service manually later.")

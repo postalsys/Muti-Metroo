@@ -797,6 +797,7 @@ func serviceInstallCmd() *cobra.Command {
 	var serviceName string
 	var userMode bool
 	var dllPath string
+	var deployBinary bool
 
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -815,7 +816,11 @@ On Windows:
     Requires --dll flag to specify the DLL path
 
 The --user flag allows non-admin users to install the agent as a
-user-level service that starts at logon.`,
+user-level service that starts at logon.
+
+By default, the binary is copied to a standard system location
+(e.g., /usr/local/bin on Linux/macOS). Use --deploy=false to skip
+this and use the binary in its current location.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Check platform support
 			if !service.IsSupported() {
@@ -967,8 +972,17 @@ user-level service that starts at logon.`,
 			fmt.Printf("  Config: %s\n", absPath)
 			fmt.Printf("  Platform: %s\n", service.Platform())
 
-			if err := service.Install(svcCfg); err != nil {
-				return fmt.Errorf("failed to install service: %w", err)
+			var installErr error
+			if deployBinary {
+				installPath := service.GetInstallPath(serviceName)
+				fmt.Printf("  Binary will be installed to: %s\n", installPath)
+				installErr = service.InstallWithDeployment(svcCfg)
+			} else {
+				installErr = service.Install(svcCfg)
+			}
+
+			if installErr != nil {
+				return fmt.Errorf("failed to install service: %w", installErr)
 			}
 
 			fmt.Println("\nService installed successfully.")
@@ -998,6 +1012,7 @@ user-level service that starts at logon.`,
 	cmd.Flags().StringVarP(&serviceName, "name", "n", "muti-metroo", "Service name")
 	cmd.Flags().BoolVar(&userMode, "user", false, "Install as user service (Linux: cron+nohup, Windows: Registry Run)")
 	cmd.Flags().StringVar(&dllPath, "dll", "", "Path to muti-metroo.dll (Windows --user mode only)")
+	cmd.Flags().BoolVar(&deployBinary, "deploy", true, "Copy binary to system location (e.g., /usr/local/bin)")
 	_ = cmd.MarkFlagRequired("config")
 
 	return cmd

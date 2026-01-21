@@ -136,6 +136,51 @@ func InstallWithEmbedded(cfg ServiceConfig, embeddedBinaryPath string) error {
 	return installImplEmbedded(cfg, destPath)
 }
 
+// InstallWithDeployment installs a service by copying the binary to a standard
+// system location and creating a service that uses an external config file.
+// This is like InstallWithEmbedded but for traditional config file deployments.
+func InstallWithDeployment(cfg ServiceConfig) error {
+	if !IsRoot() {
+		return fmt.Errorf("must run as root/administrator to install service")
+	}
+
+	// Get the current executable path
+	srcPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+	srcPath, err = filepath.EvalSymlinks(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve executable path: %w", err)
+	}
+
+	// Determine destination path
+	destPath := GetInstallPath(cfg.Name)
+
+	// Check if source and destination are the same
+	if srcPath == destPath {
+		fmt.Printf("Binary already at install location: %s\n", destPath)
+		return installImpl(cfg, destPath)
+	}
+
+	// Create parent directory if needed (Windows)
+	if runtime.GOOS == "windows" {
+		parentDir := filepath.Dir(destPath)
+		if err := os.MkdirAll(parentDir, 0755); err != nil {
+			return fmt.Errorf("failed to create program directory: %w", err)
+		}
+	}
+
+	// Copy the binary to the destination
+	if err := copyFile(srcPath, destPath); err != nil {
+		return fmt.Errorf("failed to copy binary to %s: %w", destPath, err)
+	}
+
+	fmt.Printf("Installed binary: %s\n", destPath)
+
+	return installImpl(cfg, destPath)
+}
+
 // copyFile copies a file from src to dst, preserving permissions.
 func copyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
