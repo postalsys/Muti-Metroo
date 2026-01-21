@@ -2226,23 +2226,54 @@ func (w *Wizard) askLinuxServiceInstallationWithConfig(cfg service.ServiceConfig
 		return true, nil
 	}
 
-	// Non-root user: show instructions
+	// Non-root user: offer user service or show systemd instructions
 	prompt.PrintHeader("Service Installation",
-		"To install as a systemd service, elevated privileges are required.\nRun the wizard with sudo for systemd installation.")
+		"You are not running as root.\n\n"+
+			"Options:\n"+
+			"  1. Install as user service (cron @reboot + nohup) - no root required\n"+
+			"  2. Show instructions for systemd (requires root)")
 
-	showInstructions, err := prompt.Confirm("Show installation command?", true)
+	options := []string{
+		"Install as user service (cron + nohup)",
+		"Show systemd instructions",
+		"Skip service installation",
+	}
+
+	choice, err := prompt.Select("Choose an option:", options, 0)
 	if err != nil {
 		return false, err
 	}
 
-	if showInstructions {
+	switch choice {
+	case 0: // User service
 		fmt.Println()
-		fmt.Println("To install later:")
+		fmt.Println("Installing user service...")
+
+		if err := service.InstallUser(cfg); err != nil {
+			fmt.Printf("\n[WARNING] Failed to install user service: %v\n", err)
+			fmt.Println("You can install the service manually later.")
+			return false, nil
+		}
+
+		fmt.Println()
+		prompt.PrintSuccess("Installed as user service (cron + nohup)")
+		fmt.Println("\nThe agent will start automatically at login.")
+		fmt.Println("\nUseful commands:")
+		fmt.Println("  muti-metroo service status   # Check status")
+		fmt.Println("  muti-metroo service uninstall  # Remove service")
+		fmt.Println()
+		return true, nil
+
+	case 1: // Show systemd instructions
+		fmt.Println()
+		fmt.Println("To install as systemd service later:")
 		fmt.Printf("  sudo muti-metroo service install -n %s -c %s\n", cfg.Name, absConfigPath)
 		fmt.Println()
-	}
+		return false, nil
 
-	return false, nil
+	default: // Skip
+		return false, nil
+	}
 }
 
 // askLinuxServiceInstallationEmbedded handles Linux service installation for embedded config.
