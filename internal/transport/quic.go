@@ -201,7 +201,7 @@ func (l *QUICListener) Close() error {
 
 // QUICPeerConn implements PeerConn for QUIC.
 type QUICPeerConn struct {
-	conn     quic.Connection
+	conn     *quic.Conn
 	isDialer bool
 }
 
@@ -252,7 +252,7 @@ func (c *QUICPeerConn) TransportType() TransportType {
 
 // QUICStream implements Stream for QUIC.
 type QUICStream struct {
-	stream quic.Stream
+	stream *quic.Stream
 }
 
 // StreamID returns the QUIC stream ID.
