@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.14.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.13.0...muti-metroo-v2.14.0) (2026-01-23)
+
+
+### Features
+
+* **probe:** add test listener subcommand and plaintext WebSocket support ([fa0d7b2](https://github.com/postalsys/Muti-Metroo/commit/fa0d7b231f064bf841e0a21acc8f22a01fb5061c))
+* **service:** deploy binary to system location during installation ([3e384af](https://github.com/postalsys/Muti-Metroo/commit/3e384afe36decf5645bacb062ad6ef0d932e68f2))
+
+
+### Bug Fixes
+
+* **wizard:** add clarifying notes about config file and data directory ([7b618a1](https://github.com/postalsys/Muti-Metroo/commit/7b618a1c21fbaff9c772ae40f79fbc97d908ccb6))
+* **wizard:** offer user service installation for non-root Linux users ([decf4d2](https://github.com/postalsys/Muti-Metroo/commit/decf4d28afb5f9c0f47bcc57996f5294be8b9175))
+
 ## [2.13.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.12.0...muti-metroo-v2.13.0) (2026-01-19)
 
 
