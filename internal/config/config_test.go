@@ -1447,3 +1447,396 @@ agent:
 		}
 	})
 }
+
+// Tests for Ed25519 signing key configuration
+
+func TestManagementConfig_HasSigningKey(t *testing.T) {
+	// Valid 32-byte key (64 hex chars)
+	validSigningPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+	tests := []struct {
+		name             string
+		signingPublicKey string
+		want             bool
+	}{
+		{"empty", "", false},
+		{"with_signing_public_key", validSigningPublicKey, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Management: ManagementConfig{
+					SigningPublicKey: tt.signingPublicKey,
+				},
+			}
+			if got := cfg.HasSigningKey(); got != tt.want {
+				t.Errorf("HasSigningKey() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestManagementConfig_CanSign(t *testing.T) {
+	// Valid 64-byte key (128 hex chars)
+	validSigningPrivateKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2" +
+		"c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+
+	tests := []struct {
+		name              string
+		signingPrivateKey string
+		want              bool
+	}{
+		{"empty", "", false},
+		{"with_signing_private_key", validSigningPrivateKey, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Management: ManagementConfig{
+					SigningPrivateKey: tt.signingPrivateKey,
+				},
+			}
+			if got := cfg.CanSign(); got != tt.want {
+				t.Errorf("CanSign() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestManagementConfig_GetSigningPublicKey_Valid(t *testing.T) {
+	// Valid 32-byte key (64 hex chars)
+	validSigningPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_public_key: "` + validSigningPublicKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Test HasSigningKey
+	if !cfg.HasSigningKey() {
+		t.Error("HasSigningKey() = false, want true")
+	}
+
+	// Test GetSigningPublicKey
+	pubKey, err := cfg.GetSigningPublicKey()
+	if err != nil {
+		t.Fatalf("GetSigningPublicKey() failed: %v", err)
+	}
+	if pubKey[0] != 0xa1 || pubKey[1] != 0xb2 {
+		t.Errorf("GetSigningPublicKey() first bytes = %x %x, want a1 b2", pubKey[0], pubKey[1])
+	}
+	if pubKey[30] != 0xa1 || pubKey[31] != 0xb2 {
+		t.Errorf("GetSigningPublicKey() last bytes = %x %x, want a1 b2", pubKey[30], pubKey[31])
+	}
+}
+
+func TestManagementConfig_GetSigningPublicKey_Invalid(t *testing.T) {
+	tests := []struct {
+		name             string
+		signingPublicKey string
+		wantErr          string
+	}{
+		{
+			name:             "too_short",
+			signingPublicKey: "a1b2c3d4",
+			wantErr:          "must be 32 bytes",
+		},
+		{
+			name:             "invalid_hex",
+			signingPublicKey: "not_valid_hex_string_here_needs_to_be_64_chars_long_for_testing!",
+			wantErr:          "invalid signing public key hex",
+		},
+		{
+			name:             "odd_length",
+			signingPublicKey: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b",
+			wantErr:          "invalid signing public key hex",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_public_key: "` + tc.signingPublicKey + `"
+`
+			_, err := Parse([]byte(yamlConfig))
+			if err == nil {
+				t.Error("Parse() should fail for invalid signing public key")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Error = %v, want to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestManagementConfig_GetSigningPublicKey_Empty(t *testing.T) {
+	cfg := &Config{}
+
+	_, err := cfg.GetSigningPublicKey()
+	if err == nil {
+		t.Error("GetSigningPublicKey() should fail when no signing public key configured")
+	}
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Errorf("Error = %v, want to contain 'not configured'", err)
+	}
+}
+
+func TestManagementConfig_GetSigningPrivateKey_Valid(t *testing.T) {
+	// Valid 32-byte public key (64 hex chars)
+	validSigningPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	// Valid 64-byte private key (128 hex chars)
+	validSigningPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" +
+		"fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_public_key: "` + validSigningPublicKey + `"
+  signing_private_key: "` + validSigningPrivateKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Test CanSign
+	if !cfg.CanSign() {
+		t.Error("CanSign() = false, want true")
+	}
+
+	// Test GetSigningPrivateKey
+	privKey, err := cfg.GetSigningPrivateKey()
+	if err != nil {
+		t.Fatalf("GetSigningPrivateKey() failed: %v", err)
+	}
+	if privKey[0] != 0x12 || privKey[1] != 0x34 {
+		t.Errorf("GetSigningPrivateKey() first bytes = %x %x, want 12 34", privKey[0], privKey[1])
+	}
+	if privKey[62] != 0x43 || privKey[63] != 0x21 {
+		t.Errorf("GetSigningPrivateKey() last bytes = %x %x, want 43 21", privKey[62], privKey[63])
+	}
+}
+
+func TestManagementConfig_GetSigningPrivateKey_Invalid(t *testing.T) {
+	// Valid public key required when private key is set
+	validSigningPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+
+	tests := []struct {
+		name              string
+		signingPrivateKey string
+		wantErr           string
+	}{
+		{
+			name:              "too_short",
+			signingPrivateKey: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+			wantErr:           "must be 64 bytes",
+		},
+		{
+			name: "invalid_hex",
+			signingPrivateKey: "not_valid_hex_string_here_needs_to_be_128_chars_long_for_testing!" +
+				"not_valid_hex_string_here_needs_to_be_128_chars_long_for_testing!",
+			wantErr: "invalid signing private key hex",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_public_key: "` + validSigningPublicKey + `"
+  signing_private_key: "` + tc.signingPrivateKey + `"
+`
+			_, err := Parse([]byte(yamlConfig))
+			if err == nil {
+				t.Error("Parse() should fail for invalid signing private key")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("Error = %v, want to contain %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestManagementConfig_GetSigningPrivateKey_Empty(t *testing.T) {
+	cfg := &Config{}
+
+	_, err := cfg.GetSigningPrivateKey()
+	if err == nil {
+		t.Error("GetSigningPrivateKey() should fail when no signing private key configured")
+	}
+	if !strings.Contains(err.Error(), "not configured") {
+		t.Errorf("Error = %v, want to contain 'not configured'", err)
+	}
+}
+
+func TestManagementConfig_SigningPrivateKeyWithoutPublicKey(t *testing.T) {
+	// Valid 64-byte private key (128 hex chars)
+	validSigningPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" +
+		"fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_private_key: "` + validSigningPrivateKey + `"
+`
+
+	_, err := Parse([]byte(yamlConfig))
+	if err == nil {
+		t.Error("Parse() should fail when signing private key is set without public key")
+	}
+	if !strings.Contains(err.Error(), "requires management.signing_public_key") {
+		t.Errorf("Error = %v, want to contain 'requires management.signing_public_key'", err)
+	}
+}
+
+func TestManagementConfig_Redacted_HidesSigningPrivateKey(t *testing.T) {
+	validSigningPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	validSigningPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" +
+		"fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_public_key: "` + validSigningPublicKey + `"
+  signing_private_key: "` + validSigningPrivateKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Get redacted config
+	redacted := cfg.Redacted()
+
+	// Signing public key should NOT be redacted
+	if redacted.Management.SigningPublicKey != validSigningPublicKey {
+		t.Errorf("Redacted signing public key = %s, want %s", redacted.Management.SigningPublicKey, validSigningPublicKey)
+	}
+
+	// Signing private key SHOULD be redacted
+	if redacted.Management.SigningPrivateKey != "[REDACTED]" {
+		t.Errorf("Redacted signing private key = %s, want [REDACTED]", redacted.Management.SigningPrivateKey)
+	}
+
+	// Original should still have the real signing private key
+	if cfg.Management.SigningPrivateKey != validSigningPrivateKey {
+		t.Errorf("Original signing private key was modified")
+	}
+}
+
+func TestManagementConfig_SigningKeys_HasSensitiveData(t *testing.T) {
+	validSigningPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	validSigningPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" +
+		"fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+
+	t.Run("with_signing_private_key", func(t *testing.T) {
+		yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_public_key: "` + validSigningPublicKey + `"
+  signing_private_key: "` + validSigningPrivateKey + `"
+`
+		cfg, err := Parse([]byte(yamlConfig))
+		if err != nil {
+			t.Fatalf("Parse() failed: %v", err)
+		}
+
+		if !cfg.HasSensitiveData() {
+			t.Error("HasSensitiveData() = false, want true (has signing private key)")
+		}
+	})
+
+	t.Run("signing_public_key_only", func(t *testing.T) {
+		yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  signing_public_key: "` + validSigningPublicKey + `"
+`
+		cfg, err := Parse([]byte(yamlConfig))
+		if err != nil {
+			t.Fatalf("Parse() failed: %v", err)
+		}
+
+		// Public key alone is not sensitive
+		if cfg.HasSensitiveData() {
+			t.Error("HasSensitiveData() = true, want false (only signing public key)")
+		}
+	})
+}
+
+func TestManagementConfig_BothEncryptionAndSigningKeys(t *testing.T) {
+	// Test that both encryption and signing keys can coexist
+	validPublicKey := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	validPrivateKey := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	validSigningPublicKey := "b1c2d3e4f5a6b1c2d3e4f5a6b1c2d3e4f5a6b1c2d3e4f5a6b1c2d3e4f5a6b1c2"
+	validSigningPrivateKey := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890" +
+		"0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba"
+
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+
+management:
+  public_key: "` + validPublicKey + `"
+  private_key: "` + validPrivateKey + `"
+  signing_public_key: "` + validSigningPublicKey + `"
+  signing_private_key: "` + validSigningPrivateKey + `"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() failed: %v", err)
+	}
+
+	// Check encryption keys
+	if !cfg.HasManagementKey() {
+		t.Error("HasManagementKey() = false, want true")
+	}
+	if !cfg.CanDecryptManagement() {
+		t.Error("CanDecryptManagement() = false, want true")
+	}
+
+	// Check signing keys
+	if !cfg.HasSigningKey() {
+		t.Error("HasSigningKey() = false, want true")
+	}
+	if !cfg.CanSign() {
+		t.Error("CanSign() = false, want true")
+	}
+
+	// Verify keys are different
+	encPubKey, _ := cfg.GetManagementPublicKey()
+	signPubKey, _ := cfg.GetSigningPublicKey()
+	if encPubKey == signPubKey {
+		t.Error("Encryption and signing public keys should be different")
+	}
+}

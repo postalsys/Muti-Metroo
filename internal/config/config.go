@@ -196,10 +196,31 @@ type ManagementConfig struct {
 	// Only set on operator/management nodes that need to view topology.
 	// NEVER distribute to field agents.
 	PrivateKey string `yaml:"private_key,omitempty"`
+
+	// SigningPublicKey is the Ed25519 public key for verifying signed commands
+	// (hex-encoded, 64 characters = 32 bytes).
+	// When set, sleep/wake commands must be signed with the corresponding private key.
+	// Add to ALL agents to require command authentication.
+	SigningPublicKey string `yaml:"signing_public_key,omitempty"`
+
+	// SigningPrivateKey is the Ed25519 private key for signing commands
+	// (hex-encoded, 128 characters = 64 bytes).
+	// Only set on operator nodes that need to issue sleep/wake commands.
+	// NEVER distribute to field agents.
+	SigningPrivateKey string `yaml:"signing_private_key,omitempty"`
 }
 
 // KeySize is the size of X25519 keys in bytes.
 const KeySize = 32
+
+// Ed25519 key sizes
+const (
+	// SigningPublicKeySize is the size of Ed25519 public keys in bytes.
+	SigningPublicKeySize = 32
+
+	// SigningPrivateKeySize is the size of Ed25519 private keys in bytes.
+	SigningPrivateKeySize = 64
+)
 
 // HasManagementKey returns true if management encryption is configured.
 func (c *Config) HasManagementKey() bool {
@@ -221,6 +242,60 @@ func (c *Config) GetManagementPrivateKey() ([KeySize]byte, error) {
 // CanDecryptManagement returns true if management private key is configured.
 func (c *Config) CanDecryptManagement() bool {
 	return c.Management.PrivateKey != ""
+}
+
+// HasSigningKey returns true if command signing verification is configured.
+// When true, sleep/wake commands must be signed with the corresponding private key.
+func (c *Config) HasSigningKey() bool {
+	return c.Management.SigningPublicKey != ""
+}
+
+// CanSign returns true if command signing is configured (has private key).
+// Only operators with the signing private key can issue signed commands.
+func (c *Config) CanSign() bool {
+	return c.Management.SigningPrivateKey != ""
+}
+
+// GetSigningPublicKey returns the parsed Ed25519 signing public key.
+// Returns an error if the key is not configured or invalid.
+func (c *Config) GetSigningPublicKey() ([SigningPublicKeySize]byte, error) {
+	var key [SigningPublicKeySize]byte
+	if c.Management.SigningPublicKey == "" {
+		return key, fmt.Errorf("signing public key not configured")
+	}
+
+	decoded, err := hex.DecodeString(c.Management.SigningPublicKey)
+	if err != nil {
+		return key, fmt.Errorf("invalid signing public key hex: %w", err)
+	}
+
+	if len(decoded) != SigningPublicKeySize {
+		return key, fmt.Errorf("signing public key must be %d bytes, got %d", SigningPublicKeySize, len(decoded))
+	}
+
+	copy(key[:], decoded)
+	return key, nil
+}
+
+// GetSigningPrivateKey returns the parsed Ed25519 signing private key.
+// Returns an error if the key is not configured or invalid.
+func (c *Config) GetSigningPrivateKey() ([SigningPrivateKeySize]byte, error) {
+	var key [SigningPrivateKeySize]byte
+	if c.Management.SigningPrivateKey == "" {
+		return key, fmt.Errorf("signing private key not configured")
+	}
+
+	decoded, err := hex.DecodeString(c.Management.SigningPrivateKey)
+	if err != nil {
+		return key, fmt.Errorf("invalid signing private key hex: %w", err)
+	}
+
+	if len(decoded) != SigningPrivateKeySize {
+		return key, fmt.Errorf("signing private key must be %d bytes, got %d", SigningPrivateKeySize, len(decoded))
+	}
+
+	copy(key[:], decoded)
+	return key, nil
 }
 
 // AgentConfig contains agent identity settings.
@@ -1100,24 +1175,43 @@ func (f *FingerprintConfig) IsEnabled() bool {
 
 // validateManagementKeys validates the management key configuration.
 func (c *Config) validateManagementKeys() error {
-	// If no public key, nothing to validate
+	// Validate encryption keys (X25519)
 	if c.Management.PublicKey == "" {
 		// But warn if private key is set without public key
 		if c.Management.PrivateKey != "" {
 			return fmt.Errorf("management.private_key requires management.public_key to be set")
 		}
-		return nil
+	} else {
+		// Validate public key format
+		if _, err := c.GetManagementPublicKey(); err != nil {
+			return fmt.Errorf("management.public_key: %w", err)
+		}
+
+		// Validate private key format if set
+		if c.Management.PrivateKey != "" {
+			if _, err := c.GetManagementPrivateKey(); err != nil {
+				return fmt.Errorf("management.private_key: %w", err)
+			}
+		}
 	}
 
-	// Validate public key format
-	if _, err := c.GetManagementPublicKey(); err != nil {
-		return fmt.Errorf("management.public_key: %w", err)
-	}
+	// Validate signing keys (Ed25519)
+	if c.Management.SigningPublicKey == "" {
+		// Warn if signing private key is set without public key
+		if c.Management.SigningPrivateKey != "" {
+			return fmt.Errorf("management.signing_private_key requires management.signing_public_key to be set")
+		}
+	} else {
+		// Validate signing public key format
+		if _, err := c.GetSigningPublicKey(); err != nil {
+			return fmt.Errorf("management.signing_public_key: %w", err)
+		}
 
-	// Validate private key format if set
-	if c.Management.PrivateKey != "" {
-		if _, err := c.GetManagementPrivateKey(); err != nil {
-			return fmt.Errorf("management.private_key: %w", err)
+		// Validate signing private key format if set
+		if c.Management.SigningPrivateKey != "" {
+			if _, err := c.GetSigningPrivateKey(); err != nil {
+				return fmt.Errorf("management.signing_private_key: %w", err)
+			}
 		}
 	}
 
@@ -1413,6 +1507,7 @@ func (c *Config) Redacted() *Config {
 	redact(&redacted.FileTransfer.PasswordHash)
 	redact(&redacted.Shell.PasswordHash)
 	redact(&redacted.Management.PrivateKey)
+	redact(&redacted.Management.SigningPrivateKey)
 
 	return redacted
 }
@@ -1450,6 +1545,11 @@ func (c *Config) HasSensitiveData() bool {
 
 	// Check management private key
 	if c.Management.PrivateKey != "" {
+		return true
+	}
+
+	// Check signing private key
+	if c.Management.SigningPrivateKey != "" {
 		return true
 	}
 

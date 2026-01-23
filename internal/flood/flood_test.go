@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 	"github.com/postalsys/muti-metroo/internal/routing"
@@ -496,5 +497,709 @@ func TestAdvertisementKey_Uniqueness(t *testing.T) {
 	}
 	if key1 == key3 {
 		t.Error("Different origins should be different keys")
+	}
+}
+
+// ============================================================================
+// Sleep/Wake Command Signature Verification Tests
+// ============================================================================
+
+func TestVerifySleepCommand_NoKeyConfigured_AcceptsAll(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// No signing key configured
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Unsigned command should be accepted
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{}, // Zero signature (unsigned)
+		SeenBy:      []identity.AgentID{},
+	}
+
+	accepted := f.HandleSleepCommand(peerID, cmd)
+	if !accepted {
+		t.Error("Unsigned command should be accepted when no signing key configured")
+	}
+}
+
+func TestVerifySleepCommand_ValidSignature_Accepts(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Create and sign command
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	accepted := f.HandleSleepCommand(peerID, cmd)
+	if !accepted {
+		t.Error("Validly signed command should be accepted")
+	}
+}
+
+func TestVerifySleepCommand_InvalidSignature_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Create command with garbage signature
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{0xFF, 0xDE, 0xAD, 0xBE, 0xEF}, // Invalid signature
+		SeenBy:      []identity.AgentID{},
+	}
+
+	accepted := f.HandleSleepCommand(peerID, cmd)
+	if accepted {
+		t.Error("Invalid signature should be rejected")
+	}
+}
+
+func TestVerifySleepCommand_MissingSignature_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Unsigned command (zero signature) when key is configured
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{}, // Zero = unsigned
+		SeenBy:      []identity.AgentID{},
+	}
+
+	accepted := f.HandleSleepCommand(peerID, cmd)
+	if accepted {
+		t.Error("Unsigned command should be rejected when signing key is configured")
+	}
+}
+
+func TestVerifySleepCommand_ExpiredTimestamp_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+	cfg.TimestampWindow = 5 * time.Minute
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Command with old timestamp (10 minutes ago)
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Add(-10 * time.Minute).Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	accepted := f.HandleSleepCommand(peerID, cmd)
+	if accepted {
+		t.Error("Expired timestamp should be rejected")
+	}
+}
+
+func TestVerifySleepCommand_FutureTimestamp_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+	cfg.TimestampWindow = 5 * time.Minute
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Command with future timestamp (10 minutes ahead)
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Add(10 * time.Minute).Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	accepted := f.HandleSleepCommand(peerID, cmd)
+	if accepted {
+		t.Error("Future timestamp should be rejected")
+	}
+}
+
+func TestVerifyWakeCommand_NoKeyConfigured_AcceptsAll(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// No signing key configured
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Unsigned command should be accepted
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{}, // Zero signature (unsigned)
+		SeenBy:      []identity.AgentID{},
+	}
+
+	accepted := f.HandleWakeCommand(peerID, cmd)
+	if !accepted {
+		t.Error("Unsigned wake command should be accepted when no signing key configured")
+	}
+}
+
+func TestVerifyWakeCommand_ValidSignature_Accepts(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Create and sign command
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	accepted := f.HandleWakeCommand(peerID, cmd)
+	if !accepted {
+		t.Error("Validly signed wake command should be accepted")
+	}
+}
+
+func TestVerifyWakeCommand_InvalidSignature_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Create command with garbage signature
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{0xCA, 0xFE, 0xBA, 0xBE}, // Invalid signature
+		SeenBy:      []identity.AgentID{},
+	}
+
+	accepted := f.HandleWakeCommand(peerID, cmd)
+	if accepted {
+		t.Error("Invalid signature should be rejected")
+	}
+}
+
+func TestVerifyWakeCommand_MissingSignature_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Unsigned command (zero signature) when key is configured
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{}, // Zero = unsigned
+		SeenBy:      []identity.AgentID{},
+	}
+
+	accepted := f.HandleWakeCommand(peerID, cmd)
+	if accepted {
+		t.Error("Unsigned wake command should be rejected when signing key is configured")
+	}
+}
+
+func TestVerifyWakeCommand_ExpiredTimestamp_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+	cfg.TimestampWindow = 5 * time.Minute
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Command with old timestamp (10 minutes ago)
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Add(-10 * time.Minute).Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	accepted := f.HandleWakeCommand(peerID, cmd)
+	if accepted {
+		t.Error("Wake command with expired timestamp should be rejected")
+	}
+}
+
+func TestVerifyWakeCommand_FutureTimestamp_Rejects(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+	cfg.TimestampWindow = 5 * time.Minute
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Command with future timestamp (10 minutes ahead)
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Add(10 * time.Minute).Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	accepted := f.HandleWakeCommand(peerID, cmd)
+	if accepted {
+		t.Error("Wake command with future timestamp should be rejected")
+	}
+}
+
+func TestHandleSleepCommand_SignedCommand_Floods(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+	peer2, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+	sender.AddPeer(peer1)
+	sender.AddPeer(peer2)
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Create signed command
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peer1,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	// Handle from peer1
+	accepted := f.HandleSleepCommand(peer1, cmd)
+	if !accepted {
+		t.Error("Signed command should be accepted")
+	}
+
+	// Should flood to peer2 (not back to peer1)
+	msgs := sender.GetMessages(peer2)
+	if len(msgs) != 1 {
+		t.Errorf("Should flood to peer2, got %d messages", len(msgs))
+	}
+	if len(sender.GetMessages(peer1)) != 0 {
+		t.Error("Should not flood back to source peer")
+	}
+}
+
+func TestHandleSleepCommand_UnsignedCommand_NoKey_Floods(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+	peer2, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+	sender.AddPeer(peer1)
+	sender.AddPeer(peer2)
+
+	// No signing key configured (backward compatible mode)
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Unsigned command
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peer1,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{}, // Zero = unsigned
+		SeenBy:      []identity.AgentID{},
+	}
+
+	// Handle from peer1
+	accepted := f.HandleSleepCommand(peer1, cmd)
+	if !accepted {
+		t.Error("Unsigned command should be accepted when no key configured")
+	}
+
+	// Should flood to peer2
+	if len(sender.GetMessages(peer2)) != 1 {
+		t.Error("Should flood unsigned command when no key configured")
+	}
+}
+
+func TestHandleSleepCommand_UnsignedCommand_WithKey_Rejected(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+	peer2, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+	sender.AddPeer(peer1)
+	sender.AddPeer(peer2)
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Unsigned command
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peer1,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{}, // Zero = unsigned
+		SeenBy:      []identity.AgentID{},
+	}
+
+	// Handle from peer1
+	accepted := f.HandleSleepCommand(peer1, cmd)
+	if accepted {
+		t.Error("Unsigned command should be rejected when key is configured")
+	}
+
+	// Should NOT flood
+	if sender.TotalMessages() != 0 {
+		t.Error("Should not flood rejected command")
+	}
+}
+
+func TestHandleWakeCommand_SignedCommand_Floods(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+	peer2, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+	sender.AddPeer(peer1)
+	sender.AddPeer(peer2)
+
+	// Generate signing keypair
+	kp, err := crypto.GenerateSigningKeypair()
+	if err != nil {
+		t.Fatalf("GenerateSigningKeypair() error = %v", err)
+	}
+
+	cfg := DefaultFloodConfig()
+	cfg.SigningPublicKey = &kp.PublicKey
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Create signed command
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peer1,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		SeenBy:      []identity.AgentID{},
+	}
+	cmd.Signature = crypto.Sign(kp.PrivateKey, cmd.SignableBytes())
+
+	// Handle from peer1
+	accepted := f.HandleWakeCommand(peer1, cmd)
+	if !accepted {
+		t.Error("Signed wake command should be accepted")
+	}
+
+	// Should flood to peer2 (not back to peer1)
+	msgs := sender.GetMessages(peer2)
+	if len(msgs) != 1 {
+		t.Errorf("Should flood wake command to peer2, got %d messages", len(msgs))
+	}
+}
+
+func TestHandleSleepCommand_Deduplication(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   12345,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{},
+		SeenBy:      []identity.AgentID{},
+	}
+
+	// First time should accept
+	if !f.HandleSleepCommand(peerID, cmd) {
+		t.Error("First sleep command should be accepted")
+	}
+
+	// Second time should reject (duplicate)
+	if f.HandleSleepCommand(peerID, cmd) {
+		t.Error("Duplicate sleep command should be rejected")
+	}
+}
+
+func TestHandleWakeCommand_Deduplication(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   54321,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{},
+		SeenBy:      []identity.AgentID{},
+	}
+
+	// First time should accept
+	if !f.HandleWakeCommand(peerID, cmd) {
+		t.Error("First wake command should be accepted")
+	}
+
+	// Second time should reject (duplicate)
+	if f.HandleWakeCommand(peerID, cmd) {
+		t.Error("Duplicate wake command should be rejected")
+	}
+}
+
+func TestHandleSleepCommand_LoopDetection(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Command with our ID in SeenBy (loop)
+	cmd := &protocol.SleepCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{},
+		SeenBy:      []identity.AgentID{localID}, // Loop!
+	}
+
+	accepted := f.HandleSleepCommand(peerID, cmd)
+	if accepted {
+		t.Error("Sleep command with our ID in SeenBy should be rejected (loop)")
+	}
+}
+
+func TestHandleWakeCommand_LoopDetection(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Command with our ID in SeenBy (loop)
+	cmd := &protocol.WakeCommand{
+		OriginAgent: peerID,
+		CommandID:   1,
+		Timestamp:   uint64(time.Now().Unix()),
+		Signature:   [64]byte{},
+		SeenBy:      []identity.AgentID{localID}, // Loop!
+	}
+
+	accepted := f.HandleWakeCommand(peerID, cmd)
+	if accepted {
+		t.Error("Wake command with our ID in SeenBy should be rejected (loop)")
+	}
+}
+
+func TestSleepCommandSeenCacheSize(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peerID, _ := identity.NewAgentID()
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+
+	cfg := DefaultFloodConfig()
+
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Initially empty
+	if f.SleepCommandSeenCacheSize() != 0 {
+		t.Errorf("Initial SleepCommandSeenCacheSize = %d, want 0", f.SleepCommandSeenCacheSize())
+	}
+
+	// Add some commands
+	for i := uint64(1); i <= 5; i++ {
+		cmd := &protocol.SleepCommand{
+			OriginAgent: peerID,
+			CommandID:   i,
+			Timestamp:   uint64(time.Now().Unix()),
+			Signature:   [64]byte{},
+			SeenBy:      []identity.AgentID{},
+		}
+		f.HandleSleepCommand(peerID, cmd)
+	}
+
+	if f.SleepCommandSeenCacheSize() != 5 {
+		t.Errorf("SleepCommandSeenCacheSize = %d, want 5", f.SleepCommandSeenCacheSize())
 	}
 }

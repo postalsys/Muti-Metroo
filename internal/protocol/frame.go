@@ -1832,21 +1832,54 @@ func DecodeICMPClose(buf []byte) (*ICMPClose, error) {
 // Sleep/Wake control frames
 // ============================================================================
 
+// SignatureSize is the size of Ed25519 signatures in bytes.
+const SignatureSize = 64
+
 // SleepCommand is the payload for SLEEP_COMMAND frames.
 // This command floods through the mesh to instruct agents to hibernate.
+//
+// Wire format:
+//
+//	OriginAgent [16 bytes] \
+//	CommandID   [8 bytes]   } Signed data (SignableBytes)
+//	Timestamp   [8 bytes]  /
+//	Signature   [64 bytes]   Ed25519 signature (or zeros if unsigned)
+//	SeenBy      [variable]   NOT signed (changes during propagation)
 type SleepCommand struct {
 	OriginAgent identity.AgentID   // Agent that initiated the sleep command
 	CommandID   uint64             // Unique command ID for deduplication
 	Timestamp   uint64             // Unix timestamp when command was issued
+	Signature   [SignatureSize]byte // Ed25519 signature (zeros = unsigned)
 	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
+}
+
+// SignableBytes returns the bytes that are signed (OriginAgent + CommandID + Timestamp).
+// SeenBy is excluded because it changes during propagation.
+func (s *SleepCommand) SignableBytes() []byte {
+	w := newBufferWriter(16 + 8 + 8)
+	w.writeBytes(s.OriginAgent[:])
+	w.writeUint64(s.CommandID)
+	w.writeUint64(s.Timestamp)
+	return w.bytes()
+}
+
+// IsZeroSignature returns true if the signature is all zeros (unsigned command).
+func (s *SleepCommand) IsZeroSignature() bool {
+	for _, b := range s.Signature {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // Encode serializes SleepCommand to bytes.
 func (s *SleepCommand) Encode() []byte {
-	w := newBufferWriter(16 + 8 + 8 + 1 + len(s.SeenBy)*16)
+	w := newBufferWriter(16 + 8 + 8 + SignatureSize + 1 + len(s.SeenBy)*16)
 	w.writeBytes(s.OriginAgent[:])
 	w.writeUint64(s.CommandID)
 	w.writeUint64(s.Timestamp)
+	w.writeBytes(s.Signature[:])
 	w.writeAgentIDs(s.SeenBy)
 
 	return w.bytes()
@@ -1854,7 +1887,7 @@ func (s *SleepCommand) Encode() []byte {
 
 // DecodeSleepCommand deserializes SleepCommand from bytes.
 func DecodeSleepCommand(buf []byte) (*SleepCommand, error) {
-	if len(buf) < 33 { // 16 + 8 + 8 + 1 minimum
+	if len(buf) < 16+8+8+SignatureSize+1 { // Minimum with signature
 		return nil, fmt.Errorf("%w: SleepCommand too short", ErrInvalidFrame)
 	}
 
@@ -1863,8 +1896,16 @@ func DecodeSleepCommand(buf []byte) (*SleepCommand, error) {
 		OriginAgent: r.readAgentID(),
 		CommandID:   r.readUint64(),
 		Timestamp:   r.readUint64(),
-		SeenBy:      r.readAgentIDs(),
 	}
+
+	// Read signature
+	sigBytes := r.readBytes(SignatureSize)
+	if r.err != nil {
+		return nil, r.err
+	}
+	copy(s.Signature[:], sigBytes)
+
+	s.SeenBy = r.readAgentIDs()
 
 	if r.err != nil {
 		return nil, r.err
@@ -1874,19 +1915,49 @@ func DecodeSleepCommand(buf []byte) (*SleepCommand, error) {
 
 // WakeCommand is the payload for WAKE_COMMAND frames.
 // This command floods through the mesh to instruct agents to wake from sleep.
+//
+// Wire format:
+//
+//	OriginAgent [16 bytes] \
+//	CommandID   [8 bytes]   } Signed data (SignableBytes)
+//	Timestamp   [8 bytes]  /
+//	Signature   [64 bytes]   Ed25519 signature (or zeros if unsigned)
+//	SeenBy      [variable]   NOT signed (changes during propagation)
 type WakeCommand struct {
-	OriginAgent identity.AgentID   // Agent that initiated the wake command
-	CommandID   uint64             // Unique command ID for deduplication
-	Timestamp   uint64             // Unix timestamp when command was issued
-	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
+	OriginAgent identity.AgentID    // Agent that initiated the wake command
+	CommandID   uint64              // Unique command ID for deduplication
+	Timestamp   uint64              // Unix timestamp when command was issued
+	Signature   [SignatureSize]byte // Ed25519 signature (zeros = unsigned)
+	SeenBy      []identity.AgentID  // Loop prevention (agents that have seen this)
+}
+
+// SignableBytes returns the bytes that are signed (OriginAgent + CommandID + Timestamp).
+// SeenBy is excluded because it changes during propagation.
+func (w *WakeCommand) SignableBytes() []byte {
+	bw := newBufferWriter(16 + 8 + 8)
+	bw.writeBytes(w.OriginAgent[:])
+	bw.writeUint64(w.CommandID)
+	bw.writeUint64(w.Timestamp)
+	return bw.bytes()
+}
+
+// IsZeroSignature returns true if the signature is all zeros (unsigned command).
+func (w *WakeCommand) IsZeroSignature() bool {
+	for _, b := range w.Signature {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // Encode serializes WakeCommand to bytes.
 func (w *WakeCommand) Encode() []byte {
-	bw := newBufferWriter(16 + 8 + 8 + 1 + len(w.SeenBy)*16)
+	bw := newBufferWriter(16 + 8 + 8 + SignatureSize + 1 + len(w.SeenBy)*16)
 	bw.writeBytes(w.OriginAgent[:])
 	bw.writeUint64(w.CommandID)
 	bw.writeUint64(w.Timestamp)
+	bw.writeBytes(w.Signature[:])
 	bw.writeAgentIDs(w.SeenBy)
 
 	return bw.bytes()
@@ -1894,7 +1965,7 @@ func (w *WakeCommand) Encode() []byte {
 
 // DecodeWakeCommand deserializes WakeCommand from bytes.
 func DecodeWakeCommand(buf []byte) (*WakeCommand, error) {
-	if len(buf) < 33 { // 16 + 8 + 8 + 1 minimum
+	if len(buf) < 16+8+8+SignatureSize+1 { // Minimum with signature
 		return nil, fmt.Errorf("%w: WakeCommand too short", ErrInvalidFrame)
 	}
 
@@ -1903,8 +1974,16 @@ func DecodeWakeCommand(buf []byte) (*WakeCommand, error) {
 		OriginAgent: r.readAgentID(),
 		CommandID:   r.readUint64(),
 		Timestamp:   r.readUint64(),
-		SeenBy:      r.readAgentIDs(),
 	}
+
+	// Read signature
+	sigBytes := r.readBytes(SignatureSize)
+	if r.err != nil {
+		return nil, r.err
+	}
+	copy(w.Signature[:], sigBytes)
+
+	w.SeenBy = r.readAgentIDs()
 
 	if r.err != nil {
 		return nil, r.err

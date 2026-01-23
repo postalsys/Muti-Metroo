@@ -2,6 +2,7 @@
 package flood
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -74,6 +75,16 @@ type FloodConfig struct {
 	// SealedBox for management key encryption (nil if not configured)
 	// When set, NodeInfo and route paths are encrypted before flooding
 	SealedBox *crypto.SealedBox
+
+	// SigningPublicKey is the Ed25519 public key for verifying signed commands.
+	// When set (non-nil), sleep/wake commands must be signed with the corresponding
+	// private key. When nil, all commands are accepted (backward compatible).
+	SigningPublicKey *[32]byte
+
+	// TimestampWindow is the maximum age of a command timestamp to accept.
+	// Commands with timestamps outside +/- this window are rejected.
+	// Default is 5 minutes.
+	TimestampWindow time.Duration
 }
 
 // DefaultFloodConfig returns sensible defaults.
@@ -82,6 +93,7 @@ func DefaultFloodConfig() FloodConfig {
 		SeenCacheTTL:     5 * time.Minute,
 		FloodInterval:    1 * time.Second,
 		MaxSeenCacheSize: 10000,
+		TimestampWindow:  5 * time.Minute,
 	}
 }
 
@@ -103,6 +115,8 @@ type Flooder struct {
 	sender           PeerSender
 	logger           *slog.Logger
 	sealedBox        *crypto.SealedBox // Management key encryption (nil if not configured)
+	signingPubKey    *[32]byte         // Ed25519 public key for command verification (nil = no verification)
+	timestampWindow  time.Duration     // Validity window for command timestamps
 
 	mu        sync.RWMutex
 	seenCache map[AdvertisementKey]*SeenAdvertisement
@@ -133,6 +147,12 @@ func NewFlooder(cfg FloodConfig, localID identity.AgentID, routeMgr *routing.Man
 		logger = logging.NopLogger()
 	}
 
+	// Use default timestamp window if not set
+	timestampWindow := cfg.TimestampWindow
+	if timestampWindow == 0 {
+		timestampWindow = 5 * time.Minute
+	}
+
 	f := &Flooder{
 		cfg:               cfg,
 		localID:           localID,
@@ -141,6 +161,8 @@ func NewFlooder(cfg FloodConfig, localID identity.AgentID, routeMgr *routing.Man
 		sender:            sender,
 		logger:            logger,
 		sealedBox:         cfg.SealedBox,
+		signingPubKey:     cfg.SigningPublicKey,
+		timestampWindow:   timestampWindow,
 		seenCache:         make(map[AdvertisementKey]*SeenAdvertisement),
 		nodeInfoSeenCache: make(map[NodeInfoKey]*SeenNodeInfo),
 		sleepCmdSeenCache: make(map[SleepCommandKey]*SeenSleepCommand),
@@ -1036,10 +1058,21 @@ func (f *Flooder) HandleSleepCommand(fromPeer identity.AgentID, cmd *protocol.Sl
 		return false
 	}
 
+	// Verify signature if signing key is configured
+	if err := f.verifySleepCommand(cmd); err != nil {
+		f.logger.Warn("sleep command rejected",
+			"origin", cmd.OriginAgent.ShortString(),
+			"command_id", cmd.CommandID,
+			"from_peer", fromPeer.ShortString(),
+			logging.KeyError, err)
+		return false
+	}
+
 	f.logger.Debug("new sleep command received",
 		"origin", cmd.OriginAgent.ShortString(),
 		"command_id", cmd.CommandID,
-		"from_peer", fromPeer.ShortString())
+		"from_peer", fromPeer.ShortString(),
+		"signed", !cmd.IsZeroSignature())
 
 	newSeenBy := append(cmd.SeenBy, f.localID)
 	f.floodSleepCommand(fromPeer, cmd, newSeenBy)
@@ -1058,10 +1091,21 @@ func (f *Flooder) HandleWakeCommand(fromPeer identity.AgentID, cmd *protocol.Wak
 		return false
 	}
 
+	// Verify signature if signing key is configured
+	if err := f.verifyWakeCommand(cmd); err != nil {
+		f.logger.Warn("wake command rejected",
+			"origin", cmd.OriginAgent.ShortString(),
+			"command_id", cmd.CommandID,
+			"from_peer", fromPeer.ShortString(),
+			logging.KeyError, err)
+		return false
+	}
+
 	f.logger.Debug("new wake command received",
 		"origin", cmd.OriginAgent.ShortString(),
 		"command_id", cmd.CommandID,
-		"from_peer", fromPeer.ShortString())
+		"from_peer", fromPeer.ShortString(),
+		"signed", !cmd.IsZeroSignature())
 
 	newSeenBy := append(cmd.SeenBy, f.localID)
 	f.floodWakeCommand(fromPeer, cmd, newSeenBy)
@@ -1072,8 +1116,71 @@ func (f *Flooder) HandleWakeCommand(fromPeer identity.AgentID, cmd *protocol.Wak
 	return true
 }
 
+// verifySleepCommand verifies the signature on a sleep command.
+// Returns nil if verification passes, or an error describing why it failed.
+func (f *Flooder) verifySleepCommand(cmd *protocol.SleepCommand) error {
+	// No signing key configured = accept all commands (backward compatible)
+	if f.signingPubKey == nil {
+		return nil
+	}
+
+	// Require signature when signing key is configured
+	if cmd.IsZeroSignature() {
+		return fmt.Errorf("signature required but missing")
+	}
+
+	// Verify timestamp is within window (replay protection)
+	cmdTime := time.Unix(int64(cmd.Timestamp), 0)
+	timeDiff := time.Since(cmdTime)
+	if timeDiff < 0 {
+		timeDiff = -timeDiff
+	}
+	if timeDiff > f.timestampWindow {
+		return fmt.Errorf("timestamp outside validity window (%v old, max %v)", timeDiff, f.timestampWindow)
+	}
+
+	// Verify Ed25519 signature
+	if !crypto.Verify(*f.signingPubKey, cmd.SignableBytes(), cmd.Signature) {
+		return fmt.Errorf("signature verification failed")
+	}
+
+	return nil
+}
+
+// verifyWakeCommand verifies the signature on a wake command.
+// Returns nil if verification passes, or an error describing why it failed.
+func (f *Flooder) verifyWakeCommand(cmd *protocol.WakeCommand) error {
+	// No signing key configured = accept all commands (backward compatible)
+	if f.signingPubKey == nil {
+		return nil
+	}
+
+	// Require signature when signing key is configured
+	if cmd.IsZeroSignature() {
+		return fmt.Errorf("signature required but missing")
+	}
+
+	// Verify timestamp is within window (replay protection)
+	cmdTime := time.Unix(int64(cmd.Timestamp), 0)
+	timeDiff := time.Since(cmdTime)
+	if timeDiff < 0 {
+		timeDiff = -timeDiff
+	}
+	if timeDiff > f.timestampWindow {
+		return fmt.Errorf("timestamp outside validity window (%v old, max %v)", timeDiff, f.timestampWindow)
+	}
+
+	// Verify Ed25519 signature
+	if !crypto.Verify(*f.signingPubKey, cmd.SignableBytes(), cmd.Signature) {
+		return fmt.Errorf("signature verification failed")
+	}
+
+	return nil
+}
+
 // FloodSleepCommand sends a sleep command to all peers.
 // This is used to initiate mesh-wide sleep from this agent.
+// The command should already be signed if signing is required.
 func (f *Flooder) FloodSleepCommand(cmd *protocol.SleepCommand) error {
 	f.markSleepCmdSeen(cmd.OriginAgent, cmd.CommandID, f.localID)
 
@@ -1081,6 +1188,7 @@ func (f *Flooder) FloodSleepCommand(cmd *protocol.SleepCommand) error {
 		OriginAgent: cmd.OriginAgent,
 		CommandID:   cmd.CommandID,
 		Timestamp:   cmd.Timestamp,
+		Signature:   cmd.Signature, // Preserve signature
 		SeenBy:      []identity.AgentID{f.localID},
 	}
 
@@ -1096,6 +1204,7 @@ func (f *Flooder) FloodSleepCommand(cmd *protocol.SleepCommand) error {
 
 // FloodWakeCommand sends a wake command to all peers.
 // This is used to initiate mesh-wide wake from this agent.
+// The command should already be signed if signing is required.
 func (f *Flooder) FloodWakeCommand(cmd *protocol.WakeCommand) error {
 	f.markSleepCmdSeen(cmd.OriginAgent, cmd.CommandID, f.localID)
 
@@ -1106,6 +1215,7 @@ func (f *Flooder) FloodWakeCommand(cmd *protocol.WakeCommand) error {
 		OriginAgent: cmd.OriginAgent,
 		CommandID:   cmd.CommandID,
 		Timestamp:   cmd.Timestamp,
+		Signature:   cmd.Signature, // Preserve signature
 		SeenBy:      []identity.AgentID{f.localID},
 	}
 
@@ -1133,6 +1243,7 @@ func (f *Flooder) broadcastFrame(frame *protocol.Frame, cmdType string) {
 }
 
 // floodSleepCommand forwards a sleep command to all peers except the source.
+// Preserves the original signature when forwarding.
 func (f *Flooder) floodSleepCommand(
 	fromPeer identity.AgentID,
 	cmd *protocol.SleepCommand,
@@ -1142,6 +1253,7 @@ func (f *Flooder) floodSleepCommand(
 		OriginAgent: cmd.OriginAgent,
 		CommandID:   cmd.CommandID,
 		Timestamp:   cmd.Timestamp,
+		Signature:   cmd.Signature, // Preserve signature when forwarding
 		SeenBy:      seenBy,
 	}
 
@@ -1155,6 +1267,7 @@ func (f *Flooder) floodSleepCommand(
 }
 
 // floodWakeCommand forwards a wake command to all peers except the source.
+// Preserves the original signature when forwarding.
 func (f *Flooder) floodWakeCommand(
 	fromPeer identity.AgentID,
 	cmd *protocol.WakeCommand,
@@ -1164,6 +1277,7 @@ func (f *Flooder) floodWakeCommand(
 		OriginAgent: cmd.OriginAgent,
 		CommandID:   cmd.CommandID,
 		Timestamp:   cmd.Timestamp,
+		Signature:   cmd.Signature, // Preserve signature when forwarding
 		SeenBy:      seenBy,
 	}
 
@@ -1226,13 +1340,15 @@ func (f *Flooder) OnPeerConnected(peerID identity.AgentID) {
 	f.logger.Debug("forwarding pending wake to new peer",
 		"origin", cmd.OriginAgent.ShortString(),
 		"command_id", cmd.CommandID,
-		"peer", peerID.ShortString())
+		"peer", peerID.ShortString(),
+		"signed", !cmd.IsZeroSignature())
 
-	// Create wake command with our local ID in SeenBy
+	// Create wake command with our local ID in SeenBy, preserving signature
 	fwdCmd := &protocol.WakeCommand{
 		OriginAgent: cmd.OriginAgent,
 		CommandID:   cmd.CommandID,
 		Timestamp:   cmd.Timestamp,
+		Signature:   cmd.Signature, // Preserve signature when forwarding
 		SeenBy:      []identity.AgentID{f.localID},
 	}
 

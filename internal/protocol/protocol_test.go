@@ -1552,3 +1552,319 @@ func TestRouteAdvertise_WithEncryptedPath(t *testing.T) {
 		t.Error("Path should be nil when encrypted")
 	}
 }
+
+// ============================================================================
+// SleepCommand Tests
+// ============================================================================
+
+func TestSleepCommand_EncodeDecode(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	seen1, _ := identity.NewAgentID()
+	seen2, _ := identity.NewAgentID()
+
+	// Create a signature (just random bytes for testing wire format)
+	var sig [SignatureSize]byte
+	for i := range sig {
+		sig[i] = byte(i + 1)
+	}
+
+	original := &SleepCommand{
+		OriginAgent: origin,
+		CommandID:   12345678,
+		Timestamp:   1703001234,
+		Signature:   sig,
+		SeenBy:      []identity.AgentID{seen1, seen2},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeSleepCommand(data)
+	if err != nil {
+		t.Fatalf("DecodeSleepCommand() error = %v", err)
+	}
+
+	if !decoded.OriginAgent.Equal(original.OriginAgent) {
+		t.Error("OriginAgent mismatch")
+	}
+	if decoded.CommandID != original.CommandID {
+		t.Errorf("CommandID = %d, want %d", decoded.CommandID, original.CommandID)
+	}
+	if decoded.Timestamp != original.Timestamp {
+		t.Errorf("Timestamp = %d, want %d", decoded.Timestamp, original.Timestamp)
+	}
+	if decoded.Signature != original.Signature {
+		t.Error("Signature mismatch")
+	}
+	if len(decoded.SeenBy) != len(original.SeenBy) {
+		t.Errorf("SeenBy length = %d, want %d", len(decoded.SeenBy), len(original.SeenBy))
+	}
+	for i, id := range decoded.SeenBy {
+		if !id.Equal(original.SeenBy[i]) {
+			t.Errorf("SeenBy[%d] mismatch", i)
+		}
+	}
+}
+
+func TestSleepCommand_WithZeroSignature(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+
+	// Zero signature (unsigned command)
+	original := &SleepCommand{
+		OriginAgent: origin,
+		CommandID:   999,
+		Timestamp:   1700000000,
+		Signature:   [SignatureSize]byte{}, // All zeros
+		SeenBy:      []identity.AgentID{origin},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeSleepCommand(data)
+	if err != nil {
+		t.Fatalf("DecodeSleepCommand() error = %v", err)
+	}
+
+	if !decoded.IsZeroSignature() {
+		t.Error("IsZeroSignature() = false, want true")
+	}
+}
+
+func TestSleepCommand_EmptySeenBy(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+
+	original := &SleepCommand{
+		OriginAgent: origin,
+		CommandID:   1,
+		Timestamp:   1700000000,
+		Signature:   [SignatureSize]byte{},
+		SeenBy:      []identity.AgentID{},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeSleepCommand(data)
+	if err != nil {
+		t.Fatalf("DecodeSleepCommand() error = %v", err)
+	}
+
+	if len(decoded.SeenBy) != 0 {
+		t.Errorf("SeenBy should be empty, got %d", len(decoded.SeenBy))
+	}
+}
+
+func TestSleepCommand_SignableBytes(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	seen1, _ := identity.NewAgentID()
+
+	cmd := &SleepCommand{
+		OriginAgent: origin,
+		CommandID:   12345,
+		Timestamp:   9999999,
+		Signature:   [SignatureSize]byte{0xFF, 0xFF}, // Non-zero signature
+		SeenBy:      []identity.AgentID{seen1},
+	}
+
+	signable := cmd.SignableBytes()
+
+	// Should be exactly 32 bytes: 16 (AgentID) + 8 (CommandID) + 8 (Timestamp)
+	if len(signable) != 32 {
+		t.Errorf("SignableBytes length = %d, want 32", len(signable))
+	}
+
+	// Verify the signable bytes don't include signature or SeenBy
+	// by checking that the same command with different signature/seenBy
+	// produces the same signable bytes
+	cmd2 := &SleepCommand{
+		OriginAgent: origin,
+		CommandID:   12345,
+		Timestamp:   9999999,
+		Signature:   [SignatureSize]byte{0xAA, 0xBB}, // Different signature
+		SeenBy:      []identity.AgentID{},            // Different SeenBy
+	}
+
+	signable2 := cmd2.SignableBytes()
+	if !bytes.Equal(signable, signable2) {
+		t.Error("SignableBytes should be identical regardless of Signature/SeenBy")
+	}
+}
+
+func TestSleepCommand_IsZeroSignature(t *testing.T) {
+	cmd := &SleepCommand{}
+
+	// Zero signature
+	if !cmd.IsZeroSignature() {
+		t.Error("IsZeroSignature() = false for zero signature")
+	}
+
+	// Non-zero signature
+	cmd.Signature[0] = 1
+	if cmd.IsZeroSignature() {
+		t.Error("IsZeroSignature() = true for non-zero signature")
+	}
+
+	// Last byte non-zero
+	cmd.Signature[0] = 0
+	cmd.Signature[SignatureSize-1] = 0xFF
+	if cmd.IsZeroSignature() {
+		t.Error("IsZeroSignature() = true when last byte is non-zero")
+	}
+}
+
+func TestDecodeSleepCommand_TooShort(t *testing.T) {
+	// Minimum size is 16 + 8 + 8 + 64 + 1 = 97 bytes
+	_, err := DecodeSleepCommand(make([]byte, 96))
+	if err == nil {
+		t.Error("DecodeSleepCommand() should fail with short data")
+	}
+}
+
+// ============================================================================
+// WakeCommand Tests
+// ============================================================================
+
+func TestWakeCommand_EncodeDecode(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	seen1, _ := identity.NewAgentID()
+	seen2, _ := identity.NewAgentID()
+
+	// Create a signature
+	var sig [SignatureSize]byte
+	for i := range sig {
+		sig[i] = byte(255 - i)
+	}
+
+	original := &WakeCommand{
+		OriginAgent: origin,
+		CommandID:   87654321,
+		Timestamp:   1703002345,
+		Signature:   sig,
+		SeenBy:      []identity.AgentID{seen1, seen2},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeWakeCommand(data)
+	if err != nil {
+		t.Fatalf("DecodeWakeCommand() error = %v", err)
+	}
+
+	if !decoded.OriginAgent.Equal(original.OriginAgent) {
+		t.Error("OriginAgent mismatch")
+	}
+	if decoded.CommandID != original.CommandID {
+		t.Errorf("CommandID = %d, want %d", decoded.CommandID, original.CommandID)
+	}
+	if decoded.Timestamp != original.Timestamp {
+		t.Errorf("Timestamp = %d, want %d", decoded.Timestamp, original.Timestamp)
+	}
+	if decoded.Signature != original.Signature {
+		t.Error("Signature mismatch")
+	}
+	if len(decoded.SeenBy) != len(original.SeenBy) {
+		t.Errorf("SeenBy length = %d, want %d", len(decoded.SeenBy), len(original.SeenBy))
+	}
+}
+
+func TestWakeCommand_WithZeroSignature(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+
+	original := &WakeCommand{
+		OriginAgent: origin,
+		CommandID:   888,
+		Timestamp:   1700000000,
+		Signature:   [SignatureSize]byte{}, // All zeros
+		SeenBy:      []identity.AgentID{origin},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeWakeCommand(data)
+	if err != nil {
+		t.Fatalf("DecodeWakeCommand() error = %v", err)
+	}
+
+	if !decoded.IsZeroSignature() {
+		t.Error("IsZeroSignature() = false, want true")
+	}
+}
+
+func TestWakeCommand_EmptySeenBy(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+
+	original := &WakeCommand{
+		OriginAgent: origin,
+		CommandID:   1,
+		Timestamp:   1700000000,
+		Signature:   [SignatureSize]byte{},
+		SeenBy:      []identity.AgentID{},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeWakeCommand(data)
+	if err != nil {
+		t.Fatalf("DecodeWakeCommand() error = %v", err)
+	}
+
+	if len(decoded.SeenBy) != 0 {
+		t.Errorf("SeenBy should be empty, got %d", len(decoded.SeenBy))
+	}
+}
+
+func TestWakeCommand_SignableBytes(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	seen1, _ := identity.NewAgentID()
+
+	cmd := &WakeCommand{
+		OriginAgent: origin,
+		CommandID:   54321,
+		Timestamp:   8888888,
+		Signature:   [SignatureSize]byte{0xDE, 0xAD},
+		SeenBy:      []identity.AgentID{seen1},
+	}
+
+	signable := cmd.SignableBytes()
+
+	// Should be exactly 32 bytes: 16 (AgentID) + 8 (CommandID) + 8 (Timestamp)
+	if len(signable) != 32 {
+		t.Errorf("SignableBytes length = %d, want 32", len(signable))
+	}
+
+	// Verify consistency - same fields produce same signable bytes
+	cmd2 := &WakeCommand{
+		OriginAgent: origin,
+		CommandID:   54321,
+		Timestamp:   8888888,
+		Signature:   [SignatureSize]byte{0xBE, 0xEF}, // Different signature
+		SeenBy:      []identity.AgentID{},            // Different SeenBy
+	}
+
+	signable2 := cmd2.SignableBytes()
+	if !bytes.Equal(signable, signable2) {
+		t.Error("SignableBytes should be identical regardless of Signature/SeenBy")
+	}
+}
+
+func TestWakeCommand_IsZeroSignature(t *testing.T) {
+	cmd := &WakeCommand{}
+
+	// Zero signature
+	if !cmd.IsZeroSignature() {
+		t.Error("IsZeroSignature() = false for zero signature")
+	}
+
+	// Non-zero signature
+	cmd.Signature[0] = 1
+	if cmd.IsZeroSignature() {
+		t.Error("IsZeroSignature() = true for non-zero signature")
+	}
+
+	// Middle byte non-zero
+	cmd.Signature[0] = 0
+	cmd.Signature[32] = 0x42
+	if cmd.IsZeroSignature() {
+		t.Error("IsZeroSignature() = true when middle byte is non-zero")
+	}
+}
+
+func TestDecodeWakeCommand_TooShort(t *testing.T) {
+	// Minimum size is 16 + 8 + 8 + 64 + 1 = 97 bytes
+	_, err := DecodeWakeCommand(make([]byte, 96))
+	if err == nil {
+		t.Error("DecodeWakeCommand() should fail with short data")
+	}
+}

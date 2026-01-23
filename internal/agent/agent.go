@@ -294,6 +294,17 @@ func (a *Agent) initComponents() error {
 	floodCfg.LocalDisplayName = a.cfg.Agent.DisplayName
 	floodCfg.Logger = a.logger
 	floodCfg.SealedBox = a.sealedBox // Pass sealed box for encryption
+
+	// Configure command signing verification if signing public key is set
+	if a.cfg.HasSigningKey() {
+		signingPubKey, err := a.cfg.GetSigningPublicKey()
+		if err != nil {
+			return fmt.Errorf("get signing public key: %w", err)
+		}
+		floodCfg.SigningPublicKey = &signingPubKey
+		a.logger.Info("command signing verification enabled")
+	}
+
 	a.flooder = flood.NewFlooder(floodCfg, a.id, a.routeMgr, a.peerMgr)
 
 	// Initialize SOCKS5 server if enabled
@@ -5450,6 +5461,17 @@ func (a *Agent) TriggerSleep() error {
 		SeenBy:      []identity.AgentID{a.id},
 	}
 
+	// Sign command if we have a signing key
+	if a.cfg.CanSign() {
+		privKey, err := a.cfg.GetSigningPrivateKey()
+		if err != nil {
+			return fmt.Errorf("get signing key: %w", err)
+		}
+		cmd.Signature = crypto.Sign(privKey, cmd.SignableBytes())
+		a.logger.Debug("signed sleep command",
+			"command_id", cmd.CommandID)
+	}
+
 	// Flood command to mesh first (while we have connections)
 	if err := a.flooder.FloodSleepCommand(cmd); err != nil {
 		a.logger.Warn("failed to flood sleep command",
@@ -5481,6 +5503,17 @@ func (a *Agent) TriggerWake() error {
 		CommandID:   uint64(time.Now().UnixNano()),
 		Timestamp:   uint64(time.Now().Unix()),
 		SeenBy:      []identity.AgentID{a.id},
+	}
+
+	// Sign command if we have a signing key
+	if a.cfg.CanSign() {
+		privKey, err := a.cfg.GetSigningPrivateKey()
+		if err != nil {
+			return fmt.Errorf("get signing key: %w", err)
+		}
+		cmd.Signature = crypto.Sign(privKey, cmd.SignableBytes())
+		a.logger.Debug("signed wake command",
+			"command_id", cmd.CommandID)
 	}
 
 	// Flood multiple times during the wait period to catch peers at different poll windows.

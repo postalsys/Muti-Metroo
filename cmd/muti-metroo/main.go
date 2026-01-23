@@ -25,6 +25,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/agent"
 	"github.com/postalsys/muti-metroo/internal/certutil"
 	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/embed"
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
@@ -150,6 +151,10 @@ root privileges.`,
 	mgmtKey := managementKeyCmd()
 	mgmtKey.GroupID = "admin"
 	rootCmd.AddCommand(mgmtKey)
+
+	signingKey := signingKeyCmd()
+	signingKey.GroupID = "admin"
+	rootCmd.AddCommand(signingKey)
 
 	// Check for default action from embedded config.
 	// If running without arguments and embedded config has default_action: run,
@@ -2882,6 +2887,128 @@ or to verify that your keypair is consistent.`,
 			copy(privKey[:], privBytes)
 
 			pubKey := identity.DerivePublicKey(privKey)
+			pubKeyHex := hex.EncodeToString(pubKey[:])
+
+			fmt.Println("Public Key:")
+			fmt.Printf("  %s\n", pubKeyHex)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&privateKey, "private", "", "Private key in hex format")
+
+	return cmd
+}
+
+func signingKeyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "signing-key",
+		Short: "Manage command signing keys",
+		Long: `Manage Ed25519 keypairs for signing sleep/wake commands.
+
+When command signing is enabled, sleep/wake commands must be signed with
+a valid Ed25519 private key. Agents with the corresponding public key
+will verify signatures before accepting commands.
+
+This prevents unauthorized mesh hibernation - even if an attacker gains
+access to an agent, they cannot issue sleep/wake commands without the
+signing private key.`,
+	}
+
+	// Add subcommands
+	cmd.AddCommand(signingKeyGenerateCmd())
+	cmd.AddCommand(signingKeyPublicCmd())
+
+	return cmd
+}
+
+func signingKeyGenerateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "generate",
+		Short: "Generate a new signing keypair",
+		Long: `Generate a new Ed25519 keypair for command signing.
+
+The generated keys should be distributed as follows:
+  - Public key: Add to ALL agent configs (field agents and operators)
+  - Private key: Add ONLY to operator/management node configs
+
+Example output can be copied directly into your config.yaml:
+
+  management:
+    signing_public_key: "<public key hex>"
+    signing_private_key: "<private key hex>"  # Only on operator nodes!`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Generate keypair using the crypto package
+			kp, err := crypto.GenerateSigningKeypair()
+			if err != nil {
+				return fmt.Errorf("failed to generate keypair: %w", err)
+			}
+
+			pubKeyHex := hex.EncodeToString(kp.PublicKey[:])
+			privKeyHex := hex.EncodeToString(kp.PrivateKey[:])
+
+			fmt.Println("=== Signing Keypair Generated ===")
+			fmt.Println()
+			fmt.Println("Public Key (add to ALL agent configs):")
+			fmt.Printf("  %s\n", pubKeyHex)
+			fmt.Println()
+			fmt.Println("Private Key (add ONLY to operator configs - KEEP SECRET!):")
+			fmt.Printf("  %s\n", privKeyHex)
+			fmt.Println()
+			fmt.Println("Config snippet for field agents:")
+			fmt.Println("  management:")
+			fmt.Printf("    signing_public_key: \"%s\"\n", pubKeyHex)
+			fmt.Println()
+			fmt.Println("Config snippet for operator nodes:")
+			fmt.Println("  management:")
+			fmt.Printf("    signing_public_key: \"%s\"\n", pubKeyHex)
+			fmt.Printf("    signing_private_key: \"%s\"\n", privKeyHex)
+
+			return nil
+		},
+	}
+
+	return cmd
+}
+
+func signingKeyPublicCmd() *cobra.Command {
+	var privateKey string
+
+	cmd := &cobra.Command{
+		Use:   "public",
+		Short: "Derive public key from private key",
+		Long: `Derive the Ed25519 public key from an existing signing private key.
+
+This is useful if you've lost the public key but still have the private key,
+or to verify that your keypair is consistent.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if privateKey == "" {
+				// Interactive prompt
+				fmt.Print("Enter private key (hex): ")
+				pkBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+				fmt.Println()
+				if err != nil {
+					return fmt.Errorf("failed to read private key: %w", err)
+				}
+				privateKey = string(pkBytes)
+			}
+
+			// Decode private key
+			privBytes, err := hex.DecodeString(strings.TrimSpace(privateKey))
+			if err != nil {
+				return fmt.Errorf("invalid private key hex: %w", err)
+			}
+
+			if len(privBytes) != 64 {
+				return fmt.Errorf("private key must be 64 bytes (128 hex chars), got %d bytes", len(privBytes))
+			}
+
+			// Derive public key
+			var privKey [64]byte
+			copy(privKey[:], privBytes)
+
+			pubKey := crypto.PublicKeyFromPrivate(privKey)
 			pubKeyHex := hex.EncodeToString(pubKey[:])
 
 			fmt.Println("Public Key:")
