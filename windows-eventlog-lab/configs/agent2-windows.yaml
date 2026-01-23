@@ -1,0 +1,84 @@
+# ==============================================================================
+# Agent 2 - Windows Transit/Exit (Central Listener)
+# ==============================================================================
+# Role: Central hub - receives connections from Agent 1 and Agent 3
+#       Also serves as exit for 178.33.49.65/32 (kreata.ee)
+# Topology: Listens on :4433, Agent 1 and Agent 3 dial in
+#
+# DEPLOYMENT:
+#   1. Copy to C:\muti-metroo\config.yaml
+#   2. Initialize: muti-metroo init -d .\data
+#   3. Generate password hash: muti-metroo hash "test123"
+#   4. Replace ${SHELL_PASSWORD_HASH} and ${FILE_TRANSFER_PASSWORD_HASH} below
+#   5. Run: muti-metroo run -c .\config.yaml
+
+agent:
+  id: "auto"
+  display_name: "Windows-Transit"
+  data_dir: "C:\\muti-metroo\\data"
+  log_level: "debug"
+  log_format: "text"
+
+# QUIC listener - Agent 1 and Agent 3 connect here
+listeners:
+  - transport: quic
+    address: "0.0.0.0:4433"
+
+# Exit node for specific route (kreata.ee)
+exit:
+  enabled: true
+  routes:
+    - "178.33.49.65/32"
+  dns:
+    servers:
+      - "8.8.8.8:53"
+      - "1.1.1.1:53"
+    timeout: 5s
+
+# Remote shell enabled for testing
+# Generate hash: muti-metroo hash "test123"
+shell:
+  enabled: true
+  whitelist:
+    - "*"
+  # Replace with output of: muti-metroo hash "test123"
+  password_hash: "${SHELL_PASSWORD_HASH}"
+  timeout: 0s
+  max_sessions: 10
+
+# File transfer enabled for testing
+# Generate hash: muti-metroo hash "test123"
+file_transfer:
+  enabled: true
+  max_file_size: 0
+  allowed_paths:
+    - "*"
+  # Replace with output of: muti-metroo hash "test123"
+  password_hash: "${FILE_TRANSFER_PASSWORD_HASH}"
+
+# HTTP API for monitoring
+http:
+  enabled: true
+  address: ":8080"
+  pprof: false
+  dashboard: true
+  remote_api: true
+
+# Route propagation
+routing:
+  advertise_interval: 30s
+  route_ttl: 2m
+  max_hops: 16
+
+# Connection settings
+connections:
+  idle_threshold: 30s
+  timeout: 90s
+  keepalive_jitter: 0.2
+
+# Resource limits
+limits:
+  max_streams_per_peer: 1000
+  max_streams_total: 10000
+  stream_open_timeout: 30s
+  buffer_size: 262144

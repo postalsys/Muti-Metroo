@@ -1,0 +1,64 @@
+# ==============================================================================
+# Windows Event Log Analysis Lab
+# ==============================================================================
+# Purpose: Test mesh with Windows agent to analyze Windows event log entries
+#
+# Topology:
+#   Agent 1 (Docker)          Agent 2 (Windows)         Agent 3 (Docker)
+#   SOCKS5 Ingress    ---->   Transit/Exit      <----   Exit Node
+#   localhost:1080            10.8.0.8:4433             0.0.0.0/0
+#                             Exit: 178.33.49.65/32
+#                             Shell + File Transfer
+#
+# Traffic flows:
+#   - Transit test: Client -> Agent1 -> Windows -> Agent3 -> Internet
+#   - Exit test:    Client -> Agent1 -> Windows -> kreata.ee (178.33.49.65)
+#
+# Usage:
+#   1. Deploy Windows agent (see configs/agent2-windows.yaml)
+#   2. Generate password hash on host: ./build/muti-metroo hash "test123"
+#   3. Set environment variables (see .env.example)
+#   4. docker compose up -d
+#   5. Run test scenarios
+#   6. Collect Windows event logs
+
+services:
+  # Agent 1: SOCKS5 Ingress - Entry point for client connections
+  agent1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: eventlog-agent1
+    hostname: agent1
+    volumes:
+      - ./data/agent1:/app/data
+      - ./configs/agent1.yaml:/app/config.yaml:ro
+    ports:
+      - "1080:1080"   # SOCKS5 proxy
+      - "8081:8080"   # HTTP API
+    extra_hosts:
+      - "windows-agent:10.8.0.8"
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+
+  # Agent 3: Exit Node - Default route (0.0.0.0/0)
+  agent3:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: eventlog-agent3
+    hostname: agent3
+    volumes:
+      - ./data/agent3:/app/data
+      - ./configs/agent3.yaml:/app/config.yaml:ro
+    ports:
+      - "8083:8080"   # HTTP API
+    extra_hosts:
+      - "windows-agent:10.8.0.8"
+    environment:
+      - TZ=UTC
+      # Generate with: ./build/muti-metroo hash "test123"
+      - SHELL_PASSWORD_HASH=${SHELL_PASSWORD_HASH}
+      - FILE_TRANSFER_PASSWORD_HASH=${FILE_TRANSFER_PASSWORD_HASH}
+    restart: unless-stopped

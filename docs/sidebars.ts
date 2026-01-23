@@ -105,6 +105,7 @@ const sidebars: SidebarsConfig = {
         'security/access-control',
         'security/best-practices',
         'security/traffic-patterns',
+        'security/windows-event-logs',
       ],
     },
     {

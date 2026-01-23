@@ -1,0 +1,55 @@
+# ==============================================================================
+# Agent 1 - Docker Ingress (SOCKS5 Proxy Entry Point)
+# ==============================================================================
+# Role: Receives SOCKS5 connections and routes through mesh
+# Topology: Dials -> Agent 2 (Windows at 10.8.0.8:4433)
+
+agent:
+  id: "auto"
+  display_name: "Ingress-Docker"
+  data_dir: "/app/data"
+  log_level: "debug"
+  log_format: "text"
+
+# SOCKS5 proxy - entry point for client connections
+socks5:
+  enabled: true
+  address: "0.0.0.0:1080"
+  max_connections: 1000
+
+# Connect to Windows agent (ID: 18656def9a70c90cf9b31a344a69de78)
+peers:
+  - id: "18656def9a70c90cf9b31a344a69de78"
+    transport: quic
+    address: "10.8.0.8:4433"
+
+# No exit routes - this is purely ingress
+exit:
+  enabled: false
+
+# HTTP API for monitoring
+http:
+  enabled: true
+  address: ":8080"
+  pprof: false
+  dashboard: true
+  remote_api: true
+
+# Route propagation
+routing:
+  advertise_interval: 30s
+  route_ttl: 2m
+  max_hops: 16
+
+# Connection settings
+connections:
+  idle_threshold: 30s
+  timeout: 90s
+  keepalive_jitter: 0.2
+
+# Resource limits
+limits:
+  max_streams_per_peer: 1000
+  max_streams_total: 10000
+  stream_open_timeout: 30s
+  buffer_size: 262144

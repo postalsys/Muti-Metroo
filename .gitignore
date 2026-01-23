@@ -34,6 +34,7 @@ certs/
 config.yaml
 *.env
 .env*
+!.env.example
 
 # Temporary files
 *.tmp
@@ -56,3 +57,9 @@ docker-compose.override.yml
 
 # Root binary (built outside build/)
 muti-metroo
+
+# Windows Event Log Lab (ephemeral test artifacts)
+windows-eventlog-lab/logs/
+windows-eventlog-lab/data/
+windows-eventlog-lab/.env
+windows-eventlog-lab/REPORT.md

@@ -1,0 +1,75 @@
+# ==============================================================================
+# Agent 3 - Docker Exit (Default Route Exit Node)
+# ==============================================================================
+# Role: Exit node with 0.0.0.0/0 route, shell and file transfer enabled
+# Topology: Dials -> Agent 2 (Windows at 10.8.0.8:4433)
+
+agent:
+  id: "auto"
+  display_name: "Exit-Docker"
+  data_dir: "/app/data"
+  log_level: "debug"
+  log_format: "text"
+
+# Connect to Windows agent (ID: 18656def9a70c90cf9b31a344a69de78)
+peers:
+  - id: "18656def9a70c90cf9b31a344a69de78"
+    transport: quic
+    address: "10.8.0.8:4433"
+
+# Exit node with default route
+exit:
+  enabled: true
+  routes:
+    - "0.0.0.0/0"
+  dns:
+    servers:
+      - "8.8.8.8:53"
+      - "1.1.1.1:53"
+    timeout: 5s
+
+# Remote shell enabled for testing
+# Password: test123
+shell:
+  enabled: true
+  whitelist:
+    - "*"
+  password_hash: "${SHELL_PASSWORD_HASH}"
+  timeout: 0s
+  max_sessions: 10
+
+# File transfer enabled for testing
+# Password: test123
+file_transfer:
+  enabled: true
+  max_file_size: 0
+  allowed_paths:
+    - "*"
+  password_hash: "${FILE_TRANSFER_PASSWORD_HASH}"
+
+# HTTP API for monitoring
+http:
+  enabled: true
+  address: ":8080"
+  pprof: false
+  dashboard: true
+  remote_api: true
+
+# Route propagation
+routing:
+  advertise_interval: 30s
+  route_ttl: 2m
+  max_hops: 16
+
+# Connection settings
+connections:
+  idle_threshold: 30s
+  timeout: 90s
+  keepalive_jitter: 0.2
+
+# Resource limits
+limits:
+  max_streams_per_peer: 1000
+  max_streams_total: 10000
+  stream_open_timeout: 30s
+  buffer_size: 262144
