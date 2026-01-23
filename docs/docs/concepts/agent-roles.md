@@ -49,7 +49,7 @@ A **transit agent** bridges networks. Put one in the cloud, the DMZ, or anywhere
 **What it does:**
 - Connects to agents in different networks
 - Forwards traffic between them
-- Propagates route information so agents discover each other
+- Propagates route information through connected peers
 - Cannot see the traffic content (end-to-end encrypted)
 
 **Typical deployment:**

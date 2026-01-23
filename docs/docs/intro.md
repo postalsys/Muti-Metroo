@@ -34,7 +34,7 @@ flowchart LR
 | Challenge | Solution |
 | --------- | -------- |
 | **Firewalls block your traffic** | HTTP/2 and WebSocket transports blend with normal HTTPS |
-| **Complex network paths** | Multi-hop routing finds the path automatically |
+| **Complex network paths** | Multi-hop routing selects optimal paths through the mesh |
 | **Hard to deploy** | Single binary, no root, no kernel modules |
 | **Per-app proxy config is tedious** | TUN interface routes all traffic transparently |
 | **Transit nodes see your data** | End-to-end encryption - transit cannot decrypt |
@@ -98,8 +98,8 @@ flowchart LR
 
 ## How It Works
 
-1. **Deploy agents** on available hosts - they connect as peers
-2. **Routes propagate** automatically through flood-based advertising
+1. **Deploy agents** on available hosts and configure peer connections
+2. **Routes propagate** through flood-based advertising once peers connect
 3. **Connect via SOCKS5** on any ingress agent
 4. **Traffic flows** through the mesh to the exit with the matching route
 5. **Exit agents** open real connections to destinations

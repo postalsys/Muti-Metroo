@@ -61,7 +61,7 @@ flowchart TB
 
 ### Muti Metroo: Decentralized Mesh Model
 
-Muti Metroo uses a **mesh topology** where agents connect to each other and routes propagate automatically:
+Muti Metroo uses a **mesh topology** where you configure peer connections between agents and routes propagate automatically:
 
 ```mermaid
 flowchart TB
@@ -88,8 +88,8 @@ flowchart TB
 ```
 
 **How it works:**
-1. Deploy agents anywhere (they form peer connections in any direction)
-2. Routes flood through the mesh automatically
+1. Deploy agents anywhere and configure peer connections (any topology)
+2. Routes flood through connected peers automatically
 3. Connect via SOCKS5 or use Mutiauk for transparent TUN-based routing
 4. Traffic flows through the mesh to the exit agent with the matching route
 

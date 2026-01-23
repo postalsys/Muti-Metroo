@@ -79,7 +79,7 @@ flowchart TB
 
 ### Muti Metroo: Mesh Network
 
-Muti Metroo creates a **mesh network** where agents discover routes automatically:
+Muti Metroo creates a **mesh network** where routes propagate automatically through connected peers:
 
 ```mermaid
 flowchart TB
@@ -106,8 +106,8 @@ flowchart TB
 ```
 
 **How it works:**
-1. Deploy agents on available hosts (any topology)
-2. Agents connect as peers (bidirectional connections)
+1. Deploy agents on available hosts
+2. Configure peer connections between agents (any topology)
 3. Exit agents advertise routes via flood-based routing
 4. Traffic automatically finds path to destination
 5. No manual chain configuration needed
@@ -235,7 +235,7 @@ exit:
     - cidr: "10.0.0.0/8"
     - cidr: "192.168.0.0/16"
 
-# Agent A (Ingress) - routes discovered automatically
+# Agent A (Ingress) - routes received via flood-based routing
 socks5:
   enabled: true
   address: "127.0.0.1:1080"

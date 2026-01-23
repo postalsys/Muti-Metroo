@@ -64,7 +64,7 @@ flowchart LR
 
 ### Muti Metroo: Mesh Network
 
-Muti Metroo creates a **mesh network** where agents connect in any topology and routes propagate automatically:
+Muti Metroo creates a **mesh network** where you configure peer connections in any topology and routes propagate automatically:
 
 ```mermaid
 flowchart LR
@@ -92,8 +92,8 @@ flowchart LR
 
 **How it works:**
 1. Deploy agents on available hosts (no SSH server required)
-2. Agents form peer connections (can be in any direction)
-3. Routes flood through the mesh automatically
+2. Configure peer connections between agents (any topology)
+3. Routes flood through connected peers automatically
 4. Traffic finds its path to the exit agent
 
 ## Multi-hop Configuration

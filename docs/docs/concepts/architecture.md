@@ -9,12 +9,12 @@ sidebar_position: 1
 
 # Architecture Overview
 
-Muti Metroo lets you deploy tunneling agents anywhere - cloud servers, office networks, laptops behind firewalls - and they automatically discover routes to reach each other. No central coordinator, no complex configuration, no root privileges required.
+Muti Metroo lets you deploy tunneling agents anywhere - cloud servers, office networks, laptops behind firewalls - and connect them in any topology you choose. Once connected, routes propagate automatically through the mesh. No central coordinator, no root privileges required.
 
 **What the architecture enables:**
 - Deploy agents on any machine without admin access
 - Mix different transports (QUIC, HTTP/2, WebSocket) in the same mesh
-- Agents find each other and propagate routes automatically
+- Routes propagate automatically once peers are connected
 - Connections recover from failures without intervention
 
 ## Design Principles
