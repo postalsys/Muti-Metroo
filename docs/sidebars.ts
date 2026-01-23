@@ -128,6 +128,7 @@ const sidebars: SidebarsConfig = {
         'cli/file-transfer',
         'cli/service',
         'cli/management-key',
+        'cli/signing-key',
       ],
     },
     {

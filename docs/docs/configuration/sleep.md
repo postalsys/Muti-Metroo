@@ -195,3 +195,15 @@ State values:
 - Only enable in trusted meshes or with proper access controls
 - State file is unencrypted - protect the data directory
 - Consider poll timing when assessing traffic analysis risk
+
+### Command Signing
+
+For untrusted environments, configure signing keys to authenticate sleep/wake commands. This prevents unauthorized parties from hibernating your mesh.
+
+```yaml
+management:
+  signing_public_key: "a1b2c3d4..."   # ALL agents - verify signatures
+  signing_private_key: "e5f6a7b8..."  # OPERATORS ONLY - sign commands
+```
+
+See [Management Configuration](/configuration/management) for details on signing key setup, or [signing-key CLI](/cli/signing-key) for key generation.

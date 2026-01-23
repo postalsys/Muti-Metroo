@@ -47,6 +47,7 @@ All peer connections use TLS 1.3:
 | SOCKS5 | Username/password | Client authentication |
 | Shell | bcrypt password | Command authorization |
 | File Transfer | bcrypt password | Transfer authorization |
+| Sleep/Wake | Ed25519 signatures | Command authentication |
 
 ### Authorization
 
@@ -65,6 +66,7 @@ All peer connections use TLS 1.3:
 | Unauthorized peer tries to connect | mTLS rejects unknown certificates |
 | Unauthorized client tries to use proxy | SOCKS5 authentication blocks them |
 | Someone tries to run unauthorized commands | Shell whitelist blocks unapproved commands |
+| Someone tries to hibernate your mesh | Signing keys verify sleep/wake commands |
 
 ## What You Need to Protect Yourself
 

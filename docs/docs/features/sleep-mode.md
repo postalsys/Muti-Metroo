@@ -147,12 +147,46 @@ Sleep mode includes several features to reduce traffic analysis risk:
 
 For additional traffic pattern guidance, see [Traffic Pattern Analysis](/security/traffic-patterns).
 
+## Command Authentication
+
+By default, any party that can reach an agent's HTTP API can trigger sleep/wake commands. For untrusted environments, configure signing keys to authenticate commands.
+
+### Generate Signing Keys
+
+```bash
+muti-metroo signing-key generate
+```
+
+### Configure Agents
+
+All agents need the public key to verify signatures:
+
+```yaml
+management:
+  signing_public_key: "a1b2c3d4..."
+```
+
+Operator nodes also need the private key to sign commands:
+
+```yaml
+management:
+  signing_public_key: "a1b2c3d4..."
+  signing_private_key: "e5f6a7b8..."
+```
+
+When signing keys are configured:
+- Commands are automatically signed when issued via CLI or HTTP API
+- Agents verify signatures before processing commands
+- Unsigned or invalid commands are rejected
+
+See [signing-key CLI](/cli/signing-key) for details.
+
 ## Limitations
 
 - **Command propagation**: Sleep/wake commands only reach connected agents
 - **Isolated agents**: Agents not connected when sleep is triggered remain awake
 - **Poll timing**: Sleeping agents may miss real-time events between polls
-- **Trusted mesh**: Sleep/wake commands flood to all agents - use in trusted environments
+- **Unsigned commands**: Without signing keys, any party with API access can trigger sleep/wake
 
 ## HTTP API
 
@@ -195,3 +229,12 @@ Use cron or systemd timers to schedule sleep/wake cycles:
 - Confirm `persist_state: true` in configuration
 - Check that the data directory is writable
 - Verify the agent has clean shutdown (state saved on stop)
+
+### Sleep/wake commands rejected
+
+If commands are being rejected due to signature verification:
+
+- Verify all agents have the same `signing_public_key`
+- Verify the operator node has the matching `signing_private_key`
+- Check that agent clocks are synchronized (within 5 minutes)
+- Review agent logs for "signature verification failed" messages

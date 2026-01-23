@@ -58,6 +58,10 @@ When triggered:
 3. SOCKS5 and listener services stop
 4. The agent enters sleep mode with periodic polling
 
+### Command Signing
+
+If `signing_private_key` is configured, the sleep command is automatically signed with Ed25519. Agents with `signing_public_key` configured will verify the signature before processing.
+
 ---
 
 ## POST /wake
@@ -103,6 +107,10 @@ When triggered:
 2. SOCKS5 and listener services restart
 3. A WAKE_COMMAND is flooded to all connected peers
 4. Normal operation resumes
+
+### Command Signing
+
+If `signing_private_key` is configured, the wake command is automatically signed with Ed25519. Agents with `signing_public_key` configured will verify the signature before processing.
 
 ---
 
@@ -159,6 +167,10 @@ All endpoints may return:
 | 405 | Method not allowed |
 | 503 | Sleep mode not enabled in configuration |
 | 500 | Internal error (see error message) |
+
+:::note Signature Verification
+Commands with invalid signatures are rejected by receiving agents (not the API endpoint). The API returns success when the command is sent, but agents with `signing_public_key` configured will drop commands that fail signature verification. Check agent logs for "signature verification failed" messages.
+:::
 
 ---
 

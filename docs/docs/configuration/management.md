@@ -86,10 +86,19 @@ These nodes:
 
 ## Options
 
+### Topology Encryption Keys
+
 | Option | Type | Description |
 |--------|------|-------------|
 | `public_key` | string | 64-character hex X25519 public key |
 | `private_key` | string | 64-character hex X25519 private key |
+
+### Command Signing Keys
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `signing_public_key` | string | 64-character hex Ed25519 public key (32 bytes) |
+| `signing_private_key` | string | 128-character hex Ed25519 private key (64 bytes) |
 
 ## Key Distribution
 
@@ -211,6 +220,75 @@ http:
 # No management section = no topology encryption
 # All agents can see full mesh topology
 ```
+
+## Command Signing Keys
+
+Signing keys authenticate sleep/wake commands using Ed25519 signatures. This prevents unauthorized parties from putting your mesh to sleep.
+
+:::info Separate from Topology Encryption
+Signing keys (Ed25519) are independent from topology encryption keys (X25519). You can use one, both, or neither depending on your security requirements.
+:::
+
+### Generate Signing Keys
+
+```bash
+# Generate new Ed25519 keypair
+muti-metroo signing-key generate
+
+# Output:
+# Signing Private Key: e5f6a7b8c9d012345678901234567890...
+# Signing Public Key:  a1b2c3d4e5f6789012345678901234567890...
+```
+
+### All Agents (Verify Only)
+
+All agents need the public key to verify incoming commands:
+
+```yaml
+management:
+  signing_public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+```
+
+These agents:
+- Verify signatures on incoming sleep/wake commands
+- Reject unsigned or incorrectly signed commands
+- Cannot issue sleep/wake commands themselves
+
+### Operator Nodes (Can Sign)
+
+Operator nodes need both keys to issue signed commands:
+
+```yaml
+management:
+  signing_public_key: "a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd"
+  signing_private_key: "e5f6a7b8c9d012345678901234567890123456789012345678901234567890efe5f6a7b8c9d012345678901234567890123456789012345678901234567890ef"
+```
+
+These nodes:
+- Sign outgoing sleep/wake commands
+- Can trigger mesh-wide sleep or wake
+- Should be limited to authorized operators
+
+### Combined Configuration
+
+You can use both topology encryption and command signing:
+
+```yaml
+management:
+  # Topology encryption (X25519)
+  public_key: "a1b2c3d4..."
+  private_key: "e5f6a7b8..."  # Only on management nodes
+
+  # Command signing (Ed25519)
+  signing_public_key: "1234abcd..."
+  signing_private_key: "5678efgh..."  # Only on operators
+```
+
+### Backward Compatibility
+
+:::warning
+Agents without `signing_public_key` configured will accept ALL sleep/wake commands, signed or unsigned. For full protection, deploy the public key to every agent in your mesh.
+:::
 
 ## Security Considerations
 

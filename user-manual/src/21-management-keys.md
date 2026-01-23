@@ -200,3 +200,73 @@ export MGMT_PUBKEY="a1b2c3d4..."
 export MGMT_PRIVKEY="e5f6a7b8..."
 muti-metroo run -c config.yaml
 ```
+
+## Command Signing Keys
+
+Separate from topology encryption, signing keys authenticate sleep/wake commands using Ed25519 signatures. This prevents unauthorized parties from hibernating your mesh.
+
+### Purpose
+
+Without signing keys, anyone who can reach an agent's HTTP API can trigger sleep/wake commands. With signing keys configured, only operators with the private key can issue valid commands.
+
+### Key Generation
+
+```bash
+muti-metroo signing-key generate
+```
+
+Output:
+
+```
+Signing Keypair Generated
+=========================
+Public Key:  a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
+Private Key: e5f6a7b8c9d012345678901234567890...e5f6a7b8c9d012345678901234567890...
+
+IMPORTANT: Store the private key securely!
+```
+
+### Deployment Configuration
+
+**All Agents** (verify signatures):
+
+```yaml
+management:
+  signing_public_key: "a1b2c3d4..."
+```
+
+**Operators Only** (sign commands):
+
+```yaml
+management:
+  signing_public_key: "a1b2c3d4..."
+  signing_private_key: "e5f6a7b8..."
+```
+
+### Key Differences
+
+| Feature | Management Keys | Signing Keys |
+|---------|----------------|--------------|
+| Algorithm | X25519 (encryption) | Ed25519 (signatures) |
+| Purpose | Encrypt topology | Authenticate commands |
+| Private key size | 64 hex chars | 128 hex chars |
+| Config keys | `public_key`, `private_key` | `signing_public_key`, `signing_private_key` |
+
+### Combined Usage
+
+You can use both topology encryption and command signing:
+
+```yaml
+management:
+  # Topology encryption (X25519)
+  public_key: "a1b2c3d4..."
+  private_key: "e5f6a7b8..."  # Only on management nodes
+
+  # Command signing (Ed25519)
+  signing_public_key: "1234abcd..."
+  signing_private_key: "5678efgh..."  # Only on operators
+```
+
+### Backward Compatibility
+
+Agents without `signing_public_key` configured accept all sleep/wake commands, signed or unsigned. For full protection, deploy the public key to every agent in your mesh.

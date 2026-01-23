@@ -86,7 +86,52 @@ if [ $DAYS_LEFT -lt 14 ]; then
 fi
 ```
 
-## System Hardening
+## Signing Key Management
+
+If you use sleep mode in untrusted environments, protect your signing keys with the same care as CA private keys.
+
+### Key Distribution
+
+```
+Operator Station      Remote Agents
+(has private key)     (public key only)
+      |                    |
+      | Signed commands    |
+      |------------------->|
+      |                    | (can verify)
+```
+
+- **Public key**: Distribute to ALL agents
+- **Private key**: Keep ONLY on operator machines
+
+### Generate Keys Securely
+
+```bash
+# Generate on secure machine
+muti-metroo signing-key generate > signing-keys.txt
+
+# Extract and store private key securely
+# Delete signing-keys.txt after distribution
+```
+
+### Key Rotation
+
+To rotate signing keys:
+
+1. Generate new keypair
+2. Update public key on all agents (deploy via config management)
+3. Update private key on operator nodes
+4. Restart agents to pick up new keys
+5. Securely delete old private key
+
+### What to Protect
+
+| Key | Protection Level | Storage Recommendations |
+|-----|------------------|------------------------|
+| Signing private key | High | Encrypted vault, password manager |
+| Signing public key | Low | Can be in config files, version control |
+
+
 
 ### Run as Non-Root
 
@@ -216,6 +261,7 @@ journalctl -u muti-metroo --since "30 days ago" > /archive/muti-metroo-$(date +%
 - [ ] File transfer disabled or path-restricted
 - [ ] Exit routes minimized to required networks
 - [ ] Services bound to appropriate interfaces
+- [ ] Signing keys configured (if using sleep mode in untrusted environments)
 
 ### Post-Deployment
 

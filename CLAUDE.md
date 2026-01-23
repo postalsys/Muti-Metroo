@@ -206,6 +206,10 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo management-key generate      # Generate new keypair
 ./build/muti-metroo management-key public        # Derive public key from private key
 
+# Signing Key Generation (for sleep/wake command authentication)
+./build/muti-metroo signing-key generate         # Generate Ed25519 keypair
+./build/muti-metroo signing-key public           # Derive public key from private key
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -325,7 +329,7 @@ Example config in `configs/example.yaml`. Key sections:
 - `shell`: Remote shell access (disabled by default)
 - `file_transfer`: File upload/download (disabled by default)
 - `icmp`: ICMP echo (ping) settings - allowed CIDRs, session limits
-- `management`: Management key encryption for topology compartmentalization
+- `management`: Management key encryption for topology compartmentalization, signing keys for sleep/wake authentication
 - `sleep`: Sleep mode settings (enabled, poll_interval, poll_duration, auto_sleep_on_start)
 
 ### Protocol Identifiers
@@ -496,11 +500,11 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 
 ### Sleep Mode
 
-| Endpoint        | Method | Description                        |
-| --------------- | ------ | ---------------------------------- |
-| `/sleep`        | POST   | Trigger mesh-wide sleep            |
-| `/wake`         | POST   | Trigger mesh-wide wake             |
-| `/sleep/status` | GET    | Get current sleep status           |
+| Endpoint        | Method | Description                                                    |
+| --------------- | ------ | -------------------------------------------------------------- |
+| `/sleep`        | POST   | Trigger mesh-wide sleep (signed if signing_private_key set)    |
+| `/wake`         | POST   | Trigger mesh-wide wake (signed if signing_private_key set)     |
+| `/sleep/status` | GET    | Get current sleep status                                       |
 
 ### Debugging (pprof)
 

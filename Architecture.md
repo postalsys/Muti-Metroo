@@ -1462,6 +1462,8 @@ Flooded through the mesh to instruct all agents to hibernate.
 ├─────────────────────────────────────────────────────────────────┤
 │ Timestamp     │ 8 bytes  │ Unix timestamp when issued          │
 ├─────────────────────────────────────────────────────────────────┤
+│ Signature     │ 64 bytes │ Ed25519 signature (zeros if unsigned)│
+├─────────────────────────────────────────────────────────────────┤
 │ SeenByCount   │ 1 byte   │ Number of agents in SeenBy list     │
 ├─────────────────────────────────────────────────────────────────┤
 │ SeenBy[]      │ Variable │ Agent IDs for loop prevention       │
@@ -1596,9 +1598,72 @@ This allows agents to resume sleep mode after restart without losing context.
 
 ### Security Considerations
 
-- Sleep/wake commands flood to all mesh agents - use in trusted meshes
+- Sleep/wake commands flood to all mesh agents - use signed commands in untrusted meshes
 - Poll timing jitter helps avoid traffic analysis detection
 - Persistent state is stored unencrypted - protect the data directory
+- Signing private keys should only be distributed to authorized operators
+
+### Command Signing and Verification
+
+Sleep and wake commands support Ed25519 cryptographic signatures to prevent unauthorized mesh hibernation. This is separate from the X25519 keys used for stream encryption.
+
+#### Signable Bytes Format
+
+Commands are signed over a fixed 32-byte payload:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       SignableBytes (32 bytes)                  │
+├─────────────────────────────────────────────────────────────────┤
+│ OriginAgent   │ 16 bytes │ Agent ID that originated the command│
+├─────────────────────────────────────────────────────────────────┤
+│ CommandID     │ 8 bytes  │ Unique command identifier           │
+├─────────────────────────────────────────────────────────────────┤
+│ Timestamp     │ 8 bytes  │ Unix timestamp (nanoseconds)        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Signature Generation
+
+When the operator has a signing private key configured:
+
+1. Construct SignableBytes from command fields (32 bytes)
+2. Generate Ed25519 signature using the 64-byte private key
+3. Include 64-byte signature in the frame
+
+#### Signature Verification
+
+When an agent receives a sleep/wake command:
+
+1. Check if `signing_public_key` is configured
+2. If not configured: accept all commands (backward compatible)
+3. If configured:
+   - Extract SignableBytes from the command (32 bytes)
+   - Verify Ed25519 signature using the 32-byte public key
+   - Reject commands with invalid signatures (logged at warn level)
+
+#### Replay Protection
+
+Commands include a Unix timestamp (nanosecond precision). Agents verify timestamps fall within a 5-minute window of the current time. Commands with timestamps outside this window are rejected to prevent replay attacks.
+
+#### Key Configuration
+
+```yaml
+management:
+  # Signing keys (for sleep/wake command authentication)
+  signing_public_key: "..."   # 64 hex chars (32 bytes) - ALL agents
+  signing_private_key: "..."  # 128 hex chars (64 bytes) - OPERATORS ONLY
+```
+
+#### CLI Commands
+
+```bash
+# Generate Ed25519 signing keypair
+muti-metroo signing-key generate
+
+# Derive public key from private key
+muti-metroo signing-key public
+```
 
 ### Deterministic Listening Windows
 

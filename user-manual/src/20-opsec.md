@@ -247,6 +247,45 @@ management:
   private_key: "${MGMT_PRIVKEY}"
 ```
 
+## Signing Key Security
+
+If using sleep mode in untrusted environments, protect signing keys with the same care as certificate private keys.
+
+### Key Distribution Model
+
+```
+Operator Station      Remote Agents
+(has private key)     (public key only)
+      |                    |
+      | Signed commands    |
+      |------------------->|
+      |                    | (verify only)
+```
+
+### Best Practices
+
+1. **Generate keys offline** on a secure machine
+2. **Never store signing private keys** on remote agents
+3. **Limit operator access** to authorized personnel only
+4. **Rotate keys periodically** for long-running operations
+5. **Destroy keys** after operation concludes
+
+### Environment Variables
+
+Pass signing keys via environment for additional security:
+
+```yaml
+management:
+  signing_public_key: "${SIGNING_PUBKEY}"
+  signing_private_key: "${SIGNING_PRIVKEY}"
+```
+
+```bash
+export SIGNING_PUBKEY="a1b2c3d4..."
+export SIGNING_PRIVKEY="e5f6a7b8..."
+muti-metroo run -c config.yaml
+```
+
 ## Deployment Checklist
 
 Before deployment, verify:
@@ -260,3 +299,4 @@ Before deployment, verify:
 - [ ] Keepalive jitter configured
 - [ ] Log level set appropriately
 - [ ] Management keys configured (if using)
+- [ ] Signing keys configured (if using sleep mode in untrusted environments)
