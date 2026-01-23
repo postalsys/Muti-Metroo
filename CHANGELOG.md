@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.15.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.14.0...muti-metroo-v2.15.0) (2026-01-23)
+
+
+### Features
+
+* **sleep:** add Ed25519 signature verification for sleep/wake commands ([6bee8ed](https://github.com/postalsys/Muti-Metroo/commit/6bee8ed8545d4888952bf9734028c53a67b25e7e))
+
+
+### Bug Fixes
+
+* **deps:** update quic-go and x/crypto to fix security vulnerabilities ([f6db21d](https://github.com/postalsys/Muti-Metroo/commit/f6db21d411ea133c05dec440fc4e8205bf3dfb87))
+
 ## [2.14.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.13.0...muti-metroo-v2.14.0) (2026-01-23)
 
 
