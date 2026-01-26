@@ -782,9 +782,9 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	udpRelayMu.RLock()
 	relayUp := udpRelayByUpstream[frame.StreamID]
 	relayDown := udpRelayByDownstream[frame.StreamID]
-	var upDownstreamID, upUpstreamID uint64
+	var upDownstreamID uint64
 	var upDownstreamPeer, upUpstreamPeer identity.AgentID
-	var downUpstreamID, downDownstreamID uint64
+	var downUpstreamID uint64
 	var downUpstreamPeer, downDownstreamPeer identity.AgentID
 	if relayUp != nil {
 		upDownstreamID = relayUp.DownstreamID
@@ -796,8 +796,6 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 		downUpstreamPeer = relayDown.UpstreamPeer
 		downDownstreamPeer = relayDown.DownstreamPeer
 	}
-	_ = upUpstreamID       // unused but kept for symmetry
-	_ = downDownstreamID   // unused but kept for symmetry
 	udpRelayMu.RUnlock()
 
 	if relayUp != nil && peerID == upUpstreamPeer {

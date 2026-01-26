@@ -1657,9 +1657,9 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 	a.relayMu.RLock()
 	upRelay := a.relayByUpstream[frame.StreamID]
 	downRelay := a.relayByDownstream[frame.StreamID]
-	var upDownstreamID, upUpstreamID uint64
+	var upDownstreamID uint64
 	var upDownstreamPeer, upUpstreamPeer identity.AgentID
-	var downDownstreamID, downUpstreamID uint64
+	var downUpstreamID uint64
 	var downDownstreamPeer, downUpstreamPeer identity.AgentID
 	if upRelay != nil {
 		upDownstreamID = upRelay.DownstreamID
@@ -1671,8 +1671,6 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 		downUpstreamPeer = downRelay.UpstreamPeer
 		downDownstreamPeer = downRelay.DownstreamPeer
 	}
-	_ = upUpstreamID       // unused but kept for symmetry
-	_ = downDownstreamID   // unused but kept for symmetry
 	a.relayMu.RUnlock()
 
 	// Check if data is from upstream (matches upRelay's upstream peer)

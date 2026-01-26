@@ -235,11 +235,9 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 	// Check if this is for ingress (SOCKS5 client initiated)
 	icmpIngressMu.RLock()
 	ingress := icmpIngressByStream[frame.StreamID]
-	if ingress == nil {
-		icmpIngressMu.RUnlock()
-	} else {
-		icmpIngressMu.RUnlock()
+	icmpIngressMu.RUnlock()
 
+	if ingress != nil {
 		ack, err := protocol.DecodeICMPOpenAck(frame.Payload)
 		if err != nil {
 			ingress.closePendingOpen(err)
@@ -265,11 +263,11 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 	// Check if this is for WebSocket session
 	icmpWSSessionMu.RLock()
 	wsSession := icmpWSSessionByStream[frame.StreamID]
+	icmpWSSessionMu.RUnlock()
+
 	if wsSession == nil {
-		icmpWSSessionMu.RUnlock()
 		return
 	}
-	icmpWSSessionMu.RUnlock()
 
 	ack, err := protocol.DecodeICMPOpenAck(frame.Payload)
 	if err != nil {
@@ -472,9 +470,9 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 	icmpRelayMu.RLock()
 	relayUp := icmpRelayByUpstream[frame.StreamID]
 	relayDown := icmpRelayByDownstream[frame.StreamID]
-	var upDownstreamID, upUpstreamID uint64
+	var upDownstreamID uint64
 	var upDownstreamPeer, upUpstreamPeer identity.AgentID
-	var downUpstreamID, downDownstreamID uint64
+	var downUpstreamID uint64
 	var downUpstreamPeer, downDownstreamPeer identity.AgentID
 	if relayUp != nil {
 		upDownstreamID = relayUp.DownstreamID
@@ -486,8 +484,6 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 		downUpstreamPeer = relayDown.UpstreamPeer
 		downDownstreamPeer = relayDown.DownstreamPeer
 	}
-	_ = upUpstreamID       // unused but kept for symmetry
-	_ = downDownstreamID   // unused but kept for symmetry
 	icmpRelayMu.RUnlock()
 
 	if relayUp != nil && peerID == upUpstreamPeer {
