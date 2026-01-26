@@ -1569,19 +1569,27 @@ func addressToString(addrType uint8, addr []byte) string {
 // handleStreamOpenAck processes a STREAM_OPEN_ACK.
 func (a *Agent) handleStreamOpenAck(peerID identity.AgentID, frame *protocol.Frame) {
 	// Check if this is a relay stream response - ACK comes from downstream
+	// Copy relay info under lock to avoid race with cleanup
 	a.relayMu.RLock()
 	relay := a.relayByDownstream[frame.StreamID]
+	var upstreamID uint64
+	var upstreamPeer, downstreamPeer identity.AgentID
+	if relay != nil {
+		upstreamID = relay.UpstreamID
+		upstreamPeer = relay.UpstreamPeer
+		downstreamPeer = relay.DownstreamPeer
+	}
 	a.relayMu.RUnlock()
 
 	// Verify ACK is from the expected downstream peer
-	if relay != nil && peerID == relay.DownstreamPeer {
+	if relay != nil && peerID == downstreamPeer {
 		// Forward ACK to upstream with upstream stream ID
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamOpenAck,
-			StreamID: relay.UpstreamID,
+			StreamID: upstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(upstreamPeer, fwdFrame)
 		return
 	}
 
@@ -1645,34 +1653,51 @@ func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame)
 	// Check if this is a relay stream - could be from upstream or downstream
 	// We must check both the stream ID AND the peer ID to determine direction,
 	// because upstream and downstream may use the same stream ID number
+	// Copy relay info under lock to avoid race with cleanup
 	a.relayMu.RLock()
 	upRelay := a.relayByUpstream[frame.StreamID]
 	downRelay := a.relayByDownstream[frame.StreamID]
+	var upDownstreamID, upUpstreamID uint64
+	var upDownstreamPeer, upUpstreamPeer identity.AgentID
+	var downDownstreamID, downUpstreamID uint64
+	var downDownstreamPeer, downUpstreamPeer identity.AgentID
+	if upRelay != nil {
+		upDownstreamID = upRelay.DownstreamID
+		upDownstreamPeer = upRelay.DownstreamPeer
+		upUpstreamPeer = upRelay.UpstreamPeer
+	}
+	if downRelay != nil {
+		downUpstreamID = downRelay.UpstreamID
+		downUpstreamPeer = downRelay.UpstreamPeer
+		downDownstreamPeer = downRelay.DownstreamPeer
+	}
+	_ = upUpstreamID       // unused but kept for symmetry
+	_ = downDownstreamID   // unused but kept for symmetry
 	a.relayMu.RUnlock()
 
 	// Check if data is from upstream (matches upRelay's upstream peer)
-	if upRelay != nil && peerID == upRelay.UpstreamPeer {
+	if upRelay != nil && peerID == upUpstreamPeer {
 		// Data from upstream, forward to downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamData,
-			StreamID: upRelay.DownstreamID,
+			StreamID: upDownstreamID,
 			Flags:    frame.Flags,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(upRelay.DownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
 		return
 	}
 
 	// Check if data is from downstream (matches downRelay's downstream peer)
-	if downRelay != nil && peerID == downRelay.DownstreamPeer {
+	if downRelay != nil && peerID == downDownstreamPeer {
 		// Data from downstream, forward to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamData,
-			StreamID: downRelay.UpstreamID,
+			StreamID: downUpstreamID,
 			Flags:    frame.Flags,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(downRelay.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
 		return
 	}
 
@@ -3467,23 +3492,26 @@ func (a *Agent) handleShellStreamOpen(peerID identity.AgentID, streamID uint64, 
 
 // handleFileTransferStreamData processes data for a file transfer stream.
 func (a *Agent) handleFileTransferStreamData(peerID identity.AgentID, streamID uint64, data []byte, flags uint8) {
+	// Hold lock while checking stream state to avoid race with cleanup
 	a.fileStreamsMu.RLock()
 	fts := a.fileStreams[streamID]
-	a.fileStreamsMu.RUnlock()
-
 	if fts == nil || fts.Closed {
+		a.fileStreamsMu.RUnlock()
 		return
 	}
+	// Get session key while still holding lock
+	sessionKey := fts.sessionKey
+	a.fileStreamsMu.RUnlock()
 
 	// Decrypt data using E2E session key
-	if fts.sessionKey == nil {
+	if sessionKey == nil {
 		a.logger.Error("no session key for file transfer stream",
 			logging.KeyStreamID, streamID)
 		a.closeFileTransferStream(streamID, protocol.ErrGeneralFailure, "no session key")
 		return
 	}
 
-	plaintext, err := fts.sessionKey.Decrypt(data)
+	plaintext, err := sessionKey.Decrypt(data)
 	if err != nil {
 		a.logger.Error("failed to decrypt file transfer data",
 			logging.KeyStreamID, streamID,
@@ -3786,32 +3814,39 @@ func (a *Agent) sendFileDownload(fts *fileTransferStream) {
 
 // closeFileTransferStream sends an error and cleans up.
 func (a *Agent) closeFileTransferStream(streamID uint64, errCode uint16, message string) {
-	a.fileStreamsMu.RLock()
+	// Use write lock and mark as closed atomically to avoid race
+	a.fileStreamsMu.Lock()
 	fts := a.fileStreams[streamID]
-	a.fileStreamsMu.RUnlock()
-
 	if fts == nil {
+		a.fileStreamsMu.Unlock()
 		return
 	}
+	// Mark as closed immediately to prevent concurrent handling
+	fts.Closed = true
+	// Copy fields we need after releasing lock
+	sessionKey := fts.sessionKey
+	peerID := fts.PeerID
+	requestID := fts.RequestID
+	a.fileStreamsMu.Unlock()
 
 	// If stream has a session key, it's already open and we need to send
 	// an encrypted error response instead of STREAM_OPEN_ERR
-	if fts.sessionKey != nil {
+	if sessionKey != nil {
 		// Send error as encrypted metadata response
 		errMeta := &filetransfer.TransferMetadata{
 			Error: message,
 		}
 		metaData, err := filetransfer.EncodeMetadata(errMeta)
 		if err == nil {
-			encryptedMeta, encErr := fts.sessionKey.Encrypt(metaData)
+			encryptedMeta, encErr := sessionKey.Encrypt(metaData)
 			if encErr == nil {
-				a.WriteStreamData(fts.PeerID, fts.StreamID, encryptedMeta, protocol.FlagFinWrite)
+				a.WriteStreamData(peerID, streamID, encryptedMeta, protocol.FlagFinWrite)
 			}
 		}
-		a.WriteStreamClose(fts.PeerID, streamID)
+		a.WriteStreamClose(peerID, streamID)
 	} else {
 		// Stream not yet open, use STREAM_OPEN_ERR
-		a.WriteStreamOpenErr(fts.PeerID, streamID, fts.RequestID, errCode, message)
+		a.WriteStreamOpenErr(peerID, streamID, requestID, errCode, message)
 	}
 	a.cleanupFileTransferStream(streamID)
 }
@@ -4918,17 +4953,18 @@ func (a *Agent) cleanupShellClientStream(streamID uint64) {
 
 // handleShellClientData handles incoming data for a shell client stream.
 func (a *Agent) handleShellClientData(streamID uint64, data []byte, flags uint8) bool {
+	// Hold lock while getting adapter and session key to avoid race with cleanup
 	a.shellClientMu.RLock()
 	adapter := a.shellClientStreams[streamID]
-	a.shellClientMu.RUnlock()
-
 	if adapter == nil {
+		a.shellClientMu.RUnlock()
 		a.logger.Debug("handleShellClientData: no adapter", logging.KeyStreamID, streamID)
 		return false
 	}
-
-	// Decrypt incoming data using E2E session key
+	// Get session key while still holding lock
 	sessionKey := adapter.GetSessionKey()
+	a.shellClientMu.RUnlock()
+
 	if sessionKey == nil {
 		a.logger.Error("handleShellClientData: no session key",
 			logging.KeyStreamID, streamID)
@@ -4960,9 +4996,13 @@ func (a *Agent) handleShellClientData(streamID uint64, data []byte, flags uint8)
 
 // handleShellClientClose handles close of a shell client stream.
 func (a *Agent) handleShellClientClose(streamID uint64) bool {
-	a.shellClientMu.RLock()
-	adapter := a.shellClientStreams[streamID]
-	a.shellClientMu.RUnlock()
+	// Use write lock and remove from map atomically to avoid race with other handlers
+	a.shellClientMu.Lock()
+	adapter, exists := a.shellClientStreams[streamID]
+	if exists {
+		delete(a.shellClientStreams, streamID)
+	}
+	a.shellClientMu.Unlock()
 
 	if adapter == nil {
 		a.logger.Debug("handleShellClientClose: no adapter found", logging.KeyStreamID, streamID)
@@ -4970,7 +5010,7 @@ func (a *Agent) handleShellClientClose(streamID uint64) bool {
 	}
 
 	a.logger.Debug("handleShellClientClose: closing adapter", logging.KeyStreamID, streamID)
-	// adapter.Close() will call cleanupShellClientStream via closeFunc
+	// Close adapter (closeFunc will be a no-op since we already removed from map)
 	adapter.Close()
 	return true
 }

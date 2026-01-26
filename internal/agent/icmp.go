@@ -205,32 +205,41 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 		logging.KeyStreamID, frame.StreamID,
 		"from_peer", peerID.ShortString())
 
-	// Check if this is a relay response
+	// Check if this is a relay response - copy fields under lock
 	icmpRelayMu.RLock()
 	relay := icmpRelayByDownstream[frame.StreamID]
+	var relayUpstreamID uint64
+	var relayUpstreamPeer, relayDownstreamPeer identity.AgentID
+	if relay != nil {
+		relayUpstreamID = relay.UpstreamID
+		relayUpstreamPeer = relay.UpstreamPeer
+		relayDownstreamPeer = relay.DownstreamPeer
+	}
 	icmpRelayMu.RUnlock()
 
-	if relay != nil && peerID == relay.DownstreamPeer {
+	if relay != nil && peerID == relayDownstreamPeer {
 		a.logger.Debug("relaying ICMP_OPEN_ACK upstream",
-			logging.KeyStreamID, relay.UpstreamID,
-			"upstream_peer", relay.UpstreamPeer.ShortString())
+			logging.KeyStreamID, relayUpstreamID,
+			"upstream_peer", relayUpstreamPeer.ShortString())
 
 		// Forward ACK to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPOpenAck,
-			StreamID: relay.UpstreamID,
+			StreamID: relayUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(relayUpstreamPeer, fwdFrame)
 		return
 	}
 
 	// Check if this is for ingress (SOCKS5 client initiated)
 	icmpIngressMu.RLock()
 	ingress := icmpIngressByStream[frame.StreamID]
-	icmpIngressMu.RUnlock()
+	if ingress == nil {
+		icmpIngressMu.RUnlock()
+	} else {
+		icmpIngressMu.RUnlock()
 
-	if ingress != nil {
 		ack, err := protocol.DecodeICMPOpenAck(frame.Payload)
 		if err != nil {
 			ingress.closePendingOpen(err)
@@ -256,11 +265,11 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 	// Check if this is for WebSocket session
 	icmpWSSessionMu.RLock()
 	wsSession := icmpWSSessionByStream[frame.StreamID]
-	icmpWSSessionMu.RUnlock()
-
 	if wsSession == nil {
+		icmpWSSessionMu.RUnlock()
 		return
 	}
+	icmpWSSessionMu.RUnlock()
 
 	ack, err := protocol.DecodeICMPOpenAck(frame.Payload)
 	if err != nil {
@@ -285,25 +294,33 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 
 // handleICMPOpenErr processes an ICMP_OPEN_ERR frame.
 func (a *Agent) handleICMPOpenErr(peerID identity.AgentID, frame *protocol.Frame) {
-	// Check if this is a relay response
-	icmpRelayMu.RLock()
+	// Check if this is a relay response - use write lock to check and delete atomically
+	icmpRelayMu.Lock()
 	relay := icmpRelayByDownstream[frame.StreamID]
-	icmpRelayMu.RUnlock()
+	var relayUpstreamID uint64
+	var relayUpstreamPeer, relayDownstreamPeer identity.AgentID
+	var isRelay bool
+	if relay != nil {
+		relayUpstreamID = relay.UpstreamID
+		relayUpstreamPeer = relay.UpstreamPeer
+		relayDownstreamPeer = relay.DownstreamPeer
+		if peerID == relayDownstreamPeer {
+			isRelay = true
+			// Clean up relay entry while holding lock
+			delete(icmpRelayByUpstream, relayUpstreamID)
+			delete(icmpRelayByDownstream, frame.StreamID)
+		}
+	}
+	icmpRelayMu.Unlock()
 
-	if relay != nil && peerID == relay.DownstreamPeer {
+	if isRelay {
 		// Forward error to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPOpenErr,
-			StreamID: relay.UpstreamID,
+			StreamID: relayUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
-
-		// Clean up relay entry
-		icmpRelayMu.Lock()
-		delete(icmpRelayByUpstream, relay.UpstreamID)
-		delete(icmpRelayByDownstream, frame.StreamID)
-		icmpRelayMu.Unlock()
+		a.peerMgr.SendToPeer(relayUpstreamPeer, fwdFrame)
 		return
 	}
 
@@ -361,6 +378,7 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 	}
 
 	// Check if this is for ingress (reply coming back to SOCKS5 client)
+	// Hold lock while getting ingress and extracting fields needed for processing
 	icmpIngressMu.RLock()
 	ingress := icmpIngressByStream[frame.StreamID]
 	icmpIngressMu.RUnlock()
@@ -376,7 +394,7 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 			return
 		}
 
-		// Decrypt if we have a session key
+		// Decrypt if we have a session key - get fields under fine-grained lock
 		ingress.mu.RLock()
 		sessionKey := ingress.SessionKey
 		socks5Assoc := ingress.SOCKS5Assoc
@@ -415,7 +433,7 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 			return
 		}
 
-		// Decrypt if we have a session key
+		// Decrypt if we have a session key - get fields under fine-grained lock
 		wsSession.mu.RLock()
 		sessionKey := wsSession.SessionKey
 		closed := wsSession.closed
@@ -450,31 +468,47 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 		return
 	}
 
-	// Check if this is a relay
+	// Check if this is a relay - copy fields under lock
 	icmpRelayMu.RLock()
 	relayUp := icmpRelayByUpstream[frame.StreamID]
 	relayDown := icmpRelayByDownstream[frame.StreamID]
+	var upDownstreamID, upUpstreamID uint64
+	var upDownstreamPeer, upUpstreamPeer identity.AgentID
+	var downUpstreamID, downDownstreamID uint64
+	var downUpstreamPeer, downDownstreamPeer identity.AgentID
+	if relayUp != nil {
+		upDownstreamID = relayUp.DownstreamID
+		upDownstreamPeer = relayUp.DownstreamPeer
+		upUpstreamPeer = relayUp.UpstreamPeer
+	}
+	if relayDown != nil {
+		downUpstreamID = relayDown.UpstreamID
+		downUpstreamPeer = relayDown.UpstreamPeer
+		downDownstreamPeer = relayDown.DownstreamPeer
+	}
+	_ = upUpstreamID       // unused but kept for symmetry
+	_ = downDownstreamID   // unused but kept for symmetry
 	icmpRelayMu.RUnlock()
 
-	if relayUp != nil && peerID == relayUp.UpstreamPeer {
+	if relayUp != nil && peerID == upUpstreamPeer {
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPEcho,
-			StreamID: relayUp.DownstreamID,
+			StreamID: upDownstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayUp.DownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
 		return
 	}
 
-	if relayDown != nil && peerID == relayDown.DownstreamPeer {
+	if relayDown != nil && peerID == downDownstreamPeer {
 		// Forward upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPEcho,
-			StreamID: relayDown.UpstreamID,
+			StreamID: downUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayDown.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
 	}
 }
 
@@ -508,39 +542,50 @@ func (a *Agent) handleICMPClose(peerID identity.AgentID, frame *protocol.Frame) 
 		wsSession.close()
 	}
 
-	// Check if this is a relay
+	// Check if this is a relay - copy fields and delete atomically under lock
 	icmpRelayMu.Lock()
 	relayUp := icmpRelayByUpstream[frame.StreamID]
 	relayDown := icmpRelayByDownstream[frame.StreamID]
 
+	var upDownstreamID uint64
+	var upDownstreamPeer, upUpstreamPeer identity.AgentID
+	var downUpstreamID uint64
+	var downUpstreamPeer, downDownstreamPeer identity.AgentID
+
 	if relayUp != nil {
+		upDownstreamID = relayUp.DownstreamID
+		upDownstreamPeer = relayUp.DownstreamPeer
+		upUpstreamPeer = relayUp.UpstreamPeer
 		delete(icmpRelayByUpstream, frame.StreamID)
-		delete(icmpRelayByDownstream, relayUp.DownstreamID)
+		delete(icmpRelayByDownstream, upDownstreamID)
 	}
 	if relayDown != nil {
+		downUpstreamID = relayDown.UpstreamID
+		downUpstreamPeer = relayDown.UpstreamPeer
+		downDownstreamPeer = relayDown.DownstreamPeer
 		delete(icmpRelayByDownstream, frame.StreamID)
-		delete(icmpRelayByUpstream, relayDown.UpstreamID)
+		delete(icmpRelayByUpstream, downUpstreamID)
 	}
 	icmpRelayMu.Unlock()
 
-	if relayUp != nil && peerID == relayUp.UpstreamPeer {
+	if relayUp != nil && peerID == upUpstreamPeer {
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPClose,
-			StreamID: relayUp.DownstreamID,
+			StreamID: upDownstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayUp.DownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
 	}
 
-	if relayDown != nil && peerID == relayDown.DownstreamPeer {
+	if relayDown != nil && peerID == downDownstreamPeer {
 		// Forward upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPClose,
-			StreamID: relayDown.UpstreamID,
+			StreamID: downUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayDown.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
 	}
 }
 
@@ -717,15 +762,16 @@ func (a *Agent) SetSOCKS5ICMPAssociation(streamID uint64, socks5Assoc *socks5.IC
 // RelayICMPEcho implements socks5.ICMPHandler.
 // Encrypts and sends an ICMP echo request through the mesh.
 func (a *Agent) RelayICMPEcho(streamID uint64, identifier, sequence uint16, payload []byte) error {
+	// Get association and extract fields under lock
 	icmpIngressMu.RLock()
 	assoc := icmpIngressByStream[streamID]
-	icmpIngressMu.RUnlock()
-
 	if assoc == nil {
+		icmpIngressMu.RUnlock()
 		return ErrICMPStreamNotFound
 	}
+	icmpIngressMu.RUnlock()
 
-	// Encrypt payload if we have a session key
+	// Encrypt payload if we have a session key - use fine-grained lock
 	assoc.mu.RLock()
 	sessionKey := assoc.SessionKey
 	nextHop := assoc.NextHop

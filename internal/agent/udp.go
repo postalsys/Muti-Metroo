@@ -345,13 +345,14 @@ func (d *udpDestAssociation) closePendingOpen(err error) {
 // Called when a SOCKS5 client sends a UDP datagram to relay through the mesh.
 // Routes based on actual destination IP, creating mesh paths on demand.
 func (a *Agent) RelayUDPDatagram(streamID uint64, destAddr net.Addr, destPort uint16, addrType byte, rawAddr []byte, data []byte) error {
+	// Get ingress and verify it exists under lock
 	udpIngressMu.RLock()
 	ingress := udpIngressByBase[streamID]
-	udpIngressMu.RUnlock()
-
 	if ingress == nil {
+		udpIngressMu.RUnlock()
 		return ErrUDPStreamNotFound
 	}
+	udpIngressMu.RUnlock()
 
 	// Extract destination IP for routing
 	var destIP net.IP
@@ -584,36 +585,42 @@ func (a *Agent) handleUDPOpenAck(peerID identity.AgentID, frame *protocol.Frame)
 		logging.KeyStreamID, frame.StreamID,
 		"from_peer", peerID.ShortString())
 
-	// Check if this is a relay response
+	// Check if this is a relay response - copy fields under lock
 	udpRelayMu.RLock()
 	relay := udpRelayByDownstream[frame.StreamID]
+	var relayUpstreamID uint64
+	var relayUpstreamPeer, relayDownstreamPeer identity.AgentID
+	if relay != nil {
+		relayUpstreamID = relay.UpstreamID
+		relayUpstreamPeer = relay.UpstreamPeer
+		relayDownstreamPeer = relay.DownstreamPeer
+	}
 	udpRelayMu.RUnlock()
 
-	if relay != nil && peerID == relay.DownstreamPeer {
+	if relay != nil && peerID == relayDownstreamPeer {
 		a.logger.Debug("relaying UDP_OPEN_ACK upstream",
-			logging.KeyStreamID, relay.UpstreamID,
-			"upstream_peer", relay.UpstreamPeer.ShortString())
+			logging.KeyStreamID, relayUpstreamID,
+			"upstream_peer", relayUpstreamPeer.ShortString())
 
 		// Forward ACK to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPOpenAck,
-			StreamID: relay.UpstreamID,
+			StreamID: relayUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(relayUpstreamPeer, fwdFrame)
 		return
 	}
 
 	// Look up via exit stream (new structure)
 	udpIngressMu.RLock()
 	lookup := udpIngressByExitStream[frame.StreamID]
-	udpIngressMu.RUnlock()
-
 	if lookup == nil {
+		udpIngressMu.RUnlock()
 		return
 	}
-
 	dest := lookup.Dest
+	udpIngressMu.RUnlock()
 
 	ack, err := protocol.DecodeUDPOpenAck(frame.Payload)
 	if err != nil {
@@ -649,39 +656,46 @@ func (a *Agent) handleUDPOpenAck(peerID identity.AgentID, frame *protocol.Frame)
 
 // handleUDPOpenErr processes a UDP_OPEN_ERR frame.
 func (a *Agent) handleUDPOpenErr(peerID identity.AgentID, frame *protocol.Frame) {
-	// Check if this is a relay response
-	udpRelayMu.RLock()
+	// Check if this is a relay response - use write lock to atomically check and delete
+	udpRelayMu.Lock()
 	relay := udpRelayByDownstream[frame.StreamID]
-	udpRelayMu.RUnlock()
+	var relayUpstreamID uint64
+	var relayUpstreamPeer, relayDownstreamPeer identity.AgentID
+	var isRelay bool
+	if relay != nil {
+		relayUpstreamID = relay.UpstreamID
+		relayUpstreamPeer = relay.UpstreamPeer
+		relayDownstreamPeer = relay.DownstreamPeer
+		if peerID == relayDownstreamPeer {
+			isRelay = true
+			// Clean up relay entry while holding lock
+			delete(udpRelayByUpstream, relayUpstreamID)
+			delete(udpRelayByDownstream, frame.StreamID)
+		}
+	}
+	udpRelayMu.Unlock()
 
-	if relay != nil && peerID == relay.DownstreamPeer {
+	if isRelay {
 		// Forward error to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPOpenErr,
-			StreamID: relay.UpstreamID,
+			StreamID: relayUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
-
-		// Clean up relay entry
-		udpRelayMu.Lock()
-		delete(udpRelayByUpstream, relay.UpstreamID)
-		delete(udpRelayByDownstream, frame.StreamID)
-		udpRelayMu.Unlock()
+		a.peerMgr.SendToPeer(relayUpstreamPeer, fwdFrame)
 		return
 	}
 
 	// Look up via exit stream (new structure)
 	udpIngressMu.RLock()
 	lookup := udpIngressByExitStream[frame.StreamID]
-	udpIngressMu.RUnlock()
-
 	if lookup == nil {
+		udpIngressMu.RUnlock()
 		return
 	}
-
 	dest := lookup.Dest
 	ingress := lookup.Ingress
+	udpIngressMu.RUnlock()
 
 	errMsg, err := protocol.DecodeUDPOpenErr(frame.Payload)
 	if err != nil {
@@ -716,8 +730,15 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 	}
 
 	// Check if this is for ingress via exit stream lookup (new structure)
+	// Hold lock while getting lookup and extracting needed references
 	udpIngressMu.RLock()
 	lookup := udpIngressByExitStream[frame.StreamID]
+	var dest *udpDestAssociation
+	var ingress *udpIngressAssociation
+	if lookup != nil {
+		dest = lookup.Dest
+		ingress = lookup.Ingress
+	}
 	udpIngressMu.RUnlock()
 
 	if lookup != nil {
@@ -725,9 +746,6 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 		if err != nil {
 			return
 		}
-
-		dest := lookup.Dest
-		ingress := lookup.Ingress
 
 		// Decrypt if we have a session key
 		dest.mu.RLock()
@@ -760,31 +778,47 @@ func (a *Agent) handleUDPDatagram(peerID identity.AgentID, frame *protocol.Frame
 		return
 	}
 
-	// Check if this is a relay
+	// Check if this is a relay - copy fields under lock
 	udpRelayMu.RLock()
 	relayUp := udpRelayByUpstream[frame.StreamID]
 	relayDown := udpRelayByDownstream[frame.StreamID]
+	var upDownstreamID, upUpstreamID uint64
+	var upDownstreamPeer, upUpstreamPeer identity.AgentID
+	var downUpstreamID, downDownstreamID uint64
+	var downUpstreamPeer, downDownstreamPeer identity.AgentID
+	if relayUp != nil {
+		upDownstreamID = relayUp.DownstreamID
+		upDownstreamPeer = relayUp.DownstreamPeer
+		upUpstreamPeer = relayUp.UpstreamPeer
+	}
+	if relayDown != nil {
+		downUpstreamID = relayDown.UpstreamID
+		downUpstreamPeer = relayDown.UpstreamPeer
+		downDownstreamPeer = relayDown.DownstreamPeer
+	}
+	_ = upUpstreamID       // unused but kept for symmetry
+	_ = downDownstreamID   // unused but kept for symmetry
 	udpRelayMu.RUnlock()
 
-	if relayUp != nil && peerID == relayUp.UpstreamPeer {
+	if relayUp != nil && peerID == upUpstreamPeer {
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPDatagram,
-			StreamID: relayUp.DownstreamID,
+			StreamID: upDownstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayUp.DownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
 		return
 	}
 
-	if relayDown != nil && peerID == relayDown.DownstreamPeer {
+	if relayDown != nil && peerID == downDownstreamPeer {
 		// Forward upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPDatagram,
-			StreamID: relayDown.UpstreamID,
+			StreamID: downUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayDown.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
 	}
 }
 
@@ -795,59 +829,71 @@ func (a *Agent) handleUDPClose(peerID identity.AgentID, frame *protocol.Frame) {
 		a.udpHandler.HandleUDPClose(peerID, frame.StreamID)
 	}
 
-	// Check if this is a relay
+	// Check if this is a relay - copy fields and delete atomically under lock
 	udpRelayMu.Lock()
 	relayUp := udpRelayByUpstream[frame.StreamID]
 	relayDown := udpRelayByDownstream[frame.StreamID]
 
+	var upDownstreamID uint64
+	var upDownstreamPeer, upUpstreamPeer identity.AgentID
+	var downUpstreamID uint64
+	var downUpstreamPeer, downDownstreamPeer identity.AgentID
+
 	if relayUp != nil {
+		upDownstreamID = relayUp.DownstreamID
+		upDownstreamPeer = relayUp.DownstreamPeer
+		upUpstreamPeer = relayUp.UpstreamPeer
 		delete(udpRelayByUpstream, frame.StreamID)
-		delete(udpRelayByDownstream, relayUp.DownstreamID)
+		delete(udpRelayByDownstream, upDownstreamID)
 	}
 	if relayDown != nil {
+		downUpstreamID = relayDown.UpstreamID
+		downUpstreamPeer = relayDown.UpstreamPeer
+		downDownstreamPeer = relayDown.DownstreamPeer
 		delete(udpRelayByDownstream, frame.StreamID)
-		delete(udpRelayByUpstream, relayDown.UpstreamID)
+		delete(udpRelayByUpstream, downUpstreamID)
 	}
 	udpRelayMu.Unlock()
 
-	if relayUp != nil && peerID == relayUp.UpstreamPeer {
+	if relayUp != nil && peerID == upUpstreamPeer {
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPClose,
-			StreamID: relayUp.DownstreamID,
+			StreamID: upDownstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayUp.DownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
 	}
 
-	if relayDown != nil && peerID == relayDown.DownstreamPeer {
+	if relayDown != nil && peerID == downDownstreamPeer {
 		// Forward upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameUDPClose,
-			StreamID: relayDown.UpstreamID,
+			StreamID: downUpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayDown.UpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
 	}
 
 	// Check if this is for our ingress via exit stream lookup
-	udpIngressMu.RLock()
+	// Use write lock to atomically check and remove
+	udpIngressMu.Lock()
 	lookup := udpIngressByExitStream[frame.StreamID]
-	udpIngressMu.RUnlock()
+	var dest *udpDestAssociation
+	var ingress *udpIngressAssociation
+	if lookup != nil {
+		dest = lookup.Dest
+		ingress = lookup.Ingress
+		delete(udpIngressByExitStream, frame.StreamID)
+	}
+	udpIngressMu.Unlock()
 
 	if lookup != nil {
-		dest := lookup.Dest
-		ingress := lookup.Ingress
-
 		// Clean up this destination association
 		ingress.destMu.Lock()
 		delete(ingress.destAssocs, dest.OriginKey)
 		delete(ingress.streamToDest, dest.StreamID)
 		ingress.destMu.Unlock()
-
-		udpIngressMu.Lock()
-		delete(udpIngressByExitStream, dest.StreamID)
-		udpIngressMu.Unlock()
 	}
 }
 
