@@ -35,5 +35,14 @@ const API = {
             throw new Error(`Route advertise error: ${response.status}`);
         }
         return response.json();
+    },
+
+    async getMeshTest(forceRefresh = false) {
+        const method = forceRefresh ? 'POST' : 'GET';
+        const response = await fetch(`${this.baseUrl}/api/mesh-test`, { method });
+        if (!response.ok) {
+            throw new Error(`Mesh test error: ${response.status}`);
+        }
+        return response.json();
     }
 };

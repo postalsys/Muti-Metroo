@@ -106,6 +106,10 @@ root privileges.`,
 	probeC.GroupID = "status"
 	rootCmd.AddCommand(probeC)
 
+	meshTest := meshTestCmd()
+	meshTest.GroupID = "status"
+	rootCmd.AddCommand(meshTest)
+
 	// Remote Operations commands
 	shellC := shellCmd()
 	shellC.GroupID = "remote"
@@ -634,6 +638,139 @@ func routesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+
+	return cmd
+}
+
+func meshTestCmd() *cobra.Command {
+	var agentAddr string
+	var timeout string
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "mesh-test",
+		Short: "Test connectivity to all mesh agents",
+		Long: `Test connectivity to all known agents in the mesh network.
+
+This command sends a status request to each known agent and reports
+their reachability status along with response times.
+
+Example output:
+  Testing mesh connectivity...
+
+  AGENT           STATUS      RESPONSE TIME
+  gateway-1       OK          local
+  exit-us-west    OK          45ms
+  exit-eu-east    OK          123ms
+  transit-1       OK          67ms
+  exit-offline    FAILED      timeout after 10s
+
+  Summary: 4/5 agents reachable (tested in 1.2s)`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Parse timeout
+			timeoutDuration, err := time.ParseDuration(timeout)
+			if err != nil {
+				return fmt.Errorf("invalid timeout: %w", err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+			defer cancel()
+
+			// POST to force fresh test
+			url := fmt.Sprintf("http://%s/api/mesh-test", agentAddr)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+
+			if !jsonOutput {
+				fmt.Println("Testing mesh connectivity...")
+				fmt.Println()
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+			}
+
+			var result struct {
+				LocalAgent     string `json:"local_agent"`
+				TestTime       string `json:"test_time"`
+				DurationMs     int64  `json:"duration_ms"`
+				TotalCount     int    `json:"total_count"`
+				ReachableCount int    `json:"reachable_count"`
+				Results        []struct {
+					AgentID        string `json:"agent_id"`
+					ShortID        string `json:"short_id"`
+					DisplayName    string `json:"display_name"`
+					IsLocal        bool   `json:"is_local"`
+					Reachable      bool   `json:"reachable"`
+					ResponseTimeMs int64  `json:"response_time_ms"`
+					Error          string `json:"error,omitempty"`
+				} `json:"results"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			}
+
+			// ANSI color codes
+			const (
+				colorGreen = "\033[32m"
+				colorRed   = "\033[31m"
+				colorReset = "\033[0m"
+			)
+
+			fmt.Printf("%-20s %-12s %s\n", "AGENT", "STATUS", "RESPONSE TIME")
+			fmt.Printf("%-20s %-12s %s\n", "-----", "------", "-------------")
+			for _, agent := range result.Results {
+				name := agent.DisplayName
+				if name == "" {
+					name = agent.ShortID
+				}
+
+				var status, responseTime string
+				if agent.Reachable {
+					status = colorGreen + "OK" + colorReset
+					if agent.IsLocal {
+						responseTime = "local"
+					} else {
+						responseTime = fmt.Sprintf("%dms", agent.ResponseTimeMs)
+					}
+				} else {
+					status = colorRed + "FAILED" + colorReset
+					if agent.Error != "" {
+						responseTime = agent.Error
+					} else {
+						responseTime = "unknown error"
+					}
+				}
+
+				fmt.Printf("%-20s %-12s %s\n", name, status, responseTime)
+			}
+
+			fmt.Println()
+			durationSec := float64(result.DurationMs) / 1000.0
+			fmt.Printf("Summary: %d/%d agents reachable (tested in %.1fs)\n",
+				result.ReachableCount, result.TotalCount, durationSec)
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&timeout, "timeout", "t", "30s", "Overall timeout for the test")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 
 	return cmd

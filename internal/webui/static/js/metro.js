@@ -8,6 +8,7 @@ class MetroMap {
         this.agents = new Map();
         this.connections = [];
         this.routes = []; // Route data for showing exit CIDRs
+        this.meshTestResults = null; // Mesh test results for reachability display
         this.gridSize = 200;
         this.stationRadius = 14;
         this.localStationRadius = 18;
@@ -29,6 +30,38 @@ class MetroMap {
         this.routes = routes || [];
     }
 
+    // Update mesh test results for reachability display
+    setMeshTestResults(results) {
+        this.meshTestResults = results;
+        this.updateReachabilityDisplay();
+    }
+
+    // Get reachability info for a given agent
+    getReachabilityInfo(agentShortId) {
+        const results = this.meshTestResults?.results;
+        if (!results) {
+            return null;
+        }
+        return results.find(r => r.short_id === agentShortId);
+    }
+
+    // Update the visual display of reachability on stations
+    updateReachabilityDisplay() {
+        if (!this.meshTestResults?.results) {
+            return;
+        }
+
+        const stations = this.stationsLayer.querySelectorAll('.station');
+        stations.forEach(station => {
+            station.classList.remove('reachable', 'unreachable');
+
+            const info = this.getReachabilityInfo(station.dataset.agentId);
+            if (info) {
+                station.classList.add(info.reachable ? 'reachable' : 'unreachable');
+            }
+        });
+    }
+
     // Get exit CIDRs for a given agent
     getExitCIDRs(agentShortId) {
         return this.routes
@@ -46,6 +79,7 @@ class MetroMap {
                 <div class="tooltip-name"></div>
             </div>
             <div class="tooltip-roles"></div>
+            <div class="tooltip-reachability"></div>
             <div class="tooltip-info"></div>
             <div class="tooltip-socks5"></div>
             <div class="tooltip-udp"></div>
@@ -136,6 +170,9 @@ class MetroMap {
 
         // Render
         this.render();
+
+        // Apply reachability display if we have mesh test results
+        this.updateReachabilityDisplay();
     }
 
     fitViewBoxToContent() {
@@ -713,6 +750,25 @@ class MetroMap {
         } else {
             forwardsEl.innerHTML = '';
             forwardsEl.style.display = 'none';
+        }
+
+        // Build reachability section
+        const reachabilityEl = this.stationTooltip.querySelector('.tooltip-reachability');
+        const reachInfo = this.getReachabilityInfo(agent.short_id);
+        if (reachInfo) {
+            let reachHtml = '<div class="tooltip-reachability-header">Reachability</div>';
+            if (reachInfo.reachable) {
+                let responseTime = reachInfo.is_local ? 'local' : `${reachInfo.response_time_ms}ms`;
+                reachHtml += `<div class="tooltip-reachability-status tooltip-reachability-ok">OK (${responseTime})</div>`;
+            } else {
+                let errorMsg = reachInfo.error || 'unreachable';
+                reachHtml += `<div class="tooltip-reachability-status tooltip-reachability-error">FAILED: ${errorMsg}</div>`;
+            }
+            reachabilityEl.innerHTML = reachHtml;
+            reachabilityEl.style.display = 'block';
+        } else {
+            reachabilityEl.innerHTML = '';
+            reachabilityEl.style.display = 'none';
         }
 
         // Update ID

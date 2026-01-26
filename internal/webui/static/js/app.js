@@ -5,6 +5,8 @@ class Dashboard {
         this.metroMap = null;
         this.pollInterval = 5000; // 5 seconds
         this.pollTimer = null;
+        this.meshTestInterval = 60000; // 60 seconds
+        this.meshTestTimer = null;
     }
 
     async init() {
@@ -17,6 +19,10 @@ class Dashboard {
 
         // Start polling
         this.startPolling();
+
+        // Start mesh test polling (initial test + periodic)
+        await this.runMeshTest();
+        this.startMeshTestPolling();
     }
 
     async refresh() {
@@ -185,6 +191,31 @@ class Dashboard {
         if (this.pollTimer) {
             clearInterval(this.pollTimer);
             this.pollTimer = null;
+        }
+    }
+
+    async runMeshTest() {
+        try {
+            const results = await API.getMeshTest(true);
+            if (this.metroMap) {
+                this.metroMap.setMeshTestResults(results);
+            }
+        } catch (error) {
+            console.error('Failed to run mesh test:', error);
+        }
+    }
+
+    startMeshTestPolling() {
+        if (this.meshTestTimer) {
+            clearInterval(this.meshTestTimer);
+        }
+        this.meshTestTimer = setInterval(() => this.runMeshTest(), this.meshTestInterval);
+    }
+
+    stopMeshTestPolling() {
+        if (this.meshTestTimer) {
+            clearInterval(this.meshTestTimer);
+            this.meshTestTimer = null;
         }
     }
 }

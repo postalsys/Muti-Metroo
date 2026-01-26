@@ -442,6 +442,7 @@ type Server struct {
 	icmpProvider   ICMPProvider      // For ICMP WebSocket sessions
 	sleepProvider  SleepProvider     // For sleep mode endpoints
 	sealedBox      *crypto.SealedBox // For checking decrypt capability
+	meshTestState  *MeshTestState    // For mesh test caching
 	server         *http.Server
 	listener       net.Listener
 	running        atomic.Bool
@@ -539,8 +540,9 @@ func (s *Server) buildLocalAgentInfo(localID identity.AgentID, displayName strin
 // NewServer creates a new health check server.
 func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	s := &Server{
-		cfg:      cfg,
-		provider: provider,
+		cfg:           cfg,
+		provider:      provider,
+		meshTestState: NewMeshTestState(),
 	}
 
 	mux := http.NewServeMux()
@@ -573,6 +575,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/api/topology", s.handleTopology)
 		mux.HandleFunc("/api/dashboard", s.handleDashboard)
 		mux.HandleFunc("/api/nodes", s.handleNodes)
+		mux.HandleFunc("/api/mesh-test", s.handleMeshTest)
 
 		// Web UI static files
 		uiHandler := webui.Handler()
