@@ -42,7 +42,12 @@ func NewSleepMesh(t *testing.T) *SleepMesh {
 	}
 
 	names := []string{"A", "B", "C", "E", "F"}
-	basePort := 31000
+
+	// Allocate free UDP ports for QUIC listeners
+	ports, err := allocateFreeUDPPorts(len(names))
+	if err != nil {
+		t.Fatalf("Failed to allocate ports: %v", err)
+	}
 
 	for i, name := range names {
 		tmpDir, err := os.MkdirTemp("", fmt.Sprintf("sleep-agent-%s-", name))
@@ -51,7 +56,7 @@ func NewSleepMesh(t *testing.T) *SleepMesh {
 			t.Fatalf("Failed to create temp dir for %s: %v", name, err)
 		}
 		mesh.DataDirs[name] = tmpDir
-		mesh.Addrs[name] = fmt.Sprintf("127.0.0.1:%d", basePort+i)
+		mesh.Addrs[name] = ports[i]
 
 		// Generate TLS certificates
 		certPEM, keyPEM, err := transport.GenerateSelfSignedCert("agent-"+name, 24*time.Hour)

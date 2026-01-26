@@ -402,6 +402,12 @@ func TestSOCKS5_AuthThroughMesh(t *testing.T) {
 	chain := &AgentChain{}
 	names := []string{"A", "B", "C", "D"}
 
+	// Allocate free UDP ports for QUIC listeners
+	ports, err := allocateFreeUDPPorts(4)
+	if err != nil {
+		t.Fatalf("Failed to allocate ports: %v", err)
+	}
+
 	for i := range names {
 		tmpDir, err := os.MkdirTemp("", fmt.Sprintf("agent-auth-%s-", names[i]))
 		if err != nil {
@@ -409,7 +415,7 @@ func TestSOCKS5_AuthThroughMesh(t *testing.T) {
 			t.Fatalf("Failed to create temp dir for %s: %v", names[i], err)
 		}
 		chain.DataDirs[i] = tmpDir
-		chain.Addresses[i] = fmt.Sprintf("127.0.0.1:%d", 31000+i)
+		chain.Addresses[i] = ports[i]
 
 		certPEM, keyPEM, err := transport.GenerateSelfSignedCert("agent-"+names[i], 24*time.Hour)
 		if err != nil {

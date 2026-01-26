@@ -18,6 +18,43 @@ import (
 	"github.com/postalsys/muti-metroo/internal/transport"
 )
 
+// allocateFreeUDPPorts allocates n free UDP ports and returns their addresses.
+// The ports are allocated by binding to port 0 and then closing the socket.
+// This is not 100% race-free but works well for test isolation.
+func allocateFreeUDPPorts(n int) ([]string, error) {
+	addrs := make([]string, n)
+	conns := make([]*net.UDPConn, n)
+
+	// First, allocate all ports by binding
+	for i := 0; i < n; i++ {
+		addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+		if err != nil {
+			// Close already allocated
+			for j := 0; j < i; j++ {
+				conns[j].Close()
+			}
+			return nil, err
+		}
+		conn, err := net.ListenUDP("udp", addr)
+		if err != nil {
+			// Close already allocated
+			for j := 0; j < i; j++ {
+				conns[j].Close()
+			}
+			return nil, err
+		}
+		conns[i] = conn
+		addrs[i] = conn.LocalAddr().String()
+	}
+
+	// Close all sockets to release the ports
+	for i := 0; i < n; i++ {
+		conns[i].Close()
+	}
+
+	return addrs, nil
+}
+
 // AgentChain represents a chain of 4 agents: A-B-C-D.
 type AgentChain struct {
 	Agents             [4]*agent.Agent
@@ -41,6 +78,12 @@ func NewAgentChain(t *testing.T) *AgentChain {
 	chain := &AgentChain{}
 	names := []string{"A", "B", "C", "D"}
 
+	// Allocate free UDP ports for QUIC listeners
+	ports, err := allocateFreeUDPPorts(4)
+	if err != nil {
+		t.Fatalf("Failed to allocate ports: %v", err)
+	}
+
 	// Generate certificates and create data directories
 	for i := range names {
 		tmpDir, err := os.MkdirTemp("", fmt.Sprintf("agent-%s-", names[i]))
@@ -49,7 +92,7 @@ func NewAgentChain(t *testing.T) *AgentChain {
 			t.Fatalf("Failed to create temp dir for %s: %v", names[i], err)
 		}
 		chain.DataDirs[i] = tmpDir
-		chain.Addresses[i] = fmt.Sprintf("127.0.0.1:%d", 30000+i)
+		chain.Addresses[i] = ports[i]
 
 		// Generate TLS certificates
 		certPEM, keyPEM, err := transport.GenerateSelfSignedCert("agent-"+names[i], 24*time.Hour)

@@ -221,10 +221,15 @@ func NewChainTopology(t *testing.T) *ChainTopology {
 
 // Start starts all agents and establishes connections.
 func (c *ChainTopology) Start(t *testing.T) {
+	// Allocate free UDP ports for QUIC listeners
+	ports, err := allocateFreeUDPPorts(4)
+	if err != nil {
+		t.Fatalf("Failed to allocate ports: %v", err)
+	}
+
 	// Start listeners on all agents
 	for i, agent := range c.Agents {
-		addr := fmt.Sprintf("127.0.0.1:%d", 10000+i)
-		if err := agent.Listen(addr); err != nil {
+		if err := agent.Listen(ports[i]); err != nil {
 			t.Fatalf("Failed to start listener on %s: %v", agent.Name, err)
 		}
 		t.Logf("Agent %s listening on %s (ID: %s)", agent.Name, agent.Address(), agent.ID.ShortString())

@@ -24,12 +24,18 @@ type CIDRFilterChain struct {
 }
 
 // NewCIDRFilterChain creates a chain with specific CIDR filtering on exit node.
-func NewCIDRFilterChain(t *testing.T, allowedCIDRs []string, portBase int) *CIDRFilterChain {
+func NewCIDRFilterChain(t *testing.T, allowedCIDRs []string) *CIDRFilterChain {
 	chain := &CIDRFilterChain{
 		AllowedCIDRs: allowedCIDRs,
 	}
 
 	names := []string{"A", "B", "C", "D"}
+
+	// Allocate free UDP ports for QUIC listeners
+	ports, err := allocateFreeUDPPorts(4)
+	if err != nil {
+		t.Fatalf("Failed to allocate ports: %v", err)
+	}
 
 	for i := range names {
 		tmpDir, err := os.MkdirTemp("", fmt.Sprintf("cidr-agent-%s-", names[i]))
@@ -38,7 +44,7 @@ func NewCIDRFilterChain(t *testing.T, allowedCIDRs []string, portBase int) *CIDR
 			t.Fatalf("Failed to create temp dir: %v", err)
 		}
 		chain.DataDirs[i] = tmpDir
-		chain.Addresses[i] = fmt.Sprintf("127.0.0.1:%d", portBase+i)
+		chain.Addresses[i] = ports[i]
 
 		certPEM, keyPEM, err := transport.GenerateSelfSignedCert("agent-"+names[i], 24*time.Hour)
 		if err != nil {
@@ -87,7 +93,7 @@ func TestExitCIDRFiltering(t *testing.T) {
 	}
 
 	// Only allow connections to 127.0.0.0/8 (localhost)
-	chain := NewCIDRFilterChain(t, []string{"127.0.0.0/8"}, 32000)
+	chain := NewCIDRFilterChain(t, []string{"127.0.0.0/8"})
 	defer chain.Close()
 
 	chain.CreateAgentsWithCIDR(t)
@@ -249,7 +255,7 @@ func TestExitCIDRFiltering_MultipleRanges(t *testing.T) {
 	}
 
 	// Allow 127.0.0.0/8 and 192.168.0.0/16
-	chain := NewCIDRFilterChain(t, []string{"127.0.0.0/8", "192.168.0.0/16"}, 32100)
+	chain := NewCIDRFilterChain(t, []string{"127.0.0.0/8", "192.168.0.0/16"})
 	defer chain.Close()
 
 	chain.CreateAgentsWithCIDR(t)
