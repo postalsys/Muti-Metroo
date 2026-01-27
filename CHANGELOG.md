@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.16.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.15.0...muti-metroo-v2.16.0) (2026-01-27)
+
+
+### Features
+
+* **health:** add mesh connectivity test endpoint and CLI ([2d0faa6](https://github.com/postalsys/Muti-Metroo/commit/2d0faa673ecc52f2c259499fbf09434e25a8458c))
+
+
+### Bug Fixes
+
+* **agent:** resolve mutex race conditions in stream handlers ([a74b266](https://github.com/postalsys/Muti-Metroo/commit/a74b266fbdd69fa3a5d73c67661f4e681546ee2c))
+* **security:** restrict topology exposure when management key lacks private key ([8f174f9](https://github.com/postalsys/Muti-Metroo/commit/8f174f9ad054b62c2de7951b1f916984ce8681d6))
+* **test:** use dynamic port allocation in integration tests ([1b95930](https://github.com/postalsys/Muti-Metroo/commit/1b95930f0e465c3260410b6c021fc72a80f878f0))
+
 ## [2.15.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.14.0...muti-metroo-v2.15.0) (2026-01-23)
 
 
