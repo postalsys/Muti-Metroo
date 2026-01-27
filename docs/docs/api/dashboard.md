@@ -154,6 +154,81 @@ Metro map topology data for visualization.
 }
 ```
 
+## GET/POST /api/mesh-test
+
+Test connectivity to all known agents in the mesh. GET returns cached results (30-second TTL), POST forces a fresh test.
+
+```bash
+# Fresh test
+curl -X POST http://localhost:8080/api/mesh-test | jq
+
+# Cached results
+curl http://localhost:8080/api/mesh-test | jq
+```
+
+**Response:**
+```json
+{
+  "local_agent": "abc123de",
+  "test_time": "2026-01-27T10:30:00Z",
+  "duration_ms": 1200,
+  "total_count": 5,
+  "reachable_count": 4,
+  "results": [
+    {
+      "agent_id": "abc123def456789012345678901234ab",
+      "short_id": "abc123de",
+      "display_name": "gateway-1",
+      "is_local": true,
+      "reachable": true,
+      "response_time_ms": 0
+    },
+    {
+      "agent_id": "def456789012345678901234567890cd",
+      "short_id": "def45678",
+      "display_name": "exit-us-west",
+      "is_local": false,
+      "reachable": true,
+      "response_time_ms": 45
+    },
+    {
+      "agent_id": "fed987654321098765432109876543ef",
+      "short_id": "fed98765",
+      "display_name": "exit-offline",
+      "is_local": false,
+      "reachable": false,
+      "response_time_ms": -1,
+      "error": "context deadline exceeded"
+    }
+  ]
+}
+```
+
+### Result Fields
+
+| Field | Description |
+|-------|-------------|
+| `local_agent` | Short ID of the agent running the test |
+| `test_time` | When the test was performed |
+| `duration_ms` | Total test duration in milliseconds |
+| `total_count` | Number of agents tested |
+| `reachable_count` | Number of reachable agents |
+| `results` | Per-agent test results |
+
+### Per-Agent Result Fields
+
+| Field | Description |
+|-------|-------------|
+| `agent_id` | Full agent ID |
+| `short_id` | Short agent ID |
+| `display_name` | Agent display name |
+| `is_local` | Whether this is the local agent |
+| `reachable` | Whether the agent responded |
+| `response_time_ms` | Response time (-1 if unreachable) |
+| `error` | Error message (only if unreachable) |
+
+Also available via CLI: `muti-metroo mesh-test`
+
 ## GET /api/nodes
 
 Detailed node information for all known agents.

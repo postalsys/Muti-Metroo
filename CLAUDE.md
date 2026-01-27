@@ -210,6 +210,11 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo signing-key generate         # Generate Ed25519 keypair
 ./build/muti-metroo signing-key public           # Derive public key from private key
 
+# Mesh Connectivity Testing
+./build/muti-metroo mesh-test                # Test connectivity to all mesh agents
+./build/muti-metroo mesh-test --json         # JSON output for scripting
+./build/muti-metroo mesh-test -a host:8080   # Via specific agent's API
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -274,7 +279,7 @@ An agent can serve multiple roles simultaneously:
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
 | `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |
 | `forward`      | Port forwarding (reverse tunnel) - endpoints expose local services, listeners accept remote |
-| `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
+| `health`       | Health check HTTP server, remote agent status, pprof, dashboard, mesh connectivity testing   |
 | `icmp`         | ICMP echo (ping) - exit handler, unprivileged sockets, session management with E2E encryption |
 | `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
 | `integration`  | Integration tests for multi-agent mesh scenarios                                            |
@@ -472,12 +477,13 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 
 ### Web Dashboard
 
-| Endpoint         | Method | Description                                           |
-| ---------------- | ------ | ----------------------------------------------------- |
-| `/ui/`           | GET    | Embedded web dashboard with metro map visualization   |
-| `/api/topology`  | GET    | Topology data for metro map (agents and connections)  |
-| `/api/dashboard` | GET    | Dashboard overview (agent info, stats, peers, routes) |
-| `/api/nodes`     | GET    | Detailed node info listing for all known agents       |
+| Endpoint         | Method   | Description                                           |
+| ---------------- | -------- | ----------------------------------------------------- |
+| `/ui/`           | GET      | Embedded web dashboard with metro map visualization   |
+| `/api/topology`  | GET      | Topology data for metro map (agents and connections)  |
+| `/api/dashboard` | GET      | Dashboard overview (agent info, stats, peers, routes) |
+| `/api/nodes`     | GET      | Detailed node info listing for all known agents       |
+| `/api/mesh-test` | GET/POST | Mesh connectivity test (GET=cached, POST=fresh test)  |
 
 ### Distributed Status
 

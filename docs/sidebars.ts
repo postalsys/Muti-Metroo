@@ -122,6 +122,7 @@ const sidebars: SidebarsConfig = {
         'cli/peers',
         'cli/routes',
         'cli/probe',
+        'cli/mesh-test',
         'cli/ping',
         'cli/shell',
         'cli/sleep',

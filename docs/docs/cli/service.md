@@ -38,6 +38,7 @@ muti-metroo service install -c <config-file> [-n <service-name>] [--user] [--dll
 **Flags:**
 - `-c, --config <file>`: Configuration file path (required)
 - `-n, --name <name>`: Service name (default: muti-metroo)
+- `--deploy`: Copy binary to system location (default: true). Installs to `/usr/local/bin` on Linux/macOS or `C:\Program Files\<name>` on Windows. Use `--deploy=false` to use the binary from its current location.
 - `--user`: Install as user service (Linux: cron+nohup, Windows: Registry Run)
 - `--dll <path>`: Path to muti-metroo.dll (Windows `--user` mode only)
 

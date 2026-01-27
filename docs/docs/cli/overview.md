@@ -22,6 +22,7 @@ Everything you need to set up agents, manage certificates, transfer files, and r
 | Transfer files | `muti-metroo upload` / `muti-metroo download` |
 | Ping a host through the mesh | `muti-metroo ping <agent-id> <destination>` |
 | Test if a listener is reachable | `muti-metroo probe <address>` |
+| Test connectivity to all mesh agents | `muti-metroo mesh-test` |
 | Install as a system service | `muti-metroo service install` |
 
 ## HTTP API
@@ -76,11 +77,13 @@ Available for all commands:
 | `ping` | Send ICMP echo requests through the mesh |
 | `probe` | Test connectivity to a listener (standalone) |
 | `probe listen` | Start a test listener for connectivity probing |
+| `mesh-test` | Test connectivity to all mesh agents |
 | `shell` | Interactive or streaming remote shell |
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
 | `service` | Service management (install, uninstall, status) |
 | `management-key` | Generate and manage mesh topology encryption keys |
+| `signing-key` | Generate and manage Ed25519 signing keys for sleep/wake authentication |
 
 ## Quick Examples
 
@@ -115,6 +118,10 @@ muti-metroo peers
 
 # List route table
 muti-metroo routes
+
+# Test connectivity to all mesh agents
+muti-metroo mesh-test
+muti-metroo mesh-test --json
 
 # Ping a host through the mesh (via exit agent)
 muti-metroo ping agent123 10.0.0.1

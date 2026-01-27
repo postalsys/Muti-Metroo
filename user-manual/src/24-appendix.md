@@ -19,6 +19,7 @@
 | `muti-metroo routes` | List route table |
 | `muti-metroo probe <address>` | Test connectivity to listener |
 | `muti-metroo probe listen` | Start test listener for probing |
+| `muti-metroo mesh-test` | Test connectivity to all mesh agents |
 
 ### Remote Operations
 
@@ -43,6 +44,8 @@
 | `muti-metroo cert info <cert>` | Display certificate info |
 | `muti-metroo hash` | Generate bcrypt password hash |
 | `muti-metroo management-key generate` | Generate management keypair |
+| `muti-metroo signing-key generate` | Generate Ed25519 signing keypair |
+| `muti-metroo signing-key public` | Derive signing public key from private |
 
 ## Configuration Cheatsheet
 
@@ -164,6 +167,7 @@ management:
 | `/agents/{id}/shell` | GET | WebSocket shell |
 | `/agents/{id}/file/upload` | POST | Upload file |
 | `/agents/{id}/file/download` | POST | Download file |
+| `/api/mesh-test` | GET/POST | Mesh connectivity test |
 | `/routes/advertise` | POST | Trigger route advertisement |
 
 ## Environment Variables
@@ -247,6 +251,16 @@ muti-metroo management-key generate
 muti-metroo management-key public --private <private-key>
 ```
 
+## Signing Key Generation
+
+```bash
+# Generate Ed25519 signing keypair
+muti-metroo signing-key generate
+
+# Derive public key from private
+muti-metroo signing-key public
+```
+
 ## Useful Commands
 
 ### Health Check
@@ -273,6 +287,24 @@ curl -x socks5://user:pass@localhost:1080 https://example.com
 
 ```bash
 ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@host
+```
+
+### Mesh Connectivity Test
+
+Test connectivity to all known agents in the mesh:
+
+```bash
+# Test all agents
+muti-metroo mesh-test
+
+# JSON output
+muti-metroo mesh-test --json
+
+# Via specific agent
+muti-metroo mesh-test -a 192.168.1.10:8080
+
+# Via HTTP API
+curl -X POST http://localhost:8080/api/mesh-test | jq
 ```
 
 ### Probe Connectivity

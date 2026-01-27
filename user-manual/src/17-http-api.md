@@ -95,6 +95,43 @@ Dashboard overview with agent info, stats, peers, and routes:
 curl http://localhost:8080/api/dashboard | jq
 ```
 
+### GET/POST /api/mesh-test
+
+Test connectivity to all known agents in the mesh. GET returns cached results
+(30-second TTL), POST forces a fresh test:
+
+```bash
+# Fresh test
+curl -X POST http://localhost:8080/api/mesh-test | jq
+
+# Cached results
+curl http://localhost:8080/api/mesh-test | jq
+```
+
+Response:
+
+```json
+{
+  "local_agent": "abc123de",
+  "test_time": "2026-01-27T10:30:00Z",
+  "duration_ms": 1200,
+  "total_count": 5,
+  "reachable_count": 4,
+  "results": [
+    {
+      "agent_id": "abc123def456...",
+      "short_id": "abc123de",
+      "display_name": "gateway-1",
+      "is_local": true,
+      "reachable": true,
+      "response_time_ms": 0
+    }
+  ]
+}
+```
+
+Also available via CLI: `muti-metroo mesh-test`
+
 ### GET /api/nodes
 
 Detailed node info for all known agents:

@@ -22,6 +22,7 @@ open http://localhost:8080/ui/
 - **Active routes** and which exit handles each destination
 - **Connection status** - know instantly when a link goes down
 - **Agent details** - click any node to see system info, peers, and routes
+- **Mesh connectivity test** - test reachability of all agents with response times
 
 <div style={{textAlign: 'center', margin: '2rem 0'}}>
   <img src="/img/dashboard-screenshot.png" alt="Muti Metroo Dashboard" style={{maxWidth: '100%', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'}} />
@@ -105,6 +106,22 @@ Returns metro map data:
   ]
 }
 ```
+
+### Mesh Test
+
+`GET/POST /api/mesh-test`
+
+Test connectivity to all known agents (GET=cached, POST=fresh):
+```json
+{
+  "local_agent": "abc123de",
+  "total_count": 5,
+  "reachable_count": 4,
+  "results": [...]
+}
+```
+
+Also available via CLI: `muti-metroo mesh-test`
 
 ### Node Details
 

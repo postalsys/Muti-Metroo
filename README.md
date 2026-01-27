@@ -377,7 +377,9 @@ An agent can serve multiple roles simultaneously:
 | `exit`         | Exit node handler - TCP dial, route-based access control, E2E decryption                    |
 | `filetransfer` | Streaming file/directory transfer with tar, gzip, and permission preservation               |
 | `flood`        | Route propagation via flooding with loop prevention and seen-cache                          |
-| `health`       | Health check HTTP server, remote agent status, pprof, dashboard                             |
+| `forward`      | Port forwarding (reverse tunnel) - endpoints expose local services, listeners accept remote |
+| `health`       | Health check HTTP server, remote agent status, pprof, dashboard, mesh connectivity testing   |
+| `icmp`         | ICMP echo (ping) - exit handler, unprivileged sockets, session management with E2E encryption |
 | `identity`     | 128-bit AgentID generation, X25519 keypair storage for E2E encryption                       |
 | `integration`  | Integration tests for multi-agent mesh scenarios                                            |
 | `loadtest`     | Load testing utilities - stream throughput, route table, connection churn                   |
@@ -389,10 +391,11 @@ An agent can serve multiple roles simultaneously:
 | `routing`      | Route table with CIDR longest-prefix match and domain pattern matching, route manager       |
 | `service`      | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service       |
 | `shell`        | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
+| `sleep`        | Mesh hibernation - state machine, jittered polling, command deduplication, persistence, deterministic windows |
 | `socks5`       | SOCKS5 server with no-auth and username/password methods, optional WebSocket transport      |
 | `stream`       | Stream state machine (Opening->Open->HalfClosed->Closed), buffered I/O                      |
 | `sysinfo`      | System information collection for node info advertisements                                  |
-| `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations                      |
+| `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations, TLS fingerprinting  |
 | `udp`          | UDP relay handler for SOCKS5 UDP ASSOCIATE - association lifecycle, datagram forwarding     |
 | `webui`        | Embedded web dashboard with metro map visualization                                         |
 | `wizard`       | Interactive setup wizard with certificate generation                                        |

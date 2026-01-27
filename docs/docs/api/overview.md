@@ -19,6 +19,7 @@ Query agent status, trigger actions, and build integrations. Every agent exposes
 | Push route updates immediately | [POST /routes/advertise](/api/routes) |
 | Run commands on remote agents | [WebSocket /agents/\{id\}/shell](/api/shell) |
 | Transfer files to/from agents | [POST /agents/\{id\}/file/*](/api/file-transfer) |
+| Test connectivity to all mesh agents | [POST /api/mesh-test](/api/dashboard#getpost-apimesh-test) |
 | Get topology for visualization | [GET /api/topology](/api/dashboard) |
 
 ## Base URL
@@ -44,7 +45,7 @@ http:
 | [Routes](/api/routes) | Route management and triggers |
 | [Shell](/api/shell) | Remote shell access (interactive and streaming) |
 | [File Transfer](/api/file-transfer) | File upload/download |
-| [Dashboard](/api/dashboard) | Web dashboard and topology data |
+| [Dashboard](/api/dashboard) | Web dashboard, topology data, and mesh connectivity test |
 
 ## Authentication
 

@@ -49,7 +49,9 @@ sudo systemctl start my-agent
 sudo muti-metroo service install -c /etc/muti-metroo/config.yaml
 ```
 
-This creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`, enables boot startup, and starts the service immediately.
+This copies the binary to `/usr/local/bin/muti-metroo`, creates a systemd unit file at `/etc/systemd/system/muti-metroo.service`, enables boot startup, and starts the service immediately.
+
+> **Binary Deployment:** By default, `service install` copies the binary to a standard system location (`/usr/local/bin` on Linux/macOS, `C:\Program Files\<name>` on Windows). Use `--deploy=false` to skip this and reference the binary at its current path.
 
 ### Service Management
 
