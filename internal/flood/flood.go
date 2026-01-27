@@ -224,8 +224,11 @@ func (f *Flooder) HandleRouteAdvertise(
 		"routes", len(routes),
 		"cache_size", cacheSize)
 
-	// Store display name for origin agent
-	if originDisplayName != "" {
+	// Store display name for origin agent.
+	// When management key encryption is enabled, suppress storing display names
+	// from route advertisements to prevent accumulating plaintext names that
+	// could be exposed through other code paths.
+	if originDisplayName != "" && f.sealedBox == nil {
 		f.routeMgr.SetDisplayName(originAgent, originDisplayName)
 	}
 
@@ -396,10 +399,17 @@ func (f *Flooder) floodAdvertisementEncrypted(
 		}
 	}
 
+	// When management key encryption is enabled, omit display names from
+	// route advertisements to avoid leaking them in plaintext on the wire.
+	fwdDisplayName := originDisplayName
+	if f.sealedBox != nil {
+		fwdDisplayName = ""
+	}
+
 	// Build the advertise payload with extended path
 	adv := &protocol.RouteAdvertise{
 		OriginAgent:       originAgent,
-		OriginDisplayName: originDisplayName,
+		OriginDisplayName: fwdDisplayName,
 		Sequence:          sequence,
 		Routes:            routes,
 		EncPath:           fwdEncPath,
@@ -493,10 +503,17 @@ func (f *Flooder) AnnounceLocalRoutes() {
 		Data:      pathBytes,
 	}
 
+	// When management key encryption is enabled, omit display names from
+	// route advertisements to avoid leaking them in plaintext on the wire.
+	displayName := f.localDisplayName
+	if f.sealedBox != nil {
+		displayName = ""
+	}
+
 	// Build advertisement
 	adv := &protocol.RouteAdvertise{
 		OriginAgent:       f.localID,
-		OriginDisplayName: f.localDisplayName,
+		OriginDisplayName: displayName,
 		Sequence:          seq,
 		Routes:            routes,
 		Path:              path,    // Keep for backwards compat
@@ -588,12 +605,16 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 			path = []identity.AgentID{f.localID}
 		}
 
-		// Get display name for origin agent
+		// Get display name for origin agent.
+		// When management key encryption is enabled, omit display names from
+		// route advertisements to avoid leaking them in plaintext on the wire.
 		var originDisplayName string
-		if originAgent == f.localID {
-			originDisplayName = f.localDisplayName
-		} else {
-			originDisplayName = f.routeMgr.GetDisplayName(originAgent)
+		if f.sealedBox == nil {
+			if originAgent == f.localID {
+				originDisplayName = f.localDisplayName
+			} else {
+				originDisplayName = f.routeMgr.GetDisplayName(originAgent)
+			}
 		}
 
 		adv := &protocol.RouteAdvertise{

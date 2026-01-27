@@ -794,6 +794,21 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	localID := s.remoteProvider.ID()
+
+	// When management key encryption is enabled but we lack the private key,
+	// restrict to local-only to avoid leaking mesh topology.
+	if s.shouldRestrictTopology() {
+		writeJSON(w, http.StatusOK, []map[string]interface{}{
+			{
+				"id":           localID.String(),
+				"short":        localID.ShortString(),
+				"display_name": s.remoteProvider.DisplayName(),
+				"local":        true,
+			},
+		})
+		return
+	}
+
 	agents := s.remoteProvider.GetKnownAgentIDs()
 
 	result := []map[string]interface{}{
@@ -860,6 +875,13 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 
 	// For status/routes/peers requests, only allow GET
 	if !requireGET(w, r) {
+		return
+	}
+
+	// When management key encryption is enabled but we lack the private key,
+	// block remote agent queries to avoid leaking mesh topology.
+	if s.shouldRestrictTopology() {
+		http.Error(w, "topology restricted: management key decryption unavailable", http.StatusForbidden)
 		return
 	}
 

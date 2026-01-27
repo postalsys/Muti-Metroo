@@ -80,6 +80,28 @@ func (s *Server) handleMeshTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// When management key encryption is enabled but we lack the private key,
+	// restrict to local-only to avoid leaking mesh topology.
+	if s.shouldRestrictTopology() {
+		localID := s.remoteProvider.ID()
+		writeJSON(w, http.StatusOK, &MeshTestResponse{
+			LocalAgent:     localID.ShortString(),
+			TestTime:       time.Now(),
+			TotalCount:     1,
+			ReachableCount: 1,
+			Results: []MeshTestResult{
+				{
+					AgentID:     localID.String(),
+					ShortID:     localID.ShortString(),
+					DisplayName: s.remoteProvider.DisplayName(),
+					IsLocal:     true,
+					Reachable:   true,
+				},
+			},
+		})
+		return
+	}
+
 	// Return cached results for GET if available
 	if r.Method == http.MethodGet {
 		if cached := s.meshTestState.GetCachedResult(); cached != nil {
