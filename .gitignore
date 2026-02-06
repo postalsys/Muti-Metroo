@@ -44,7 +44,8 @@ config.yaml
 
 # Debug files
 __debug_bin*
-testbed/
+testbed/*
+!testbed/e2e-test.sh
 
 # Third-party license files (generated at release time)
 internal/licenses/third_party/
