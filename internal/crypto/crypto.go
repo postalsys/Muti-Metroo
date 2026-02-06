@@ -236,6 +236,14 @@ func (s *SessionKey) Key() [KeySize]byte {
 	return s.key
 }
 
+// Zero securely zeros the session key material.
+// Call this when the stream using this key is closed.
+func (s *SessionKey) Zero() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ZeroKey(&s.key)
+}
+
 // ZeroBytes zeroes out a byte slice to prevent sensitive data from lingering
 // in memory. Use this to clear ephemeral private keys after computing
 // the shared secret.

@@ -156,8 +156,11 @@ func (s *Session) Close() error {
 		s.Socket = nil
 	}
 
-	// Clear session key reference
-	s.SessionKey = nil
+	// Zero and clear session key
+	if s.SessionKey != nil {
+		s.SessionKey.Zero()
+		s.SessionKey = nil
+	}
 
 	return nil
 }

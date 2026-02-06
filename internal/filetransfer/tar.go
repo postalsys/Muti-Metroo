@@ -145,8 +145,8 @@ func UntarDirectory(r io.Reader, destDir string) error {
 				return fmt.Errorf("failed to create file %s: %w", targetPath, err)
 			}
 
-			// Copy content with size limit check
-			if _, err := io.Copy(file, tr); err != nil {
+			// Copy content with size limit to prevent tar bombs
+			if _, err := io.Copy(file, io.LimitReader(tr, 1<<30)); err != nil {
 				file.Close()
 				return fmt.Errorf("failed to write file %s: %w", targetPath, err)
 			}

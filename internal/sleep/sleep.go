@@ -207,8 +207,14 @@ func (m *Manager) Start() error {
 	} else if m.cfg.AutoSleepOnStart {
 		m.logger.Info("auto-sleeping on start")
 		// Delay the auto-sleep to allow agent to fully initialize
+		m.wg.Add(1)
 		go func() {
-			time.Sleep(5 * time.Second)
+			defer m.wg.Done()
+			select {
+			case <-time.After(5 * time.Second):
+			case <-m.stopCh:
+				return
+			}
 			if err := m.Sleep(); err != nil && err != ErrAlreadySleeping {
 				m.logger.Error("auto-sleep failed", logging.KeyError, err)
 			}
@@ -245,19 +251,24 @@ func (m *Manager) Sleep() error {
 	}
 
 	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
 
 	currentState := m.state.Load().(State)
 	if currentState == StateSleeping || currentState == StatePolling {
+		m.stateMu.Unlock()
 		return ErrAlreadySleeping
 	}
 
-	// Call sleep callback
+	m.stateMu.Unlock()
+
+	// Call sleep callback outside the lock to prevent deadlock
 	if m.callbacks.OnSleep != nil {
 		if err := m.callbacks.OnSleep(); err != nil {
 			return err
 		}
 	}
+
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 
 	// Update state
 	m.state.Store(StateSleeping)
@@ -287,10 +298,10 @@ func (m *Manager) Wake() error {
 	}
 
 	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
 
 	currentState := m.state.Load().(State)
 	if currentState == StateAwake {
+		m.stateMu.Unlock()
 		return ErrNotSleeping
 	}
 
@@ -300,12 +311,17 @@ func (m *Manager) Wake() error {
 		m.pollTimer = nil
 	}
 
-	// Call wake callback
+	m.stateMu.Unlock()
+
+	// Call wake callback outside the lock to prevent deadlock
 	if m.callbacks.OnWake != nil {
 		if err := m.callbacks.OnWake(); err != nil {
 			return err
 		}
 	}
+
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 
 	// Update state
 	m.state.Store(StateAwake)
@@ -567,6 +583,11 @@ func (m *Manager) schedulePollLocked() {
 
 	m.pollTimer = time.AfterFunc(interval, func() {
 		defer recovery.RecoverWithLog(m.logger, "sleep.pollTimer")
+		select {
+		case <-m.stopCh:
+			return
+		default:
+		}
 		if err := m.Poll(); err != nil {
 			m.logger.Error("poll failed", logging.KeyError, err)
 		}

@@ -336,17 +336,16 @@ func (h *Handler) handleUDPAssociate(conn net.Conn, req *Request) error {
 	}
 	h.sendReply(conn, ReplySucceeded, replyIP, uint16(relayAddr.Port))
 
-	// Clear deadlines
-	conn.SetDeadline(time.Time{})
-
 	// Start reading from UDP socket
 	go assoc.ReadLoop()
 
 	// Wait for TCP control connection to close
 	// Per RFC 1928: "A UDP association terminates when the TCP connection
 	// that the UDP ASSOCIATE request arrived terminates."
+	// Use periodic read deadlines to detect half-open connections.
 	buf := make([]byte, 1)
 	for {
+		conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 		_, err := conn.Read(buf)
 		if err != nil {
 			break

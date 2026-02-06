@@ -975,7 +975,9 @@ func (a *Agent) SetSOCKS5UDPAssociation(streamID uint64, socks5Assoc *socks5.UDP
 // startUDPDestCleanupLoop starts a goroutine that periodically cleans up idle destination associations.
 func (a *Agent) startUDPDestCleanupLoop() {
 	ticker := time.NewTicker(30 * time.Second)
+	a.wg.Add(1)
 	go func() {
+		defer a.wg.Done()
 		defer ticker.Stop()
 		for {
 			select {

@@ -85,6 +85,7 @@ type pendingControlRequest struct {
 type forwardedControlRequest struct {
 	RequestID  uint64
 	SourcePeer identity.AgentID // Peer who sent us the request
+	CreatedAt  time.Time
 }
 
 // Agent is the main Muti Metroo agent that orchestrates all components.
@@ -665,8 +666,14 @@ func (a *Agent) Start() error {
 	a.wg.Add(1)
 	go a.nodeInfoAdvertiseLoop()
 	// Initial node info announcement (with small delay for peer connections)
+	a.wg.Add(1)
 	go func() {
-		time.Sleep(2 * time.Second) // Wait for initial peer connections
+		defer a.wg.Done()
+		select {
+		case <-time.After(2 * time.Second):
+		case <-a.stopCh:
+			return
+		}
 		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
@@ -1277,6 +1284,34 @@ func (a *Agent) routeAdvertiseLoop() {
 				a.logger.Debug("cleaned up stale routes",
 					"removed", removed,
 					"ttl", routeTTL)
+			}
+
+			if removed := a.routeMgr.CleanupStaleDomainRoutes(routeTTL); removed > 0 {
+				a.logger.Debug("cleaned up stale domain routes",
+					"removed", removed,
+					"ttl", routeTTL)
+			}
+
+			if removed := a.routeMgr.CleanupStaleForwardRoutes(routeTTL); removed > 0 {
+				a.logger.Debug("cleaned up stale forward routes",
+					"removed", removed,
+					"ttl", routeTTL)
+			}
+
+			// Clean up stale forwarded control requests to prevent memory leaks
+			// when remote agents crash before responding.
+			a.controlMu.Lock()
+			staleCount := 0
+			for id, req := range a.forwardedControl {
+				if time.Since(req.CreatedAt) > 60*time.Second {
+					delete(a.forwardedControl, id)
+					staleCount++
+				}
+			}
+			a.controlMu.Unlock()
+			if staleCount > 0 {
+				a.logger.Debug("cleaned up stale forwarded control requests",
+					"removed", staleCount)
 			}
 
 			if a.cfg.Exit.Enabled {
@@ -2024,6 +2059,7 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		a.forwardedControl[req.RequestID] = &forwardedControlRequest{
 			RequestID:  req.RequestID,
 			SourcePeer: peerID,
+			CreatedAt:  time.Now(),
 		}
 		a.controlMu.Unlock()
 
@@ -2901,7 +2937,10 @@ func (c *meshConn) Close() error {
 	}
 	c.agent.peerMgr.SendToPeer(c.peerID, frame)
 
-	return c.stream.Close()
+	// Remove from stream manager (also closes the stream)
+	c.agent.streamMgr.RemoveStream(c.streamID)
+
+	return nil
 }
 
 // CloseWrite signals that we're done writing (half-close).
@@ -4890,7 +4929,11 @@ func (a *Agent) OpenShellStream(ctx context.Context, targetID identity.AgentID, 
 	adapter.SetNextHop(nextHop, a.peerMgr)
 
 	// Start goroutine to forward data from adapter.Send to peer
-	go a.forwardShellClientData(streamID, nextHop, adapter)
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		a.forwardShellClientData(streamID, nextHop, adapter)
+	}()
 
 	a.logger.Debug("shell client stream opened",
 		logging.KeyStreamID, streamID,

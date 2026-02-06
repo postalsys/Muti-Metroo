@@ -237,8 +237,18 @@ func (s *Stream) ReadWithTimeout(timeout time.Duration) ([]byte, error) {
 // Close closes the stream.
 func (s *Stream) Close() error {
 	s.closeOnce.Do(func() {
+		s.mu.Lock()
 		s.SetState(StateClosed)
+		s.mu.Unlock()
 		close(s.closed)
+		// Drain read buffer to release referenced byte slices
+		for {
+			select {
+			case <-s.readBuffer:
+			default:
+				return
+			}
+		}
 	})
 	return nil
 }
@@ -417,10 +427,13 @@ func (m *Manager) handleRequestTimeout(requestID uint64) {
 	}
 	m.mu.Unlock()
 
-	if ok && pending.Result != nil {
-		pending.Result <- &StreamOpenResult{
-			Error:     fmt.Errorf("stream open timeout"),
-			ErrorCode: protocol.ErrConnectionTimeout,
+	if ok {
+		crypto.ZeroKey(&pending.EphemeralPrivate)
+		if pending.Result != nil {
+			pending.Result <- &StreamOpenResult{
+				Error:     fmt.Errorf("stream open timeout"),
+				ErrorCode: protocol.ErrConnectionTimeout,
+			}
 		}
 	}
 }
@@ -435,6 +448,7 @@ func (m *Manager) HandleStreamOpenAck(requestID uint64, boundAddr net.IP, boundP
 	}
 	delete(m.pendingRequests, requestID)
 	pending.Timer.Stop()
+	crypto.ZeroKey(&pending.EphemeralPrivate)
 
 	stream := pending.Stream
 	stream.Open()
@@ -467,6 +481,7 @@ func (m *Manager) HandleStreamOpenErr(requestID uint64, errorCode uint16, messag
 	}
 	delete(m.pendingRequests, requestID)
 	pending.Timer.Stop()
+	crypto.ZeroKey(&pending.EphemeralPrivate)
 	m.mu.Unlock()
 
 	pending.Result <- &StreamOpenResult{
@@ -490,6 +505,8 @@ func (m *Manager) CancelPendingRequest(requestID uint64) bool {
 	delete(m.pendingRequests, requestID)
 	pending.Timer.Stop()
 	m.mu.Unlock()
+
+	crypto.ZeroKey(&pending.EphemeralPrivate)
 
 	// Send cancellation result (non-blocking in case channel is already closed)
 	select {
@@ -635,6 +652,7 @@ func (m *Manager) Close() {
 	// Cancel all pending requests
 	for _, pending := range m.pendingRequests {
 		pending.Timer.Stop()
+		crypto.ZeroKey(&pending.EphemeralPrivate)
 		pending.Result <- &StreamOpenResult{Error: fmt.Errorf("manager closed")}
 	}
 	m.pendingRequests = make(map[uint64]*PendingRequest)

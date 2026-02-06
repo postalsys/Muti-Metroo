@@ -31,6 +31,7 @@ type ShellStream struct {
 	Session       *Session            // Command session (normal mode)
 	PTYSession    PTYSessionInterface // PTY session (interactive mode)
 	Closed        bool
+	Released      bool
 	StartTime     time.Time
 	sessionKey    *crypto.SessionKey // E2E encryption session key
 	mu            sync.Mutex
@@ -128,18 +129,26 @@ func (h *Handler) HandleStreamData(peerID identity.AgentID, streamID uint64, dat
 	ss := h.streams[streamID]
 	h.mu.RUnlock()
 
-	if ss == nil || ss.Closed {
+	if ss == nil {
 		return
 	}
 
+	ss.mu.Lock()
+	if ss.Closed {
+		ss.mu.Unlock()
+		return
+	}
+	sessionKey := ss.sessionKey
+	ss.mu.Unlock()
+
 	// Decrypt data using E2E session key
-	if ss.sessionKey == nil {
+	if sessionKey == nil {
 		h.logger.Error("no session key for shell stream",
 			logging.KeyStreamID, streamID)
 		return
 	}
 
-	plaintext, err := ss.sessionKey.Decrypt(data)
+	plaintext, err := sessionKey.Decrypt(data)
 	if err != nil {
 		h.logger.Error("failed to decrypt shell data",
 			logging.KeyStreamID, streamID,
@@ -175,17 +184,7 @@ func (h *Handler) HandleStreamClose(streamID uint64) {
 		logging.KeyStreamID, streamID,
 		"duration", time.Since(ss.StartTime))
 
-	// Clean up session
-	ss.mu.Lock()
-	if ss.Session != nil {
-		ss.Session.Close()
-		h.executor.ReleaseSession()
-	}
-	if ss.PTYSession != nil {
-		ss.PTYSession.Close()
-		h.executor.ReleaseSession()
-	}
-	ss.mu.Unlock()
+	h.releaseSession(ss)
 }
 
 // handleMetadata processes the first data frame containing metadata.
@@ -193,10 +192,21 @@ func (h *Handler) handleMetadata(ss *ShellStream, data []byte) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
-	// Helper to send error and close stream
+	// Helper to send error and close stream.
+	// Does not call releaseSession because no session is active at these
+	// error points (or release was already done manually), and ss.mu is
+	// already held by this function.
 	fail := func(msg string) {
 		h.sendError(ss, msg)
-		h.closeStream(ss)
+
+		h.mu.Lock()
+		if !ss.Closed {
+			ss.Closed = true
+			delete(h.streams, ss.StreamID)
+		}
+		h.mu.Unlock()
+
+		h.writer.WriteStreamClose(ss.PeerID, ss.StreamID)
 	}
 
 	msgType, payload, err := DecodeMessage(data)
@@ -488,7 +498,25 @@ func (h *Handler) sendExit(ss *ShellStream, exitCode int32) {
 	h.writeEncrypted(ss, data, 0)
 }
 
-// closeStream closes the stream.
+// releaseSession closes the session and releases the session slot.
+// Must be called without ss.mu held.
+func (h *Handler) releaseSession(ss *ShellStream) {
+	ss.mu.Lock()
+	if !ss.Released {
+		ss.Released = true
+		if ss.Session != nil {
+			ss.Session.Close()
+			h.executor.ReleaseSession()
+		}
+		if ss.PTYSession != nil {
+			ss.PTYSession.Close()
+			h.executor.ReleaseSession()
+		}
+	}
+	ss.mu.Unlock()
+}
+
+// closeStream closes the stream and releases the session slot.
 func (h *Handler) closeStream(ss *ShellStream) {
 	h.mu.Lock()
 	if !ss.Closed {
@@ -497,6 +525,7 @@ func (h *Handler) closeStream(ss *ShellStream) {
 	}
 	h.mu.Unlock()
 
+	h.releaseSession(ss)
 	h.writer.WriteStreamClose(ss.PeerID, ss.StreamID)
 }
 

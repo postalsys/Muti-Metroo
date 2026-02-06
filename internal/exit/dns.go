@@ -123,9 +123,10 @@ func (r *Resolver) Resolve(ctx context.Context, domain string) (net.IP, error) {
 }
 
 // getCached returns a cached IP if valid.
+// Expired entries are deleted to prevent unbounded cache growth.
 func (r *Resolver) getCached(domain string) net.IP {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	entry, ok := r.cache[domain]
 	if !ok {
@@ -133,6 +134,7 @@ func (r *Resolver) getCached(domain string) net.IP {
 	}
 
 	if time.Now().After(entry.expiresAt) {
+		delete(r.cache, domain)
 		return nil
 	}
 

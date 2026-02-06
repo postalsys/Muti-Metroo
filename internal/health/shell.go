@@ -309,8 +309,8 @@ func (a *ShellStreamAdapter) PushReceive(data []byte) {
 	select {
 	case a.receive <- data:
 	case <-a.done:
-	default:
-		// Drop if buffer full
+	case <-time.After(100 * time.Millisecond):
+		// Buffer full after brief wait - drop data
 	}
 }
 

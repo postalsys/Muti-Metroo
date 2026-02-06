@@ -121,6 +121,7 @@ type Handler struct {
 	running  atomic.Bool
 	stopOnce sync.Once
 	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 // NewHandler creates a new exit handler.
@@ -159,6 +160,8 @@ func (h *Handler) Stop() {
 		}
 		h.connections = make(map[uint64]*ActiveConnection)
 		h.mu.Unlock()
+
+		h.wg.Wait()
 	})
 }
 
@@ -189,7 +192,11 @@ func (h *Handler) HandleStreamOpen(ctx context.Context, streamID uint64, request
 
 	// Perform the rest asynchronously to avoid blocking the frame processing loop.
 	// TCP dials to filtered ports can take 20+ seconds to timeout.
-	go h.handleStreamOpenAsync(ctx, streamID, requestID, remoteID, destAddr, destPort, remoteEphemeralPub, domainAllowed)
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		h.handleStreamOpenAsync(ctx, streamID, requestID, remoteID, destAddr, destPort, remoteEphemeralPub, domainAllowed)
+	}()
 
 	return nil
 }
@@ -270,7 +277,11 @@ func (h *Handler) handleStreamOpenAsync(ctx context.Context, streamID uint64, re
 	}
 
 	// Start reading from destination
-	go h.readLoop(ac)
+	h.wg.Add(1)
+	go func() {
+		defer h.wg.Done()
+		h.readLoop(ac)
+	}()
 }
 
 // HandleStreamData processes incoming stream data.

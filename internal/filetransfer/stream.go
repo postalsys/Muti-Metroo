@@ -323,10 +323,21 @@ func (h *StreamHandler) WriteUploadedFile(path string, r io.Reader, mode uint32,
 		reader = gzr
 	}
 
-	// Copy data
-	written, err := io.Copy(f, reader)
-	if err != nil {
-		return written, fmt.Errorf("failed to write file: %w", err)
+	// Copy data with size enforcement
+	var written int64
+	if h.cfg.MaxFileSize > 0 {
+		written, err = io.Copy(f, io.LimitReader(reader, h.cfg.MaxFileSize+1))
+		if err != nil {
+			return written, fmt.Errorf("failed to write file: %w", err)
+		}
+		if written > h.cfg.MaxFileSize {
+			return written, fmt.Errorf("file data exceeds max size: %d bytes (max %d)", written, h.cfg.MaxFileSize)
+		}
+	} else {
+		written, err = io.Copy(f, reader)
+		if err != nil {
+			return written, fmt.Errorf("failed to write file: %w", err)
+		}
 	}
 
 	return written, nil
