@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.16.0...muti-metroo-v2.16.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* resolve memory leaks, race conditions, goroutine leaks, and crypto hygiene issues ([6d52921](https://github.com/postalsys/Muti-Metroo/commit/6d52921307042a97e46d11ab2b06ce59726aec55))
+
 ## [2.16.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.15.0...muti-metroo-v2.16.0) (2026-01-27)
 
 
