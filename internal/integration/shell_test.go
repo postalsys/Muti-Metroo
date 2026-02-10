@@ -4,7 +4,9 @@ package integration
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -458,43 +460,43 @@ func TestShell_MaxSessions(t *testing.T) {
 
 	targetID := chain.Agents[3].ID().String()
 
-	// Start 2 long-running sessions
-	var clients []*shell.Client
-	ctx := context.Background()
+	// Fill both session slots with long-running commands
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
+	var wg sync.WaitGroup
 	for i := 0; i < 2; i++ {
-		var stdoutBuf, stderrBuf bytes.Buffer
 		client := shell.NewClient(shell.ClientConfig{
-			AgentAddr:   chain.HTTPAddrs[0],
-			TargetID:    targetID,
-			Interactive: false,
-			Command:     "sleep",
-			Args:        []string{"10"},
-			Stdout:      &stdoutBuf,
-			Stderr:      &stderrBuf,
+			AgentAddr: chain.HTTPAddrs[0],
+			TargetID:  targetID,
+			Command:   "sleep",
+			Args:      []string{"10"},
+			Stdout:    io.Discard,
+			Stderr:    io.Discard,
 		})
-		clients = append(clients, client)
 
-		// Run in background
-		go func(c *shell.Client) {
-			c.Run(ctx)
-		}(client)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			client.Run(ctx)
+		}()
 	}
 
-	// Give sessions time to start
+	// Allow sessions to establish before testing the limit
 	time.Sleep(500 * time.Millisecond)
 
-	// Third session should fail
+	// Third session should be rejected due to max_sessions=2
 	_, _, _, err := executeCommand(t, chain, targetID, "whoami", nil, "")
 	if err == nil {
 		t.Log("Warning: third session succeeded - max sessions may not be enforced")
+	} else if strings.Contains(err.Error(), "session") || strings.Contains(err.Error(), "limit") {
+		t.Logf("Got expected session limit error: %v", err)
 	} else {
-		if strings.Contains(err.Error(), "session") || strings.Contains(err.Error(), "limit") {
-			t.Logf("Got expected session limit error: %v", err)
-		} else {
-			t.Logf("Got error (may be session limit): %v", err)
-		}
+		t.Logf("Got error (may be session limit): %v", err)
 	}
+
+	cancel()
+	wg.Wait()
 }
 
 // TestShell_TTYSessionOpen tests that TTY sessions can be opened and closed.
