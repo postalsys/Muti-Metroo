@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.17.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.16.1...muti-metroo-v2.17.0) (2026-02-10)
+
+
+### Features
+
+* add startup delay with safe signal handling and stream drain fix ([b143aa4](https://github.com/postalsys/Muti-Metroo/commit/b143aa40963b7f968d00a0e08787a3ffb442d23e))
+
+
+### Bug Fixes
+
+* resolve TestShell_MaxSessions timeout from leaked goroutines ([caf3f04](https://github.com/postalsys/Muti-Metroo/commit/caf3f047c9ebb20486c0c6a94b348f87604203ca))
+
 ## [2.16.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.16.0...muti-metroo-v2.16.1) (2026-02-06)
 
 
