@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -855,5 +856,45 @@ func TestStream_ConcurrentPushAndRead(t *testing.T) {
 
 	for err := range errCh {
 		t.Errorf("Concurrent push/read error: %v", err)
+	}
+}
+
+func TestStream_ReadDrainsBufferBeforeEOF(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	remoteID, _ := identity.NewAgentID()
+
+	s := NewStream(1, localID, remoteID, 100)
+	s.Open()
+
+	// Push 10 items then close
+	const itemCount = 10
+	for i := 0; i < itemCount; i++ {
+		data := []byte(fmt.Sprintf("item-%d", i))
+		if err := s.PushData(data); err != nil {
+			t.Fatalf("PushData(%d) failed: %v", i, err)
+		}
+	}
+	s.Close()
+
+	// Read should return all 10 items in order before io.EOF
+	for i := 0; i < itemCount; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		data, err := s.Read(ctx)
+		cancel()
+		if err != nil {
+			t.Fatalf("Read(%d): unexpected error: %v", i, err)
+		}
+		expected := fmt.Sprintf("item-%d", i)
+		if string(data) != expected {
+			t.Errorf("Read(%d) = %q, want %q", i, data, expected)
+		}
+	}
+
+	// Next read should return io.EOF
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := s.Read(ctx)
+	if err != io.EOF {
+		t.Errorf("Read after drain: got %v, want io.EOF", err)
 	}
 }

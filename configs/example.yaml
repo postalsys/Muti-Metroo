@@ -31,6 +31,11 @@ agent:
   log_level: "info"   # debug, info, warn, error
   log_format: "text"  # text, json
 
+  # Delay before starting network activity (listeners, peers, SOCKS5, etc.)
+  # Useful for staggering agent startups or waiting for dependencies.
+  # Accepts Go duration strings: 30s, 1m30s, 2m, etc. Default: 0 (no delay).
+  # startup_delay: 90s
+
   # X25519 keypair for E2E encryption (optional - enables single-file deployment)
   # When specified, takes precedence over data_dir files, making data_dir optional.
   # Generate with: muti-metroo init -d /tmp/keys && cat /tmp/keys/agent_key

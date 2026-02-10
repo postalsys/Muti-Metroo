@@ -36,6 +36,9 @@ agent:
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text, json
 
+  # Startup delay
+  startup_delay: 0s             # Delay before network activity (e.g., 90s, 2m)
+
   # X25519 keypair for E2E encryption (optional - for single-file deployment)
   private_key: ""               # 64-character hex string
   public_key: ""                # Optional, derived from private_key
@@ -270,6 +273,28 @@ agent:
 ```
 
 Then restart the agent to apply changes.
+
+## Startup Delay
+
+Delay all network activity (listeners, peer connections, SOCKS5, etc.) for a specified duration after the process starts. The agent process is alive but idle during the delay.
+
+```yaml
+agent:
+  startup_delay: 90s
+```
+
+Use cases:
+- Staggering agent startups across a fleet
+- Waiting for dependent services to initialize
+- Gradual rollout of mesh connectivity
+
+The delay can also be set via CLI flag, which overrides the config value:
+
+```bash
+muti-metroo run -c config.yaml --startup-delay 2m
+```
+
+During the delay, the agent can be cleanly shut down with `Ctrl+C` or `SIGTERM`.
 
 ## Environment Variables
 

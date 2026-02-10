@@ -306,6 +306,11 @@ type AgentConfig struct {
 	LogLevel    string `yaml:"log_level,omitempty"`    // debug, info, warn, error
 	LogFormat   string `yaml:"log_format,omitempty"`   // text, json
 
+	// StartupDelay delays all network activity (listeners, peers, SOCKS5, etc.)
+	// for the specified duration after the process starts. Useful for staggering
+	// agent startups or waiting for dependencies. Default: 0 (no delay).
+	StartupDelay time.Duration `yaml:"startup_delay,omitempty"`
+
 	// X25519 keypair for E2E encryption (optional - enables single-file deployment)
 	// When specified, takes precedence over data_dir files, making data_dir optional.
 	// Generate with: muti-metroo init, then copy values from agent_key file.
@@ -1039,6 +1044,9 @@ func (c *Config) Validate() error {
 	}
 	if !isValidLogFormat(c.Agent.LogFormat) {
 		errs = append(errs, fmt.Sprintf("invalid log_format: %s (must be text or json)", c.Agent.LogFormat))
+	}
+	if c.Agent.StartupDelay < 0 {
+		errs = append(errs, "agent.startup_delay must not be negative")
 	}
 
 	// Validate identity keypair configuration

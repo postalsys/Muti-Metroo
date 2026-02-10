@@ -241,14 +241,8 @@ func (s *Stream) Close() error {
 		s.SetState(StateClosed)
 		s.mu.Unlock()
 		close(s.closed)
-		// Drain read buffer to release referenced byte slices
-		for {
-			select {
-			case <-s.readBuffer:
-			default:
-				return
-			}
-		}
+		// Do not drain readBuffer: Read() consumes remaining data before
+		// returning io.EOF. Draining here would race with concurrent readers.
 	})
 	return nil
 }

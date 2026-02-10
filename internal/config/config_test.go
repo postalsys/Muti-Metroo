@@ -254,6 +254,15 @@ exit:
 			wantError: "invalid CIDR",
 		},
 		{
+			name: "negative startup_delay",
+			yaml: `
+agent:
+  data_dir: "./data"
+  startup_delay: -5s
+`,
+			wantError: "startup_delay must not be negative",
+		},
+		{
 			name: "max_hops too low",
 			yaml: `
 agent:
@@ -505,6 +514,39 @@ connections:
 	}
 	if cfg.Connections.Timeout != 90*time.Second {
 		t.Errorf("Timeout = %v, want 1m30s", cfg.Connections.Timeout)
+	}
+}
+
+func TestStartupDelayParsing(t *testing.T) {
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+  startup_delay: 90s
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if cfg.Agent.StartupDelay != 90*time.Second {
+		t.Errorf("Agent.StartupDelay = %v, want 90s", cfg.Agent.StartupDelay)
+	}
+}
+
+func TestStartupDelayDefault(t *testing.T) {
+	yamlConfig := `
+agent:
+  data_dir: "./data"
+`
+
+	cfg, err := Parse([]byte(yamlConfig))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if cfg.Agent.StartupDelay != 0 {
+		t.Errorf("Agent.StartupDelay = %v, want 0 (no delay)", cfg.Agent.StartupDelay)
 	}
 }
 

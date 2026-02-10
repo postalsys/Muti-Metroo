@@ -25,6 +25,7 @@ muti-metroo run -c <config-file>
 ## Flags
 
 - `-c, --config <file>`: Path to configuration file (default: `./config.yaml`)
+- `--startup-delay <duration>`: Delay before starting network activity (e.g., `90s`, `2m`). Overrides config value.
 
 :::info Embedded Configuration
 When using a binary with embedded configuration:
@@ -41,6 +42,9 @@ muti-metroo run -c ./config.yaml
 
 # Run with different config
 muti-metroo run -c /etc/muti-metroo/config.yaml
+
+# Run with a startup delay (wait 90 seconds before network activity)
+muti-metroo run -c config.yaml --startup-delay 90s
 ```
 
 ## Environment Variables

@@ -318,20 +318,43 @@ type windowsServiceHandler struct {
 func (h *windowsServiceHandler) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown
 
-	// Report that we're starting
-	changes <- svc.Status{State: svc.StartPending}
-
-	// Start the service
-	if err := h.runner.Start(); err != nil {
-		// Log error and return failure
-		return false, 1
-	}
-
-	// Report that we're running
+	// Report Running immediately so the SCM does not time out while the
+	// agent performs its startup delay.
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 
-	// Wait for stop/shutdown signal
-loop:
+	// Start the service in a goroutine so we can handle SCM stop/shutdown
+	// signals during the (potentially long) startup delay.
+	startErrCh := make(chan error, 1)
+	go func() {
+		startErrCh <- h.runner.Start()
+	}()
+
+	// Wait for Start() to complete or an SCM stop during startup
+	for {
+		select {
+		case err := <-startErrCh:
+			if err != nil {
+				changes <- svc.Status{State: svc.StopPending}
+				return false, 1
+			}
+			goto running
+		case c := <-r:
+			switch c.Cmd {
+			case svc.Interrogate:
+				changes <- c.CurrentStatus
+			case svc.Stop, svc.Shutdown:
+				changes <- svc.Status{State: svc.StopPending}
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				h.runner.StopWithContext(ctx)
+				cancel()
+				<-startErrCh
+				return false, 0
+			}
+		}
+	}
+
+running:
+	// Normal operation - wait for stop/shutdown signal
 	for {
 		select {
 		case c := <-r:
@@ -339,26 +362,17 @@ loop:
 			case svc.Interrogate:
 				changes <- c.CurrentStatus
 			case svc.Stop, svc.Shutdown:
-				break loop
-			default:
-				// Ignore unknown commands
+				changes <- svc.Status{State: svc.StopPending}
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				err := h.runner.StopWithContext(ctx)
+				cancel()
+				if err != nil {
+					return false, 2
+				}
+				return false, 0
 			}
 		}
 	}
-
-	// Report that we're stopping
-	changes <- svc.Status{State: svc.StopPending}
-
-	// Stop the service with a timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := h.runner.StopWithContext(ctx); err != nil {
-		// Log error but continue shutdown
-		return false, 2
-	}
-
-	return false, 0
 }
 
 // =============================================================================

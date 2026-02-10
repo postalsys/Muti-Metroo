@@ -49,6 +49,10 @@ import (
 // for unreachable addresses to fail quickly.
 const directDialTimeout = 10 * time.Second
 
+// ErrInterrupted is returned by Start() when the agent is stopped during
+// the startup delay (via Stop() or signal).
+var ErrInterrupted = errors.New("agent startup interrupted")
+
 // relayStream tracks a stream being relayed through this agent.
 type relayStream struct {
 	UpstreamPeer   identity.AgentID
@@ -549,6 +553,32 @@ func (a *Agent) Start() error {
 	// Set frame callback on peer manager
 	a.peerMgr.SetFrameCallback(a.processFrame)
 
+	// Start HTTP server early so health probes succeed during startup delay.
+	// The health server only depends on components initialized in New().
+	if a.healthServer != nil {
+		if err := a.healthServer.Start(); err != nil {
+			a.logger.Error("failed to start HTTP server",
+				logging.KeyAddress, a.cfg.HTTP.Address,
+				logging.KeyError, err)
+			a.running.Store(false)
+			return fmt.Errorf("start HTTP server: %w", err)
+		}
+		a.logger.Info("HTTP server started",
+			logging.KeyAddress, a.healthServer.Address())
+	}
+
+	// Delay startup if configured
+	if a.cfg.Agent.StartupDelay > 0 {
+		a.logger.Info("delaying startup", "delay", a.cfg.Agent.StartupDelay)
+		select {
+		case <-time.After(a.cfg.Agent.StartupDelay):
+			a.logger.Info("startup delay elapsed, proceeding")
+		case <-a.stopCh:
+			a.running.Store(false)
+			return ErrInterrupted
+		}
+	}
+
 	// Start listeners
 	for _, listenerCfg := range a.cfg.Listeners {
 		if err := a.startListener(listenerCfg); err != nil {
@@ -681,19 +711,6 @@ func (a *Agent) Start() error {
 			"hostname", info.Hostname,
 			"peers", len(info.Peers))
 	}()
-
-	// Start HTTP server if enabled
-	if a.healthServer != nil {
-		if err := a.healthServer.Start(); err != nil {
-			a.logger.Error("failed to start HTTP server",
-				logging.KeyAddress, a.cfg.HTTP.Address,
-				logging.KeyError, err)
-			a.running.Store(false)
-			return fmt.Errorf("start HTTP server: %w", err)
-		}
-		a.logger.Info("HTTP server started",
-			logging.KeyAddress, a.healthServer.Address())
-	}
 
 	// Initialize sleep manager if enabled
 	if a.cfg.Sleep.Enabled {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -302,6 +303,7 @@ func initCmd() *cobra.Command {
 
 func runCmd() *cobra.Command {
 	var configPath string
+	var startupDelay time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "run",
@@ -316,6 +318,11 @@ func runCmd() *cobra.Command {
 
 			if isEmbedded {
 				fmt.Println("Using embedded configuration")
+			}
+
+			// Override startup delay from CLI flag if explicitly set
+			if cmd.Flags().Changed("startup-delay") {
+				cfg.Agent.StartupDelay = startupDelay
 			}
 
 			// Create agent
@@ -336,10 +343,42 @@ func runCmd() *cobra.Command {
 				fmt.Printf("Display Name: %s\n", cfg.Agent.DisplayName)
 			}
 			fmt.Printf("Agent ID: %s\n", a.ID().String())
+			if cfg.Agent.StartupDelay > 0 {
+				fmt.Printf("Startup delay: %s\n", cfg.Agent.StartupDelay)
+			}
 
-			// Start agent
-			if err := a.Start(); err != nil {
-				return fmt.Errorf("failed to start agent: %w", err)
+			// Register signal handler before Start() so signals during
+			// the startup delay are caught instead of killing the process.
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+			// Forward signals to Stop() during startup
+			startDone := make(chan struct{})
+			go func() {
+				select {
+				case <-sigCh:
+					a.Stop()
+				case <-startDone:
+				}
+			}()
+
+			// Start agent (blocks during startup delay)
+			startErr := a.Start()
+			close(startDone)
+
+			if startErr != nil {
+				if errors.Is(startErr, agent.ErrInterrupted) {
+					fmt.Println("\nStartup interrupted, exiting.")
+					return nil
+				}
+				return fmt.Errorf("failed to start agent: %w", startErr)
+			}
+
+			// Race guard: the signal goroutine may have called Stop()
+			// between Start() returning normally and close(startDone).
+			if !a.IsRunning() {
+				fmt.Println("\nAgent stopped during startup.")
+				return nil
 			}
 
 			// Print status
@@ -352,10 +391,8 @@ func runCmd() *cobra.Command {
 			}
 			fmt.Printf("Status: running (peers: %d, routes: %d)\n", stats.PeerCount, stats.RouteCount)
 
-			// Wait for shutdown signal
-			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
+			// Wait for shutdown signal (goroutine exited via startDone,
+			// sigCh unconsumed so this blocks normally)
 			sig := <-sigCh
 			fmt.Printf("\nReceived signal %v, shutting down...\n", sig)
 
@@ -374,6 +411,7 @@ func runCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "./config.yaml", "Path to configuration file (ignored if embedded config present)")
+	cmd.Flags().DurationVar(&startupDelay, "startup-delay", 0, "Delay before starting network activity (e.g., 90s, 2m)")
 
 	return cmd
 }

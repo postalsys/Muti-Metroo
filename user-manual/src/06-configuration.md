@@ -23,6 +23,7 @@ agent:
   data_dir: "./data"            # Persistent state directory (optional with identity in config)
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text, json
+  startup_delay: 0s             # Delay before network activity (e.g., 90s, 2m)
   private_key: ""               # X25519 private key (64-char hex, optional)
   public_key: ""                # X25519 public key (optional, derived from private_key)
 
@@ -170,9 +171,21 @@ agent:
   data_dir: "./data"            # Where to store state (optional with identity in config)
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text or json
+  startup_delay: 0s             # Delay before network activity (e.g., 90s, 2m)
   private_key: ""               # X25519 private key for E2E encryption (optional)
   public_key: ""                # X25519 public key (optional, derived from private_key)
 ```
+
+### Startup Delay
+
+Delays all network activity (listeners, peer connections, SOCKS5) for a specified duration after the process starts. The agent process is alive but idle during the delay and can be cleanly shut down.
+
+```yaml
+agent:
+  startup_delay: 90s
+```
+
+Can also be set via CLI: `muti-metroo run --startup-delay 2m`
 
 ### Identity Keypair
 

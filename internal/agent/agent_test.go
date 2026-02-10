@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -1452,5 +1453,46 @@ func TestAgent_DisplayName_Fallback(t *testing.T) {
 	}
 	if name != agent.ID().ShortString() {
 		t.Errorf("DisplayName() = %q, want %q", name, agent.ID().ShortString())
+	}
+}
+
+func TestAgent_StopDuringStartupDelay(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test")
+	if err != nil {
+		t.Fatalf("Create temp dir error: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := config.Default()
+	cfg.Agent.DataDir = tmpDir
+	cfg.Agent.StartupDelay = 10 * time.Second
+
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Start in a goroutine (will block on startup delay)
+	startErrCh := make(chan error, 1)
+	go func() {
+		startErrCh <- a.Start()
+	}()
+
+	// Give Start() time to enter the delay
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop during startup delay
+	if err := a.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	// Start() should return ErrInterrupted
+	startErr := <-startErrCh
+	if !errors.Is(startErr, ErrInterrupted) {
+		t.Errorf("Start() returned %v, want ErrInterrupted", startErr)
+	}
+
+	if a.IsRunning() {
+		t.Error("Agent should not be running after interrupted start")
 	}
 }
