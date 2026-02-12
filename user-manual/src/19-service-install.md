@@ -206,7 +206,7 @@ For users without Administrator access, install as a user service using the Regi
 - `muti-metroo.dll` - DLL for background execution via rundll32
 - `config.yaml` - Configuration file
 
-### Installation
+### Installation via CLI
 
 ```powershell
 # Install as user service (no admin required)
@@ -223,7 +223,28 @@ muti-metroo service install --user -n "My Tunnel" --dll C:\path\to\muti-metroo.d
 - `-c, --config <path>`: Path to config file (required)
 - `-n, --name <name>`: Custom service name (default: muti-metroo). The name is converted to PascalCase for the Registry value (e.g., "My Tunnel" becomes "MyTunnel").
 
-This creates a Registry Run entry at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` that:
+### Installation via DLL Install Export
+
+When the CLI executable is not available, the DLL can install itself as a user service directly:
+
+```powershell
+rundll32.exe C:\path\to\muti-metroo.dll,Install C:\path\to\config.yaml
+```
+
+The `Install` export performs the following:
+
+1. If an existing user service is detected, stops it and uninstalls it (upgrade handling)
+2. Creates the Registry Run key at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+3. Writes a `service.info` file for status tracking and uninstall
+4. Starts the agent immediately via a scheduled task
+
+The config file and DLL must both exist at the specified paths before calling `Install`. The service name defaults to `muti-metroo` (Registry value: `MutiMetroo`).
+
+This is functionally equivalent to running `muti-metroo service install --user --dll` via the CLI, and is useful for custom deployment tools and automated installers that only have the DLL.
+
+### What Both Methods Create
+
+Both installation methods create a Registry Run entry at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` that:
 
 - Starts immediately after installation (no reboot required)
 - Runs automatically at each user logon

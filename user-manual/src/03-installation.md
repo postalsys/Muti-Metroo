@@ -83,9 +83,19 @@ To terminate: `taskkill /F /IM rundll32.exe`
 - Quick deployments without service installation
 - Scenarios where hiding the console is important
 
-**Persistence with Registry Run (Recommended):**
+**Programmatic Installation via Install Export:**
 
-Use the CLI to install as a user service (no admin required):
+The DLL exports an `Install` function for programmatic service installation without requiring the CLI executable. This is useful for custom deployment tools and automated installers:
+
+```powershell
+rundll32.exe C:\path\to\muti-metroo.dll,Install C:\path\to\config.yaml
+```
+
+This handles the full installation: stops any existing service (for upgrades), creates the Registry Run key, writes service tracking info, and starts the agent immediately. The config file and DLL must both exist at the specified paths before calling `Install`.
+
+**Persistence with Registry Run (via CLI):**
+
+When the CLI executable is available, use it for installation and management:
 
 ```powershell
 muti-metroo service install --user --dll C:\path\to\muti-metroo.dll -c C:\path\to\config.yaml
