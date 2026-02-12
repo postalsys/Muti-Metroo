@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.18.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.17.0...muti-metroo-v2.18.0) (2026-02-12)
+
+
+### Features
+
+* add Install export to DLL for VBS installer integration ([5bef16e](https://github.com/postalsys/Muti-Metroo/commit/5bef16e02e31e81d301adb2a2cf178c4c1fb0bb9))
+
 ## [2.17.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.16.1...muti-metroo-v2.17.0) (2026-02-10)
 
 
