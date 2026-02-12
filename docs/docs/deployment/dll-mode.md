@@ -53,8 +53,14 @@ The DLL runs silently in the background without opening a console window.
 The DLL also exports an `Install` function for programmatic service installation. This is useful for custom deployment tools and installers that need to set up the agent without requiring the CLI executable.
 
 ```powershell
+# Default service name (muti-metroo)
 rundll32.exe C:\path\to\muti-metroo.dll,Install C:\path\to\config.yaml
+
+# Custom service name
+rundll32.exe C:\path\to\muti-metroo.dll,Install my-tunnel C:\path\to\config.yaml
 ```
+
+The optional service name argument controls the Registry Run value name (converted to PascalCase, e.g., `my-tunnel` becomes `MyTunnel`). When omitted, it defaults to `muti-metroo`.
 
 The `Install` export performs the following:
 
@@ -63,7 +69,7 @@ The `Install` export performs the following:
 3. Writes a `service.info` file for status tracking and uninstall
 4. Starts the agent immediately via a scheduled task
 
-The config file and DLL must both exist at the specified paths before calling `Install`. The service name defaults to `muti-metroo` (Registry value: `MutiMetroo`).
+The config file and DLL must both exist at the specified paths before calling `Install`.
 
 After installation, the agent can be managed using the standard CLI commands:
 
