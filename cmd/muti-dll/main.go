@@ -13,6 +13,7 @@
 // Install entry point (installs as user service):
 //
 //	rundll32.exe muti-metroo.dll,Install C:\path\to\config.yaml
+//	rundll32.exe muti-metroo.dll,Install my-service C:\path\to\config.yaml
 //
 // Note: On Windows ARM64, use the x64 emulation layer rundll32:
 //
@@ -118,15 +119,28 @@ func Run(hwnd C.HWND, hinst C.HINSTANCE, lpszCmdLine *C.char, nCmdShow C.int) {
 // Install is the exported entry point for installing the DLL as a user service.
 // It handles upgrades by stopping and uninstalling any existing service first,
 // then installs using the Registry Run key via service.InstallUserWindows.
+//
+// The lpszCmdLine can be either:
+//   - "C:\path\to\config.yaml" (service name defaults to "muti-metroo")
+//   - "my-service C:\path\to\config.yaml" (custom service name)
+//
 // Signature matches Windows rundll32 callback convention:
 //
 //	void CALLBACK Install(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
 //
 //export Install
 func Install(hwnd C.HWND, hinst C.HINSTANCE, lpszCmdLine *C.char, nCmdShow C.int) {
-	configPath := strings.TrimSpace(C.GoString(lpszCmdLine))
+	cmdLine := strings.TrimSpace(C.GoString(lpszCmdLine))
 	dllPath := getDLLPath()
+
+	// Parse: "serviceName configPath" or just "configPath"
+	// If two tokens, first is service name; if one, default to "muti-metroo"
 	serviceName := "muti-metroo"
+	configPath := cmdLine
+	if parts := strings.SplitN(cmdLine, " ", 2); len(parts) == 2 {
+		serviceName = parts[0]
+		configPath = parts[1]
+	}
 
 	// Handle upgrade: stop and uninstall existing service
 	if service.IsUserInstalled() {
