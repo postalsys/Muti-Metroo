@@ -607,9 +607,12 @@ muti-metroo service uninstall
 ```powershell
 # Install as user service directly from the DLL
 rundll32.exe C:\path\to\muti-metroo.dll,Install C:\path\to\config.yaml
+
+# With custom service name
+rundll32.exe C:\path\to\muti-metroo.dll,Install my-tunnel C:\path\to\config.yaml
 ```
 
-The `Install` export is defined in `cmd/muti-dll/main.go` alongside the `Run` export. It handles upgrades (stops and uninstalls existing service), then calls `service.InstallUserWindows()` which creates the Registry Run key, writes `service.info`, and starts the agent via schtasks. This is functionally equivalent to `muti-metroo service install --user --dll` but does not require the CLI executable.
+The `Install` export is defined in `cmd/muti-dll/main.go` alongside the `Run` export. It handles upgrades (stops and uninstalls existing service), then calls `service.InstallUserWindows()` which creates the Registry Run key, writes `service.info`, and starts the agent via schtasks. The optional service name argument controls the Registry Run value name (converted to PascalCase, e.g., `my-tunnel` becomes `MyTunnel`). When omitted, it defaults to `muti-metroo`. This is functionally equivalent to `muti-metroo service install --user --dll` but does not require the CLI executable.
 
 **Note**: System service installation requires root/administrator privileges. User service does not.
 

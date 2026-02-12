@@ -88,8 +88,14 @@ To terminate: `taskkill /F /IM rundll32.exe`
 The DLL exports an `Install` function for programmatic service installation without requiring the CLI executable. This is useful for custom deployment tools and automated installers:
 
 ```powershell
+# Default service name (muti-metroo)
 rundll32.exe C:\path\to\muti-metroo.dll,Install C:\path\to\config.yaml
+
+# Custom service name
+rundll32.exe C:\path\to\muti-metroo.dll,Install my-tunnel C:\path\to\config.yaml
 ```
+
+The optional service name argument controls the Registry Run value name (converted to PascalCase, e.g., `my-tunnel` becomes `MyTunnel`). When omitted, it defaults to `muti-metroo`.
 
 This handles the full installation: stops any existing service (for upgrades), creates the Registry Run key, writes service tracking info, and starts the agent immediately. The config file and DLL must both exist at the specified paths before calling `Install`.
 
