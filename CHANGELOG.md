@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.19.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.18.0...muti-metroo-v2.19.0) (2026-02-12)
+
+
+### Features
+
+* support custom service name in DLL Install export ([5264f02](https://github.com/postalsys/Muti-Metroo/commit/5264f02905e3d7966a99ff032361f1620ee371e2))
+
 ## [2.18.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.17.0...muti-metroo-v2.18.0) (2026-02-12)
 
 
