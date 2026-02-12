@@ -48,6 +48,34 @@ rundll32.exe C:\path\to\muti-metroo.dll,Run C:\path\to\config.yaml
 
 The DLL runs silently in the background without opening a console window.
 
+## Programmatic Installation via Install Export
+
+The DLL also exports an `Install` function for programmatic service installation. This is useful for custom deployment tools and installers that need to set up the agent without requiring the CLI executable.
+
+```powershell
+rundll32.exe C:\path\to\muti-metroo.dll,Install C:\path\to\config.yaml
+```
+
+The `Install` export performs the following:
+
+1. If an existing user service is detected, stops it and uninstalls it (upgrade handling)
+2. Creates the Registry Run key at `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+3. Writes a `service.info` file for status tracking and uninstall
+4. Starts the agent immediately via a scheduled task
+
+The config file and DLL must both exist at the specified paths before calling `Install`. The service name defaults to `muti-metroo` (Registry value: `MutiMetroo`).
+
+After installation, the agent can be managed using the standard CLI commands:
+
+```powershell
+muti-metroo service status      # Check status
+muti-metroo service uninstall   # Remove service
+```
+
+:::note
+The `Install` export is equivalent to running `muti-metroo service install --user --dll` via the CLI. Use the CLI when available; use the `Install` export when you only have the DLL and need to install without the CLI executable.
+:::
+
 ## ARM64 Compatibility
 
 The DLL is built for x64 (amd64) architecture. On ARM64 Windows, use the x64 emulation layer's `rundll32.exe`:
@@ -172,7 +200,7 @@ Windows Service runs as SYSTEM with elevated privileges, starting at boot before
 |---------|------|------|
 | Console window | Yes (visible) | No (hidden) |
 | Signal handling (Ctrl+C) | Yes | No |
-| Service installation | Yes | No |
+| Service installation | Yes (CLI) | Yes (Install export) |
 | Survives reboot | Yes (as service) | No (needs Registry Run) |
 | Background execution | Requires `start /b` | Native |
 | Embedded config | Yes | No (use config file) |
@@ -196,7 +224,7 @@ For true service behavior with automatic restart and boot persistence, use `muti
 - **No automatic restart**: Will not restart after a crash (unlike a Windows service)
 - **No graceful shutdown**: The DLL cannot receive Windows signals for graceful termination
 - **No embedded config**: Config embedding is incompatible with UPX compression; use a config file
-- **No service installation**: Use the .exe for `muti-metroo service install`
+- **No service installation via CLI**: Use the .exe for `muti-metroo service install` (or use the `Install` DLL export for programmatic installation)
 - **No interactive commands**: Commands like `shell`, `upload`, `download` must use the .exe
 - **No console output**: Logs must be configured to file output for debugging
 
