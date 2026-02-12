@@ -242,7 +242,9 @@ The `Install` export performs the following:
 3. Writes a `service.info` file for status tracking and uninstall
 4. Starts the agent immediately via a scheduled task
 
-The optional service name argument controls the Registry Run value name (converted to PascalCase, e.g., `my-tunnel` becomes `MyTunnel`). When omitted, it defaults to `muti-metroo`. The config file and DLL must both exist at the specified paths before calling `Install`.
+The optional service name argument controls the Registry Run value name (converted to PascalCase, e.g., `my-tunnel` becomes `MyTunnel`). When omitted, it defaults to `muti-metroo`.
+
+The config file and DLL must both exist at the specified paths before calling `Install`.
 
 This is functionally equivalent to running `muti-metroo service install --user --dll` via the CLI, and is useful for custom deployment tools and automated installers that only have the DLL.
 
