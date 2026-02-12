@@ -1,14 +1,18 @@
 //go:build windows
 
-// Package main provides a Windows DLL entry point for rundll32.exe execution.
+// Package main provides Windows DLL entry points for rundll32.exe execution.
 //
-// Usage:
+// Run entry point (starts the agent):
 //
 //	rundll32.exe muti-metroo.dll,Run C:\path\to\config.yaml
 //
 // Or with embedded config:
 //
 //	rundll32.exe muti-metroo.dll,Run
+//
+// Install entry point (installs as user service):
+//
+//	rundll32.exe muti-metroo.dll,Install C:\path\to\config.yaml
 //
 // Note: On Windows ARM64, use the x64 emulation layer rundll32:
 //
@@ -27,6 +31,7 @@ import (
 
 	"github.com/postalsys/muti-metroo/internal/agent"
 	"github.com/postalsys/muti-metroo/internal/config"
+	"github.com/postalsys/muti-metroo/internal/service"
 	"github.com/postalsys/muti-metroo/internal/sysinfo"
 )
 
@@ -108,6 +113,29 @@ func Run(hwnd C.HWND, hinst C.HINSTANCE, lpszCmdLine *C.char, nCmdShow C.int) {
 
 	// Block forever - signal handling is unreliable in DLL context
 	select {}
+}
+
+// Install is the exported entry point for installing the DLL as a user service.
+// It handles upgrades by stopping and uninstalling any existing service first,
+// then installs using the Registry Run key via service.InstallUserWindows.
+// Signature matches Windows rundll32 callback convention:
+//
+//	void CALLBACK Install(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
+//
+//export Install
+func Install(hwnd C.HWND, hinst C.HINSTANCE, lpszCmdLine *C.char, nCmdShow C.int) {
+	configPath := strings.TrimSpace(C.GoString(lpszCmdLine))
+	dllPath := getDLLPath()
+	serviceName := "muti-metroo"
+
+	// Handle upgrade: stop and uninstall existing service
+	if service.IsUserInstalled() {
+		_ = service.StopUser()
+		_ = service.UninstallUser()
+	}
+
+	// Install: sets registry Run key, writes service.info, starts via schtasks
+	_ = service.InstallUserWindows(serviceName, dllPath, configPath)
 }
 
 // main is required for c-shared buildmode but will not be called when loaded as DLL.

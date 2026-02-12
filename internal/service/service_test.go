@@ -306,6 +306,37 @@ func TestStopUserUnsupportedPlatform(t *testing.T) {
 	}
 }
 
+func TestInstallUserWindowsUnsupportedPlatform(t *testing.T) {
+	// Skip on Windows (it supports this function)
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
+	}
+
+	err := InstallUserWindows("test-service", "/path/to/dll", "/path/to/config")
+
+	if err == nil {
+		t.Error("InstallUserWindows() should return error on unsupported platform")
+	}
+
+	expected := "InstallUserWindows is only supported on Windows"
+	if err.Error() != expected {
+		t.Errorf("InstallUserWindows() error = %q, want %q", err.Error(), expected)
+	}
+}
+
+func TestStatusUserUnsupportedPlatform(t *testing.T) {
+	// Skip on Linux and Windows (they support user service)
+	if runtime.GOOS == "linux" || runtime.GOOS == "windows" {
+		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
+	}
+
+	_, err := StatusUser()
+
+	if err == nil {
+		t.Error("StatusUser() should return error on unsupported platform")
+	}
+}
+
 func TestGetUserServiceInfoNotInstalled(t *testing.T) {
 	// Skip on platforms where user service might be installed
 	if IsUserInstalled() {
