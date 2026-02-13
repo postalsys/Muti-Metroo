@@ -2,6 +2,7 @@ package exit
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -553,4 +554,91 @@ func TestActiveConnection_Close(t *testing.T) {
 
 	// Multiple closes should be safe
 	ac.Close()
+}
+
+// ============================================================================
+// Dynamic Route Modification Tests
+// ============================================================================
+
+func TestHandler_AddAllowedRoute(t *testing.T) {
+	cfg := DefaultHandlerConfig()
+	localID, _ := identity.NewAgentID()
+	h := NewHandler(cfg, localID, nil)
+
+	// Initially no routes
+	if h.AllowedRouteCount() != 0 {
+		t.Fatalf("AllowedRouteCount() = %d, want 0", h.AllowedRouteCount())
+	}
+
+	// isAllowed should deny
+	if h.isAllowed(net.ParseIP("10.1.2.3")) {
+		t.Error("isAllowed should return false with no routes")
+	}
+
+	// Add a route
+	_, network, _ := net.ParseCIDR("10.0.0.0/8")
+	h.AddAllowedRoute(network)
+
+	if h.AllowedRouteCount() != 1 {
+		t.Fatalf("AllowedRouteCount() = %d, want 1", h.AllowedRouteCount())
+	}
+
+	// Now isAllowed should permit 10.x.x.x
+	if !h.isAllowed(net.ParseIP("10.1.2.3")) {
+		t.Error("isAllowed should return true for 10.1.2.3")
+	}
+	if h.isAllowed(net.ParseIP("192.168.1.1")) {
+		t.Error("isAllowed should return false for 192.168.1.1")
+	}
+}
+
+func TestHandler_RemoveAllowedRoute(t *testing.T) {
+	cfg := DefaultHandlerConfig()
+	localID, _ := identity.NewAgentID()
+	h := NewHandler(cfg, localID, nil)
+
+	_, network, _ := net.ParseCIDR("10.0.0.0/8")
+	h.AddAllowedRoute(network)
+
+	if !h.isAllowed(net.ParseIP("10.1.2.3")) {
+		t.Error("isAllowed should return true after add")
+	}
+
+	if !h.RemoveAllowedRoute(network) {
+		t.Error("RemoveAllowedRoute should return true")
+	}
+
+	if h.isAllowed(net.ParseIP("10.1.2.3")) {
+		t.Error("isAllowed should return false after remove")
+	}
+
+	// Remove non-existent
+	if h.RemoveAllowedRoute(network) {
+		t.Error("RemoveAllowedRoute should return false for non-existent")
+	}
+}
+
+func TestHandler_ConcurrentRouteModification(t *testing.T) {
+	cfg := DefaultHandlerConfig()
+	localID, _ := identity.NewAgentID()
+	h := NewHandler(cfg, localID, nil)
+
+	var wg sync.WaitGroup
+	const goroutines = 20
+
+	// Run concurrent adds, removes, and checks
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, network, _ := net.ParseCIDR(fmt.Sprintf("10.%d.0.0/16", i%256))
+
+			h.AddAllowedRoute(network)
+			h.isAllowed(net.ParseIP(fmt.Sprintf("10.%d.1.1", i%256)))
+			h.RemoveAllowedRoute(network)
+			h.AllowedRouteCount()
+		}(i)
+	}
+
+	wg.Wait()
 }

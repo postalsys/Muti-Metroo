@@ -2,6 +2,7 @@
 package routing
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -51,10 +52,11 @@ type Manager struct {
 	domainTable   *DomainTable  // Domain-based routing table
 	forwardTable  *ForwardTable // Port forward routing table
 	localRoutes   map[string]*LocalRoute
-	localDomains  map[string]*LocalDomainRoute        // Local domain routes
-	localForwards map[string]*LocalForwardRoute       // Local port forward routes
-	displayNames  map[identity.AgentID]string         // Agent ID -> Display Name mapping
-	nodeInfos     map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
+	dynamicRoutes map[string]*LocalRoute               // Routes added via API (subset of localRoutes)
+	localDomains  map[string]*LocalDomainRoute         // Local domain routes
+	localForwards map[string]*LocalForwardRoute        // Local port forward routes
+	displayNames  map[identity.AgentID]string          // Agent ID -> Display Name mapping
+	nodeInfos     map[identity.AgentID]*NodeInfoEntry  // Agent ID -> Node Info mapping
 	sequence      uint64
 	sealedBox     *crypto.SealedBox // For decrypting NodeInfo (nil if not configured)
 
@@ -71,6 +73,7 @@ func NewManager(localID identity.AgentID) *Manager {
 		domainTable:   NewDomainTable(localID),
 		forwardTable:  NewForwardTable(localID),
 		localRoutes:   make(map[string]*LocalRoute),
+		dynamicRoutes: make(map[string]*LocalRoute),
 		localDomains:  make(map[string]*LocalDomainRoute),
 		localForwards: make(map[string]*LocalForwardRoute),
 		displayNames:  make(map[identity.AgentID]string),
@@ -359,6 +362,121 @@ func (m *Manager) GetLocalRoutes() []*LocalRoute {
 		})
 	}
 	return routes
+}
+
+// AddDynamicRoute adds a route via the API. Returns an error if the route
+// already exists as a config route. If the route already exists as a dynamic
+// route, it is updated with the new metric.
+func (m *Manager) AddDynamicRoute(network *net.IPNet, metric uint16) error {
+	if network == nil {
+		return fmt.Errorf("network is nil")
+	}
+
+	key := network.String()
+
+	m.mu.Lock()
+	// Check if this route exists as a config-only route
+	if _, inLocal := m.localRoutes[key]; inLocal {
+		if _, inDynamic := m.dynamicRoutes[key]; !inDynamic {
+			m.mu.Unlock()
+			return fmt.Errorf("route %s exists as a config route", key)
+		}
+	}
+
+	m.sequence++
+	seq := m.sequence
+	lr := &LocalRoute{Network: network, Metric: metric}
+	m.localRoutes[key] = lr
+	m.dynamicRoutes[key] = lr
+	m.mu.Unlock()
+
+	route := &Route{
+		Network:     network,
+		NextHop:     m.localID,
+		OriginAgent: m.localID,
+		Metric:      metric,
+		Path:        nil,
+		Sequence:    seq,
+	}
+
+	added := m.table.AddRoute(route)
+	if added {
+		m.notifyChange(RouteChange{
+			Type:  RouteAdded,
+			Route: route.Clone(),
+		})
+	}
+
+	return nil
+}
+
+// RemoveDynamicRoute removes a route added via the API. Returns an error if the
+// route is a config route or does not exist.
+func (m *Manager) RemoveDynamicRoute(network *net.IPNet) error {
+	if network == nil {
+		return fmt.Errorf("network is nil")
+	}
+
+	key := network.String()
+
+	m.mu.Lock()
+	if _, inDynamic := m.dynamicRoutes[key]; !inDynamic {
+		_, isConfigRoute := m.localRoutes[key]
+		m.mu.Unlock()
+		if isConfigRoute {
+			return fmt.Errorf("route %s is a config route and cannot be removed dynamically", key)
+		}
+		return fmt.Errorf("route %s not found", key)
+	}
+	delete(m.dynamicRoutes, key)
+	delete(m.localRoutes, key)
+	m.mu.Unlock()
+
+	removed := m.table.RemoveRoute(network, m.localID)
+	if removed {
+		m.notifyChange(RouteChange{
+			Type: RouteRemoved,
+			Route: &Route{
+				Network:     network,
+				OriginAgent: m.localID,
+			},
+		})
+	}
+
+	return nil
+}
+
+// GetDynamicRoutes returns all routes added via the API.
+func (m *Manager) GetDynamicRoutes() []*LocalRoute {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	routes := make([]*LocalRoute, 0, len(m.dynamicRoutes))
+	for _, r := range m.dynamicRoutes {
+		routes = append(routes, &LocalRoute{
+			Network: r.Network,
+			Metric:  r.Metric,
+		})
+	}
+	return routes
+}
+
+// IsDynamicRoute returns true if the route was added via the API.
+func (m *Manager) IsDynamicRoute(network *net.IPNet) bool {
+	if network == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	_, ok := m.dynamicRoutes[network.String()]
+	return ok
+}
+
+// HasDynamicRoutes returns true if any routes were added via the API.
+func (m *Manager) HasDynamicRoutes() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.dynamicRoutes) > 0
 }
 
 // ProcessRouteAdvertise processes an incoming ROUTE_ADVERTISE.

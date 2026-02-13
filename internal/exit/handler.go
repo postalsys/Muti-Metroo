@@ -118,6 +118,8 @@ type Handler struct {
 	connections map[uint64]*ActiveConnection
 	connCount   atomic.Int64
 
+	routesMu sync.RWMutex // Guards cfg.AllowedRoutes for dynamic modification
+
 	running  atomic.Bool
 	stopOnce sync.Once
 	stopCh   chan struct{}
@@ -425,6 +427,9 @@ func (h *Handler) removeConnection(streamID uint64) *ActiveConnection {
 // isAllowed checks if an IP is allowed by the configured routes.
 // Security: Returns false (deny) when no routes are configured.
 func (h *Handler) isAllowed(ip net.IP) bool {
+	h.routesMu.RLock()
+	defer h.routesMu.RUnlock()
+
 	if len(h.cfg.AllowedRoutes) == 0 {
 		return false // Deny by default when no routes configured
 	}
@@ -436,6 +441,36 @@ func (h *Handler) isAllowed(ip net.IP) bool {
 	}
 
 	return false
+}
+
+// AddAllowedRoute adds a CIDR route to the allowed routes list.
+func (h *Handler) AddAllowedRoute(network *net.IPNet) {
+	h.routesMu.Lock()
+	defer h.routesMu.Unlock()
+	h.cfg.AllowedRoutes = append(h.cfg.AllowedRoutes, network)
+}
+
+// RemoveAllowedRoute removes a CIDR route from the allowed routes list.
+// Returns true if the route was found and removed.
+func (h *Handler) RemoveAllowedRoute(network *net.IPNet) bool {
+	h.routesMu.Lock()
+	defer h.routesMu.Unlock()
+
+	target := network.String()
+	for i, route := range h.cfg.AllowedRoutes {
+		if route.String() == target {
+			h.cfg.AllowedRoutes = append(h.cfg.AllowedRoutes[:i], h.cfg.AllowedRoutes[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// AllowedRouteCount returns the number of allowed routes.
+func (h *Handler) AllowedRouteCount() int {
+	h.routesMu.RLock()
+	defer h.routesMu.RUnlock()
+	return len(h.cfg.AllowedRoutes)
 }
 
 // isDomainAllowed checks if a domain matches any allowed domain pattern.

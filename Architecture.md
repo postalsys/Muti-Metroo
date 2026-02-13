@@ -748,6 +748,7 @@ All communication uses a consistent framing protocol:
 │  │ 0x03 │ PEERS              │ Request peer list                        │   │
 │  │ 0x04 │ ROUTES             │ Request route table                      │   │
 │  │ 0x05 │ RPC                │ Remote procedure call (shell command)    │   │
+│  │ 0x08 │ ROUTE_MANAGE       │ Add, remove, or list dynamic routes      │   │
 │  └──────┴────────────────────┴──────────────────────────────────────────┘   │
 │                                                                             │
 │  UDP Frames (for SOCKS5 UDP ASSOCIATE):                                     │

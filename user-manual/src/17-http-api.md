@@ -195,6 +195,58 @@ Response:
 }
 ```
 
+### POST /routes/manage
+
+Add, remove, or list dynamic CIDR exit routes:
+
+```bash
+# Add a route
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","network":"10.0.0.0/8"}'
+
+# Add with custom metric
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","network":"192.168.0.0/16","metric":5}'
+
+# List routes
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list"}'
+
+# Remove a route
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"remove","network":"10.0.0.0/8"}'
+```
+
+Response:
+
+```json
+{
+  "status": "success",
+  "message": "route added",
+  "routes": [
+    {
+      "network": "10.0.0.0/8",
+      "metric": 1,
+      "source": "dynamic"
+    }
+  ]
+}
+```
+
+### POST /agents/{agent-id}/routes/manage
+
+Manage routes on a remote agent:
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123def456/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","network":"10.0.0.0/8"}'
+```
+
 ## Sleep Mode Endpoints
 
 Control mesh hibernation via HTTP.

@@ -767,3 +767,202 @@ func TestTable_GetAllRoutes(t *testing.T) {
 		t.Errorf("GetAllRoutes returned %d routes, want 2", len(all))
 	}
 }
+
+// ============================================================================
+// Dynamic Route Tests
+// ============================================================================
+
+func TestManager_AddDynamicRoute(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	network := MustParseCIDR("10.0.0.0/8")
+	if err := mgr.AddDynamicRoute(network, 0); err != nil {
+		t.Fatalf("AddDynamicRoute() error = %v", err)
+	}
+
+	// Verify in dynamic routes
+	dynamic := mgr.GetDynamicRoutes()
+	if len(dynamic) != 1 {
+		t.Fatalf("GetDynamicRoutes() len = %d, want 1", len(dynamic))
+	}
+	if dynamic[0].Network.String() != "10.0.0.0/8" {
+		t.Errorf("Network = %s, want 10.0.0.0/8", dynamic[0].Network.String())
+	}
+
+	// Verify in local routes (for advertisement)
+	local := mgr.GetLocalRoutes()
+	if len(local) != 1 {
+		t.Fatalf("GetLocalRoutes() len = %d, want 1", len(local))
+	}
+
+	// Verify in routing table
+	route := mgr.Lookup(net.ParseIP("10.1.2.3"))
+	if route == nil {
+		t.Fatal("Lookup should find route for 10.1.2.3")
+	}
+}
+
+func TestManager_AddDynamicRoute_ConfigRouteConflict(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	network := MustParseCIDR("10.0.0.0/8")
+	mgr.AddLocalRoute(network, 0) // Config route
+
+	err := mgr.AddDynamicRoute(network, 0)
+	if err == nil {
+		t.Fatal("AddDynamicRoute() should error for config route conflict")
+	}
+}
+
+func TestManager_AddDynamicRoute_UpdateMetric(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	network := MustParseCIDR("10.0.0.0/8")
+	if err := mgr.AddDynamicRoute(network, 5); err != nil {
+		t.Fatalf("AddDynamicRoute() error = %v", err)
+	}
+
+	// Re-add with different metric
+	if err := mgr.AddDynamicRoute(network, 10); err != nil {
+		t.Fatalf("AddDynamicRoute() update error = %v", err)
+	}
+
+	dynamic := mgr.GetDynamicRoutes()
+	if len(dynamic) != 1 {
+		t.Fatalf("GetDynamicRoutes() len = %d, want 1", len(dynamic))
+	}
+	if dynamic[0].Metric != 10 {
+		t.Errorf("Metric = %d, want 10", dynamic[0].Metric)
+	}
+}
+
+func TestManager_RemoveDynamicRoute(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	network := MustParseCIDR("10.0.0.0/8")
+	mgr.AddDynamicRoute(network, 0)
+
+	if err := mgr.RemoveDynamicRoute(network); err != nil {
+		t.Fatalf("RemoveDynamicRoute() error = %v", err)
+	}
+
+	if len(mgr.GetDynamicRoutes()) != 0 {
+		t.Error("GetDynamicRoutes() should be empty after remove")
+	}
+	if len(mgr.GetLocalRoutes()) != 0 {
+		t.Error("GetLocalRoutes() should be empty after remove")
+	}
+	if mgr.Lookup(net.ParseIP("10.1.2.3")) != nil {
+		t.Error("Lookup should return nil after remove")
+	}
+}
+
+func TestManager_RemoveDynamicRoute_ConfigRoute(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	network := MustParseCIDR("10.0.0.0/8")
+	mgr.AddLocalRoute(network, 0) // Config route
+
+	err := mgr.RemoveDynamicRoute(network)
+	if err == nil {
+		t.Fatal("RemoveDynamicRoute() should error for config route")
+	}
+}
+
+func TestManager_RemoveDynamicRoute_NotFound(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	network := MustParseCIDR("10.0.0.0/8")
+	err := mgr.RemoveDynamicRoute(network)
+	if err == nil {
+		t.Fatal("RemoveDynamicRoute() should error for non-existent route")
+	}
+}
+
+func TestManager_GetDynamicRoutes(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	mgr.AddDynamicRoute(MustParseCIDR("10.0.0.0/8"), 0)
+	mgr.AddDynamicRoute(MustParseCIDR("172.16.0.0/12"), 5)
+
+	routes := mgr.GetDynamicRoutes()
+	if len(routes) != 2 {
+		t.Fatalf("GetDynamicRoutes() len = %d, want 2", len(routes))
+	}
+}
+
+func TestManager_HasDynamicRoutes(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	if mgr.HasDynamicRoutes() {
+		t.Error("HasDynamicRoutes() should be false initially")
+	}
+
+	network := MustParseCIDR("10.0.0.0/8")
+	mgr.AddDynamicRoute(network, 0)
+
+	if !mgr.HasDynamicRoutes() {
+		t.Error("HasDynamicRoutes() should be true after add")
+	}
+
+	mgr.RemoveDynamicRoute(network)
+
+	if mgr.HasDynamicRoutes() {
+		t.Error("HasDynamicRoutes() should be false after remove")
+	}
+}
+
+func TestManager_DynamicRoutesInLocalRoutes(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	// Add a config route
+	mgr.AddLocalRoute(MustParseCIDR("192.168.0.0/16"), 0)
+
+	// Add a dynamic route
+	mgr.AddDynamicRoute(MustParseCIDR("10.0.0.0/8"), 0)
+
+	// Both should appear in local routes
+	local := mgr.GetLocalRoutes()
+	if len(local) != 2 {
+		t.Fatalf("GetLocalRoutes() len = %d, want 2", len(local))
+	}
+
+	// Only dynamic should appear in dynamic routes
+	dynamic := mgr.GetDynamicRoutes()
+	if len(dynamic) != 1 {
+		t.Fatalf("GetDynamicRoutes() len = %d, want 1", len(dynamic))
+	}
+	if dynamic[0].Network.String() != "10.0.0.0/8" {
+		t.Errorf("Dynamic route = %s, want 10.0.0.0/8", dynamic[0].Network.String())
+	}
+}
+
+func TestManager_IsDynamicRoute(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	mgr := NewManager(localID)
+
+	configNet := MustParseCIDR("192.168.0.0/16")
+	dynamicNet := MustParseCIDR("10.0.0.0/8")
+
+	mgr.AddLocalRoute(configNet, 0)
+	mgr.AddDynamicRoute(dynamicNet, 0)
+
+	if mgr.IsDynamicRoute(configNet) {
+		t.Error("IsDynamicRoute() should be false for config route")
+	}
+	if !mgr.IsDynamicRoute(dynamicNet) {
+		t.Error("IsDynamicRoute() should be true for dynamic route")
+	}
+	if mgr.IsDynamicRoute(nil) {
+		t.Error("IsDynamicRoute(nil) should be false")
+	}
+}

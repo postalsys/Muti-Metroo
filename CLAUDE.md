@@ -215,6 +215,14 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo mesh-test --json         # JSON output for scripting
 ./build/muti-metroo mesh-test -a host:8080   # Via specific agent's API
 
+# Dynamic Route Management
+./build/muti-metroo route add 10.0.0.0/8               # Add dynamic CIDR route
+./build/muti-metroo route add 10.0.0.0/8 --metric 5    # With custom metric
+./build/muti-metroo route remove 10.0.0.0/8            # Remove dynamic route
+./build/muti-metroo route list                         # List dynamic routes
+./build/muti-metroo route list --json                  # JSON output
+./build/muti-metroo route add 10.0.0.0/8 -t abc123     # On remote agent
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -500,9 +508,11 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 
 ### Management
 
-| Endpoint            | Method | Description                           |
-| ------------------- | ------ | ------------------------------------- |
-| `/routes/advertise` | POST   | Trigger immediate route advertisement |
+| Endpoint                      | Method | Description                                   |
+| ----------------------------- | ------ | --------------------------------------------- |
+| `/routes/advertise`           | POST   | Trigger immediate route advertisement         |
+| `/routes/manage`              | POST   | Add, remove, or list dynamic CIDR exit routes |
+| `/agents/{id}/routes/manage`  | POST   | Manage routes on a remote agent               |
 
 ### Sleep Mode
 

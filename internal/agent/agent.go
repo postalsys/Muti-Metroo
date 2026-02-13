@@ -105,15 +105,16 @@ type Agent struct {
 	listeners  []transport.Listener
 
 	// Core components
-	peerMgr      *peer.Manager
-	routeMgr     *routing.Manager
-	streamMgr    *stream.Manager
-	flooder      *flood.Flooder
-	socks5Srv    *socks5.Server
-	exitHandler  *exit.Handler
-	healthServer *health.Server
-	sleepMgr     *sleep.Manager    // Sleep mode manager (nil if not enabled)
-	sealedBox    *crypto.SealedBox // Management key encryption (nil if not configured)
+	peerMgr        *peer.Manager
+	routeMgr       *routing.Manager
+	streamMgr      *stream.Manager
+	flooder        *flood.Flooder
+	socks5Srv      *socks5.Server
+	exitHandler    *exit.Handler
+	exitHandlerMu  sync.Mutex // Guards on-demand exit handler creation
+	healthServer   *health.Server
+	sleepMgr       *sleep.Manager    // Sleep mode manager (nil if not enabled)
+	sealedBox      *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	// File transfer (stream-based)
 	fileStreamHandler *filetransfer.StreamHandler
@@ -393,6 +394,7 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
 		a.healthServer.SetICMPProvider(a)          // Enable ICMP ping via HTTP API
 		a.healthServer.SetSleepProvider(a)         // Enable sleep mode via HTTP API
+		a.healthServer.SetRouteManageProvider(a)   // Enable dynamic route management via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -1266,6 +1268,121 @@ func (a *Agent) TriggerRouteAdvertise() {
 	}
 }
 
+// ensureExitHandler creates an exit handler on demand if one does not exist.
+// This allows transit-only agents to be promoted to exit agents dynamically.
+func (a *Agent) ensureExitHandler() *exit.Handler {
+	if a.exitHandler != nil {
+		return a.exitHandler
+	}
+
+	a.exitHandlerMu.Lock()
+	defer a.exitHandlerMu.Unlock()
+
+	// Double-check after acquiring lock
+	if a.exitHandler != nil {
+		return a.exitHandler
+	}
+
+	exitCfg := exit.HandlerConfig{
+		AllowedRoutes:  nil,
+		ConnectTimeout: 30 * time.Second,
+		IdleTimeout:    a.cfg.Connections.IdleThreshold,
+		MaxConnections: a.cfg.Limits.MaxStreamsTotal,
+		Logger:         a.logger,
+		DNS: exit.DNSConfig{
+			Servers: a.cfg.Exit.DNS.Servers,
+			Timeout: a.cfg.Exit.DNS.Timeout,
+		},
+	}
+	a.exitHandler = exit.NewHandler(exitCfg, a.id, a)
+	a.exitHandler.Start()
+	a.logger.Info("exit handler created on demand for dynamic routes")
+
+	return a.exitHandler
+}
+
+// ManageRoute handles dynamic route management (add/remove/list).
+func (a *Agent) ManageRoute(action, network string, metric uint16) (*health.RouteManageResult, error) {
+	switch action {
+	case "add":
+		_, ipNet, err := net.ParseCIDR(network)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q: %w", network, err)
+		}
+
+		if err := a.routeMgr.AddDynamicRoute(ipNet, metric); err != nil {
+			return nil, err
+		}
+
+		a.ensureExitHandler().AddAllowedRoute(ipNet)
+		a.TriggerRouteAdvertise()
+
+		return &health.RouteManageResult{
+			Status:  "ok",
+			Message: fmt.Sprintf("route %s added", ipNet.String()),
+		}, nil
+
+	case "remove":
+		_, ipNet, err := net.ParseCIDR(network)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q: %w", network, err)
+		}
+
+		if err := a.routeMgr.RemoveDynamicRoute(ipNet); err != nil {
+			return nil, err
+		}
+
+		if a.exitHandler != nil {
+			a.exitHandler.RemoveAllowedRoute(ipNet)
+		}
+		a.TriggerRouteAdvertise()
+
+		return &health.RouteManageResult{
+			Status:  "ok",
+			Message: fmt.Sprintf("route %s removed", ipNet.String()),
+		}, nil
+
+	case "list":
+		routes := a.routeMgr.GetDynamicRoutes()
+		entries := make([]health.RouteManageResultEntry, 0, len(routes))
+		for _, r := range routes {
+			entries = append(entries, health.RouteManageResultEntry{
+				Network: r.Network.String(),
+				Metric:  r.Metric,
+			})
+		}
+		return &health.RouteManageResult{
+			Status: "ok",
+			Routes: entries,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown action %q (expected add, remove, or list)", action)
+	}
+}
+
+// handleRouteManage processes a ControlTypeRouteManage control request.
+func (a *Agent) handleRouteManage(data []byte) ([]byte, bool) {
+	var req struct {
+		Action  string `json:"action"`
+		Network string `json:"network"`
+		Metric  uint16 `json:"metric"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": "invalid request: " + err.Error()})
+		return resp, false
+	}
+
+	result, err := a.ManageRoute(req.Action, req.Network, req.Metric)
+	if err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": err.Error()})
+		return resp, false
+	}
+
+	resp, _ := json.Marshal(result)
+	return resp, true
+}
+
 // routeAdvertiseLoop periodically announces local routes to peers.
 // Also responds to manual triggers for immediate advertisement.
 // Cleans up stale routes that haven't been refreshed within route_ttl.
@@ -1331,12 +1448,12 @@ func (a *Agent) routeAdvertiseLoop() {
 					"removed", staleCount)
 			}
 
-			if a.cfg.Exit.Enabled {
+			if a.cfg.Exit.Enabled || a.routeMgr.HasDynamicRoutes() || len(a.cfg.Forward.Endpoints) > 0 {
 				a.flooder.AnnounceLocalRoutes()
 				a.logger.Debug("periodic route advertisement sent")
 			}
 		case <-a.routeAdvertiseCh:
-			if a.cfg.Exit.Enabled {
+			if a.cfg.Exit.Enabled || a.routeMgr.HasDynamicRoutes() || len(a.cfg.Forward.Endpoints) > 0 {
 				a.flooder.AnnounceLocalRoutes()
 				a.logger.Debug("triggered route advertisement sent")
 			}
@@ -2115,6 +2232,8 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.getLocalPeers()
 	case protocol.ControlTypeRoutes:
 		data, success = a.getLocalRoutes()
+	case protocol.ControlTypeRouteManage:
+		data, success = a.handleRouteManage(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false

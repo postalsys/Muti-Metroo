@@ -140,6 +140,10 @@ root privileges.`,
 	sleepStatusC.GroupID = "remote"
 	rootCmd.AddCommand(sleepStatusC)
 
+	routeC := routeCmd()
+	routeC.GroupID = "remote"
+	rootCmd.AddCommand(routeC)
+
 	// Administration commands
 	svc := serviceCmd()
 	svc.GroupID = "admin"
@@ -3635,4 +3639,292 @@ Examples:
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 
 	return cmd
+}
+
+// routeCmd creates the route parent command with add/remove/list subcommands.
+func routeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "route",
+		Short: "Manage dynamic CIDR exit routes",
+		Long: `Manage dynamic CIDR exit routes at runtime.
+
+Dynamic routes are ephemeral (lost on restart). They allow promoting
+transit-only agents to exit agents on the fly, or adjusting routing
+without restarting agents.
+
+Examples:
+  # Add a route to the local agent
+  muti-metroo route add 10.0.0.0/8
+
+  # Add a route with custom metric
+  muti-metroo route add 192.168.0.0/16 --metric 5
+
+  # Add a route on a remote agent
+  muti-metroo route add 10.0.0.0/8 --target abc123
+
+  # List dynamic routes
+  muti-metroo route list
+
+  # Remove a route
+  muti-metroo route remove 10.0.0.0/8`,
+	}
+
+	cmd.AddCommand(routeAddCmd())
+	cmd.AddCommand(routeRemoveCmd())
+	cmd.AddCommand(routeListCmd())
+
+	return cmd
+}
+
+// routeAddCmd creates the route add subcommand.
+func routeAddCmd() *cobra.Command {
+	var (
+		agentAddr string
+		targetID  string
+		metric    uint16
+	)
+
+	cmd := &cobra.Command{
+		Use:   "add <cidr>",
+		Short: "Add a dynamic CIDR exit route",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cidr := args[0]
+
+			// Validate CIDR locally first
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				return fmt.Errorf("invalid CIDR %q: %w", cidr, err)
+			}
+
+			reqBody := struct {
+				Action  string `json:"action"`
+				Network string `json:"network"`
+				Metric  uint16 `json:"metric"`
+			}{
+				Action:  "add",
+				Network: cidr,
+				Metric:  metric,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := routeManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Error   string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("route add failed: %s", result.Error)
+				}
+				return fmt.Errorf("route add failed: %s", resp.Status)
+			}
+
+			fmt.Printf("Route added: %s\n", result.Message)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+	cmd.Flags().Uint16VarP(&metric, "metric", "m", 0, "Route metric")
+
+	return cmd
+}
+
+// routeRemoveCmd creates the route remove subcommand.
+func routeRemoveCmd() *cobra.Command {
+	var (
+		agentAddr string
+		targetID  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "remove <cidr>",
+		Short: "Remove a dynamic CIDR exit route",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cidr := args[0]
+
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				return fmt.Errorf("invalid CIDR %q: %w", cidr, err)
+			}
+
+			reqBody := struct {
+				Action  string `json:"action"`
+				Network string `json:"network"`
+			}{
+				Action:  "remove",
+				Network: cidr,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := routeManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Error   string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("route remove failed: %s", result.Error)
+				}
+				return fmt.Errorf("route remove failed: %s", resp.Status)
+			}
+
+			fmt.Printf("Route removed: %s\n", result.Message)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+
+	return cmd
+}
+
+// routeListCmd creates the route list subcommand.
+func routeListCmd() *cobra.Command {
+	var (
+		agentAddr  string
+		targetID   string
+		jsonOutput bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List dynamic CIDR exit routes",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reqBody := struct {
+				Action string `json:"action"`
+			}{
+				Action: "list",
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := routeManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status string `json:"status"`
+				Error  string `json:"error,omitempty"`
+				Routes []struct {
+					Network string `json:"network"`
+					Metric  uint16 `json:"metric"`
+				} `json:"routes"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("route list failed: %s", result.Error)
+				}
+				return fmt.Errorf("route list failed: %s", resp.Status)
+			}
+
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			}
+
+			if len(result.Routes) == 0 {
+				fmt.Println("No dynamic routes configured")
+				return nil
+			}
+
+			fmt.Printf("Dynamic Routes (%d)\n", len(result.Routes))
+			fmt.Printf("%-24s %s\n", "NETWORK", "METRIC")
+			for _, r := range result.Routes {
+				fmt.Printf("%-24s %d\n", r.Network, r.Metric)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+
+	return cmd
+}
+
+// routeManageURL builds the URL for route management based on target.
+func routeManageURL(agentAddr, targetID string) (string, error) {
+	if targetID == "" {
+		return fmt.Sprintf("http://%s/routes/manage", agentAddr), nil
+	}
+
+	resolvedID, err := resolveAgentID(targetID, agentAddr)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve agent ID: %w", err)
+	}
+
+	return fmt.Sprintf("http://%s/agents/%s/routes/manage", agentAddr, resolvedID), nil
 }

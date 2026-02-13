@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 )
@@ -1972,5 +1974,194 @@ func TestServer_shouldRestrictTopology(t *testing.T) {
 	// Without sealed box - no restriction
 	if s.shouldRestrictTopology() {
 		t.Error("expected no restriction without sealed box")
+	}
+}
+
+// ============================================================================
+// Route Management Tests
+// ============================================================================
+
+// mockRouteManageProvider implements RouteManageProvider for testing.
+type mockRouteManageProvider struct {
+	result *RouteManageResult
+	err    error
+}
+
+func (m *mockRouteManageProvider) ManageRoute(action, network string, metric uint16) (*RouteManageResult, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.result, nil
+}
+
+func TestHandleRouteManage_Add(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetRouteManageProvider(&mockRouteManageProvider{
+		result: &RouteManageResult{
+			Status:  "ok",
+			Message: "route 10.0.0.0/8 added",
+		},
+	})
+
+	body := strings.NewReader(`{"action":"add","network":"10.0.0.0/8","metric":0}`)
+	req := httptest.NewRequest(http.MethodPost, "/routes/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var result map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&result)
+	if result["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %v", result["status"])
+	}
+}
+
+func TestHandleRouteManage_Remove(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetRouteManageProvider(&mockRouteManageProvider{
+		result: &RouteManageResult{
+			Status:  "ok",
+			Message: "route 10.0.0.0/8 removed",
+		},
+	})
+
+	body := strings.NewReader(`{"action":"remove","network":"10.0.0.0/8"}`)
+	req := httptest.NewRequest(http.MethodPost, "/routes/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestHandleRouteManage_List(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetRouteManageProvider(&mockRouteManageProvider{
+		result: &RouteManageResult{
+			Status: "ok",
+			Routes: []RouteManageResultEntry{
+				{Network: "10.0.0.0/8", Metric: 0},
+				{Network: "172.16.0.0/12", Metric: 5},
+			},
+		},
+	})
+
+	body := strings.NewReader(`{"action":"list"}`)
+	req := httptest.NewRequest(http.MethodPost, "/routes/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	var result struct {
+		Status string                   `json:"status"`
+		Routes []RouteManageResultEntry `json:"routes"`
+	}
+	json.NewDecoder(rec.Body).Decode(&result)
+	if len(result.Routes) != 2 {
+		t.Errorf("expected 2 routes, got %d", len(result.Routes))
+	}
+}
+
+func TestHandleRouteManage_InvalidCIDR(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetRouteManageProvider(&mockRouteManageProvider{
+		err: fmt.Errorf("invalid CIDR"),
+	})
+
+	body := strings.NewReader(`{"action":"add","network":"not-a-cidr"}`)
+	req := httptest.NewRequest(http.MethodPost, "/routes/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestHandleRouteManage_MethodNotAllowed(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetRouteManageProvider(&mockRouteManageProvider{})
+
+	req := httptest.NewRequest(http.MethodGet, "/routes/manage", nil)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status %d, got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestHandleRouteManage_NoProvider(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	// No route manage provider set
+
+	body := strings.NewReader(`{"action":"list"}`)
+	req := httptest.NewRequest(http.MethodPost, "/routes/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
+func TestHandleRouteManage_ManagementKeyRestriction(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetRouteManageProvider(&mockRouteManageProvider{
+		result: &RouteManageResult{Status: "ok"},
+	})
+
+	// Set up sealed box without private key (public-key-only = can't decrypt = restricted)
+	_, pub, _ := crypto.GenerateEphemeralKeypair()
+	sb := crypto.NewSealedBox(pub)
+	s.SetSealedBox(sb)
+
+	body := strings.NewReader(`{"action":"list"}`)
+	req := httptest.NewRequest(http.MethodPost, "/routes/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+func TestHandleRouteManage_NoManagementKey(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetRouteManageProvider(&mockRouteManageProvider{
+		result: &RouteManageResult{Status: "ok"},
+	})
+	// No sealed box = no restriction
+
+	body := strings.NewReader(`{"action":"list"}`)
+	req := httptest.NewRequest(http.MethodPost, "/routes/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
 	}
 }

@@ -209,3 +209,69 @@ curl http://localhost:8080/healthz | jq '.routes'
 # Via CLI
 muti-metroo routes -a localhost:8080
 ```
+
+## Dynamic Route Management
+
+Dynamic routes can be added and removed at runtime via CLI or HTTP API without restarting the agent. These routes are ephemeral and will be lost on agent restart. For persistent routes, use configuration file routes under `exit.routes`.
+
+### CLI Usage
+
+```bash
+# Add a CIDR route with default metric
+muti-metroo route add 10.0.0.0/8
+
+# Add a route with custom metric
+muti-metroo route add 192.168.0.0/16 --metric 5
+
+# List all routes
+muti-metroo route list
+
+# Remove a route
+muti-metroo route remove 10.0.0.0/8
+```
+
+### Remote Agent Management
+
+Add routes to remote agents via the CLI:
+
+```bash
+# Add route to specific agent
+muti-metroo route add 10.0.0.0/8 --target abc123 -a 192.168.1.10:8080
+
+# List routes on remote agent
+muti-metroo route list --target abc123 -a 192.168.1.10:8080
+```
+
+### HTTP API
+
+Manage routes directly via the HTTP API:
+
+```bash
+# Add a route
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","network":"10.0.0.0/8"}'
+
+# Add with custom metric
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","network":"192.168.0.0/16","metric":5}'
+
+# List routes
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list"}'
+
+# Remove a route
+curl -X POST http://localhost:8080/routes/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"remove","network":"10.0.0.0/8"}'
+```
+
+### Management Key Authorization
+
+If a management public key is configured, route management requests must include a valid authorization token encrypted with the management key. This provides compartmentalization for mesh topology control. See the Security section for management key configuration.
+
+### Transit-to-Exit Promotion
+
+When a dynamic route is added to a transit agent (one that does not have `exit.enabled: true`), the agent is automatically promoted to an exit node for that specific route. The route will be advertised through the mesh, and the agent will handle TCP connections for destinations matching the CIDR.

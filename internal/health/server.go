@@ -286,6 +286,25 @@ type SleepProvider interface {
 	IsSleepEnabled() bool
 }
 
+// RouteManageResult contains the response for a route management operation.
+type RouteManageResult struct {
+	Status  string                   `json:"status"`
+	Message string                   `json:"message,omitempty"`
+	Routes  []RouteManageResultEntry `json:"routes,omitempty"`
+}
+
+// RouteManageResultEntry describes a single dynamic route in list output.
+type RouteManageResultEntry struct {
+	Network string `json:"network"`
+	Metric  uint16 `json:"metric"`
+}
+
+// RouteManageProvider provides dynamic route management.
+type RouteManageProvider interface {
+	// ManageRoute handles add/remove/list operations on dynamic CIDR routes.
+	ManageRoute(action, network string, metric uint16) (*RouteManageResult, error)
+}
+
 // Stats contains agent health statistics.
 type Stats struct {
 	PeerCount      int  `json:"peer_count"`
@@ -434,18 +453,19 @@ func DefaultServerConfig() ServerConfig {
 
 // Server is an HTTP server for health check endpoints.
 type Server struct {
-	cfg            ServerConfig
-	provider       StatsProvider
-	remoteProvider RemoteStatusProvider
-	routeTrigger   RouteAdvertiseTrigger
-	shellProvider  ShellProvider     // For shell WebSocket sessions
-	icmpProvider   ICMPProvider      // For ICMP WebSocket sessions
-	sleepProvider  SleepProvider     // For sleep mode endpoints
-	sealedBox      *crypto.SealedBox // For checking decrypt capability
-	meshTestState  *MeshTestState    // For mesh test caching
-	server         *http.Server
-	listener       net.Listener
-	running        atomic.Bool
+	cfg                 ServerConfig
+	provider            StatsProvider
+	remoteProvider      RemoteStatusProvider
+	routeTrigger        RouteAdvertiseTrigger
+	shellProvider       ShellProvider       // For shell WebSocket sessions
+	icmpProvider        ICMPProvider        // For ICMP WebSocket sessions
+	sleepProvider       SleepProvider       // For sleep mode endpoints
+	routeManageProvider RouteManageProvider // For dynamic route management
+	sealedBox           *crypto.SealedBox  // For checking decrypt capability
+	meshTestState       *MeshTestState     // For mesh test caching
+	server              *http.Server
+	listener            net.Listener
+	running             atomic.Bool
 }
 
 // disabledHandler returns a handler that returns 404 for disabled endpoints.
@@ -557,6 +577,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/agents", s.handleListAgents)
 		mux.HandleFunc("/agents/", s.handleAgentInfo)
 		mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
+		mux.HandleFunc("/routes/manage", s.handleRouteManage)
 		// Sleep mode endpoints
 		mux.HandleFunc("/sleep", s.handleSleep)
 		mux.HandleFunc("/sleep/status", s.handleSleepStatus)
@@ -565,6 +586,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/agents", disabledHandler("agents"))
 		mux.HandleFunc("/agents/", disabledHandler("agents"))
 		mux.HandleFunc("/routes/advertise", disabledHandler("routes_advertise"))
+		mux.HandleFunc("/routes/manage", disabledHandler("routes_manage"))
 		mux.HandleFunc("/sleep", disabledHandler("sleep"))
 		mux.HandleFunc("/sleep/status", disabledHandler("sleep_status"))
 		mux.HandleFunc("/wake", disabledHandler("wake"))
@@ -645,6 +667,12 @@ func (s *Server) SetSealedBox(sealedBox *crypto.SealedBox) {
 // This is called after the agent is initialized.
 func (s *Server) SetSleepProvider(provider SleepProvider) {
 	s.sleepProvider = provider
+}
+
+// SetRouteManageProvider sets the route management provider.
+// This is called after the agent is initialized.
+func (s *Server) SetRouteManageProvider(provider RouteManageProvider) {
+	s.routeManageProvider = provider
 }
 
 // CanDecryptManagement returns true if management key decryption is available.
@@ -869,6 +897,9 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 			return
 		case parts[1] == "icmp":
 			s.handleICMPWebSocket(w, r, targetID)
+			return
+		case parts[1] == "routes/manage":
+			s.handleRemoteRouteManage(w, r, targetID)
 			return
 		}
 	}
@@ -1231,6 +1262,79 @@ func (s *Server) handleTriggerAdvertise(w http.ResponseWriter, r *http.Request) 
 		"status":  "triggered",
 		"message": "route advertisement triggered",
 	})
+}
+
+// handleRouteManage handles POST /routes/manage to add/remove/list dynamic routes.
+func (s *Server) handleRouteManage(w http.ResponseWriter, r *http.Request) {
+	if !requirePOST(w, r) {
+		return
+	}
+	if s.routeManageProvider == nil {
+		http.Error(w, "route management not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if s.shouldRestrictTopology() {
+		http.Error(w, "route management restricted: management key decryption unavailable", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Action  string `json:"action"`
+		Network string `json:"network"`
+		Metric  uint16 `json:"metric"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request: " + err.Error()})
+		return
+	}
+
+	result, err := s.routeManageProvider.ManageRoute(req.Action, req.Network, req.Metric)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRemoteRouteManage forwards route management requests to a remote agent.
+func (s *Server) handleRemoteRouteManage(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	if !requirePOST(w, r) {
+		return
+	}
+	if s.remoteProvider == nil {
+		http.Error(w, "remote provider not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if s.shouldRestrictTopology() {
+		http.Error(w, "route management restricted: management key decryption unavailable", http.StatusForbidden)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, protocol.ControlTypeRouteManage, body)
+	if err != nil {
+		http.Error(w, "failed to send request: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	if !resp.Success {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write(resp.Data)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp.Data)
 }
 
 // handleSleep handles POST /sleep to trigger mesh-wide sleep mode.

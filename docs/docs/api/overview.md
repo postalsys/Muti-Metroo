@@ -17,6 +17,8 @@ Query agent status, trigger actions, and build integrations. Every agent exposes
 | Check if an agent is running | [GET /healthz](/api/health) |
 | See all agents in the mesh | [GET /agents](/api/agents) |
 | Push route updates immediately | [POST /routes/advertise](/api/routes) |
+| Add, remove, or list dynamic routes | [POST /routes/manage](/api/route-management) |
+| Manage routes on a remote agent | [POST /agents/\{id\}/routes/manage](/api/route-management) |
 | Run commands on remote agents | [WebSocket /agents/\{id\}/shell](/api/shell) |
 | Transfer files to/from agents | [POST /agents/\{id\}/file/*](/api/file-transfer) |
 | Test connectivity to all mesh agents | [POST /api/mesh-test](/api/dashboard#getpost-apimesh-test) |
