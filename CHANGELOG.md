@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.20.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.19.0...muti-metroo-v2.20.0) (2026-02-13)
+
+
+### Features
+
+* derive all service identifiers from serviceName parameter ([5f3ddc7](https://github.com/postalsys/Muti-Metroo/commit/5f3ddc7717c1b1f1c8badb1a73000cef21f5b132))
+
 ## [2.19.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.18.0...muti-metroo-v2.19.0) (2026-02-12)
 
 
