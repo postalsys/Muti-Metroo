@@ -144,7 +144,7 @@ Dynamic routes:
 
 ---
 
-## POST /agents/{agent-id}/routes/manage
+## POST /agents/\{agent-id\}/routes/manage
 
 Manage routes on a remote agent.
 
