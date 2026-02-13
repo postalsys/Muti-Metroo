@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.21.0...muti-metroo-v2.21.1) (2026-02-13)
+
+
+### Bug Fixes
+
+* **docs:** correct route management docs to match implementation ([5acac2c](https://github.com/postalsys/Muti-Metroo/commit/5acac2c13de27d979652a8a581d8f143823dd668))
+
 ## [2.21.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.20.0...muti-metroo-v2.21.0) (2026-02-13)
 
 
