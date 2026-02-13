@@ -110,7 +110,7 @@ curl -X POST http://localhost:8080/routes/manage \
 **Forbidden (403)**:
 
 ```
-management key required but decryption unavailable
+route management restricted: management key decryption unavailable
 ```
 
 **Method Not Allowed (405)**:
@@ -221,7 +221,7 @@ All endpoints may return:
 | 504 | Remote request timeout (remote endpoint only) |
 
 :::note Management Key Protection
-Route management endpoints are protected by the management key when configured. If `management.private_key` is set, the agent must be able to decrypt the management key to perform route management operations. This provides compartmentalization - only agents with the management private key can modify routes.
+Route management endpoints are restricted when `management.public_key` is configured but `management.private_key` is absent. Agents with only the public key (field agents) cannot manage routes and receive HTTP 403. Agents with both keys (operator nodes) can manage routes freely. If no management key is configured, route management is unrestricted.
 :::
 
 :::warning Dynamic Routes are Ephemeral

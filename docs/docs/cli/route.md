@@ -144,23 +144,24 @@ muti-metroo route list -a 192.168.1.10:8080 -t def456
 Standard output:
 
 ```
-Dynamic Exit Routes
-===================
-10.0.0.0/24 (metric 0)
-192.168.1.0/24 (metric 5)
+Dynamic Routes (2)
+NETWORK                  METRIC
+10.0.0.0/24              0
+192.168.1.0/24           5
 ```
 
 JSON output:
 
 ```json
 {
+  "status": "ok",
   "routes": [
     {
-      "cidr": "10.0.0.0/24",
+      "network": "10.0.0.0/24",
       "metric": 0
     },
     {
-      "cidr": "192.168.1.0/24",
+      "network": "192.168.1.0/24",
       "metric": 5
     }
   ]
@@ -173,26 +174,35 @@ JSON output:
 
 ### Management Key Restriction
 
-Dynamic route modifications require management key authorization when the mesh is configured with topology encryption.
+Dynamic route modifications are restricted when the mesh is configured with management key encryption.
 
-If an agent has a `management_public_key` configured, route add/remove commands are only accepted from clients presenting the corresponding private key. This restricts who can modify the mesh topology.
+If an agent has `management.public_key` configured but does NOT have the corresponding `management.private_key`, route add/remove commands are rejected with HTTP 403 Forbidden. This provides compartmentalization -- field agents (with only the public key) cannot modify routes, while operator nodes (with both keys) can.
 
 ```yaml
-# In the agent configuration
+# Field agent config (cannot manage routes)
 management:
-  management_public_key: "base64-encoded-public-key"
+  public_key: "hex-encoded-public-key"
+
+# Operator node config (can manage routes)
+management:
+  public_key: "hex-encoded-public-key"
+  private_key: "hex-encoded-private-key"
 ```
 
-Without authorization, add/remove commands return HTTP 403 Forbidden.
+If no management key is configured at all, route management is unrestricted.
 
 ### Generating Management Keys
 
 ```bash
-# Generate keypair
-muti-metroo management-key generate > private.key
+# Generate keypair (outputs both public and private keys in hex)
+muti-metroo management-key generate
 
-# Derive public key for distribution
-muti-metroo management-key public < private.key
+# Derive public key from an existing private key
+muti-metroo management-key public
+# (interactive prompt for private key in hex)
+
+# Or provide via flag
+muti-metroo management-key public --private <hex-private-key>
 ```
 
 ---
@@ -212,7 +222,9 @@ exit:
 
 ### Route Propagation
 
-After adding or removing a route, the change is advertised to the mesh during the next route advertisement interval (default 2 minutes). To trigger immediate propagation:
+After adding or removing a route, the change is immediately advertised to all connected peers. No manual action is required.
+
+To trigger a route advertisement at any other time (e.g., after configuration changes), use:
 
 ```bash
 curl -X POST http://localhost:8080/routes/advertise
