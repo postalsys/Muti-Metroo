@@ -381,10 +381,7 @@ running:
 
 // User service constants for Registry-based installation.
 const (
-	userServiceDirName = ".muti-metroo"
-	userPIDFileName    = "muti-metroo.pid"
-	userLogFileName    = "muti-metroo.log"
-	userInfoFileName   = "service.info"
+	userInfoFileName = "service.info"
 	// Registry path for user logon startup
 	registryRunKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
 )
@@ -405,13 +402,14 @@ func hasCrontab() bool {
 // ErrCrontabNotFound is returned when crontab is not available.
 var ErrCrontabNotFound = errors.New("crontab not available on Windows - use Registry Run key")
 
-// getUserServiceDir returns %USERPROFILE%\.muti-metroo
-func getUserServiceDir() (string, error) {
+// getUserServiceDir returns %USERPROFILE%\.<serviceName>
+func getUserServiceDir(serviceName string) (string, error) {
 	userProfile := os.Getenv("USERPROFILE")
 	if userProfile == "" {
 		return "", fmt.Errorf("USERPROFILE environment variable not set")
 	}
-	return filepath.Join(userProfile, userServiceDirName), nil
+	names := DeriveNames(serviceName)
+	return filepath.Join(userProfile, names.DirName), nil
 }
 
 // installUserImpl is not supported for regular user service on Windows.
@@ -425,7 +423,7 @@ func installUserImpl(cfg ServiceConfig, execPath string) error {
 // The serviceName is used as the Registry value name (visible in Windows startup apps).
 func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
 	// Get service directory
-	serviceDir, err := getUserServiceDir()
+	serviceDir, err := getUserServiceDir(serviceName)
 	if err != nil {
 		return err
 	}
@@ -456,15 +454,14 @@ func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
 		return fmt.Errorf("config file not found: %s", absConfigPath)
 	}
 
-	// Convert service name to registry value name (remove spaces, use PascalCase-like format)
-	registryValueName := toRegistryValueName(serviceName)
+	names := DeriveNames(serviceName)
 
 	// Build the run command with full path to rundll32.exe
 	// Using full path ensures the command works from Registry Run key at logon
 	// Note: Paths must NOT be quoted - rundll32 doesn't parse quoted arguments correctly
 	// The lpszCmdLine parameter to the DLL entry point will be empty if paths are quoted
 	rundll32Path := filepath.Join(getSystemRoot(), "System32", "rundll32.exe")
-	runCommand := fmt.Sprintf(`%s %s,Run %s`, rundll32Path, absDLLPath, absConfigPath)
+	rundll32Cmd := fmt.Sprintf(`%s %s,Run %s`, rundll32Path, absDLLPath, absConfigPath)
 
 	// Open HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run
 	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunKeyPath, registry.SET_VALUE)
@@ -474,14 +471,14 @@ func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
 	defer key.Close()
 
 	// Set the value using the custom service name
-	if err := key.SetStringValue(registryValueName, runCommand); err != nil {
+	if err := key.SetStringValue(names.RegistryValue, rundll32Cmd); err != nil {
 		return fmt.Errorf("failed to set registry value: %w", err)
 	}
 
 	// Save config info for status display and uninstall
 	infoPath := filepath.Join(serviceDir, userInfoFileName)
 	infoContent := fmt.Sprintf("name=%s\nregistry_value=%s\ndll=%s\nconfig=%s\n",
-		serviceName, registryValueName, absDLLPath, absConfigPath)
+		serviceName, names.RegistryValue, absDLLPath, absConfigPath)
 	if err := os.WriteFile(infoPath, []byte(infoContent), 0644); err != nil {
 		// Non-fatal, just for status display
 		fmt.Printf("Warning: could not save service info: %v\n", err)
@@ -489,32 +486,12 @@ func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
 
 	// Start the service immediately after installation
 	fmt.Println("Starting service...")
-	if err := startUserImpl(); err != nil {
+	if err := startUserImpl(serviceName); err != nil {
 		fmt.Printf("Warning: could not start service immediately: %v\n", err)
 		fmt.Println("The service will start automatically at next logon.")
 	}
 
 	return nil
-}
-
-// toRegistryValueName converts a service name to a valid Registry value name.
-// Removes spaces and special characters, converts to PascalCase-like format.
-// Examples: "muti-metroo" -> "MutiMetroo", "Tunnel Manager" -> "TunnelManager"
-func toRegistryValueName(serviceName string) string {
-	// Replace hyphens and underscores with spaces for word splitting
-	name := strings.ReplaceAll(serviceName, "-", " ")
-	name = strings.ReplaceAll(name, "_", " ")
-
-	// Split into words and capitalize each
-	words := strings.Fields(name)
-	for i, word := range words {
-		if len(word) > 0 {
-			words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
-		}
-	}
-
-	// Join without spaces
-	return strings.Join(words, "")
 }
 
 // userServiceInfo holds information read from service.info file.
@@ -527,8 +504,8 @@ type userServiceInfo struct {
 
 // readUserServiceInfo reads the service info from the service.info file.
 // Returns nil if the file doesn't exist or can't be parsed.
-func readUserServiceInfo() *userServiceInfo {
-	serviceDir, err := getUserServiceDir()
+func readUserServiceInfo(serviceName string) *userServiceInfo {
+	serviceDir, err := getUserServiceDir(serviceName)
 	if err != nil {
 		return nil
 	}
@@ -560,12 +537,12 @@ func readUserServiceInfo() *userServiceInfo {
 }
 
 // uninstallUserImpl removes the Windows user service (Registry Run key entry).
-func uninstallUserImpl() error {
+func uninstallUserImpl(serviceName string) error {
 	// First try to stop any running process
-	_ = stopUserImpl() // Ignore error, process may not be running
+	_ = stopUserImpl(serviceName) // Ignore error, process may not be running
 
 	// Read service info to get the registry value name
-	info := readUserServiceInfo()
+	info := readUserServiceInfo(serviceName)
 	if info == nil {
 		// No service.info, nothing to uninstall
 		return nil
@@ -589,7 +566,7 @@ func uninstallUserImpl() error {
 	}
 
 	// Clean up service directory
-	serviceDir, err := getUserServiceDir()
+	serviceDir, err := getUserServiceDir(serviceName)
 	if err == nil {
 		infoPath := filepath.Join(serviceDir, userInfoFileName)
 		os.Remove(infoPath)
@@ -600,9 +577,9 @@ func uninstallUserImpl() error {
 }
 
 // statusUserImpl returns the status of the Windows user service.
-func statusUserImpl() (string, error) {
+func statusUserImpl(serviceName string) (string, error) {
 	// Read service info
-	info := readUserServiceInfo()
+	info := readUserServiceInfo(serviceName)
 	if info == nil {
 		return "not installed", nil
 	}
@@ -633,18 +610,13 @@ func statusUserImpl() (string, error) {
 		return fmt.Sprintf("running as '%s'", info.Name), nil
 	}
 
-	// Fallback: check for muti-metroo in command line (for older installations)
-	if strings.Contains(string(output), "muti-metroo") {
-		return fmt.Sprintf("running as '%s'", info.Name), nil
-	}
-
 	return fmt.Sprintf("stopped (installed as '%s')", info.Name), nil
 }
 
 // startUserImpl starts the Windows user service by running the DLL via rundll32.
-func startUserImpl() error {
+func startUserImpl(serviceName string) error {
 	// Read the service info to get the DLL and config paths
-	info := readUserServiceInfo()
+	info := readUserServiceInfo(serviceName)
 	if info == nil {
 		return fmt.Errorf("service info not found - is the service installed?")
 	}
@@ -657,17 +629,17 @@ func startUserImpl() error {
 	rundll32Path := filepath.Join(getSystemRoot(), "System32", "rundll32.exe")
 
 	// Build the rundll32 command (paths must NOT be quoted)
-	runCommand := fmt.Sprintf(`%s %s,Run %s`, rundll32Path, info.DLLPath, info.ConfigPath)
+	rundll32Cmd := fmt.Sprintf(`%s %s,Run %s`, rundll32Path, info.DLLPath, info.ConfigPath)
 
-	// Use a temporary scheduled task to start the process
+	// Use a temporary scheduled task to start the process.
 	// This works reliably even in non-interactive sessions (SSH, services)
-	// and runs the process in the user's interactive session
-	taskName := "MutiMetrooStart"
+	// and runs the process in the user's interactive session.
+	taskName := DeriveNames(serviceName).TaskName
 
 	// Create a one-time scheduled task
 	createCmd := exec.Command("schtasks", "/Create",
 		"/TN", taskName,
-		"/TR", runCommand,
+		"/TR", rundll32Cmd,
 		"/SC", "ONCE",
 		"/ST", "00:00",
 		"/F") // Force overwrite if exists
@@ -694,9 +666,9 @@ func startUserImpl() error {
 }
 
 // stopUserImpl stops the Windows user service by terminating rundll32 processes.
-func stopUserImpl() error {
+func stopUserImpl(serviceName string) error {
 	// Read service info to get the DLL path for targeted process termination
-	info := readUserServiceInfo()
+	info := readUserServiceInfo(serviceName)
 
 	// Use PowerShell Get-CimInstance to find rundll32 processes with our DLL
 	// This replaces the deprecated wmic command
@@ -717,24 +689,19 @@ func stopUserImpl() error {
 			continue
 		}
 
-		// Check if this is our process by looking for our DLL path or muti-metroo
-		isOurProcess := false
-		if info != nil && info.DLLPath != "" && strings.Contains(line, info.DLLPath) {
-			isOurProcess = true
-		} else if strings.Contains(line, "muti-metroo") {
-			isOurProcess = true
+		// Check if this is our process by looking for our DLL path
+		if info == nil || info.DLLPath == "" || !strings.Contains(line, info.DLLPath) {
+			continue
 		}
 
-		if isOurProcess {
-			// Extract PID from CSV (first field after removing quotes)
-			// Line format: "1234","C:\...\rundll32.exe ..."
-			line = strings.TrimPrefix(line, `"`)
-			if idx := strings.Index(line, `"`); idx > 0 {
-				pid := line[:idx]
-				if pid != "" {
-					killCmd := exec.Command("taskkill", "/PID", pid, "/F")
-					killCmd.Run() // Ignore error
-				}
+		// Extract PID from CSV (first field after removing quotes)
+		// Line format: "1234","C:\...\rundll32.exe ..."
+		line = strings.TrimPrefix(line, `"`)
+		if idx := strings.Index(line, `"`); idx > 0 {
+			pid := line[:idx]
+			if pid != "" {
+				killCmd := exec.Command("taskkill", "/PID", pid, "/F")
+				killCmd.Run() // Ignore error
 			}
 		}
 	}
@@ -743,9 +710,9 @@ func stopUserImpl() error {
 }
 
 // isUserInstalledImpl checks if the Windows user service is installed.
-func isUserInstalledImpl() bool {
+func isUserInstalledImpl(serviceName string) bool {
 	// Read service info to get the registry value name
-	info := readUserServiceInfo()
+	info := readUserServiceInfo(serviceName)
 	if info == nil {
 		return false
 	}
@@ -763,8 +730,8 @@ func isUserInstalledImpl() bool {
 }
 
 // getUserServiceInfoImpl returns information about the Windows user service.
-func getUserServiceInfoImpl() *UserServiceInfo {
-	info := readUserServiceInfo()
+func getUserServiceInfoImpl(serviceName string) *UserServiceInfo {
+	info := readUserServiceInfo(serviceName)
 	if info == nil {
 		return nil
 	}

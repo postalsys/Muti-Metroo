@@ -168,27 +168,8 @@ func TestIsRootImplLinux(t *testing.T) {
 // Cron Service Tests
 // =============================================================================
 
-func TestCronServiceConstants(t *testing.T) {
-	// Verify constants have expected values
-	if cronServiceDirName != ".muti-metroo" {
-		t.Errorf("cronServiceDirName = %q, want %q", cronServiceDirName, ".muti-metroo")
-	}
-	if cronScriptName != "muti-metroo.sh" {
-		t.Errorf("cronScriptName = %q, want %q", cronScriptName, "muti-metroo.sh")
-	}
-	if cronPIDFileName != "muti-metroo.pid" {
-		t.Errorf("cronPIDFileName = %q, want %q", cronPIDFileName, "muti-metroo.pid")
-	}
-	if cronLogFileName != "muti-metroo.log" {
-		t.Errorf("cronLogFileName = %q, want %q", cronLogFileName, "muti-metroo.log")
-	}
-	if cronMarker != "# muti-metroo-cron" {
-		t.Errorf("cronMarker = %q, want %q", cronMarker, "# muti-metroo-cron")
-	}
-}
-
 func TestGetCronServiceDir(t *testing.T) {
-	serviceDir, err := getCronServiceDir()
+	serviceDir, err := getCronServiceDir("muti-metroo")
 	if err != nil {
 		t.Fatalf("getCronServiceDir() error: %v", err)
 	}
@@ -210,12 +191,29 @@ func TestGetCronServiceDir(t *testing.T) {
 	}
 }
 
+func TestGetCronServiceDirCustom(t *testing.T) {
+	serviceDir, err := getCronServiceDir("my-tunnel")
+	if err != nil {
+		t.Fatalf("getCronServiceDir() error: %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir() error: %v", err)
+	}
+
+	expected := filepath.Join(home, ".my-tunnel")
+	if serviceDir != expected {
+		t.Errorf("getCronServiceDir('my-tunnel') = %q, want %q", serviceDir, expected)
+	}
+}
+
 func TestGenerateCronScript(t *testing.T) {
 	configPath := "/home/testuser/config.yaml"
 	binaryPath := "/usr/local/bin/muti-metroo"
 	serviceDir := "/home/testuser/.muti-metroo"
 
-	script := generateCronScript(configPath, binaryPath, serviceDir)
+	script := generateCronScript(configPath, binaryPath, serviceDir, "muti-metroo")
 
 	// Check shebang
 	if !strings.HasPrefix(script, "#!/bin/bash") {
@@ -223,7 +221,7 @@ func TestGenerateCronScript(t *testing.T) {
 	}
 
 	// Check header comment
-	if !strings.Contains(script, "Muti Metroo user service wrapper") {
+	if !strings.Contains(script, "muti-metroo user service wrapper") {
 		t.Error("Script missing header comment")
 	}
 
@@ -281,7 +279,7 @@ func TestGenerateCronScriptWithSpaces(t *testing.T) {
 	binaryPath := "/usr/local/bin/muti metroo"
 	serviceDir := "/home/test user/.muti-metroo"
 
-	script := generateCronScript(configPath, binaryPath, serviceDir)
+	script := generateCronScript(configPath, binaryPath, serviceDir, "muti-metroo")
 
 	// Paths should be quoted in the script
 	if !strings.Contains(script, `CONFIG="/home/test user/my config.yaml"`) {
@@ -309,11 +307,11 @@ func TestErrCrontabNotFound(t *testing.T) {
 
 func TestStatusUserImplNotInstalled(t *testing.T) {
 	// Skip if running as root or if cron service is already installed
-	if isUserInstalledImpl() {
+	if isUserInstalledImpl("muti-metroo") {
 		t.Skip("Skipping test because user service is installed")
 	}
 
-	status, err := statusUserImpl()
+	status, err := statusUserImpl("muti-metroo")
 	if err != nil {
 		t.Fatalf("statusUserImpl() error: %v", err)
 	}
@@ -325,8 +323,8 @@ func TestStatusUserImplNotInstalled(t *testing.T) {
 
 func TestIsUserInstalledImplConsistent(t *testing.T) {
 	// Test that isUserInstalledImpl returns consistent values
-	result1 := isUserInstalledImpl()
-	result2 := isUserInstalledImpl()
+	result1 := isUserInstalledImpl("muti-metroo")
+	result2 := isUserInstalledImpl("muti-metroo")
 
 	if result1 != result2 {
 		t.Error("isUserInstalledImpl() returned inconsistent results")
@@ -336,13 +334,15 @@ func TestIsUserInstalledImplConsistent(t *testing.T) {
 // TestCronEntryIntegration tests the full cron entry add/remove cycle.
 // This test modifies the user's crontab and should only run in CI or isolated environments.
 func TestCronEntryIntegration(t *testing.T) {
+	testServiceName := "muti-metroo-test"
+
 	// Skip if crontab is not available
 	if !hasCrontab() {
 		t.Skip("crontab not available")
 	}
 
 	// Skip if already installed (don't interfere with real installation)
-	if isUserInstalledImpl() {
+	if isUserInstalledImpl(testServiceName) {
 		t.Skip("user service already installed")
 	}
 
@@ -359,27 +359,27 @@ func TestCronEntryIntegration(t *testing.T) {
 	}
 
 	// Test addCronEntry
-	if err := addCronEntry(scriptPath); err != nil {
+	if err := addCronEntry(scriptPath, testServiceName); err != nil {
 		t.Fatalf("addCronEntry() error: %v", err)
 	}
 
 	// Verify entry was added
-	if !isUserInstalledImpl() {
+	if !isUserInstalledImpl(testServiceName) {
 		t.Error("isUserInstalledImpl() = false after addCronEntry, want true")
 	}
 
 	// Test adding duplicate entry should fail
-	if err := addCronEntry(scriptPath); err == nil {
+	if err := addCronEntry(scriptPath, testServiceName); err == nil {
 		t.Error("addCronEntry() should fail for duplicate entry")
 	}
 
 	// Test removeCronEntry
-	if err := removeCronEntry(); err != nil {
+	if err := removeCronEntry(testServiceName); err != nil {
 		t.Fatalf("removeCronEntry() error: %v", err)
 	}
 
 	// Verify entry was removed
-	if isUserInstalledImpl() {
+	if isUserInstalledImpl(testServiceName) {
 		t.Error("isUserInstalledImpl() = true after removeCronEntry, want false")
 	}
 }
@@ -387,13 +387,16 @@ func TestCronEntryIntegration(t *testing.T) {
 // TestUserServiceLifecycle tests the full user service lifecycle.
 // This test modifies the user's crontab and creates files in ~/.muti-metroo.
 func TestUserServiceLifecycle(t *testing.T) {
+	testServiceName := "muti-metroo-test"
+	names := DeriveNames(testServiceName)
+
 	// Skip if crontab is not available
 	if !hasCrontab() {
 		t.Skip("crontab not available")
 	}
 
 	// Skip if already installed (don't interfere with real installation)
-	if isUserInstalledImpl() {
+	if isUserInstalledImpl(testServiceName) {
 		t.Skip("user service already installed")
 	}
 
@@ -416,19 +419,19 @@ func TestUserServiceLifecycle(t *testing.T) {
 	}
 
 	cfg := ServiceConfig{
-		Name:       "muti-metroo-test",
+		Name:       testServiceName,
 		ConfigPath: configPath,
 	}
 
 	// Get service dir before install for cleanup
-	serviceDir, err := getCronServiceDir()
+	serviceDir, err := getCronServiceDir(testServiceName)
 	if err != nil {
 		t.Fatalf("getCronServiceDir() error: %v", err)
 	}
 
 	// Cleanup function
 	cleanup := func() {
-		removeCronEntry()
+		removeCronEntry(testServiceName)
 		os.RemoveAll(serviceDir)
 	}
 	defer cleanup()
@@ -439,18 +442,18 @@ func TestUserServiceLifecycle(t *testing.T) {
 	}
 
 	// Verify installation
-	if !isUserInstalledImpl() {
+	if !isUserInstalledImpl(testServiceName) {
 		t.Error("isUserInstalledImpl() = false after install, want true")
 	}
 
 	// Check wrapper script exists
-	scriptPath := filepath.Join(serviceDir, cronScriptName)
+	scriptPath := filepath.Join(serviceDir, names.ScriptName)
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		t.Error("wrapper script not created")
 	}
 
 	// Test status
-	status, err := statusUserImpl()
+	status, err := statusUserImpl(testServiceName)
 	if err != nil {
 		t.Fatalf("statusUserImpl() error: %v", err)
 	}
@@ -460,12 +463,12 @@ func TestUserServiceLifecycle(t *testing.T) {
 	}
 
 	// Test uninstall
-	if err := uninstallUserImpl(); err != nil {
+	if err := uninstallUserImpl(testServiceName); err != nil {
 		t.Fatalf("uninstallUserImpl() error: %v", err)
 	}
 
 	// Verify uninstallation
-	if isUserInstalledImpl() {
+	if isUserInstalledImpl(testServiceName) {
 		t.Error("isUserInstalledImpl() = true after uninstall, want false")
 	}
 

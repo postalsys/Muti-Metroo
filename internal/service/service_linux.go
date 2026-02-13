@@ -208,27 +208,23 @@ func installImplEmbedded(cfg ServiceConfig, execPath string) error {
 // Cron+Nohup User Service (non-root installation)
 // =============================================================================
 
-const (
-	cronServiceDirName = ".muti-metroo"
-	cronScriptName     = "muti-metroo.sh"
-	cronPIDFileName    = "muti-metroo.pid"
-	cronLogFileName    = "muti-metroo.log"
-	cronMarker         = "# muti-metroo-cron"
-)
-
-// getCronServiceDir returns the path to ~/.muti-metroo
-func getCronServiceDir() (string, error) {
+// getCronServiceDir returns the path to ~/.<serviceName>
+func getCronServiceDir(serviceName string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(home, cronServiceDirName), nil
+	names := DeriveNames(serviceName)
+	return filepath.Join(home, names.DirName), nil
 }
 
 // installUserImpl installs the service using cron @reboot and nohup.
 func installUserImpl(cfg ServiceConfig, execPath string) error {
+	serviceName := cfg.Name
+	names := DeriveNames(serviceName)
+
 	// Get service directory
-	serviceDir, err := getCronServiceDir()
+	serviceDir, err := getCronServiceDir(serviceName)
 	if err != nil {
 		return err
 	}
@@ -239,7 +235,7 @@ func installUserImpl(cfg ServiceConfig, execPath string) error {
 	}
 
 	// Check if already installed
-	if isUserInstalledImpl() {
+	if isUserInstalledImpl(serviceName) {
 		return fmt.Errorf("user service is already installed")
 	}
 
@@ -250,46 +246,48 @@ func installUserImpl(cfg ServiceConfig, execPath string) error {
 	}
 
 	// Generate wrapper script
-	scriptPath := filepath.Join(serviceDir, cronScriptName)
-	script := generateCronScript(configPath, execPath, serviceDir)
+	scriptPath := filepath.Join(serviceDir, names.ScriptName)
+	script := generateCronScript(configPath, execPath, serviceDir, serviceName)
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		return fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 	fmt.Printf("Created wrapper script: %s\n", scriptPath)
 
 	// Add cron entry
-	if err := addCronEntry(scriptPath); err != nil {
+	if err := addCronEntry(scriptPath, serviceName); err != nil {
 		os.Remove(scriptPath)
 		return fmt.Errorf("failed to add cron entry: %w", err)
 	}
 	fmt.Println("Added @reboot cron entry")
 
 	// Start the service now
-	if err := startUserImpl(); err != nil {
+	if err := startUserImpl(serviceName); err != nil {
 		fmt.Printf("Note: could not start service: %v\n", err)
 		fmt.Println("The service will start on next reboot")
 	} else {
 		fmt.Println("Started service")
 	}
 
-	fmt.Printf("\nLog file: %s\n", filepath.Join(serviceDir, cronLogFileName))
+	fmt.Printf("\nLog file: %s\n", filepath.Join(serviceDir, names.LogFileName))
 
 	return nil
 }
 
 // uninstallUserImpl removes the cron-based user service.
-func uninstallUserImpl() error {
-	serviceDir, err := getCronServiceDir()
+func uninstallUserImpl(serviceName string) error {
+	names := DeriveNames(serviceName)
+
+	serviceDir, err := getCronServiceDir(serviceName)
 	if err != nil {
 		return err
 	}
 
-	if !isUserInstalledImpl() {
+	if !isUserInstalledImpl(serviceName) {
 		return fmt.Errorf("user service is not installed")
 	}
 
 	// Stop the service if running
-	if err := stopUserImpl(); err != nil {
+	if err := stopUserImpl(serviceName); err != nil {
 		// Ignore errors, service might not be running
 		fmt.Printf("Note: could not stop service: %v\n", err)
 	} else {
@@ -297,14 +295,14 @@ func uninstallUserImpl() error {
 	}
 
 	// Remove cron entry
-	if err := removeCronEntry(); err != nil {
+	if err := removeCronEntry(serviceName); err != nil {
 		fmt.Printf("Note: could not remove cron entry: %v\n", err)
 	} else {
 		fmt.Println("Removed cron entry")
 	}
 
 	// Remove wrapper script
-	scriptPath := filepath.Join(serviceDir, cronScriptName)
+	scriptPath := filepath.Join(serviceDir, names.ScriptName)
 	if err := os.Remove(scriptPath); err != nil && !os.IsNotExist(err) {
 		fmt.Printf("Note: could not remove script: %v\n", err)
 	} else {
@@ -312,28 +310,30 @@ func uninstallUserImpl() error {
 	}
 
 	// Remove PID file
-	pidPath := filepath.Join(serviceDir, cronPIDFileName)
+	pidPath := filepath.Join(serviceDir, names.PIDFileName)
 	os.Remove(pidPath)
 
 	// Keep log file and directory for reference
-	fmt.Printf("\nNote: Log file preserved at %s\n", filepath.Join(serviceDir, cronLogFileName))
+	fmt.Printf("\nNote: Log file preserved at %s\n", filepath.Join(serviceDir, names.LogFileName))
 
 	return nil
 }
 
 // statusUserImpl returns the status of the cron-based user service.
-func statusUserImpl() (string, error) {
-	serviceDir, err := getCronServiceDir()
+func statusUserImpl(serviceName string) (string, error) {
+	names := DeriveNames(serviceName)
+
+	serviceDir, err := getCronServiceDir(serviceName)
 	if err != nil {
 		return "", err
 	}
 
-	if !isUserInstalledImpl() {
+	if !isUserInstalledImpl(serviceName) {
 		return "not installed", nil
 	}
 
 	// Check if process is running
-	pidPath := filepath.Join(serviceDir, cronPIDFileName)
+	pidPath := filepath.Join(serviceDir, names.PIDFileName)
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
 		return "inactive (no pid file)", nil
@@ -359,19 +359,21 @@ func statusUserImpl() (string, error) {
 }
 
 // startUserImpl starts the cron-based user service.
-func startUserImpl() error {
-	serviceDir, err := getCronServiceDir()
+func startUserImpl(serviceName string) error {
+	names := DeriveNames(serviceName)
+
+	serviceDir, err := getCronServiceDir(serviceName)
 	if err != nil {
 		return err
 	}
 
-	scriptPath := filepath.Join(serviceDir, cronScriptName)
+	scriptPath := filepath.Join(serviceDir, names.ScriptName)
 	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
 		return fmt.Errorf("service not installed")
 	}
 
 	// Check if already running
-	pidPath := filepath.Join(serviceDir, cronPIDFileName)
+	pidPath := filepath.Join(serviceDir, names.PIDFileName)
 	if pidData, err := os.ReadFile(pidPath); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(pidData))); err == nil {
 			if process, err := os.FindProcess(pid); err == nil {
@@ -393,13 +395,15 @@ func startUserImpl() error {
 }
 
 // stopUserImpl stops the cron-based user service.
-func stopUserImpl() error {
-	serviceDir, err := getCronServiceDir()
+func stopUserImpl(serviceName string) error {
+	names := DeriveNames(serviceName)
+
+	serviceDir, err := getCronServiceDir(serviceName)
 	if err != nil {
 		return err
 	}
 
-	pidPath := filepath.Join(serviceDir, cronPIDFileName)
+	pidPath := filepath.Join(serviceDir, names.PIDFileName)
 	pidData, err := os.ReadFile(pidPath)
 	if err != nil {
 		return fmt.Errorf("service not running (no pid file)")
@@ -428,24 +432,28 @@ func stopUserImpl() error {
 }
 
 // isUserInstalledImpl checks if the cron-based user service is installed.
-func isUserInstalledImpl() bool {
+func isUserInstalledImpl(serviceName string) bool {
+	names := DeriveNames(serviceName)
+
 	// Check if cron entry exists
 	output, err := exec.Command("crontab", "-l").CombinedOutput()
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(output), cronMarker)
+	return strings.Contains(string(output), names.CronMarker)
 }
 
 // getUserServiceInfoImpl returns information about the Linux user service.
-func getUserServiceInfoImpl() *UserServiceInfo {
-	serviceDir, err := getCronServiceDir()
+func getUserServiceInfoImpl(serviceName string) *UserServiceInfo {
+	names := DeriveNames(serviceName)
+
+	serviceDir, err := getCronServiceDir(serviceName)
 	if err != nil {
 		return nil
 	}
 
 	// Read config path from the cron script
-	scriptPath := filepath.Join(serviceDir, cronScriptName)
+	scriptPath := filepath.Join(serviceDir, names.ScriptName)
 	scriptData, err := os.ReadFile(scriptPath)
 	if err != nil {
 		return nil
@@ -461,17 +469,19 @@ func getUserServiceInfoImpl() *UserServiceInfo {
 	}
 
 	return &UserServiceInfo{
-		Name:       "muti-metroo",
+		Name:       serviceName,
 		ConfigPath: configPath,
-		LogPath:    filepath.Join(serviceDir, cronLogFileName),
+		LogPath:    filepath.Join(serviceDir, names.LogFileName),
 	}
 }
 
 // generateCronScript generates the wrapper script for nohup execution.
-func generateCronScript(configPath, binaryPath, serviceDir string) string {
+func generateCronScript(configPath, binaryPath, serviceDir, serviceName string) string {
+	names := DeriveNames(serviceName)
+
 	return fmt.Sprintf(`#!/bin/bash
-# Muti Metroo user service wrapper
-# This script is managed by 'muti-metroo service install --user'
+# %s user service wrapper
+# This script is managed by '%s service install --user'
 
 PIDFILE="%s"
 LOGFILE="%s"
@@ -494,15 +504,19 @@ nohup "$BINARY" run -c "$CONFIG" >> "$LOGFILE" 2>&1 &
 echo $! > "$PIDFILE"
 echo "Started (PID $!)"
 `,
-		filepath.Join(serviceDir, cronPIDFileName),
-		filepath.Join(serviceDir, cronLogFileName),
+		serviceName,
+		serviceName,
+		filepath.Join(serviceDir, names.PIDFileName),
+		filepath.Join(serviceDir, names.LogFileName),
 		configPath,
 		binaryPath,
 	)
 }
 
 // addCronEntry adds the @reboot entry to user's crontab.
-func addCronEntry(scriptPath string) error {
+func addCronEntry(scriptPath, serviceName string) error {
+	names := DeriveNames(serviceName)
+
 	// Get existing crontab
 	output, err := exec.Command("crontab", "-l").CombinedOutput()
 	if err != nil {
@@ -514,12 +528,12 @@ func addCronEntry(scriptPath string) error {
 	}
 
 	// Check if already has our entry
-	if strings.Contains(string(output), cronMarker) {
+	if strings.Contains(string(output), names.CronMarker) {
 		return fmt.Errorf("cron entry already exists")
 	}
 
 	// Add our entry
-	newEntry := fmt.Sprintf("@reboot %s %s\n", scriptPath, cronMarker)
+	newEntry := fmt.Sprintf("@reboot %s %s\n", scriptPath, names.CronMarker)
 	var newCrontab bytes.Buffer
 	if len(output) > 0 {
 		newCrontab.Write(output)
@@ -540,8 +554,10 @@ func addCronEntry(scriptPath string) error {
 	return nil
 }
 
-// removeCronEntry removes the muti-metroo entry from user's crontab.
-func removeCronEntry() error {
+// removeCronEntry removes the service entry from user's crontab.
+func removeCronEntry(serviceName string) error {
+	names := DeriveNames(serviceName)
+
 	// Get existing crontab
 	output, err := exec.Command("crontab", "-l").CombinedOutput()
 	if err != nil {
@@ -552,7 +568,7 @@ func removeCronEntry() error {
 	var newCrontab bytes.Buffer
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
-		if strings.Contains(line, cronMarker) {
+		if strings.Contains(line, names.CronMarker) {
 			continue // Skip our entry
 		}
 		if line == "" && newCrontab.Len() == 0 {

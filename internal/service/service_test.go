@@ -6,6 +6,84 @@ import (
 	"testing"
 )
 
+func TestDeriveNamesDefault(t *testing.T) {
+	names := DeriveNames("muti-metroo")
+
+	if names.DirName != ".muti-metroo" {
+		t.Errorf("DirName = %q, want %q", names.DirName, ".muti-metroo")
+	}
+	if names.PIDFileName != "muti-metroo.pid" {
+		t.Errorf("PIDFileName = %q, want %q", names.PIDFileName, "muti-metroo.pid")
+	}
+	if names.LogFileName != "muti-metroo.log" {
+		t.Errorf("LogFileName = %q, want %q", names.LogFileName, "muti-metroo.log")
+	}
+	if names.ScriptName != "muti-metroo.sh" {
+		t.Errorf("ScriptName = %q, want %q", names.ScriptName, "muti-metroo.sh")
+	}
+	if names.CronMarker != "# muti-metroo-cron" {
+		t.Errorf("CronMarker = %q, want %q", names.CronMarker, "# muti-metroo-cron")
+	}
+	if names.TaskName != "MutiMetrooStart" {
+		t.Errorf("TaskName = %q, want %q", names.TaskName, "MutiMetrooStart")
+	}
+	if names.RegistryValue != "MutiMetroo" {
+		t.Errorf("RegistryValue = %q, want %q", names.RegistryValue, "MutiMetroo")
+	}
+}
+
+func TestDeriveNamesCustom(t *testing.T) {
+	names := DeriveNames("my-tunnel")
+
+	if names.DirName != ".my-tunnel" {
+		t.Errorf("DirName = %q, want %q", names.DirName, ".my-tunnel")
+	}
+	if names.PIDFileName != "my-tunnel.pid" {
+		t.Errorf("PIDFileName = %q, want %q", names.PIDFileName, "my-tunnel.pid")
+	}
+	if names.LogFileName != "my-tunnel.log" {
+		t.Errorf("LogFileName = %q, want %q", names.LogFileName, "my-tunnel.log")
+	}
+	if names.ScriptName != "my-tunnel.sh" {
+		t.Errorf("ScriptName = %q, want %q", names.ScriptName, "my-tunnel.sh")
+	}
+	if names.CronMarker != "# my-tunnel-cron" {
+		t.Errorf("CronMarker = %q, want %q", names.CronMarker, "# my-tunnel-cron")
+	}
+	if names.TaskName != "MyTunnelStart" {
+		t.Errorf("TaskName = %q, want %q", names.TaskName, "MyTunnelStart")
+	}
+	if names.RegistryValue != "MyTunnel" {
+		t.Errorf("RegistryValue = %q, want %q", names.RegistryValue, "MyTunnel")
+	}
+}
+
+func TestToRegistryValueName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"muti-metroo", "MutiMetroo"},
+		{"My Tunnel", "MyTunnel"},
+		{"Tunnel  Manager", "TunnelManager"},
+		{"my_tunnel_service", "MyTunnelService"},
+		{"my-tunnel_service name", "MyTunnelServiceName"},
+		{"MyTunnel", "Mytunnel"},
+		{"MYTUNNEL", "Mytunnel"},
+		{"tunnel", "Tunnel"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := ToRegistryValueName(tt.input)
+			if result != tt.expected {
+				t.Errorf("ToRegistryValueName(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	configPath := "/path/to/config.yaml"
 	cfg := DefaultConfig(configPath)
@@ -214,14 +292,14 @@ func TestUninstallWithoutRoot(t *testing.T) {
 
 func TestIsUserInstalled(t *testing.T) {
 	// Test that IsUserInstalled returns a boolean without panicking
-	result := IsUserInstalled()
+	result := IsUserInstalled("muti-metroo")
 	_ = result // Result depends on system state
 }
 
 func TestIsUserInstalledConsistent(t *testing.T) {
 	// Test that IsUserInstalled returns consistent values
-	result1 := IsUserInstalled()
-	result2 := IsUserInstalled()
+	result1 := IsUserInstalled("muti-metroo")
+	result2 := IsUserInstalled("muti-metroo")
 
 	if result1 != result2 {
 		t.Error("IsUserInstalled() returned inconsistent results")
@@ -235,11 +313,11 @@ func TestStatusUserNotInstalled(t *testing.T) {
 	}
 
 	// Skip if user service is installed
-	if IsUserInstalled() {
+	if IsUserInstalled("muti-metroo") {
 		t.Skip("Skipping test because user service is installed")
 	}
 
-	status, err := StatusUser()
+	status, err := StatusUser("muti-metroo")
 	if err != nil {
 		t.Fatalf("StatusUser() error: %v", err)
 	}
@@ -270,7 +348,7 @@ func TestUninstallUserUnsupportedPlatform(t *testing.T) {
 		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
-	err := UninstallUser()
+	err := UninstallUser("muti-metroo")
 
 	// Should return an error on unsupported platforms (e.g., macOS)
 	if err == nil {
@@ -284,7 +362,7 @@ func TestStartUserUnsupportedPlatform(t *testing.T) {
 		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
-	err := StartUser()
+	err := StartUser("muti-metroo")
 
 	// Should return an error on unsupported platforms (e.g., macOS)
 	if err == nil {
@@ -298,7 +376,7 @@ func TestStopUserUnsupportedPlatform(t *testing.T) {
 		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
-	err := StopUser()
+	err := StopUser("muti-metroo")
 
 	// Should return an error on unsupported platforms (e.g., macOS)
 	if err == nil {
@@ -330,7 +408,7 @@ func TestStatusUserUnsupportedPlatform(t *testing.T) {
 		t.Skip("Skipping unsupported platform test on " + runtime.GOOS)
 	}
 
-	_, err := StatusUser()
+	_, err := StatusUser("muti-metroo")
 
 	if err == nil {
 		t.Error("StatusUser() should return error on unsupported platform")
@@ -339,11 +417,11 @@ func TestStatusUserUnsupportedPlatform(t *testing.T) {
 
 func TestGetUserServiceInfoNotInstalled(t *testing.T) {
 	// Skip on platforms where user service might be installed
-	if IsUserInstalled() {
+	if IsUserInstalled("muti-metroo") {
 		t.Skip("Skipping test because user service is installed")
 	}
 
-	info := GetUserServiceInfo()
+	info := GetUserServiceInfo("muti-metroo")
 
 	// Should return nil when no user service is installed
 	if info != nil {

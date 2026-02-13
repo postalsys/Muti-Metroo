@@ -241,27 +241,27 @@ func installUserImpl(cfg ServiceConfig, execPath string) error {
 }
 
 // uninstallUserImpl is not supported on macOS.
-func uninstallUserImpl() error {
+func uninstallUserImpl(serviceName string) error {
 	return fmt.Errorf("user service is only supported on Linux")
 }
 
 // statusUserImpl is not supported on macOS.
-func statusUserImpl() (string, error) {
+func statusUserImpl(serviceName string) (string, error) {
 	return "", fmt.Errorf("user service is only supported on Linux")
 }
 
 // startUserImpl is not supported on macOS.
-func startUserImpl() error {
+func startUserImpl(serviceName string) error {
 	return fmt.Errorf("user service is only supported on Linux")
 }
 
 // stopUserImpl is not supported on macOS.
-func stopUserImpl() error {
+func stopUserImpl(serviceName string) error {
 	return fmt.Errorf("user service is only supported on Linux")
 }
 
 // isUserInstalledImpl returns false on macOS.
-func isUserInstalledImpl() bool {
+func isUserInstalledImpl(serviceName string) bool {
 	return false
 }
 
@@ -271,6 +271,6 @@ func installUserWithDLLImpl(serviceName, dllPath, configPath string) error {
 }
 
 // getUserServiceInfoImpl returns nil on macOS (user service not supported).
-func getUserServiceInfoImpl() *UserServiceInfo {
+func getUserServiceInfoImpl(serviceName string) *UserServiceInfo {
 	return nil
 }

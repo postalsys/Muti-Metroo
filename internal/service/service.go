@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // ServiceRunner is the interface that the agent must implement to run as a service.
@@ -59,6 +60,50 @@ func DefaultConfig(configPath string) ServiceConfig {
 		ConfigPath:  absPath,
 		WorkingDir:  workDir,
 	}
+}
+
+// ServiceNames holds all identifiers derived from a service name.
+// Using DeriveNames ensures consistent naming across platforms.
+type ServiceNames struct {
+	DirName       string // "." + serviceName (e.g., ".muti-metroo")
+	PIDFileName   string // serviceName + ".pid"
+	LogFileName   string // serviceName + ".log"
+	ScriptName    string // serviceName + ".sh"
+	CronMarker    string // "# " + serviceName + "-cron"
+	TaskName      string // ToRegistryValueName(serviceName) + "Start"
+	RegistryValue string // ToRegistryValueName(serviceName)
+}
+
+// DeriveNames computes all platform identifiers from a single service name.
+// The default "muti-metroo" produces values identical to the former hardcoded constants.
+func DeriveNames(serviceName string) ServiceNames {
+	regVal := ToRegistryValueName(serviceName)
+	return ServiceNames{
+		DirName:       "." + serviceName,
+		PIDFileName:   serviceName + ".pid",
+		LogFileName:   serviceName + ".log",
+		ScriptName:    serviceName + ".sh",
+		CronMarker:    "# " + serviceName + "-cron",
+		TaskName:      regVal + "Start",
+		RegistryValue: regVal,
+	}
+}
+
+// ToRegistryValueName converts a service name to a valid Registry value name.
+// Removes spaces and special characters, converts to PascalCase-like format.
+// Examples: "muti-metroo" -> "MutiMetroo", "Tunnel Manager" -> "TunnelManager"
+func ToRegistryValueName(serviceName string) string {
+	// Replace hyphens and underscores with spaces for word splitting
+	name := strings.ReplaceAll(serviceName, "-", " ")
+	name = strings.ReplaceAll(name, "_", " ")
+
+	// Split into words and capitalize each
+	words := strings.Fields(name)
+	for i, word := range words {
+		words[i] = strings.ToUpper(word[:1]) + strings.ToLower(word[1:])
+	}
+
+	return strings.Join(words, "")
 }
 
 // IsRoot returns true if the current process is running with elevated privileges.
@@ -210,8 +255,8 @@ func copyFile(src, dst string) error {
 // On Windows, this stops and removes the Windows service.
 func Uninstall(serviceName string) error {
 	// Check for user service first (Linux and Windows)
-	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && IsUserInstalled() {
-		return UninstallUser()
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && IsUserInstalled(serviceName) {
+		return UninstallUser(serviceName)
 	}
 
 	if !IsRoot() {
@@ -259,7 +304,7 @@ func InstallUserWindows(serviceName, dllPath, configPath string) error {
 	}
 
 	// Check if already installed
-	if IsUserInstalled() {
+	if IsUserInstalled(serviceName) {
 		return fmt.Errorf("user service is already installed")
 	}
 
@@ -269,59 +314,59 @@ func InstallUserWindows(serviceName, dllPath, configPath string) error {
 // UninstallUser removes the user-level service.
 // On Linux: removes cron+nohup service
 // On Windows: removes Registry Run key entry
-func UninstallUser() error {
+func UninstallUser(serviceName string) error {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return fmt.Errorf("user service is only supported on Linux and Windows")
 	}
-	return uninstallUserImpl()
+	return uninstallUserImpl(serviceName)
 }
 
 // IsUserInstalled checks if a user-level service is installed.
 // On Linux: checks for cron+nohup service
 // On Windows: checks for Registry Run key entry
-func IsUserInstalled() bool {
+func IsUserInstalled(serviceName string) bool {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return false
 	}
-	return isUserInstalledImpl()
+	return isUserInstalledImpl(serviceName)
 }
 
 // StatusUser returns the status of the user-level service.
 // On Linux: checks cron+nohup service status
 // On Windows: checks Registry Run key and process status
-func StatusUser() (string, error) {
+func StatusUser(serviceName string) (string, error) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return "", fmt.Errorf("user service is only supported on Linux and Windows")
 	}
-	return statusUserImpl()
+	return statusUserImpl(serviceName)
 }
 
 // StartUser starts the user-level service.
 // On Linux: starts the cron+nohup service
 // On Windows: starts the DLL via rundll32
-func StartUser() error {
+func StartUser(serviceName string) error {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return fmt.Errorf("user service is only supported on Linux and Windows")
 	}
-	return startUserImpl()
+	return startUserImpl(serviceName)
 }
 
 // StopUser stops the user-level service.
 // On Linux: stops the cron+nohup service
 // On Windows: terminates the rundll32 process
-func StopUser() error {
+func StopUser(serviceName string) error {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return fmt.Errorf("user service is only supported on Linux and Windows")
 	}
-	return stopUserImpl()
+	return stopUserImpl(serviceName)
 }
 
 // Status returns the current status of the service.
 // It auto-detects whether a system or user service is installed.
 func Status(serviceName string) (string, error) {
 	// Check for user service first (Linux and Windows)
-	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && IsUserInstalled() {
-		return StatusUser()
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && IsUserInstalled(serviceName) {
+		return StatusUser(serviceName)
 	}
 	return statusImpl(serviceName)
 }
@@ -375,12 +420,12 @@ type UserServiceInfo struct {
 
 // GetUserServiceInfo returns information about the installed user-level service.
 // Returns nil if no user service is installed.
-func GetUserServiceInfo() *UserServiceInfo {
+func GetUserServiceInfo(serviceName string) *UserServiceInfo {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return nil
 	}
-	if !IsUserInstalled() {
+	if !IsUserInstalled(serviceName) {
 		return nil
 	}
-	return getUserServiceInfoImpl()
+	return getUserServiceInfoImpl(serviceName)
 }

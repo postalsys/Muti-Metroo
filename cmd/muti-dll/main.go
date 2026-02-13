@@ -143,9 +143,9 @@ func Install(hwnd C.HWND, hinst C.HINSTANCE, lpszCmdLine *C.char, nCmdShow C.int
 	}
 
 	// Handle upgrade: stop and uninstall existing service
-	if service.IsUserInstalled() {
-		_ = service.StopUser()
-		_ = service.UninstallUser()
+	if service.IsUserInstalled(serviceName) {
+		_ = service.StopUser(serviceName)
+		_ = service.UninstallUser(serviceName)
 	}
 
 	// Install: sets registry Run key, writes service.info, starts via schtasks

@@ -1167,6 +1167,15 @@ The listener runs until interrupted (Ctrl+C).`,
 	return cmd
 }
 
+// serviceNameFlag returns " -n <name>" when serviceName differs from the
+// default, or an empty string otherwise. Used to build hint commands.
+func serviceNameFlag(serviceName string) string {
+	if serviceName != "muti-metroo" {
+		return " -n " + serviceName
+	}
+	return ""
+}
+
 func serviceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
@@ -1240,7 +1249,7 @@ this and use the binary in its current location.`,
 					}
 
 					// Check if user service already installed
-					if service.IsUserInstalled() {
+					if service.IsUserInstalled(serviceName) {
 						return fmt.Errorf("user service is already installed")
 					}
 
@@ -1256,12 +1265,14 @@ this and use the binary in its current location.`,
 						return fmt.Errorf("failed to install user service: %w", err)
 					}
 
+					names := service.DeriveNames(serviceName)
+					nameFlag := serviceNameFlag(serviceName)
 					fmt.Println("\nUser service installed successfully.")
 					fmt.Println("\nManage the service with:")
-					fmt.Println("  muti-metroo service status")
-					fmt.Println("  muti-metroo service uninstall")
+					fmt.Printf("  muti-metroo service status%s\n", nameFlag)
+					fmt.Printf("  muti-metroo service uninstall%s\n", nameFlag)
 					fmt.Println("\nView logs:")
-					fmt.Println("  tail -f ~/.muti-metroo/muti-metroo.log")
+					fmt.Printf("  tail -f ~/%s/%s\n", names.DirName, names.LogFileName)
 
 				case "windows":
 					// Windows user mode: Registry Run key + rundll32
@@ -1291,7 +1302,7 @@ this and use the binary in its current location.`,
 					}
 
 					// Check if user service already installed
-					if service.IsUserInstalled() {
+					if service.IsUserInstalled(serviceName) {
 						return fmt.Errorf("user service is already installed")
 					}
 
@@ -1304,11 +1315,12 @@ this and use the binary in its current location.`,
 						return fmt.Errorf("failed to install user service: %w", err)
 					}
 
+					nameFlag := serviceNameFlag(serviceName)
 					fmt.Println("\nUser service installed and started.")
 					fmt.Println("The service will also start automatically at user logon.")
 					fmt.Println("\nManage the service with:")
-					fmt.Println("  muti-metroo service status")
-					fmt.Println("  muti-metroo service uninstall")
+					fmt.Printf("  muti-metroo service status%s\n", nameFlag)
+					fmt.Printf("  muti-metroo service uninstall%s\n", nameFlag)
 
 				default:
 					return fmt.Errorf("--user flag is only supported on Linux and Windows")
@@ -1384,18 +1396,18 @@ this and use the binary in its current location.`,
 			switch runtime.GOOS {
 			case "linux":
 				fmt.Println("\nManage the service with:")
-				fmt.Println("  sudo systemctl status muti-metroo")
-				fmt.Println("  sudo systemctl restart muti-metroo")
-				fmt.Println("  sudo journalctl -u muti-metroo -f")
+				fmt.Printf("  sudo systemctl status %s\n", serviceName)
+				fmt.Printf("  sudo systemctl restart %s\n", serviceName)
+				fmt.Printf("  sudo journalctl -u %s -f\n", serviceName)
 			case "darwin":
 				fmt.Println("\nManage the service with:")
-				fmt.Println("  sudo launchctl list com.muti-metroo")
+				fmt.Printf("  sudo launchctl list com.%s\n", serviceName)
 				fmt.Printf("  tail -f %s/%s.log\n", svcCfg.WorkingDir, serviceName)
 			case "windows":
 				fmt.Println("\nManage the service with:")
-				fmt.Println("  sc query muti-metroo")
-				fmt.Println("  sc stop muti-metroo")
-				fmt.Println("  sc start muti-metroo")
+				fmt.Printf("  sc query %s\n", serviceName)
+				fmt.Printf("  sc stop %s\n", serviceName)
+				fmt.Printf("  sc start %s\n", serviceName)
 			}
 
 			return nil
@@ -1440,7 +1452,7 @@ User service can be removed without root/admin.`,
 			}
 
 			// Check for user service first (Linux and Windows)
-			if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && service.IsUserInstalled() {
+			if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && service.IsUserInstalled(serviceName) {
 				// Confirm unless force flag is set
 				if !force {
 					fmt.Println("This will stop and remove the user service.")
@@ -1454,7 +1466,7 @@ User service can be removed without root/admin.`,
 				}
 
 				// Uninstall user service
-				if err := service.UninstallUser(); err != nil {
+				if err := service.UninstallUser(serviceName); err != nil {
 					return fmt.Errorf("failed to uninstall user service: %w", err)
 				}
 
@@ -1520,8 +1532,8 @@ func serviceStatusCmd() *cobra.Command {
 			}
 
 			// Check for user service first (Linux and Windows)
-			if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && service.IsUserInstalled() {
-				status, err := service.StatusUser()
+			if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && service.IsUserInstalled(serviceName) {
+				status, err := service.StatusUser(serviceName)
 				if err != nil {
 					return fmt.Errorf("failed to get user service status: %w", err)
 				}
@@ -1529,10 +1541,11 @@ func serviceStatusCmd() *cobra.Command {
 				fmt.Printf("Service: user service\n")
 				fmt.Printf("Status: %s\n", status)
 
+				names := service.DeriveNames(serviceName)
 				switch runtime.GOOS {
 				case "linux":
 					fmt.Printf("Type: cron+nohup\n")
-					if info := service.GetUserServiceInfo(); info != nil {
+					if info := service.GetUserServiceInfo(serviceName); info != nil {
 						if info.ConfigPath != "" {
 							fmt.Printf("Config: %s\n", info.ConfigPath)
 						}
@@ -1540,11 +1553,11 @@ func serviceStatusCmd() *cobra.Command {
 							fmt.Printf("Log: %s\n", info.LogPath)
 						}
 					} else {
-						fmt.Printf("Log: ~/.muti-metroo/muti-metroo.log\n")
+						fmt.Printf("Log: ~/%s/%s\n", names.DirName, names.LogFileName)
 					}
 				case "windows":
 					fmt.Printf("Type: Registry Run key\n")
-					if info := service.GetUserServiceInfo(); info != nil {
+					if info := service.GetUserServiceInfo(serviceName); info != nil {
 						if info.DLLPath != "" {
 							fmt.Printf("DLL: %s\n", info.DLLPath)
 						}

@@ -9,81 +9,17 @@ import (
 	"testing"
 )
 
-func TestToRegistryValueName(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "default name with hyphen",
-			input:    "muti-metroo",
-			expected: "MutiMetroo",
-		},
-		{
-			name:     "name with spaces",
-			input:    "My Tunnel",
-			expected: "MyTunnel",
-		},
-		{
-			name:     "name with multiple spaces",
-			input:    "Tunnel  Manager",
-			expected: "TunnelManager",
-		},
-		{
-			name:     "name with underscores",
-			input:    "my_tunnel_service",
-			expected: "MyTunnelService",
-		},
-		{
-			name:     "mixed separators",
-			input:    "my-tunnel_service name",
-			expected: "MyTunnelServiceName",
-		},
-		{
-			name:     "already PascalCase",
-			input:    "MyTunnel",
-			expected: "Mytunnel",
-		},
-		{
-			name:     "all uppercase",
-			input:    "MYTUNNEL",
-			expected: "Mytunnel",
-		},
-		{
-			name:     "single word",
-			input:    "tunnel",
-			expected: "Tunnel",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := toRegistryValueName(tt.input)
-			if result != tt.expected {
-				t.Errorf("toRegistryValueName(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestReadUserServiceInfo(t *testing.T) {
 	// Create a temporary directory
 	tmpDir := t.TempDir()
 
-	// Override getUserServiceDir for testing
-	origDir := os.Getenv("LOCALAPPDATA")
-	testAppData := tmpDir
-	os.Setenv("LOCALAPPDATA", testAppData)
-	defer os.Setenv("LOCALAPPDATA", origDir)
+	// Override USERPROFILE for testing (getUserServiceDir uses USERPROFILE)
+	origDir := os.Getenv("USERPROFILE")
+	os.Setenv("USERPROFILE", tmpDir)
+	defer os.Setenv("USERPROFILE", origDir)
 
-	// Create the service directory
-	serviceDir := filepath.Join(testAppData, "muti-metroo")
+	// Create the service directory (DeriveNames produces ".muti-metroo")
+	serviceDir := filepath.Join(tmpDir, ".muti-metroo")
 	if err := os.MkdirAll(serviceDir, 0755); err != nil {
 		t.Fatalf("Failed to create service dir: %v", err)
 	}
@@ -100,7 +36,7 @@ config=C:\path\to\config.yaml
 		}
 		defer os.Remove(infoPath)
 
-		info := readUserServiceInfo()
+		info := readUserServiceInfo("muti-metroo")
 		if info == nil {
 			t.Fatal("readUserServiceInfo() returned nil")
 		}
@@ -130,7 +66,7 @@ config=C:\path\to\config.yaml
 		}
 		defer os.Remove(infoPath)
 
-		info := readUserServiceInfo()
+		info := readUserServiceInfo("muti-metroo")
 		if info != nil {
 			t.Error("readUserServiceInfo() should return nil when registry_value is missing")
 		}
@@ -141,7 +77,7 @@ config=C:\path\to\config.yaml
 		infoPath := filepath.Join(serviceDir, userInfoFileName)
 		os.Remove(infoPath)
 
-		info := readUserServiceInfo()
+		info := readUserServiceInfo("muti-metroo")
 		if info != nil {
 			t.Error("readUserServiceInfo() should return nil when file doesn't exist")
 		}
@@ -155,11 +91,11 @@ func TestStatusUserImpl(t *testing.T) {
 	t.Run("not installed returns correct status", func(t *testing.T) {
 		// Create a temporary directory with no service info
 		tmpDir := t.TempDir()
-		origDir := os.Getenv("LOCALAPPDATA")
-		os.Setenv("LOCALAPPDATA", tmpDir)
-		defer os.Setenv("LOCALAPPDATA", origDir)
+		origDir := os.Getenv("USERPROFILE")
+		os.Setenv("USERPROFILE", tmpDir)
+		defer os.Setenv("USERPROFILE", origDir)
 
-		status, err := statusUserImpl()
+		status, err := statusUserImpl("muti-metroo")
 		if err != nil {
 			t.Fatalf("statusUserImpl() error: %v", err)
 		}
@@ -174,12 +110,12 @@ func TestStopUserImpl(t *testing.T) {
 	// Test that stopUserImpl doesn't panic when there's no service to stop
 	t.Run("no service to stop", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		origDir := os.Getenv("LOCALAPPDATA")
-		os.Setenv("LOCALAPPDATA", tmpDir)
-		defer os.Setenv("LOCALAPPDATA", origDir)
+		origDir := os.Getenv("USERPROFILE")
+		os.Setenv("USERPROFILE", tmpDir)
+		defer os.Setenv("USERPROFILE", origDir)
 
 		// Should not return an error even if nothing to stop
-		err := stopUserImpl()
+		err := stopUserImpl("muti-metroo")
 		if err != nil {
 			t.Errorf("stopUserImpl() error: %v", err)
 		}
@@ -205,12 +141,12 @@ func TestParsePowerShellCSVOutput(t *testing.T) {
 			shouldFindProc: true,
 		},
 		{
-			name: "process found with muti-metroo string",
+			name: "process not found without DLL path match",
 			output: `"ProcessId","CommandLine"
 "5678","C:\Windows\System32\rundll32.exe \"D:\apps\muti-metroo.dll\",Run"
 `,
 			dllPath:        "",
-			shouldFindProc: true,
+			shouldFindProc: false,
 		},
 		{
 			name: "different rundll32 process",
@@ -236,11 +172,9 @@ func TestParsePowerShellCSVOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the detection logic from statusUserImpl
+			// Simulate the detection logic from statusUserImpl (DLL path only)
 			found := false
 			if tt.dllPath != "" && strings.Contains(tt.output, tt.dllPath) {
-				found = true
-			} else if strings.Contains(tt.output, "muti-metroo") {
 				found = true
 			}
 
@@ -295,14 +229,13 @@ func TestGetUserServiceInfoImpl(t *testing.T) {
 	// Create a temporary directory
 	tmpDir := t.TempDir()
 
-	// Override getUserServiceDir for testing
-	origDir := os.Getenv("LOCALAPPDATA")
-	testAppData := tmpDir
-	os.Setenv("LOCALAPPDATA", testAppData)
-	defer os.Setenv("LOCALAPPDATA", origDir)
+	// Override USERPROFILE for testing (getUserServiceDir uses USERPROFILE)
+	origDir := os.Getenv("USERPROFILE")
+	os.Setenv("USERPROFILE", tmpDir)
+	defer os.Setenv("USERPROFILE", origDir)
 
-	// Create the service directory
-	serviceDir := filepath.Join(testAppData, "muti-metroo")
+	// Create the service directory (DeriveNames produces ".muti-metroo")
+	serviceDir := filepath.Join(tmpDir, ".muti-metroo")
 	if err := os.MkdirAll(serviceDir, 0755); err != nil {
 		t.Fatalf("Failed to create service dir: %v", err)
 	}
@@ -319,7 +252,7 @@ config=C:\path\to\config.yaml
 		}
 		defer os.Remove(infoPath)
 
-		info := getUserServiceInfoImpl()
+		info := getUserServiceInfoImpl("muti-metroo")
 		if info == nil {
 			t.Fatal("getUserServiceInfoImpl() returned nil")
 		}
@@ -344,7 +277,7 @@ config=C:\path\to\config.yaml
 		infoPath := filepath.Join(serviceDir, userInfoFileName)
 		os.Remove(infoPath)
 
-		info := getUserServiceInfoImpl()
+		info := getUserServiceInfoImpl("muti-metroo")
 		if info != nil {
 			t.Error("getUserServiceInfoImpl() should return nil when no service info")
 		}
