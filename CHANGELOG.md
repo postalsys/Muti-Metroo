@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.21.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.20.0...muti-metroo-v2.21.0) (2026-02-13)
+
+
+### Features
+
+* add dynamic CIDR route management via HTTP API and CLI ([69127f5](https://github.com/postalsys/Muti-Metroo/commit/69127f58fbe98116031279abc8b3d8be361310b1))
+
+
+### Bug Fixes
+
+* **docs:** escape curly braces in route-management MDX heading ([3b82c63](https://github.com/postalsys/Muti-Metroo/commit/3b82c635acf56352aa803df5948fc9a79b5ed637))
+
 ## [2.20.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.19.0...muti-metroo-v2.20.0) (2026-02-13)
 
 
