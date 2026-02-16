@@ -297,7 +297,7 @@ An agent can serve multiple roles simultaneously:
 | `probe`        | Connectivity testing for Muti Metroo listeners - transport dial, handshake verification     |
 | `protocol`     | Binary frame protocol - 14-byte header, encode/decode for all frame types                   |
 | `recovery`     | Panic recovery utilities for goroutines with logging and callbacks                          |
-| `routing`      | Route table with CIDR longest-prefix match and domain pattern matching, route manager       |
+| `routing`      | Route table with CIDR longest-prefix match, domain pattern matching, agent presence table, route manager |
 | `service`      | Cross-platform service management - systemd (Linux), launchd (macOS), Windows Service       |
 | `shell`        | Remote shell - interactive (PTY) and streaming command execution, whitelist, authentication |
 | `sleep`        | Mesh hibernation - state machine, jittered polling, command deduplication, persistence, deterministic windows |

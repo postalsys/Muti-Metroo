@@ -71,6 +71,10 @@ An **exit agent** is where traffic leaves the mesh. Put one inside a private net
 - Resolves DNS for domain-based routing
 - Controls which destinations are allowed
 
+:::info Agent Reachability
+All agents are reachable by ID for management operations (shell, file transfer, ping, status queries) regardless of whether they have exit routes configured. Exit routes only control which network destinations an agent can reach on behalf of SOCKS5 clients.
+:::
+
 **Typical deployment:**
 - Internet gateway (default route for all traffic)
 - Private network access (routes to internal resources)

@@ -4,7 +4,7 @@ ICMP relay enables ping functionality through the mesh network. Test connectivit
 
 ## Configuration
 
-Configure on the **exit** agent:
+Configure on the **target** agent:
 
 ```yaml
 icmp:
@@ -34,7 +34,7 @@ ICMP uses unprivileged sockets. Support varies by platform:
 | **macOS** | Yes | Works without configuration |
 | **Windows** | No | Unprivileged ICMP not supported |
 
-**Important:** ICMP relay does not work on Windows exit agents. Use Linux or macOS.
+**Important:** ICMP relay does not work on Windows agents. Use Linux or macOS.
 
 ### Linux Configuration
 
@@ -62,7 +62,7 @@ Without this setting, ICMP will fail with "socket: operation not permitted".
 muti-metroo ping 8.8.8.8
 
 # Output:
-# PING 8.8.8.8 via exit agent abc123def456
+# PING 8.8.8.8 via agent abc123def456
 # 64 bytes from 8.8.8.8: seq=1 time=12.3ms
 # 64 bytes from 8.8.8.8: seq=2 time=11.8ms
 
@@ -145,7 +145,7 @@ socks5:
 - **Echo only**: Only ICMP echo (ping) is supported
 - **No traceroute**: TTL-exceeded messages not forwarded
 - **IP addresses only**: No DNS resolution (use IP addresses)
-- **Windows**: Exit agents on Windows cannot forward ICMP
+- **Windows**: Agents on Windows cannot forward ICMP
 
 ## Security Considerations
 
@@ -173,9 +173,9 @@ sudo sysctl -w net.ipv4.ping_group_range="0 65535"
 Error: ICMP not enabled
 ```
 
-1. Verify exit agent has `icmp.enabled: true`
-2. Check that a route exists to the exit agent
-3. Ensure exit agent is connected to the mesh
+1. Verify the target agent has `icmp.enabled: true`
+2. Check that a route exists to the target agent
+3. Ensure the target agent is connected to the mesh
 
 ### Session Timeout
 

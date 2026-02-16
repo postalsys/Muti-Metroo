@@ -720,7 +720,15 @@ All communication uses a consistent framing protocol:
 │  │ 0x02 │ AddrFamilyIPv6   │ IPv6 CIDR route (e.g., ::/0)               │   │
 │  │ 0x03 │ AddrFamilyDomain │ Domain pattern (exact or wildcard)         │   │
 │  │ 0x04 │ AddrFamilyForward│ Port forward routing key                   │   │
+│  │ 0x05 │ AddrFamilyAgent  │ Agent presence (128-bit agent ID)           │   │
 │  └──────┴──────────────────┴────────────────────────────────────────────┘   │
+│                                                                             │
+│  Agent Presence Routes:                                                    │
+│  Every agent unconditionally advertises a presence route (AddrFamilyAgent) │
+│  containing its 128-bit agent ID. This makes all agents reachable by ID   │
+│  for control requests, shell, file transfer, and ICMP -- even without     │
+│  exit routes configured. Presence routes use metric 0 and are advertised  │
+│  alongside any CIDR/domain/forward routes.                                │
 │                                                                             │
 │  Domain Route Wire Format in ROUTE_ADVERTISE:                               │
 │  • AddressFamily: 0x03 (domain)                                             │

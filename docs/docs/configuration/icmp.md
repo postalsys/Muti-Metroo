@@ -9,7 +9,7 @@ sidebar_position: 10
 
 # ICMP Configuration
 
-Configure ICMP echo (ping) support on exit agents. When enabled, agents can forward ICMP echo requests to destinations.
+Configure ICMP echo (ping) support on agents. When enabled, agents can forward ICMP echo requests to destinations.
 
 ## Overview
 
@@ -32,7 +32,7 @@ icmp:
 
 ### enabled
 
-Controls whether ICMP echo forwarding is available on this exit agent.
+Controls whether ICMP echo forwarding is available on this agent.
 
 | Type | Default |
 |------|---------|
@@ -117,7 +117,7 @@ muti-metroo ping 8.8.8.8
 muti-metroo ping 2001:4860:4860::8888
 ```
 
-For IPv6 to work, ensure the destination is reachable via IPv6 from the exit agent.
+For IPv6 to work, ensure the destination is reachable via IPv6 from the agent.
 
 ## Platform Support
 
@@ -130,7 +130,7 @@ ICMP uses unprivileged sockets, and support varies by platform:
 | **Windows** | No | Unprivileged ICMP sockets not supported |
 
 :::warning Windows Not Supported
-ICMP relay does not work on Windows exit agents. The exit agent must run on Linux or macOS.
+ICMP relay does not work on Windows. The agent must run on Linux or macOS.
 :::
 
 ### Linux Configuration
@@ -162,7 +162,7 @@ macOS supports unprivileged ICMP sockets natively. No configuration is required.
 
 ## Usage
 
-Once configured, use the CLI to ping through the exit agent:
+Once configured, use the CLI to ping through the agent:
 
 ```bash
 # Basic ping
@@ -181,5 +181,5 @@ See [ping CLI command](/cli/ping) for full usage details.
 
 - [Features - ICMP Relay](/features/icmp-relay) - Feature overview
 - [ping CLI Command](/cli/ping) - Send ICMP requests through agents
-- [Exit Configuration](/configuration/exit) - Configure exit routing
+- [Exit Routing Configuration](/configuration/exit) - Configure exit routing
 - [UDP Configuration](/configuration/udp) - UDP relay configuration

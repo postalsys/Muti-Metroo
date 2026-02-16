@@ -40,7 +40,7 @@ sequenceDiagram
 
 ## Route Types
 
-Muti Metroo supports two types of routes:
+Muti Metroo supports two types of traffic routes for SOCKS5 proxy connections:
 
 | Type | Matches | Example | DNS Resolution |
 |------|---------|---------|----------------|
@@ -67,6 +67,18 @@ flowchart LR
     Client2[Client] -->|"8.8.8.8"| Ingress
     DNS -->|CIDR Route| Exit2
 ```
+
+## Agent Reachability
+
+Every agent in the mesh is automatically reachable by its ID, regardless of whether it has exit routes configured. This is separate from CIDR and domain traffic routing above.
+
+Management operations use agent presence for routing:
+- **Shell access** - execute commands on any agent
+- **File transfer** - upload/download files to any agent
+- **ICMP ping** - send ping requests from any agent
+- **Status queries** - check health and routes on any agent
+
+No configuration is needed -- agents advertise their presence automatically when they join the mesh.
 
 ## Route Selection
 

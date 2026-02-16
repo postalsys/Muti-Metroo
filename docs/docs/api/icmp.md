@@ -8,7 +8,7 @@ title: ICMP Ping WebSocket API
 
 # ICMP Ping WebSocket API
 
-Send ICMP echo requests through exit agents to test connectivity and measure latency. The CLI handles this automatically - this reference is for building custom integrations.
+Send ICMP echo requests through agents to test connectivity and measure latency. The CLI handles this automatically - this reference is for building custom integrations.
 
 **Using the CLI (recommended):**
 ```bash
@@ -131,7 +131,7 @@ Common init errors:
 | Error | Cause |
 |-------|-------|
 | `invalid destination IP` | dest_ip is not a valid IP address |
-| `ICMP session failed: icmp not enabled` | Exit agent has ICMP disabled |
+| `ICMP session failed: icmp not enabled` | Target agent has ICMP disabled |
 | `failed to open ICMP session` | Network or routing error |
 
 ## Custom Client Example
@@ -170,7 +170,7 @@ ws.onmessage = (event) => {
 
 ## Requirements
 
-The exit agent must have ICMP enabled:
+The target agent must have ICMP enabled:
 
 ```yaml
 icmp:

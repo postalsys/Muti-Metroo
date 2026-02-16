@@ -30,7 +30,7 @@ ICMP echo requests flow through your mesh just like TCP and UDP - encrypted end-
 flowchart LR
     A[CLI Client] -->|ICMP_OPEN| B[Ingress Agent]
     B -->|Encrypted Mesh| C[Transit Agents]
-    C -->|Encrypted Mesh| D[Exit Agent]
+    C -->|Encrypted Mesh| D[Target Agent]
     D -->|ICMP Echo| E[Destination]
 ```
 
@@ -40,9 +40,9 @@ All ICMP payloads are encrypted end-to-end between ingress and exit using ChaCha
 
 ICMP relay requires:
 
-1. **Exit agent** with ICMP enabled (enabled by default)
-2. A route from ingress to exit
-3. **Supported platform** on the exit agent (see Platform Support below)
+1. **Agent** with ICMP enabled (enabled by default)
+2. A route from ingress to the target agent
+3. **Supported platform** on the target agent (see Platform Support below)
 
 ## Platform Support
 
@@ -54,8 +54,8 @@ ICMP uses unprivileged sockets and platform support varies:
 | **macOS** | Yes | Works out of the box (no configuration needed) |
 | **Windows** | No | Not supported - Windows lacks unprivileged ICMP socket support |
 
-:::warning Windows Exit Agents
-ICMP relay does not work when the exit agent runs on Windows. Use Linux or macOS exit agents for ICMP functionality.
+:::warning Windows Agents
+ICMP relay does not work when the target agent runs on Windows. Use Linux or macOS agents for ICMP functionality.
 :::
 
 :::tip Configuration
@@ -92,7 +92,7 @@ Unlike traditional ping, Muti Metroo uses unprivileged ICMP sockets. Once the sy
 muti-metroo ping 8.8.8.8
 
 # Output:
-# PING 8.8.8.8 via exit agent abc123def456
+# PING 8.8.8.8 via agent abc123def456
 # 64 bytes from 8.8.8.8: seq=1 time=12.3ms
 # 64 bytes from 8.8.8.8: seq=2 time=11.8ms
 ```
@@ -160,9 +160,9 @@ sudo sysctl -w net.ipv4.ping_group_range="0 65535"
 Error: ICMP not enabled
 ```
 
-- Verify exit node has `icmp.enabled: true`
-- Check that a route exists to the exit node
-- Ensure exit node is connected to the mesh
+- Verify the target agent has `icmp.enabled: true`
+- Check that a route exists to the target agent
+- Ensure the target agent is connected to the mesh
 
 ### Session Timeout
 
@@ -179,4 +179,4 @@ Sessions expire after `idle_timeout` (default 60 seconds) of inactivity. Each pi
 - [Configuration - ICMP](/configuration/icmp) - Full configuration reference
 - [CLI - ping](/cli/ping) - CLI command reference
 - [Features - UDP Relay](/features/udp-relay) - UDP tunneling
-- [Configuration - Exit](/configuration/exit) - Exit node setup
+- [Configuration - Exit](/configuration/exit) - Exit routing setup

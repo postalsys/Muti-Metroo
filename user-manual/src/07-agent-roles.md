@@ -165,6 +165,8 @@ exit:
     timeout: 5s
 ```
 
+**Note:** All agents are reachable by ID for management operations (shell, file transfer, ping, status queries) regardless of whether they have exit routes configured. Exit routes only control which network destinations an agent can reach on behalf of SOCKS5 clients.
+
 ### Typical Deployments
 
 - **Internet gateway**: Default route for all traffic

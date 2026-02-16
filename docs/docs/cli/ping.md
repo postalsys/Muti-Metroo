@@ -30,7 +30,7 @@ muti-metroo ping [flags] <target-agent-id> <destination>
 
 ## Arguments
 
-- `<target-agent-id>`: The exit agent that sends the actual ICMP packets
+- `<target-agent-id>`: The agent that sends the actual ICMP packets
 - `<destination>`: IP address to ping (domain names are not supported)
 
 ## Flags
@@ -45,7 +45,7 @@ muti-metroo ping [flags] <target-agent-id> <destination>
 
 ## Requirements
 
-The exit agent must have ICMP enabled in its configuration (enabled by default):
+The target agent must have ICMP enabled in its configuration (enabled by default):
 
 ```yaml
 icmp:
@@ -132,14 +132,14 @@ The statistics summary shows:
 | Error | Cause |
 |-------|-------|
 | `destination must be a valid IP address` | Use IP address, not domain name |
-| `ICMP session failed: icmp not enabled` | Exit agent doesn't have ICMP enabled |
+| `ICMP session failed: icmp not enabled` | Target agent does not have ICMP enabled |
 | `timeout` | No reply within timeout period |
 
 ## How It Works
 
 1. The CLI connects to the gateway agent's HTTP API via WebSocket
-2. An ICMP session is established through the mesh to the exit agent
-3. The exit agent sends real ICMP echo requests using unprivileged sockets
+2. An ICMP session is established through the mesh to the target agent
+3. The target agent sends real ICMP echo requests using unprivileged sockets
 4. Replies are encrypted and relayed back through the mesh
 5. All traffic between agents is E2E encrypted (transit nodes cannot see content)
 
@@ -150,7 +150,7 @@ The statistics summary shows:
 Verify a target network is reachable through the mesh:
 
 ```bash
-muti-metroo ping exit-agent-id 10.0.0.1
+muti-metroo ping target-agent-id 10.0.0.1
 ```
 
 ### Latency Measurement
@@ -158,7 +158,7 @@ muti-metroo ping exit-agent-id 10.0.0.1
 Measure latency to a specific destination:
 
 ```bash
-muti-metroo ping -c 100 exit-agent-id 8.8.8.8
+muti-metroo ping -c 100 target-agent-id 8.8.8.8
 ```
 
 ### Network Troubleshooting
@@ -167,13 +167,13 @@ Test connectivity to different points in a network:
 
 ```bash
 # Test gateway
-muti-metroo ping exit-agent 192.168.1.1
+muti-metroo ping target-agent 192.168.1.1
 
 # Test internal server
-muti-metroo ping exit-agent 192.168.1.100
+muti-metroo ping target-agent 192.168.1.100
 
 # Test external connectivity
-muti-metroo ping exit-agent 8.8.8.8
+muti-metroo ping target-agent 8.8.8.8
 ```
 
 ## Exit Codes
@@ -187,10 +187,10 @@ muti-metroo ping exit-agent 8.8.8.8
 
 - **IPv4 only**: IPv6 ICMP is not currently supported
 - **IP addresses only**: Domain names must be resolved beforehand
-- **Exit agent requirement**: The exit agent must have ICMP enabled
+- **Target agent requirement**: The target agent must have ICMP enabled
 
 ## Related
 
-- [ICMP Configuration](/configuration/icmp) - Configure ICMP on exit agents
+- [ICMP Configuration](/configuration/icmp) - Configure ICMP on agents
 - [Shell Command](/cli/shell) - Execute commands on remote agents
 - [Probe Command](/cli/probe) - Test connectivity to listeners
