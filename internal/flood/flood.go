@@ -259,7 +259,7 @@ func (f *Flooder) HandleRouteAdvertise(
 		}
 	}
 
-	// Convert protocol routes to routing entries (CIDR, domain, and forward)
+	// Convert protocol routes to routing entries (CIDR, domain, forward, and agent)
 	cidrEntries := make([]routing.RouteEntry, 0, len(routes))
 	domainEntries := make([]routing.DomainRouteEntry, 0)
 	forwardEntries := make([]routing.ForwardRouteEntry, 0)
@@ -285,6 +285,12 @@ func (f *Flooder) HandleRouteAdvertise(
 					Target: target,
 					Metric: r.Metric,
 				})
+			}
+		case protocol.AddrFamilyAgent:
+			// Agent presence route: 16-byte agent ID prefix
+			agentID := protocol.DecodeAgentPrefix(r.Prefix)
+			if agentID != (identity.AgentID{}) {
+				f.routeMgr.ProcessAgentRouteAdvertise(fromPeer, originAgent, sequence, agentID, path, encPath, r.Metric+1)
 			}
 		default:
 			// CIDR route (IPv4 or IPv6)
@@ -455,14 +461,10 @@ func (f *Flooder) AnnounceLocalRoutes() {
 	localDomainRoutes := f.routeMgr.GetLocalDomainRoutes()
 	localForwardRoutes := f.routeMgr.GetLocalForwardRoutes()
 
-	if len(localRoutes) == 0 && len(localDomainRoutes) == 0 && len(localForwardRoutes) == 0 {
-		return
-	}
-
 	seq := f.routeMgr.IncrementSequence()
 
-	// Convert to protocol routes (CIDR + domain + forward)
-	routes := make([]protocol.Route, 0, len(localRoutes)+len(localDomainRoutes)+len(localForwardRoutes))
+	// Convert to protocol routes (CIDR + domain + forward + agent presence)
+	routes := make([]protocol.Route, 0, len(localRoutes)+len(localDomainRoutes)+len(localForwardRoutes)+1)
 
 	// Add CIDR routes
 	for _, lr := range localRoutes {
@@ -492,6 +494,14 @@ func (f *Flooder) AnnounceLocalRoutes() {
 			Metric:        tr.Metric,
 		})
 	}
+
+	// Always add agent presence route (makes this agent reachable by ID)
+	routes = append(routes, protocol.Route{
+		AddressFamily: protocol.AddrFamilyAgent,
+		PrefixLength:  0,
+		Prefix:        protocol.EncodeAgentPrefix(f.localID),
+		Metric:        0,
+	})
 
 	// Build path data (always plaintext - needed for multi-hop routing)
 	// Note: Path encryption was removed because transit agents need the path
@@ -575,32 +585,67 @@ func (f *Flooder) WithdrawLocalRoutes() {
 
 // SendFullTable sends the full routing table to a newly connected peer.
 // Routes are grouped by origin agent and sent with their original path preserved.
+// Includes CIDR routes and agent presence routes.
 func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 	fullRoutes := f.routeMgr.GetFullRoutesForAdvertise(peerID)
-	if len(fullRoutes) == 0 {
+	agentRoutes := f.routeMgr.AgentTable().GetAllRoutes()
+
+	if len(fullRoutes) == 0 && len(agentRoutes) == 0 {
 		return
 	}
 
-	// Group routes by origin agent
+	// Group CIDR routes by origin agent
 	byOrigin := make(map[identity.AgentID][]*routing.Route)
 	for _, route := range fullRoutes {
 		byOrigin[route.OriginAgent] = append(byOrigin[route.OriginAgent], route)
 	}
 
+	// Group agent presence routes by origin agent
+	agentByOrigin := make(map[identity.AgentID][]*routing.AgentRoute)
+	for _, route := range agentRoutes {
+		// Don't send routes learned from the peer we're sending to
+		if route.NextHop == peerID {
+			continue
+		}
+		agentByOrigin[route.OriginAgent] = append(agentByOrigin[route.OriginAgent], route)
+	}
+
+	// Collect all origin agents
+	allOrigins := make(map[identity.AgentID]struct{})
+	for id := range byOrigin {
+		allOrigins[id] = struct{}{}
+	}
+	for id := range agentByOrigin {
+		allOrigins[id] = struct{}{}
+	}
+
 	// Send a separate advertisement for each origin
-	for originAgent, originRoutes := range byOrigin {
+	for originAgent := range allOrigins {
 		seq := f.routeMgr.IncrementSequence()
 
-		routes := make([]protocol.Route, 0, len(originRoutes))
-		for _, r := range originRoutes {
+		cidrRoutes := byOrigin[originAgent]
+		agentPresenceRoutes := agentByOrigin[originAgent]
+
+		routes := make([]protocol.Route, 0, len(cidrRoutes)+len(agentPresenceRoutes))
+		for _, r := range cidrRoutes {
 			routes = append(routes, routeToProtocol(r))
 		}
+		for _, r := range agentPresenceRoutes {
+			routes = append(routes, protocol.Route{
+				AddressFamily: protocol.AddrFamilyAgent,
+				PrefixLength:  0,
+				Prefix:        protocol.EncodeAgentPrefix(r.AgentID),
+				Metric:        r.Metric,
+			})
+		}
 
-		// Use the path from the first route (they should be the same for same origin)
+		// Use the path from the first available route
 		// Prepend ourselves to the path
 		var path []identity.AgentID
-		if len(originRoutes) > 0 && len(originRoutes[0].Path) > 0 {
-			path = append([]identity.AgentID{f.localID}, originRoutes[0].Path...)
+		if len(cidrRoutes) > 0 && len(cidrRoutes[0].Path) > 0 {
+			path = append([]identity.AgentID{f.localID}, cidrRoutes[0].Path...)
+		} else if len(agentPresenceRoutes) > 0 && len(agentPresenceRoutes[0].Path) > 0 {
+			path = append([]identity.AgentID{f.localID}, agentPresenceRoutes[0].Path...)
 		} else {
 			path = []identity.AgentID{f.localID}
 		}

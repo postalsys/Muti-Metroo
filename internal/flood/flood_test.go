@@ -1203,3 +1203,139 @@ func TestSleepCommandSeenCacheSize(t *testing.T) {
 		t.Errorf("SleepCommandSeenCacheSize = %d, want 5", f.SleepCommandSeenCacheSize())
 	}
 }
+
+func TestFlooder_AnnounceLocalRoutes_AlwaysIncludesAgentPresence(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+	sender.AddPeer(peer1)
+
+	cfg := DefaultFloodConfig()
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// No exit routes configured - AnnounceLocalRoutes should still send
+	f.AnnounceLocalRoutes()
+
+	msgs := sender.GetMessages(peer1)
+	if len(msgs) != 1 {
+		t.Fatalf("Expected 1 message to peer1, got %d", len(msgs))
+	}
+
+	// Decode the advertisement
+	adv, err := protocol.DecodeRouteAdvertise(msgs[0].Payload)
+	if err != nil {
+		t.Fatalf("DecodeRouteAdvertise() error = %v", err)
+	}
+
+	// Should have exactly 1 route: the agent presence route
+	if len(adv.Routes) != 1 {
+		t.Fatalf("Expected 1 route, got %d", len(adv.Routes))
+	}
+
+	if adv.Routes[0].AddressFamily != protocol.AddrFamilyAgent {
+		t.Errorf("Route AddressFamily = %d, want %d (AddrFamilyAgent)", adv.Routes[0].AddressFamily, protocol.AddrFamilyAgent)
+	}
+
+	decodedID := protocol.DecodeAgentPrefix(adv.Routes[0].Prefix)
+	if decodedID != localID {
+		t.Errorf("Agent presence route ID = %s, want %s", decodedID.String(), localID.String())
+	}
+}
+
+func TestFlooder_HandleRouteAdvertise_AgentPresenceRoute(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+	remoteAgent, _ := identity.NewAgentID()
+
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+	sender.AddPeer(peer1)
+
+	cfg := DefaultFloodConfig()
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Simulate receiving a route advertisement with agent presence route
+	path := protocol.EncodePath([]identity.AgentID{peer1, remoteAgent})
+	encPath := &protocol.EncryptedData{
+		Encrypted: false,
+		Data:      path,
+	}
+
+	routes := []protocol.Route{
+		{
+			AddressFamily: protocol.AddrFamilyAgent,
+			PrefixLength:  0,
+			Prefix:        protocol.EncodeAgentPrefix(remoteAgent),
+			Metric:        0,
+		},
+	}
+
+	handled := f.HandleRouteAdvertise(peer1, remoteAgent, "", 1, routes, encPath, []identity.AgentID{remoteAgent})
+	if !handled {
+		t.Error("HandleRouteAdvertise should return true for new advertisement")
+	}
+
+	// Verify agent is now in the agent table
+	agentRoute := routeMgr.LookupAgent(remoteAgent)
+	if agentRoute == nil {
+		t.Fatal("LookupAgent should find the remote agent after advertisement")
+	}
+	if agentRoute.NextHop != peer1 {
+		t.Errorf("NextHop = %s, want %s", agentRoute.NextHop.ShortString(), peer1.ShortString())
+	}
+}
+
+func TestFlooder_SendFullTable_IncludesAgentPresenceRoutes(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+	peer1, _ := identity.NewAgentID()
+	peer2, _ := identity.NewAgentID()
+	remoteAgent, _ := identity.NewAgentID()
+
+	routeMgr := routing.NewManager(localID)
+	sender := newMockPeerSender()
+	sender.AddPeer(peer1)
+	sender.AddPeer(peer2)
+
+	cfg := DefaultFloodConfig()
+	f := NewFlooder(cfg, localID, routeMgr, sender)
+	defer f.Stop()
+
+	// Add an agent route learned from peer1
+	routeMgr.ProcessAgentRouteAdvertise(
+		peer1, remoteAgent, 1, remoteAgent,
+		[]identity.AgentID{peer1, remoteAgent}, nil, 1,
+	)
+
+	// Send full table to peer2
+	f.SendFullTable(peer2)
+
+	msgs := sender.GetMessages(peer2)
+	if len(msgs) == 0 {
+		t.Fatal("Expected at least 1 message to peer2")
+	}
+
+	// Find the agent presence route in sent messages
+	found := false
+	for _, msg := range msgs {
+		adv, err := protocol.DecodeRouteAdvertise(msg.Payload)
+		if err != nil {
+			continue
+		}
+		for _, r := range adv.Routes {
+			if r.AddressFamily == protocol.AddrFamilyAgent {
+				decodedID := protocol.DecodeAgentPrefix(r.Prefix)
+				if decodedID == remoteAgent {
+					found = true
+				}
+			}
+		}
+	}
+
+	if !found {
+		t.Error("SendFullTable should include agent presence route for remote agent")
+	}
+}

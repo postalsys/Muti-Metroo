@@ -248,6 +248,8 @@ func prefixLength(family uint8, domainLenByte byte) int {
 		return 16
 	case AddrFamilyDomain:
 		return 1 + int(domainLenByte)
+	case AddrFamilyAgent:
+		return 16 // AgentID is 16 bytes
 	default:
 		return 16 // fallback
 	}
@@ -718,6 +720,25 @@ func DecodeForwardKeyAndTarget(prefix []byte) (key, target string) {
 	return key, target
 }
 
+// EncodeAgentPrefix encodes an agent ID for agent presence route advertisement.
+// Returns the raw 16-byte agent ID.
+func EncodeAgentPrefix(agentID identity.AgentID) []byte {
+	buf := make([]byte, identity.IDSize)
+	copy(buf, agentID[:])
+	return buf
+}
+
+// DecodeAgentPrefix decodes an agent ID from agent presence route advertisement.
+// Input is a 16-byte agent ID.
+func DecodeAgentPrefix(prefix []byte) identity.AgentID {
+	if len(prefix) < identity.IDSize {
+		return identity.ZeroID
+	}
+	var id identity.AgentID
+	copy(id[:], prefix[:identity.IDSize])
+	return id
+}
+
 // RouteAdvertise is the payload for ROUTE_ADVERTISE frames.
 type RouteAdvertise struct {
 	OriginAgent       identity.AgentID
@@ -825,6 +846,9 @@ func DecodeRouteAdvertise(buf []byte) (*RouteAdvertise, error) {
 			}
 			targetLen := int(buf[targetLenOffset])
 			pLen = 1 + keyLen + 1 + targetLen
+		case AddrFamilyAgent:
+			// Agent presence routes: 16-byte AgentID prefix
+			pLen = 16
 		default:
 			// IPv4/IPv6 routes have fixed prefix lengths
 			pLen = prefixLength(route.AddressFamily, 0)
@@ -1846,11 +1870,11 @@ const SignatureSize = 64
 //	Signature   [64 bytes]   Ed25519 signature (or zeros if unsigned)
 //	SeenBy      [variable]   NOT signed (changes during propagation)
 type SleepCommand struct {
-	OriginAgent identity.AgentID   // Agent that initiated the sleep command
-	CommandID   uint64             // Unique command ID for deduplication
-	Timestamp   uint64             // Unix timestamp when command was issued
+	OriginAgent identity.AgentID    // Agent that initiated the sleep command
+	CommandID   uint64              // Unique command ID for deduplication
+	Timestamp   uint64              // Unix timestamp when command was issued
 	Signature   [SignatureSize]byte // Ed25519 signature (zeros = unsigned)
-	SeenBy      []identity.AgentID // Loop prevention (agents that have seen this)
+	SeenBy      []identity.AgentID  // Loop prevention (agents that have seen this)
 }
 
 // SignableBytes returns the bytes that are signed (OriginAgent + CommandID + Timestamp).

@@ -51,12 +51,13 @@ type Manager struct {
 	table         *Table
 	domainTable   *DomainTable  // Domain-based routing table
 	forwardTable  *ForwardTable // Port forward routing table
+	agentTable    *AgentTable   // Agent presence routing table
 	localRoutes   map[string]*LocalRoute
-	dynamicRoutes map[string]*LocalRoute               // Routes added via API (subset of localRoutes)
-	localDomains  map[string]*LocalDomainRoute         // Local domain routes
-	localForwards map[string]*LocalForwardRoute        // Local port forward routes
-	displayNames  map[identity.AgentID]string          // Agent ID -> Display Name mapping
-	nodeInfos     map[identity.AgentID]*NodeInfoEntry  // Agent ID -> Node Info mapping
+	dynamicRoutes map[string]*LocalRoute              // Routes added via API (subset of localRoutes)
+	localDomains  map[string]*LocalDomainRoute        // Local domain routes
+	localForwards map[string]*LocalForwardRoute       // Local port forward routes
+	displayNames  map[identity.AgentID]string         // Agent ID -> Display Name mapping
+	nodeInfos     map[identity.AgentID]*NodeInfoEntry // Agent ID -> Node Info mapping
 	sequence      uint64
 	sealedBox     *crypto.SealedBox // For decrypting NodeInfo (nil if not configured)
 
@@ -72,6 +73,7 @@ func NewManager(localID identity.AgentID) *Manager {
 		table:         NewTable(localID),
 		domainTable:   NewDomainTable(localID),
 		forwardTable:  NewForwardTable(localID),
+		agentTable:    NewAgentTable(localID),
 		localRoutes:   make(map[string]*LocalRoute),
 		dynamicRoutes: make(map[string]*LocalRoute),
 		localDomains:  make(map[string]*LocalDomainRoute),
@@ -992,6 +994,50 @@ func (m *Manager) ForwardSize() int {
 // TotalForwardRoutes returns the total number of port forward route entries.
 func (m *Manager) TotalForwardRoutes() int {
 	return m.forwardTable.TotalRoutes()
+}
+
+// AgentTable returns the underlying agent presence routing table.
+func (m *Manager) AgentTable() *AgentTable {
+	return m.agentTable
+}
+
+// LookupAgent finds the best agent presence route for a target agent.
+func (m *Manager) LookupAgent(agentID identity.AgentID) *AgentRoute {
+	return m.agentTable.Lookup(agentID)
+}
+
+// ProcessAgentRouteAdvertise processes an incoming agent presence route advertisement.
+// Returns true if the route was added/updated.
+func (m *Manager) ProcessAgentRouteAdvertise(
+	fromPeer identity.AgentID,
+	originAgent identity.AgentID,
+	sequence uint64,
+	agentID identity.AgentID,
+	path []identity.AgentID,
+	encPath *protocol.EncryptedData,
+	metric uint16,
+) bool {
+	route := &AgentRoute{
+		AgentID:     agentID,
+		NextHop:     fromPeer,
+		OriginAgent: originAgent,
+		Metric:      metric,
+		Path:        path,
+		EncPath:     encPath,
+		Sequence:    sequence,
+	}
+	return m.agentTable.AddRoute(route)
+}
+
+// HandlePeerDisconnectAgent removes all agent routes learned from a disconnected peer.
+func (m *Manager) HandlePeerDisconnectAgent(peerID identity.AgentID) int {
+	return m.agentTable.RemoveRoutesFromPeer(peerID)
+}
+
+// CleanupStaleAgentRoutes removes agent routes that haven't been updated within maxAge.
+// Local routes are never removed. Returns the number of routes removed.
+func (m *Manager) CleanupStaleAgentRoutes(maxAge time.Duration) int {
+	return m.agentTable.CleanupStaleRoutes(maxAge)
 }
 
 // ForwardListenerAgent represents an agent with a forward listener.

@@ -105,16 +105,16 @@ type Agent struct {
 	listeners  []transport.Listener
 
 	// Core components
-	peerMgr        *peer.Manager
-	routeMgr       *routing.Manager
-	streamMgr      *stream.Manager
-	flooder        *flood.Flooder
-	socks5Srv      *socks5.Server
-	exitHandler    *exit.Handler
-	exitHandlerMu  sync.Mutex // Guards on-demand exit handler creation
-	healthServer   *health.Server
-	sleepMgr       *sleep.Manager    // Sleep mode manager (nil if not enabled)
-	sealedBox      *crypto.SealedBox // Management key encryption (nil if not configured)
+	peerMgr       *peer.Manager
+	routeMgr      *routing.Manager
+	streamMgr     *stream.Manager
+	flooder       *flood.Flooder
+	socks5Srv     *socks5.Server
+	exitHandler   *exit.Handler
+	exitHandlerMu sync.Mutex // Guards on-demand exit handler creation
+	healthServer  *health.Server
+	sleepMgr      *sleep.Manager    // Sleep mode manager (nil if not enabled)
+	sealedBox     *crypto.SealedBox // Management key encryption (nil if not configured)
 
 	// File transfer (stream-based)
 	fileStreamHandler *filetransfer.StreamHandler
@@ -689,9 +689,7 @@ func (a *Agent) Start() error {
 	// Start route advertisement loop and announce initial routes
 	a.wg.Add(1)
 	go a.routeAdvertiseLoop()
-	if a.cfg.Exit.Enabled || len(a.cfg.Forward.Endpoints) > 0 {
-		a.flooder.AnnounceLocalRoutes() // Initial announcement
-	}
+	a.flooder.AnnounceLocalRoutes() // Initial announcement (always - agent presence route)
 
 	// Start node info advertisement loop and announce initial node info
 	// All nodes advertise their info (not just exit nodes)
@@ -1432,6 +1430,12 @@ func (a *Agent) routeAdvertiseLoop() {
 					"ttl", routeTTL)
 			}
 
+			if removed := a.routeMgr.CleanupStaleAgentRoutes(routeTTL); removed > 0 {
+				a.logger.Debug("cleaned up stale agent routes",
+					"removed", removed,
+					"ttl", routeTTL)
+			}
+
 			// Clean up stale forwarded control requests to prevent memory leaks
 			// when remote agents crash before responding.
 			a.controlMu.Lock()
@@ -1448,15 +1452,11 @@ func (a *Agent) routeAdvertiseLoop() {
 					"removed", staleCount)
 			}
 
-			if a.cfg.Exit.Enabled || a.routeMgr.HasDynamicRoutes() || len(a.cfg.Forward.Endpoints) > 0 {
-				a.flooder.AnnounceLocalRoutes()
-				a.logger.Debug("periodic route advertisement sent")
-			}
+			a.flooder.AnnounceLocalRoutes()
+			a.logger.Debug("periodic route advertisement sent")
 		case <-a.routeAdvertiseCh:
-			if a.cfg.Exit.Enabled || a.routeMgr.HasDynamicRoutes() || len(a.cfg.Forward.Endpoints) > 0 {
-				a.flooder.AnnounceLocalRoutes()
-				a.logger.Debug("triggered route advertisement sent")
-			}
+			a.flooder.AnnounceLocalRoutes()
+			a.logger.Debug("triggered route advertisement sent")
 		}
 	}
 }
@@ -2162,16 +2162,24 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 			if conn != nil {
 				// Target is a direct peer
 				nextHop = req.TargetAgent
+			} else if agentRoute := a.routeMgr.LookupAgent(req.TargetAgent); agentRoute != nil {
+				// Primary: agent presence table
+				nextHop = agentRoute.NextHop
+				rPath := agentRoute.Path
+				for i, id := range rPath {
+					if id == nextHop && i+1 < len(rPath) {
+						remainingPath = rPath[i+1:]
+						break
+					}
+				}
 			} else {
-				// Look up route
+				// Fallback: CIDR route table (backward compat with old agents)
 				routes := a.routeMgr.Table().GetRoutesFromAgent(req.TargetAgent)
 				if len(routes) == 0 {
 					a.sendControlResponse(peerID, req.RequestID, req.ControlType, false, []byte("no route to target"))
 					return
 				}
 				nextHop = routes[0].NextHop
-				// Calculate remaining path from route
-				// route.Path is [local, ..., origin], we need path from nextHop to target
 				rPath := routes[0].Path
 				for i, id := range rPath {
 					if id == nextHop && i+1 < len(rPath) {
@@ -2328,7 +2336,21 @@ func (a *Agent) findControlPath(targetID identity.AgentID) (identity.AgentID, []
 		return targetID, nil, nil
 	}
 
-	// Find route via routing table
+	// Primary: look up in agent presence table
+	if agentRoute := a.routeMgr.LookupAgent(targetID); agentRoute != nil {
+		nextHop := agentRoute.NextHop
+		var path []identity.AgentID
+		for i, id := range agentRoute.Path {
+			if id == nextHop && i+1 < len(agentRoute.Path) {
+				path = make([]identity.AgentID, len(agentRoute.Path)-i-1)
+				copy(path, agentRoute.Path[i+1:])
+				break
+			}
+		}
+		return nextHop, path, nil
+	}
+
+	// Fallback: find route via CIDR routing table (backward compat with old agents)
 	routes := a.routeMgr.Table().GetRoutesFromAgent(targetID)
 	if len(routes) == 0 {
 		return identity.AgentID{}, nil, fmt.Errorf("no route to agent %s", targetID.ShortString())
@@ -2337,8 +2359,6 @@ func (a *Agent) findControlPath(targetID identity.AgentID) (identity.AgentID, []
 	route := routes[0]
 	nextHop := route.NextHop
 
-	// route.Path is [local, hop1, hop2, ..., origin/target]
-	// We need the path from nextHop to target for intermediate nodes to forward.
 	var path []identity.AgentID
 	for i, id := range route.Path {
 		if id == nextHop && i+1 < len(route.Path) {
@@ -2491,7 +2511,7 @@ func (a *Agent) handlePeerConnected(conn *peer.Connection) {
 }
 
 // handlePeerDisconnect is called when a peer connection is closed.
-// It cleans up any relay streams involving the disconnected peer.
+// It cleans up any relay streams and routes involving the disconnected peer.
 func (a *Agent) handlePeerDisconnect(conn *peer.Connection, err error) {
 	peerID := conn.RemoteID
 
@@ -2501,6 +2521,12 @@ func (a *Agent) handlePeerDisconnect(conn *peer.Connection, err error) {
 
 	// Clean up relay streams involving this peer
 	a.cleanupRelaysForPeer(peerID)
+
+	// Clean up routes learned from this peer
+	a.routeMgr.HandlePeerDisconnect(peerID)
+	a.routeMgr.HandlePeerDisconnectDomain(peerID)
+	a.routeMgr.HandlePeerDisconnectForward(peerID)
+	a.routeMgr.HandlePeerDisconnectAgent(peerID)
 }
 
 // cleanupRelaysForPeer removes all relay entries involving the specified peer.
@@ -3215,12 +3241,20 @@ func (a *Agent) GetKnownAgentIDs() []identity.AgentID {
 		}
 	}
 
-	// Add route origins
+	// Add route origins from CIDR table
 	routes := a.routeMgr.Table().GetAllRoutes()
 	for _, r := range routes {
 		if _, ok := seen[r.OriginAgent]; !ok {
 			seen[r.OriginAgent] = struct{}{}
 			result = append(result, r.OriginAgent)
+		}
+	}
+
+	// Add agents from presence table
+	for _, id := range a.routeMgr.AgentTable().GetAllAgentIDs() {
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			result = append(result, id)
 		}
 	}
 
@@ -4732,8 +4766,21 @@ func (a *Agent) findPathToAgent(targetID identity.AgentID) (identity.AgentID, []
 		return targetID, nil, conn, nil
 	}
 
-	// Look up in routing table - find a route where OriginAgent matches targetID
-	allRoutes := a.routeMgr.GetFullRoutesForAdvertise(identity.AgentID{}) // Get all routes
+	// Primary: look up in agent presence table
+	if agentRoute := a.routeMgr.LookupAgent(targetID); agentRoute != nil {
+		conn = a.peerMgr.GetPeer(agentRoute.NextHop)
+		if conn != nil {
+			var remainingPath []identity.AgentID
+			if len(agentRoute.Path) > 1 {
+				remainingPath = make([]identity.AgentID, len(agentRoute.Path)-1)
+				copy(remainingPath, agentRoute.Path[1:])
+			}
+			return agentRoute.NextHop, remainingPath, conn, nil
+		}
+	}
+
+	// Fallback: scan CIDR routes for OriginAgent match (backward compat with old agents)
+	allRoutes := a.routeMgr.GetFullRoutesForAdvertise(identity.AgentID{})
 	var bestRoute *routing.Route
 	for _, route := range allRoutes {
 		if route.OriginAgent == targetID {
@@ -4747,13 +4794,11 @@ func (a *Agent) findPathToAgent(targetID identity.AgentID) (identity.AgentID, []
 		return identity.AgentID{}, nil, nil, fmt.Errorf("agent %s not found in routing table", targetID.ShortString())
 	}
 
-	// Get connection to next hop
 	conn = a.peerMgr.GetPeer(bestRoute.NextHop)
 	if conn == nil {
 		return identity.AgentID{}, nil, nil, fmt.Errorf("next hop %s not connected", bestRoute.NextHop.ShortString())
 	}
 
-	// Build remaining path (skip first entry which is next hop)
 	var remainingPath []identity.AgentID
 	if len(bestRoute.Path) > 1 {
 		remainingPath = make([]identity.AgentID, len(bestRoute.Path)-1)

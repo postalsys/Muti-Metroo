@@ -52,7 +52,7 @@ const (
 	ControlTypeStatus uint8 = 0x02 // Request agent status
 	ControlTypePeers  uint8 = 0x03 // Request peer list
 	ControlTypeRoutes uint8 = 0x04 // Request route table
-	ControlTypeRPC         uint8 = 0x05 // Remote procedure call (shell command)
+	ControlTypeRPC    uint8 = 0x05 // Remote procedure call (shell command)
 	// 0x06 and 0x07 reserved (previously used for legacy file transfer)
 	ControlTypeRouteManage uint8 = 0x08 // Dynamic route management (add/remove/list)
 )
@@ -76,6 +76,7 @@ const (
 	AddrFamilyIPv6    uint8 = 0x02
 	AddrFamilyDomain  uint8 = 0x03 // Domain pattern route
 	AddrFamilyForward uint8 = 0x04 // Port forward routing key
+	AddrFamilyAgent   uint8 = 0x05 // Agent presence route
 )
 
 // Error codes for STREAM_OPEN_ERR and STREAM_RESET

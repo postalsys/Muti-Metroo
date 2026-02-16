@@ -1868,3 +1868,82 @@ func TestDecodeWakeCommand_TooShort(t *testing.T) {
 		t.Error("DecodeWakeCommand() should fail with short data")
 	}
 }
+
+func TestEncodeDecodeAgentPrefix(t *testing.T) {
+	agentID, _ := identity.NewAgentID()
+
+	encoded := EncodeAgentPrefix(agentID)
+	if len(encoded) != identity.IDSize {
+		t.Fatalf("EncodeAgentPrefix() length = %d, want %d", len(encoded), identity.IDSize)
+	}
+
+	decoded := DecodeAgentPrefix(encoded)
+	if decoded != agentID {
+		t.Errorf("DecodeAgentPrefix() = %s, want %s", decoded.String(), agentID.String())
+	}
+}
+
+func TestDecodeAgentPrefix_TooShort(t *testing.T) {
+	decoded := DecodeAgentPrefix(make([]byte, 8))
+	if decoded != (identity.AgentID{}) {
+		t.Error("DecodeAgentPrefix() should return ZeroID for short input")
+	}
+}
+
+func TestRouteAdvertise_WithAgentPresenceRoute(t *testing.T) {
+	origin, _ := identity.NewAgentID()
+	agentTarget, _ := identity.NewAgentID()
+	path1, _ := identity.NewAgentID()
+
+	original := &RouteAdvertise{
+		OriginAgent: origin,
+		Sequence:    99,
+		Routes: []Route{
+			{
+				AddressFamily: AddrFamilyIPv4,
+				PrefixLength:  24,
+				Prefix:        []byte{10, 0, 1, 0},
+				Metric:        1,
+			},
+			{
+				AddressFamily: AddrFamilyAgent,
+				PrefixLength:  0,
+				Prefix:        EncodeAgentPrefix(agentTarget),
+				Metric:        0,
+			},
+		},
+		Path:   []identity.AgentID{path1},
+		SeenBy: []identity.AgentID{origin},
+	}
+
+	data := original.Encode()
+	decoded, err := DecodeRouteAdvertise(data)
+	if err != nil {
+		t.Fatalf("DecodeRouteAdvertise() error = %v", err)
+	}
+
+	if len(decoded.Routes) != 2 {
+		t.Fatalf("Routes length = %d, want 2", len(decoded.Routes))
+	}
+
+	// Verify CIDR route
+	if decoded.Routes[0].AddressFamily != AddrFamilyIPv4 {
+		t.Errorf("Route[0].AddressFamily = %d, want %d", decoded.Routes[0].AddressFamily, AddrFamilyIPv4)
+	}
+	if decoded.Routes[0].Metric != 1 {
+		t.Errorf("Route[0].Metric = %d, want 1", decoded.Routes[0].Metric)
+	}
+
+	// Verify agent presence route
+	if decoded.Routes[1].AddressFamily != AddrFamilyAgent {
+		t.Errorf("Route[1].AddressFamily = %d, want %d", decoded.Routes[1].AddressFamily, AddrFamilyAgent)
+	}
+	if decoded.Routes[1].Metric != 0 {
+		t.Errorf("Route[1].Metric = %d, want 0", decoded.Routes[1].Metric)
+	}
+
+	decodedAgent := DecodeAgentPrefix(decoded.Routes[1].Prefix)
+	if decodedAgent != agentTarget {
+		t.Errorf("Decoded agent ID = %s, want %s", decodedAgent.String(), agentTarget.String())
+	}
+}

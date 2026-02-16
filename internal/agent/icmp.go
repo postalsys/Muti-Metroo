@@ -894,8 +894,19 @@ func (a *Agent) OpenICMPSession(ctx context.Context, targetID identity.AgentID, 
 	if conn := a.peerMgr.GetPeer(targetID); conn != nil {
 		nextHop = targetID
 		rPath = []identity.AgentID{targetID}
+	} else if agentRoute := a.routeMgr.LookupAgent(targetID); agentRoute != nil {
+		// Primary: agent presence table
+		nextHop = agentRoute.NextHop
+		rPath = agentRoute.Path
+		for i, id := range rPath {
+			if id == nextHop && i+1 < len(rPath) {
+				remainingPath = make([]identity.AgentID, len(rPath)-i-1)
+				copy(remainingPath, rPath[i+1:])
+				break
+			}
+		}
 	} else {
-		// Find route via routing table
+		// Fallback: CIDR routing table (backward compat with old agents)
 		routes := a.routeMgr.Table().GetRoutesFromAgent(targetID)
 		if len(routes) == 0 {
 			return nil, fmt.Errorf("no route to agent %s", targetID.ShortString())
@@ -905,7 +916,6 @@ func (a *Agent) OpenICMPSession(ctx context.Context, targetID identity.AgentID, 
 		nextHop = route.NextHop
 		rPath = route.Path
 
-		// Build remaining path
 		for i, id := range rPath {
 			if id == nextHop && i+1 < len(rPath) {
 				remainingPath = make([]identity.AgentID, len(rPath)-i-1)
