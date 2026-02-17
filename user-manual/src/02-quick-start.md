@@ -85,9 +85,6 @@ curl http://localhost:8080/health
 # Get detailed status
 curl http://localhost:8080/healthz
 # Output: {"status":"healthy","agent_id":"...","peers":0,"streams":0,"routes":0}
-
-# View web dashboard
-open http://localhost:8080/ui/
 ```
 
 ## Test SOCKS5 Proxy

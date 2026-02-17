@@ -48,7 +48,7 @@ flowchart LR
 | **Firewall Traversal** | QUIC, HTTP/2, and WebSocket transports for restrictive networks |
 | **SOCKS5 Proxy** | TCP and UDP support with optional authentication |
 | **TUN Interface** | Transparent routing with [Mutiauk](/mutiauk) - no per-app configuration |
-| **Web Dashboard** | Visual metro map showing mesh topology in real-time |
+| **Dashboard API** | JSON endpoints for topology, node details, and mesh connectivity testing |
 
 [See all features](/configuration/overview)
 

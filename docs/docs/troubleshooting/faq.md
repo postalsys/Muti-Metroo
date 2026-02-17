@@ -341,15 +341,17 @@ muti-metroo download agent-id /remote/path.txt ./local.txt
 
 File transfer must be enabled. See [File Transfer](/features/file-transfer).
 
-### Is there a web interface?
+### Is there an API for monitoring the mesh?
 
-Yes. Access the dashboard at:
+Yes. Query the dashboard API endpoints:
 
+```bash
+curl http://localhost:8080/api/dashboard | jq
+curl http://localhost:8080/api/topology | jq
+curl http://localhost:8080/api/nodes | jq
 ```
-http://localhost:8080/ui/
-```
 
-See [Web Dashboard](/features/web-dashboard).
+See [Dashboard API](/api/dashboard).
 
 ## See Also
 

@@ -156,7 +156,6 @@ management:
 | `/health` | GET | Basic health check |
 | `/healthz` | GET | Detailed health JSON |
 | `/ready` | GET | Readiness probe |
-| `/ui/` | GET | Web dashboard |
 | `/api/topology` | GET | Topology data |
 | `/api/dashboard` | GET | Dashboard data |
 | `/api/nodes` | GET | Node list |

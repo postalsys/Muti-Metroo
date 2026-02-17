@@ -32,7 +32,7 @@ flowchart LR
 | **Port Forwarding** | Expose local services through reverse tunnels |
 | **Remote Execution** | Execute commands on remote agents |
 | **File Transfer** | Upload/download files across the mesh |
-| **Web Dashboard** | Visual topology with metro map visualization |
+| **Dashboard API** | JSON API for topology, status, and mesh connectivity |
 | **No Root Required** | Runs entirely in userspace (except TUN interface) |
 | **End-to-End Encryption** | X25519 + ChaCha20-Poly1305 - transit nodes cannot decrypt |
 
@@ -87,6 +87,6 @@ This manual is organized into the following parts:
 - **Part II: Core Configuration** - Certificates, configuration, roles, and transports
 - **Part III: Traffic Ingress** - SOCKS5 proxy and TUN interface for client traffic
 - **Part IV: Routing & Features** - Exit routing, remote shell, file transfer, and more
-- **Part V: Monitoring & Management** - HTTP API, dashboard, and service installation
+- **Part V: Monitoring & Management** - HTTP API and service installation
 - **Part VI: Security** - Privacy configuration and management keys
 - **Part VII: Reference** - Troubleshooting and quick reference

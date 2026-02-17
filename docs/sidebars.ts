@@ -76,7 +76,6 @@ const sidebars: SidebarsConfig = {
         'features/file-transfer',
         'features/shell',
         'features/sleep-mode',
-        'features/web-dashboard',
       ],
     },
     {

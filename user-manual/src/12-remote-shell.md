@@ -152,7 +152,7 @@ Windows uses ConPTY (Windows Pseudo Console) for interactive sessions, available
 
 ## Shell Detection
 
-Each agent automatically detects installed shells at startup and advertises them to the mesh. This lets you see which shells are available on any agent through the web dashboard or the `/api/nodes` endpoint.
+Each agent automatically detects installed shells at startup and advertises them to the mesh. This lets you see which shells are available on any agent through the `/api/nodes` endpoint.
 
 Probed shells by platform:
 

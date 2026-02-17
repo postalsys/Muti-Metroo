@@ -521,7 +521,7 @@ Additional authentication for features:
 | TUN interface | No | Yes (Mutiauk) |
 | File transfer | No | Yes |
 | Remote shell | No | Yes |
-| Web dashboard | No | Yes |
+| Dashboard API | No | Yes |
 | Let's Encrypt | Yes | No (bring your own certs) |
 | Config file | No (CLI only) | Yes (YAML) |
 | Service mode | No | Yes (systemd, launchd, Windows) |
@@ -560,7 +560,7 @@ Muti Metroo excels when:
 - **E2E encryption**: Transit nodes must not see your data
 - **UDP/ICMP support**: Need to tunnel more than TCP
 - **Transparent routing**: Want TUN-based access without SOCKS configuration
-- **Additional features**: File transfer, remote shell, web dashboard
+- **Additional features**: File transfer, remote shell, dashboard API
 - **Always-on infrastructure**: Persistent mesh with automatic reconnection and service mode
 
 **Typical workflow:**

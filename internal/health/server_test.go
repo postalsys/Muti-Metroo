@@ -689,9 +689,6 @@ func TestServer_handleSplash(t *testing.T) {
 		if !strings.Contains(body, "Muti Metroo") {
 			t.Error("expected body to contain 'Muti Metroo'")
 		}
-		if !strings.Contains(body, "Open Dashboard") {
-			t.Error("expected body to contain dashboard link when enabled")
-		}
 	})
 
 	t.Run("root path with dashboard disabled", func(t *testing.T) {
@@ -706,11 +703,6 @@ func TestServer_handleSplash(t *testing.T) {
 
 		if rec.Code != http.StatusOK {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
-		}
-
-		body := rec.Body.String()
-		if strings.Contains(body, "Open Dashboard") {
-			t.Error("expected no dashboard link when disabled")
 		}
 	})
 
@@ -768,7 +760,7 @@ func TestServer_DisabledEndpoints(t *testing.T) {
 		cfg.EnableDashboard = false
 		s := NewServer(cfg, nil)
 
-		endpoints := []string{"/ui/", "/api/topology", "/api/dashboard"}
+		endpoints := []string{"/api/topology", "/api/dashboard"}
 		for _, endpoint := range endpoints {
 			req := httptest.NewRequest(http.MethodGet, endpoint, nil)
 			rec := httptest.NewRecorder()
@@ -1444,30 +1436,6 @@ func TestServer_Address_NotStarted(t *testing.T) {
 	addr := s.Address()
 	if addr != nil {
 		t.Errorf("expected nil address before start, got %v", addr)
-	}
-}
-
-// ============================================================================
-// UI Redirect Test
-// ============================================================================
-
-func TestServer_UIRedirect(t *testing.T) {
-	cfg := DefaultServerConfig()
-	cfg.EnableDashboard = true
-	s := NewServer(cfg, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/ui", nil)
-	rec := httptest.NewRecorder()
-
-	s.server.Handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusMovedPermanently {
-		t.Errorf("status = %d, want %d", rec.Code, http.StatusMovedPermanently)
-	}
-
-	location := rec.Header().Get("Location")
-	if location != "/ui/" {
-		t.Errorf("Location = %q, want %q", location, "/ui/")
 	}
 }
 

@@ -269,7 +269,7 @@ http:
   # Endpoint group controls (all default to true when http.enabled=true)
   # Set to false to disable (returns 404 with debug logging)
   pprof: false       # /debug/pprof/* - Go profiling (disable in production)
-  dashboard: true    # /ui/*, /api/* - Web dashboard and visualization
+  dashboard: true    # /api/* - Dashboard API endpoints
   remote_api: true   # /agents/* - Distributed mesh APIs
 
 # Example: Minimal OPSEC configuration (health endpoints only)

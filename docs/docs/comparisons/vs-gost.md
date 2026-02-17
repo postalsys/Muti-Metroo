@@ -27,7 +27,7 @@ GOST (GO Simple Tunnel) and Muti Metroo are both Go-based networking tools that 
 | **Remote Shell** | No | Yes (authenticated) |
 | **File Transfer** | HTTP file server (static) | Yes (streaming, bidirectional) |
 | **ICMP Support** | ICMP tunnel transport | ICMP ping through mesh |
-| **Web Dashboard** | No | Yes (metro map visualization) |
+| **Dashboard API** | No | Yes (JSON topology, node details, mesh test) |
 | **Service Mode** | Yes | Yes (systemd, launchd, Windows) |
 | **Authentication** | Username/password, TLS | mTLS, bcrypt passwords |
 
@@ -385,7 +385,7 @@ Muti Metroo intentionally omits Prometheus metrics:
 
 Alternative observability:
 - `/healthz` endpoint with JSON stats
-- Web dashboard with metro map
+- Dashboard API endpoints (topology, node details, mesh test)
 - Structured logging (JSON format available)
 - HTTP API for status queries
 
@@ -520,7 +520,7 @@ Muti Metroo excels when:
 - **Mesh topology**: Need automatic routing through complex network topologies
 - **E2E encryption**: Transit nodes must not see decrypted traffic
 - **Simpler multi-hop**: Want automatic route discovery without manual chain configuration
-- **Built-in features**: Need remote shell, file transfer, ICMP ping, web dashboard
+- **Built-in features**: Need remote shell, file transfer, ICMP ping, dashboard API
 - **Certificate authentication**: Prefer mTLS over username/password
 - **Single agent per host**: Want simpler deployment (not server + client like chain models)
 - **Always-on infrastructure**: Building persistent mesh with automatic reconnection

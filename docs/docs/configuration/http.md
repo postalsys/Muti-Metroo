@@ -9,7 +9,7 @@ sidebar_position: 11
 
 # HTTP API Configuration
 
-Enable health checks, the web dashboard, and remote agent APIs. The HTTP server is your window into the mesh - use it for monitoring, visualization, and distributed operations.
+Enable health checks, dashboard API endpoints, and remote agent APIs. The HTTP server is your window into the mesh - use it for monitoring, status queries, and distributed operations.
 
 **Most common settings:**
 ```yaml
@@ -30,7 +30,7 @@ http:
   # Endpoint controls
   minimal: false          # When true, only health endpoints enabled
   pprof: false            # /debug/pprof/* profiling endpoints
-  dashboard: true         # /ui/* web dashboard
+  dashboard: true         # /api/* dashboard endpoints
   remote_api: true        # /agents/* distributed APIs
 ```
 
@@ -44,7 +44,7 @@ http:
 | `write_timeout` | duration | `10s` | Maximum time to write response |
 | `minimal` | bool | `false` | Only enable health endpoints |
 | `pprof` | bool | `false` | Enable Go profiling endpoints |
-| `dashboard` | bool | `true` | Enable web dashboard |
+| `dashboard` | bool | `true` | Enable dashboard API endpoints |
 | `remote_api` | bool | `true` | Enable distributed mesh APIs |
 
 ## Endpoints
@@ -60,16 +60,16 @@ These endpoints are always enabled when `http.enabled: true`:
 | `/ready` | GET | Readiness probe for load balancers |
 | `/routes/advertise` | POST | Trigger immediate route advertisement |
 
-### Dashboard Endpoints
+### Dashboard API Endpoints
 
 Enabled when `dashboard: true`:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/ui/` | GET | Web dashboard with metro map |
 | `/api/topology` | GET | Topology data for visualization |
 | `/api/dashboard` | GET | Dashboard overview (stats, peers, routes) |
 | `/api/nodes` | GET | Detailed node info for all agents |
+| `/api/mesh-test` | GET/POST | Mesh connectivity test |
 
 ### Remote API Endpoints
 
@@ -150,7 +150,7 @@ http:
 
 1. **Bind to localhost** in production unless remote access is required
 2. **Disable pprof** in production deployments
-3. **Use minimal mode** for field agents that don't need dashboard
+3. **Use minimal mode** for field agents that don't need dashboard API
 4. **Firewall the port** if binding to all interfaces
 
 ## Examples
@@ -193,7 +193,7 @@ http:
   enabled: true
   address: ":8080"
   minimal: false
-  dashboard: false  # No web UI needed
+  dashboard: false  # No dashboard API needed
   remote_api: false # No distributed APIs
   # Only /health, /healthz, /ready for load balancer probes
 ```

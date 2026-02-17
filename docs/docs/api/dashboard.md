@@ -1,31 +1,22 @@
 ---
-title: Dashboard Endpoints
+title: Dashboard API Endpoints
 ---
 
 <div style={{textAlign: 'center', marginBottom: '2rem'}}>
   <img src="/img/mole-presenting.png" alt="Mole presenting dashboard" style={{maxWidth: '180px'}} />
 </div>
 
-# Dashboard Endpoints
+# Dashboard API Endpoints
 
-See your mesh visually. Open the web dashboard in a browser or fetch topology data for custom visualizations.
+Fetch topology data, dashboard overview, node details, and run mesh connectivity tests via JSON API endpoints.
 
-**Open the dashboard:**
+```bash
+# Get dashboard overview
+curl http://localhost:8080/api/dashboard | jq
+
+# Get topology data
+curl http://localhost:8080/api/topology | jq
 ```
-http://localhost:8080/ui/
-```
-
-## GET /ui/
-
-Embedded web dashboard interface.
-
-Access via browser: `http://localhost:8080/ui/`
-
-Features:
-- Metro map visualization
-- Agent information
-- Live topology updates
-- Node details
 
 ## GET /api/dashboard
 
@@ -332,4 +323,4 @@ curl http://localhost:8080/api/topology
 curl http://localhost:8080/api/nodes
 ```
 
-See [Web Dashboard Feature](/features/web-dashboard) for more information.
+See [HTTP Configuration](/configuration/http) for endpoint access options.

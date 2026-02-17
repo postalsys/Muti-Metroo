@@ -6,7 +6,7 @@ Management key encryption provides cryptographic compartmentalization of mesh to
 
 ### Protected Against
 
-- Unauthorized access to agent, enables dashboard - sees encrypted blobs only
+- Unauthorized access to agent API - sees encrypted blobs only
 - Memory dump of remote agent - no private key present
 - Network traffic analysis - NodeInfo encrypted
 - Isolated agent - cannot expose other agents' details
@@ -73,7 +73,7 @@ management:
 
 ### Without Private Key (Remote Agent)
 
-When accessing dashboard APIs on a remote agent:
+When accessing the dashboard API on a remote agent:
 
 ```bash
 curl http://field-agent:8080/api/dashboard

@@ -12,7 +12,7 @@ http:
   write_timeout: 10s
   minimal: false           # Only health endpoints
   pprof: false             # Debug endpoints
-  dashboard: true          # Web dashboard
+  dashboard: true          # Dashboard API endpoints
   remote_api: true         # Remote agent APIs
 ```
 
@@ -22,7 +22,7 @@ http:
 |---------|-----------|---------|
 | `minimal: true` | Only `/health`, `/healthz`, `/ready` | false |
 | `pprof: false` | Disable `/debug/pprof/*` | false |
-| `dashboard: false` | Disable `/ui/*`, `/api/*` | true |
+| `dashboard: false` | Disable `/api/*` | true |
 | `remote_api: false` | Disable `/agents/*` | true |
 
 Disabled endpoints return HTTP 404.
@@ -69,15 +69,7 @@ Readiness probe for orchestration systems:
 curl http://localhost:8080/ready
 ```
 
-## Dashboard Endpoints
-
-### GET /ui/
-
-Web dashboard with metro map visualization. Open in browser:
-
-```bash
-open http://localhost:8080/ui/
-```
+## Dashboard API Endpoints
 
 ### GET /api/topology
 

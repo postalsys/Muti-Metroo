@@ -126,4 +126,4 @@ fi
 
 - [status](/cli/status) - Agent status overview
 - [routes](/cli/routes) - List route table
-- [Web Dashboard](/features/web-dashboard) - Visual mesh topology
+- [Dashboard API](/api/dashboard) - Topology and mesh status

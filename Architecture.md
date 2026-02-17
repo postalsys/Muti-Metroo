@@ -2623,7 +2623,7 @@ http:
   # Endpoint control flags
   minimal: false # When true, only /health, /healthz, /ready are enabled
   pprof: false # /debug/pprof/* endpoints (disable in production)
-  dashboard: true # /ui/*, /api/* endpoints
+  dashboard: true # /api/* endpoints
   remote_api: true # /agents/* endpoints
 
 # ------------------------------------------------------------------------------
@@ -2852,11 +2852,10 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/healthz` | GET | Detailed health with JSON stats |
 | `/ready` | GET | Readiness probe (returns "READY") |
 
-**Web Dashboard:**
+**JSON API:**
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/ui/` | GET | Embedded web dashboard with metro map visualization |
-| `/api/topology` | GET | Topology data for metro map (agents and connections) |
+| `/api/topology` | GET | Topology data (agents and connections) |
 | `/api/dashboard` | GET | Dashboard overview (agent info, stats, peers, routes) |
 | `/api/nodes` | GET | Detailed node info listing for all known agents |
 
@@ -3262,11 +3261,6 @@ muti-metroo/
 │   │
 │   ├── sysinfo/
 │   │   └── sysinfo.go              # System info and shell detection for node advertisements
-│   │
-│   ├── webui/
-│   │   ├── webui.go                # Web dashboard handler
-│   │   ├── embed.go                # Embedded static files
-│   │   └── static/                 # Dashboard HTML/CSS/JS
 │   │
 │   ├── logging/
 │   │   ├── logging.go              # Structured logging utilities

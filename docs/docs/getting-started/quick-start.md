@@ -70,7 +70,7 @@ This creates a fully functional agent that can:
 - Accept peer connections on port 4433 (QUIC)
 - Provide a SOCKS5 proxy on localhost:1080
 - Route traffic to any destination (exit)
-- Serve the dashboard on port 8080
+- Serve the HTTP API on port 8080
 
 :::tip Minimal Config
 All other settings use sensible defaults. See [Configuration Reference](/configuration/overview) for customization.
@@ -121,7 +121,11 @@ curl -x socks5://localhost:1080 https://httpbin.org/ip
 ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@remote-host
 ```
 
-Open the dashboard at http://localhost:8080/ui/ to see the mesh topology.
+Query the dashboard API to see the mesh topology:
+
+```bash
+curl http://localhost:8080/api/dashboard | jq
+```
 
 ## Alternative: Client-Only Configuration
 

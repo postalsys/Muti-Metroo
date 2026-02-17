@@ -228,19 +228,19 @@ When you run `curl -x socks5://localhost:1080 https://example.com`:
 
 The key insight: Agent B can reach destinations that Agent A cannot. Your traffic exits from Agent B's network.
 
-## Viewing the Dashboard
+## Querying the Dashboard API
 
-Access the web dashboard:
+Check the mesh topology via the dashboard API:
 
 ```bash
-# Agent A dashboard
-open http://localhost:8080/ui/
+# Agent A topology
+curl http://localhost:8080/api/topology | jq
 
-# Agent B dashboard
-open http://localhost:8081/ui/
+# Agent B dashboard overview
+curl http://localhost:8081/api/dashboard | jq
 ```
 
-The metro map shows both agents and their connection.
+The topology endpoint returns all agents and their connections.
 
 ## Adding a Third Agent (Transit)
 

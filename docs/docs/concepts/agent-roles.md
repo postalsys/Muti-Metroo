@@ -113,17 +113,15 @@ flowchart TB
 | Team access to internal resources | Ingress at each user location, Exit inside the network |
 | Exit from different geographic regions | Transit hub, regional Exit agents |
 
-## Role Visualization
+## Checking Agent Roles
 
-The web dashboard (`/ui/`) displays each agent's roles as colored rings around the node:
+Query the dashboard API to see each agent's roles:
 
-| Ring Color | Role | Meaning |
-|------------|------|---------|
-| Blue | Ingress | SOCKS5 proxy enabled |
-| Gray | Transit | Relay only (no ingress/exit) |
-| Green | Exit | Has CIDR or domain routes |
+```bash
+curl http://localhost:8080/api/nodes | jq '.nodes[] | {display_name, roles}'
+```
 
-Agents with multiple roles display multiple concentric rings. Hover over any agent in the dashboard to see detailed role information, SOCKS5 address (for ingress), and exit routes.
+The `roles` field in the response shows which roles each agent has: `ingress`, `transit`, `exit`, `forward_ingress`, or `forward_exit`.
 
 ## Best Practices
 

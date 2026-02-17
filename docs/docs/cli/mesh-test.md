@@ -178,5 +178,4 @@ done
 
 - [Status](/cli/status) - Show local agent status
 - [Peers](/cli/peers) - List connected peers
-- [Web Dashboard](/features/web-dashboard) - Visual mesh topology
 - [Dashboard API](/api/dashboard) - Dashboard and mesh-test API endpoints

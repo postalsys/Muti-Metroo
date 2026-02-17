@@ -22,10 +22,9 @@ import (
 	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
-	"github.com/postalsys/muti-metroo/internal/webui"
 )
 
-// splashPageTemplate is the HTML template for the root splash page.
+// splashPageTemplate is the HTML for the root splash page.
 const splashPageTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -35,7 +34,7 @@ const splashPageTemplate = `<!DOCTYPE html>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            background: linear-gradient(135deg, #1a1a2e 0%%, #16213e 100%%);
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
             color: #e4e4e7;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             min-height: 100vh;
@@ -47,11 +46,6 @@ const splashPageTemplate = `<!DOCTYPE html>
             text-align: center;
             padding: 40px 20px;
             max-width: 480px;
-        }
-        .logo {
-            width: 160px;
-            height: 160px;
-            margin-bottom: 24px;
         }
         h1 {
             font-size: 2.5rem;
@@ -68,31 +62,14 @@ const splashPageTemplate = `<!DOCTYPE html>
             font-size: 0.95rem;
             color: #71717a;
             line-height: 1.6;
-            margin-bottom: 32px;
-        }
-        .button {
-            display: inline-block;
-            padding: 12px 28px;
-            background: #3b82f6;
-            color: #ffffff;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 500;
-            font-size: 1rem;
-            transition: background 0.2s ease;
-        }
-        .button:hover {
-            background: #2563eb;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <img src="/ui/img/logo.png" alt="Muti Metroo" class="logo">
         <h1>Muti Metroo</h1>
         <p class="tagline">Userspace Mesh Networking Agent</p>
         <p class="description">End-to-end encrypted tunnels across heterogeneous transports with multi-hop routing.</p>
-        %s
     </div>
 </body>
 </html>
@@ -433,7 +410,7 @@ type ServerConfig struct {
 	// EnablePprof enables the /debug/pprof/* endpoints
 	EnablePprof bool
 
-	// EnableDashboard enables the /ui/*, /api/* endpoints
+	// EnableDashboard enables the /api/* dashboard endpoints
 	EnableDashboard bool
 
 	// EnableRemoteAPI enables the /agents/*, /routes/advertise endpoints
@@ -596,32 +573,14 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/wake", disabledHandler("wake"))
 	}
 
-	// Dashboard API and Web UI endpoints
+	// Dashboard API endpoints
 	if cfg.EnableDashboard {
 		mux.HandleFunc("/api/topology", s.handleTopology)
 		mux.HandleFunc("/api/dashboard", s.handleDashboard)
 		mux.HandleFunc("/api/nodes", s.handleNodes)
 		mux.HandleFunc("/api/mesh-test", s.handleMeshTest)
-
-		// Web UI static files
-		uiHandler := webui.Handler()
-		mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
-			// Strip /ui prefix
-			path := strings.TrimPrefix(r.URL.Path, "/ui")
-			if path == "" || path == "/" {
-				path = "/index.html"
-			}
-			r.URL.Path = path
-			uiHandler.ServeHTTP(w, r)
-		})
-		// Redirect /ui to /ui/
-		mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
-		})
 	} else {
 		mux.HandleFunc("/api/", disabledHandler("dashboard_api"))
-		mux.HandleFunc("/ui", disabledHandler("dashboard"))
-		mux.HandleFunc("/ui/", disabledHandler("dashboard"))
 	}
 
 	// pprof debug endpoints
@@ -635,8 +594,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/debug/", disabledHandler("pprof"))
 	}
 
-	// Root splash page - shows logo, name, and optional dashboard link
-	// The handler checks for exact "/" path and returns 404 for other unmatched paths
+	// Root splash page
 	mux.HandleFunc("/", s.handleSplash)
 
 	s.server = &http.Server{
@@ -790,9 +748,7 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSplash handles the root "/" splash page.
-// Shows Muti Metroo logo, name, description, and optional dashboard link.
 func (s *Server) handleSplash(w http.ResponseWriter, r *http.Request) {
-	// Only handle exact "/" path, return 404 for other unmatched paths
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -802,12 +758,7 @@ func (s *Server) handleSplash(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	dashboardLink := ""
-	if s.cfg.EnableDashboard {
-		dashboardLink = `<a href="/ui/" class="button">Open Dashboard</a>`
-	}
-	fmt.Fprintf(w, splashPageTemplate, dashboardLink)
+	io.WriteString(w, splashPageTemplate)
 }
 
 // Handler returns the HTTP handler for embedding in other servers.

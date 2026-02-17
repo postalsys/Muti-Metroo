@@ -47,7 +47,7 @@ http:
 | [Routes](/api/routes) | Route management and triggers |
 | [Shell](/api/shell) | Remote shell access (interactive and streaming) |
 | [File Transfer](/api/file-transfer) | File upload/download |
-| [Dashboard](/api/dashboard) | Web dashboard, topology data, and mesh connectivity test |
+| [Dashboard](/api/dashboard) | Topology data, dashboard overview, and mesh connectivity test |
 
 ## Authentication
 

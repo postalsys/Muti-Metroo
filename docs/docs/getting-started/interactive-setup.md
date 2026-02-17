@@ -37,7 +37,7 @@ The wizard has 13 steps, but many are optional or have sensible defaults.
 
 - **Config file path**: Where to save the configuration (default: `./config.yaml`)
 - **Data directory**: Where agent state is stored (default: `./data`)
-- **Display name**: Human-readable name for the web dashboard (optional)
+- **Display name**: Human-readable name for the agent (optional)
 
 ### 2. Agent Role
 
@@ -356,8 +356,8 @@ muti-metroo run -c ./config.yaml
 # Check health
 curl http://localhost:8080/health
 
-# View dashboard
-open http://localhost:8080/ui/
+# Query dashboard API
+curl http://localhost:8080/api/dashboard | jq
 
 # Test SOCKS5 (if exit is enabled)
 curl -x socks5://localhost:1080 https://example.com

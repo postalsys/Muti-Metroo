@@ -9,7 +9,7 @@ A ready-to-run 4-agent mesh example demonstrating SOCKS5 proxy, split exit routi
                 |   Agent 1   |
                 |  (Ingress)  |
                 | SOCKS5:1080 |
-                | Dashboard   |
+                | HTTP API    |
                 +------+------+
                        |
                 +------v------+
@@ -28,7 +28,7 @@ A ready-to-run 4-agent mesh example demonstrating SOCKS5 proxy, split exit routi
    +-------------+           +-------------+
 ```
 
-- **Agent 1** (Alpine): SOCKS5 ingress + web dashboard
+- **Agent 1** (Alpine): SOCKS5 ingress + HTTP API
 - **Agent 2** (Ubuntu): Transit node with shell and file transfer
 - **Agent 3** (Ubuntu): Exit for IPs 0.0.0.0 - 127.255.255.255
 - **Agent 4** (Ubuntu): Exit for IPs 128.0.0.0 - 255.255.255.255
@@ -49,7 +49,7 @@ docker compose down
 ## Access Points
 
 - **SOCKS5 Proxy**: `localhost:11080`
-- **Dashboard**: http://localhost:18080/ui/
+- **HTTP API**: `http://localhost:18080/api/dashboard`
 
 ## Usage Examples
 
@@ -119,8 +119,8 @@ curl -s http://localhost:18080/api/topology | jq '.agents[] | {id, name: .displa
 # Check health
 curl -s http://localhost:18080/healthz | jq
 
-# Dashboard
-open http://localhost:18080/ui/
+# Dashboard data (JSON)
+curl -s http://localhost:18080/api/dashboard | jq
 ```
 
 ## Troubleshooting

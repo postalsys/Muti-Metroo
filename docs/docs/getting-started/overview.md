@@ -23,10 +23,10 @@ docker compose up -d
 
 **That's it!** You now have a working 4-agent mesh:
 
-- **Dashboard:** http://localhost:18080/ui/ - see the mesh topology
+- **Dashboard API:** `curl http://localhost:18080/api/dashboard | jq`
 - **Test proxy:** `curl -x socks5h://localhost:11080 https://httpbin.org/ip`
 
-Explore the dashboard to see how traffic flows through the mesh, then continue below for production setup.
+Query the dashboard API to see how agents connect through the mesh, then continue below for production setup.
 
 ---
 

@@ -570,7 +570,7 @@ type HTTPConfig struct {
 	// Use pointer types to distinguish between "not set" (nil = use default) and "explicitly false".
 	// Disabled endpoints return 404 and log access attempts.
 	Pprof     *bool `yaml:"pprof,omitempty"`      // /debug/pprof/* - Go profiling endpoints
-	Dashboard *bool `yaml:"dashboard,omitempty"`  // /ui/*, /api/* - Web dashboard and API
+	Dashboard *bool `yaml:"dashboard,omitempty"`  // /api/* - Dashboard API endpoints
 	RemoteAPI *bool `yaml:"remote_api,omitempty"` // /agents/* - Distributed mesh APIs
 }
 
@@ -582,7 +582,7 @@ func (h HTTPConfig) PprofEnabled() bool {
 	return h.Pprof == nil || *h.Pprof
 }
 
-// DashboardEnabled returns whether the /ui/* and /api/* endpoints are enabled.
+// DashboardEnabled returns whether the /api/* dashboard endpoints are enabled.
 func (h HTTPConfig) DashboardEnabled() bool {
 	if h.Minimal {
 		return false

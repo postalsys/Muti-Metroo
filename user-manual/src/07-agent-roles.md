@@ -306,4 +306,4 @@ Think of transport connections as **bidirectional pipes**. Once connected, it do
 2. **Place transit in DMZ**: Transit agents don't need to access sensitive resources
 3. **Use specific routes**: Avoid `0.0.0.0/0` on exits unless necessary
 4. **Separate concerns**: Don't combine ingress and exit on the same agent in production
-5. **Enable HTTP API**: Enable for health checks and dashboard on every agent
+5. **Enable HTTP API**: Enable for health checks and monitoring on every agent

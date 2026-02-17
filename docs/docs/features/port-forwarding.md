@@ -219,7 +219,7 @@ Listeners will route to the nearest available endpoint based on hop count.
 
 ## Monitoring
 
-View active port forward routes in the [Web Dashboard](/features/web-dashboard) or query programmatically:
+View active port forward routes via the dashboard API:
 
 ```bash
 curl http://localhost:8080/api/dashboard | jq '.forward_routes'

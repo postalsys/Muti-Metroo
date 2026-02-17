@@ -53,8 +53,7 @@ docs/
 │   ├── socks5.md
 │   ├── exit-routing.md
 │   ├── file-transfer.md
-│   ├── rpc.md
-│   └── web-dashboard.md
+│   └── rpc.md
 ├── cli/                        # CLI reference
 │   ├── overview.md
 │   ├── run.md

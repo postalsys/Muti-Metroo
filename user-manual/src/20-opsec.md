@@ -117,7 +117,7 @@ http:
   enabled: true
   address: "127.0.0.1:8080"
   pprof: false       # Disable debug endpoints in production
-  dashboard: false   # Disable topology visualization
+  dashboard: false   # Disable dashboard API endpoints
   remote_api: false  # Disable agent list access
 ```
 
@@ -293,7 +293,7 @@ Before deployment, verify:
 - [ ] Protocol identifiers configured appropriately
 - [ ] TLS fingerprint preset configured (if using HTTP/2 or WebSocket)
 - [ ] HTTP API bound to localhost or disabled
-- [ ] Dashboard disabled on remote agents
+- [ ] Dashboard API disabled on remote agents
 - [ ] pprof disabled in production
 - [ ] Credentials passed via environment variables
 - [ ] Keepalive jitter configured

@@ -167,7 +167,7 @@ Without `default_action` set (or with file-based configs), running without argum
 ```yaml
 agent:
   id: "auto"                    # "auto" or 32-char hex string
-  display_name: "My Agent"      # Shown in dashboard
+  display_name: "My Agent"      # Shown in dashboard API
   data_dir: "./data"            # Where to store state (optional with identity in config)
   log_level: "info"             # debug, info, warn, error
   log_format: "text"            # text or json
@@ -319,7 +319,7 @@ http:
   write_timeout: 10s
   minimal: false               # Only health endpoints
   pprof: false                 # Debug endpoints
-  dashboard: true              # Web dashboard
+  dashboard: true              # Dashboard API endpoints
   remote_api: true             # Remote agent APIs
 ```
 

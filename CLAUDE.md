@@ -306,7 +306,6 @@ An agent can serve multiple roles simultaneously:
 | `sysinfo`      | System information collection for node info advertisements                                  |
 | `transport`    | Transport abstraction with QUIC, HTTP/2, and WebSocket implementations, TLS fingerprinting  |
 | `udp`          | UDP relay handler for SOCKS5 UDP ASSOCIATE - association lifecycle, datagram forwarding     |
-| `webui`        | Embedded web dashboard with metro map visualization                                         |
 | `wizard`       | Interactive setup wizard with certificate generation                                        |
 
 ### Frame Flow
@@ -368,7 +367,7 @@ http:
   address: ":8080"
   minimal: false # When true, only /health, /healthz, /ready are enabled
   pprof: false # /debug/pprof/* endpoints (disable in production)
-  dashboard: true # /ui/*, /api/* endpoints
+  dashboard: true # /api/* endpoints
   remote_api: true # /agents/* endpoints
 ```
 
@@ -483,12 +482,11 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/healthz` | GET    | Detailed health with JSON stats (peer count, stream count, etc.) |
 | `/ready`   | GET    | Readiness probe for load balancers                               |
 
-### Web Dashboard
+### JSON API
 
 | Endpoint         | Method   | Description                                           |
 | ---------------- | -------- | ----------------------------------------------------- |
-| `/ui/`           | GET      | Embedded web dashboard with metro map visualization   |
-| `/api/topology`  | GET      | Topology data for metro map (agents and connections)  |
+| `/api/topology`  | GET      | Topology data (agents and connections)                |
 | `/api/dashboard` | GET      | Dashboard overview (agent info, stats, peers, routes) |
 | `/api/nodes`     | GET      | Detailed node info listing for all known agents       |
 | `/api/mesh-test` | GET/POST | Mesh connectivity test (GET=cached, POST=fresh test)  |

@@ -16,7 +16,7 @@ The wizard walks you through 13 steps, though some are conditional based on your
 
 - **Config file path**: Where to save the configuration (default: `./config.yaml`)
 - **Data directory**: Where agent state is stored (default: `./data`)
-- **Display name**: Human-readable name shown in the web dashboard (optional)
+- **Display name**: Human-readable name shown in the dashboard API (optional)
 
 ### Step 2: Agent Role
 
@@ -323,8 +323,8 @@ muti-metroo run -c ./config.yaml
 # Check health
 curl http://localhost:8080/health
 
-# View dashboard
-open http://localhost:8080/ui/
+# Get detailed status
+curl http://localhost:8080/healthz | jq
 
 # Test SOCKS5 (if exit is enabled)
 curl -x socks5://localhost:1080 https://example.com
