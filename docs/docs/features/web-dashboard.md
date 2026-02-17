@@ -33,6 +33,8 @@ open http://localhost:8080/ui/
 
 - **Agent details**: ID, display name, IP address
 - **System info**: OS, architecture, uptime
+- **Roles**: Agent roles (ingress, exit, transit, forward_ingress, forward_exit)
+- **Available shells**: Shells detected on the agent (e.g., bash, sh, zsh)
 - **Connectivity**: Connected peers and routes
 - **Metrics**: Active streams, data transfer
 

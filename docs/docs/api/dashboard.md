@@ -121,7 +121,10 @@ Metro map topology data for visualization.
     "arch": "amd64",
     "version": "1.0.7",
     "uptime_hours": 24.5,
-    "ip_addresses": ["192.168.1.10", "10.0.0.1"]
+    "ip_addresses": ["192.168.1.10", "10.0.0.1"],
+    "roles": ["ingress"],
+    "socks5_addr": ":1080",
+    "shells": ["bash", "sh", "zsh"]
   },
   "agents": [
     {
@@ -129,7 +132,16 @@ Metro map topology data for visualization.
       "short_id": "abc123de",
       "display_name": "My Agent",
       "is_local": true,
-      "is_connected": true
+      "is_connected": true,
+      "hostname": "server1.example.com",
+      "os": "linux",
+      "arch": "amd64",
+      "version": "1.0.7",
+      "uptime_hours": 24.5,
+      "ip_addresses": ["192.168.1.10", "10.0.0.1"],
+      "roles": ["ingress"],
+      "socks5_addr": ":1080",
+      "shells": ["bash", "sh", "zsh"]
     },
     {
       "id": "def456789012345678901234567890cd",
@@ -139,7 +151,15 @@ Metro map topology data for visualization.
       "is_connected": true,
       "hostname": "peer1.example.com",
       "os": "linux",
-      "arch": "amd64"
+      "arch": "amd64",
+      "version": "1.0.7",
+      "uptime_hours": 48.0,
+      "ip_addresses": ["192.168.1.20"],
+      "roles": ["exit"],
+      "exit_routes": ["10.0.0.0/8", "0.0.0.0/0"],
+      "domain_routes": ["*.internal.example.com"],
+      "udp_enabled": true,
+      "shells": ["bash", "sh"]
     }
   ],
   "connections": [
@@ -248,7 +268,12 @@ Detailed node information for all known agents.
       "arch": "amd64",
       "version": "1.0.7",
       "uptime_hours": 24.5,
-      "ip_addresses": ["192.168.1.10", "10.0.0.1"]
+      "ip_addresses": ["192.168.1.10", "10.0.0.1"],
+      "roles": ["ingress", "exit"],
+      "socks5_addr": ":1080",
+      "exit_routes": ["10.0.0.0/8"],
+      "udp_enabled": true,
+      "shells": ["bash", "sh", "zsh"]
     },
     {
       "id": "def456789012345678901234567890cd",
@@ -261,10 +286,37 @@ Detailed node information for all known agents.
       "arch": "arm64",
       "version": "1.0.7",
       "uptime_hours": 12.0,
-      "ip_addresses": ["192.168.1.20"]
+      "ip_addresses": ["192.168.1.20"],
+      "roles": ["transit"],
+      "shells": ["bash", "sh", "zsh"]
     }
   ]
 }
+```
+
+### Node Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Full 32-character agent ID |
+| `short_id` | string | Short 8-character agent ID |
+| `display_name` | string | Human-readable agent name |
+| `is_local` | boolean | Whether this is the queried agent |
+| `is_connected` | boolean | Whether the agent is a direct peer |
+| `hostname` | string | System hostname |
+| `os` | string | Operating system (e.g., `linux`, `darwin`, `windows`) |
+| `arch` | string | CPU architecture (e.g., `amd64`, `arm64`) |
+| `version` | string | Agent version |
+| `uptime_hours` | number | Agent uptime in hours |
+| `ip_addresses` | string[] | Non-loopback IPv4 addresses |
+| `roles` | string[] | Agent roles: `ingress`, `exit`, `transit`, `forward_ingress`, `forward_exit` |
+| `socks5_addr` | string | SOCKS5 listen address (ingress agents only) |
+| `exit_routes` | string[] | Advertised CIDR routes (exit agents only) |
+| `domain_routes` | string[] | Advertised domain patterns (exit agents only) |
+| `udp_enabled` | boolean | Whether UDP relay is enabled |
+| `forward_listeners` | string[] | Port forward listener keys (forward ingress agents only) |
+| `forward_endpoints` | string[] | Port forward endpoint keys (forward exit agents only) |
+| `shells` | string[] | Available shells detected on the agent (e.g., `["bash", "sh", "zsh"]`) |
 ```
 
 ## Examples

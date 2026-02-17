@@ -3261,7 +3261,7 @@ muti-metroo/
 │   │   └── tar_test.go             # Tar archive tests
 │   │
 │   ├── sysinfo/
-│   │   └── sysinfo.go              # System info for node advertisements
+│   │   └── sysinfo.go              # System info and shell detection for node advertisements
 │   │
 │   ├── webui/
 │   │   ├── webui.go                # Web dashboard handler

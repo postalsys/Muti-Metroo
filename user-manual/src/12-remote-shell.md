@@ -150,6 +150,17 @@ muti-metroo shell -t 300 abc123 bash
 
 Windows uses ConPTY (Windows Pseudo Console) for interactive sessions, available on Windows 10 version 1809 and later.
 
+## Shell Detection
+
+Each agent automatically detects installed shells at startup and advertises them to the mesh. This lets you see which shells are available on any agent through the web dashboard or the `/api/nodes` endpoint.
+
+Probed shells by platform:
+
+- **Linux/macOS**: bash, sh, zsh, fish, ash, dash, ksh
+- **Windows**: powershell.exe, pwsh.exe, cmd.exe
+
+Shell detection is separate from the command whitelist. A detected shell only reports what is installed -- the whitelist controls what is allowed to execute.
+
 ### Windows PowerShell
 
 ```bash

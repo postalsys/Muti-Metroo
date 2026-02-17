@@ -116,6 +116,23 @@ See [API - Shell](/api/shell) for protocol details.
 Windows agents use ConPTY (Windows Pseudo Console) for interactive sessions. ConPTY is available on Windows 10 version 1809 and later.
 :::
 
+### Available Shells
+
+Each agent automatically detects installed shells at startup and advertises them to the mesh via node info. You can see which shells are available on any agent through the [web dashboard](/features/web-dashboard) or the [API](/api/dashboard).
+
+**Probed shells by platform:**
+
+| Platform | Shells probed (in preference order) |
+|----------|--------------------------------------|
+| Linux/macOS | bash, sh, zsh, fish, ash, dash, ksh |
+| Windows | powershell.exe, pwsh.exe, cmd.exe |
+
+Shell detection is separate from the command whitelist:
+- **Detection** reports which shells are installed on the system
+- **Whitelist** controls which commands are allowed to execute
+
+A shell appearing in the detected list does not mean it can be used -- it must also be in the agent's `whitelist` configuration.
+
 ### Windows Examples
 
 Run system management commands on Windows agents:
