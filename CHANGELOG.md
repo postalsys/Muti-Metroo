@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.22.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.21.0...muti-metroo-v2.22.0) (2026-02-17)
+
+
+### Features
+
+* add agent presence routes to make all agents reachable by ID ([53a26fd](https://github.com/postalsys/Muti-Metroo/commit/53a26fd5019bf7c166dcdcb1e8228133596d1b0b))
+* advertise available shells in agent node info metadata ([ee4cf69](https://github.com/postalsys/Muti-Metroo/commit/ee4cf6960e6f9f76998cbdf37c5ada9c2fd00c48))
+
+
+### Bug Fixes
+
+* **docs:** correct route management docs to match implementation ([5acac2c](https://github.com/postalsys/Muti-Metroo/commit/5acac2c13de27d979652a8a581d8f143823dd668))
+
 ## [2.21.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.20.0...muti-metroo-v2.21.0) (2026-02-13)
 
 
