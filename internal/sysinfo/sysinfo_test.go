@@ -1,6 +1,8 @@
 package sysinfo
 
 import (
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -46,5 +48,38 @@ func TestEnhanceDevVersion(t *testing.T) {
 	suffix := strings.TrimPrefix(version, "dev-")
 	if suffix == "" {
 		t.Error("Enhanced version should have content after 'dev-'")
+	}
+}
+
+func TestDetectShells(t *testing.T) {
+	shells := DetectShells()
+	t.Logf("Detected shells: %v", shells)
+
+	if len(shells) == 0 {
+		t.Fatal("DetectShells() returned empty list; at least one shell should be available")
+	}
+
+	// Verify all entries are non-empty strings
+	for i, sh := range shells {
+		if sh == "" {
+			t.Errorf("DetectShells()[%d] is empty", i)
+		}
+	}
+
+	// Platform-specific checks
+	if runtime.GOOS == "windows" {
+		if !slices.Contains(shells, "cmd.exe") {
+			t.Error("DetectShells() on Windows should include cmd.exe")
+		}
+	} else {
+		if !slices.Contains(shells, "sh") {
+			t.Error("DetectShells() on Unix should include sh")
+		}
+	}
+
+	// Verify results are cached (same slice returned)
+	shells2 := DetectShells()
+	if len(shells) != len(shells2) {
+		t.Error("DetectShells() should return cached results")
 	}
 }

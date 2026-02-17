@@ -334,6 +334,7 @@ type TopologyAgentInfo struct {
 	UDPEnabled       bool     `json:"udp_enabled,omitempty"`       // UDP relay enabled (for exit)
 	ForwardListeners []string `json:"forward_listeners,omitempty"` // Port forward listener keys (for forward_ingress)
 	ForwardEndpoints []string `json:"forward_endpoints,omitempty"` // Port forward endpoint keys (for forward_exit)
+	Shells           []string `json:"shells,omitempty"`            // Available shells (e.g., ["bash", "sh"])
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -524,6 +525,9 @@ func populateNodeInfo(agent *TopologyAgentInfo, nodeInfo *protocol.NodeInfo) {
 	}
 	if nodeInfo.UDPEnabled {
 		agent.UDPEnabled = true
+	}
+	if len(nodeInfo.Shells) > 0 {
+		agent.Shells = nodeInfo.Shells
 	}
 }
 

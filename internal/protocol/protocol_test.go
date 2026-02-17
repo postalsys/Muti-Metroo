@@ -779,6 +779,7 @@ func TestNodeInfoAdvertise_WithPeers(t *testing.T) {
 					IsDialer:  false,
 				},
 			},
+			Shells: []string{"bash", "sh", "zsh"},
 		},
 		SeenBy: []identity.AgentID{origin},
 	}
@@ -820,6 +821,17 @@ func TestNodeInfoAdvertise_WithPeers(t *testing.T) {
 	}
 	if decoded.Info.Peers[1].IsDialer {
 		t.Error("Peer[1].IsDialer = true, want false")
+	}
+
+	// Check shells
+	if len(decoded.Info.Shells) != 3 {
+		t.Fatalf("Shells length = %d, want 3", len(decoded.Info.Shells))
+	}
+	expectedShells := []string{"bash", "sh", "zsh"}
+	for i, sh := range decoded.Info.Shells {
+		if sh != expectedShells[i] {
+			t.Errorf("Shells[%d] = %s, want %s", i, sh, expectedShells[i])
+		}
 	}
 }
 
@@ -1382,6 +1394,7 @@ func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
 			{Transport: "h2", RTTMs: 25, IsDialer: false},
 		},
 		UDPEnabled: true,
+		Shells:     []string{"bash", "sh"},
 	}
 	copy(original.PublicKey[:], bytes.Repeat([]byte{0xAB}, EphemeralKeySize))
 
@@ -1420,6 +1433,14 @@ func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
 	}
 	if decoded.UDPEnabled != original.UDPEnabled {
 		t.Errorf("UDPEnabled = %v, want %v", decoded.UDPEnabled, original.UDPEnabled)
+	}
+	if len(decoded.Shells) != len(original.Shells) {
+		t.Fatalf("Shells count = %d, want %d", len(decoded.Shells), len(original.Shells))
+	}
+	for i, sh := range decoded.Shells {
+		if sh != original.Shells[i] {
+			t.Errorf("Shells[%d] = %s, want %s", i, sh, original.Shells[i])
+		}
 	}
 }
 

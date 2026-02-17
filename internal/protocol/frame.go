@@ -1015,6 +1015,9 @@ const MaxPeersInNodeInfo = 50
 // MaxForwardListenersInNodeInfo is the maximum number of forward listeners to include in NodeInfo.
 const MaxForwardListenersInNodeInfo = 20
 
+// MaxShellsInNodeInfo is the maximum number of shells to include in NodeInfo.
+const MaxShellsInNodeInfo = 10
+
 // ForwardListenerInfo contains port forward listener information for NodeInfo.
 // Used to advertise which agents have listeners for specific forward routing keys.
 type ForwardListenerInfo struct {
@@ -1035,6 +1038,7 @@ type NodeInfo struct {
 	PublicKey        [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
 	UDPEnabled       bool                   // UDP relay enabled (for exit agents)
 	ForwardListeners []ForwardListenerInfo  // Port forward listeners (for ingress agents)
+	Shells           []string               // Available shells (e.g., ["bash", "sh", "zsh"])
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -1050,6 +1054,12 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	forwardListeners := info.ForwardListeners
 	if len(forwardListeners) > MaxForwardListenersInNodeInfo {
 		forwardListeners = forwardListeners[:MaxForwardListenersInNodeInfo]
+	}
+
+	// Limit shells to max
+	shells := info.Shells
+	if len(shells) > MaxShellsInNodeInfo {
+		shells = shells[:MaxShellsInNodeInfo]
 	}
 
 	// Calculate size
@@ -1071,6 +1081,10 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	size += 1                    // ForwardListenerCount
 	for _, fl := range forwardListeners {
 		size += 1 + len(fl.Key) + 1 + len(fl.Address)
+	}
+	size += 1 // ShellCount
+	for _, sh := range shells {
+		size += 1 + len(sh)
 	}
 
 	w := newBufferWriter(size)
@@ -1104,6 +1118,12 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	for _, fl := range forwardListeners {
 		w.writeString(fl.Key)
 		w.writeString(fl.Address)
+	}
+
+	// Shells
+	w.writeUint8(uint8(len(shells)))
+	for _, sh := range shells {
+		w.writeString(sh)
 	}
 
 	return w.bytes()
@@ -1191,6 +1211,22 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 				Key:     key,
 				Address: address,
 			})
+		}
+	}
+
+	// Shells (optional - for backward compatibility with older agents)
+	if r.remaining() > 0 {
+		shellCount := int(r.readUint8())
+		if shellCount > MaxShellsInNodeInfo {
+			shellCount = MaxShellsInNodeInfo
+		}
+		info.Shells = make([]string, 0, shellCount)
+		for i := 0; i < shellCount && r.remaining() > 0; i++ {
+			sh := r.readString()
+			if r.err != nil {
+				break
+			}
+			info.Shells = append(info.Shells, sh)
 		}
 	}
 

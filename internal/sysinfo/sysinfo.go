@@ -4,6 +4,7 @@ package sysinfo
 import (
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -20,6 +21,9 @@ var (
 	// startTime is when the agent started.
 	startTime     time.Time
 	startTimeOnce sync.Once
+
+	// cachedShells holds the detected shells, computed once at init time.
+	cachedShells []string
 )
 
 func init() {
@@ -31,6 +35,9 @@ func init() {
 	if Version == "dev" {
 		Version = enhanceDevVersion()
 	}
+
+	// Detect available shells once at startup
+	cachedShells = detectShells()
 }
 
 // enhanceDevVersion adds git commit info to dev version using Go's build info.
@@ -70,6 +77,31 @@ func enhanceDevVersion() string {
 	return "dev-" + revision
 }
 
+// detectShells probes the system for known shells using exec.LookPath.
+// Returns base names of found shells in preference order.
+func detectShells() []string {
+	var candidates []string
+	if runtime.GOOS == "windows" {
+		candidates = []string{"powershell.exe", "pwsh.exe", "cmd.exe"}
+	} else {
+		candidates = []string{"bash", "sh", "zsh", "fish", "ash", "dash", "ksh"}
+	}
+
+	var found []string
+	for _, shell := range candidates {
+		if _, err := exec.LookPath(shell); err == nil {
+			found = append(found, shell)
+		}
+	}
+	return found
+}
+
+// DetectShells returns the list of available shells on the system.
+// Results are cached at init time since shells don't change during runtime.
+func DetectShells() []string {
+	return cachedShells
+}
+
 // Collect gathers local system information and returns a NodeInfo struct.
 // UDPConfig contains UDP relay configuration for node info advertisements.
 type UDPConfig struct {
@@ -98,6 +130,7 @@ func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey 
 		IPAddresses: GetLocalIPs(),
 		Peers:       peers,
 		PublicKey:   publicKey,
+		Shells:      cachedShells,
 	}
 
 	// Add UDP config if provided
