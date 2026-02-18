@@ -482,15 +482,6 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/healthz` | GET    | Detailed health with JSON stats (peer count, stream count, etc.) |
 | `/ready`   | GET    | Readiness probe for load balancers                               |
 
-### JSON API
-
-| Endpoint         | Method   | Description                                           |
-| ---------------- | -------- | ----------------------------------------------------- |
-| `/api/topology`  | GET      | Topology data (agents and connections)                |
-| `/api/dashboard` | GET      | Dashboard overview (agent info, stats, peers, routes) |
-| `/api/nodes`     | GET      | Detailed node info listing for all known agents       |
-| `/api/mesh-test` | GET/POST | Mesh connectivity test (GET=cached, POST=fresh test)  |
-
 ### Distributed Status
 
 | Endpoint                           | Method | Description                            |

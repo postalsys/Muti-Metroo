@@ -34,43 +34,17 @@ const splashPageTemplate = `<!DOCTYPE html>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #e4e4e7;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #111;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        .container {
-            text-align: center;
-            padding: 40px 20px;
-            max-width: 480px;
-        }
-        h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 8px;
-            color: #ffffff;
-        }
-        .tagline {
-            font-size: 1.1rem;
-            color: #a1a1aa;
-            margin-bottom: 16px;
-        }
-        .description {
-            font-size: 0.95rem;
-            color: #71717a;
-            line-height: 1.6;
-        }
+        img { width: 160px; height: 160px; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Muti Metroo</h1>
-        <p class="tagline">Userspace Mesh Networking Agent</p>
-        <p class="description">End-to-end encrypted tunnels across heterogeneous transports with multi-hop routing.</p>
-    </div>
+    <img src="/logo.png" alt="Muti Metroo">
 </body>
 </html>
 `
@@ -594,6 +568,9 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/debug/", disabledHandler("pprof"))
 	}
 
+	// Logo image for splash page
+	mux.HandleFunc("/logo.png", handleLogo)
+
 	// Root splash page
 	mux.HandleFunc("/", s.handleSplash)
 
@@ -745,6 +722,13 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("READY\n"))
+}
+
+// handleLogo serves the embedded logo image.
+func handleLogo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(logoPNG)
 }
 
 // handleSplash handles the root "/" splash page.
