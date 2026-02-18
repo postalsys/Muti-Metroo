@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.0.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.22.0...muti-metroo-v3.0.0) (2026-02-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* The embedded web dashboard at /ui/ is no longer available. Use the /api/* endpoints directly or the standalone dashboard application.
+
+### Features
+
+* add dynamic forward listener management (add/remove/list) ([f8ad288](https://github.com/postalsys/Muti-Metroo/commit/f8ad28809ee9c8023cab3eca962f6b7f86412672))
+* add file browsing API for remote filesystem navigation ([5a763aa](https://github.com/postalsys/Muti-Metroo/commit/5a763aa47e1418293f463fb7595ee1a967e01b50))
+* add ShellEnabled to node info advertisement ([6a465cb](https://github.com/postalsys/Muti-Metroo/commit/6a465cb5d0377a3427d3b4cc8da27920d5f6c2c4))
+* advertise file transfer capability in node info ([5b4bc1f](https://github.com/postalsys/Muti-Metroo/commit/5b4bc1f5d36aae68fdd272ee82425fd4ca330b5c))
+* remove embedded web dashboard UI ([74bd609](https://github.com/postalsys/Muti-Metroo/commit/74bd609fe28924771cda4cd54387ccfcbdad5d91))
+
+
+### Bug Fixes
+
+* remove omitempty from browse response fields and fix API docs ([c070e7f](https://github.com/postalsys/Muti-Metroo/commit/c070e7f3474ab363763ddb52b43d4fa48f953f2b))
+
 ## [2.22.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.21.0...muti-metroo-v2.22.0) (2026-02-17)
 
 
