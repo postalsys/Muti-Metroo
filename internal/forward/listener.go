@@ -131,6 +131,11 @@ func (l *Listener) ConnectionCount() int64 {
 	return l.connCount.Load()
 }
 
+// MaxConnections returns the configured maximum connections (0 = unlimited).
+func (l *Listener) MaxConnections() int {
+	return l.cfg.MaxConnections
+}
+
 // acceptLoop accepts incoming connections.
 func (l *Listener) acceptLoop() {
 	defer l.wg.Done()

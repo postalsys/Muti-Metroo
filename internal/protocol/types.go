@@ -54,7 +54,8 @@ const (
 	ControlTypeRoutes uint8 = 0x04 // Request route table
 	ControlTypeRPC    uint8 = 0x05 // Remote procedure call (shell command)
 	// 0x06 and 0x07 reserved (previously used for legacy file transfer)
-	ControlTypeRouteManage uint8 = 0x08 // Dynamic route management (add/remove/list)
+	ControlTypeRouteManage   uint8 = 0x08 // Dynamic route management (add/remove/list)
+	ControlTypeForwardManage uint8 = 0x09 // Dynamic forward listener management (add/remove/list)
 )
 
 // Frame flags

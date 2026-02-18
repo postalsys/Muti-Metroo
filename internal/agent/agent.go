@@ -133,8 +133,11 @@ type Agent struct {
 	icmpHandler *icmp.Handler
 
 	// Port forwarding
-	forwardHandler   *forward.Handler
-	forwardListeners []*forward.Listener
+	forwardHandler          *forward.Handler
+	forwardListenersMu      sync.RWMutex
+	forwardListeners        map[string]*forward.Listener // key -> listener (all)
+	dynamicForwardListeners map[string]struct{}           // keys of dynamic-only
+	configForwardListeners  map[string]struct{}           // keys of config-only
 
 	// Relay stream tracking
 	relayMu           sync.RWMutex
@@ -150,6 +153,9 @@ type Agent struct {
 
 	// Route advertisement trigger channel
 	routeAdvertiseCh chan struct{}
+
+	// Node info advertisement trigger channel
+	nodeInfoAdvertiseCh chan struct{}
 
 	// Wake signal channel for poll cycle synchronization
 	wakeSignalMu sync.Mutex
@@ -218,8 +224,12 @@ func New(cfg *config.Config) (*Agent, error) {
 		dataDir:            cfg.Agent.DataDir,
 		logger:             logger,
 		stopCh:             make(chan struct{}),
-		routeAdvertiseCh:   make(chan struct{}, 1), // Buffered to avoid blocking
-		relayByUpstream:    make(map[uint64]*relayStream),
+		routeAdvertiseCh:        make(chan struct{}, 1), // Buffered to avoid blocking
+		nodeInfoAdvertiseCh:     make(chan struct{}, 1), // Buffered to avoid blocking
+		forwardListeners:        make(map[string]*forward.Listener),
+		dynamicForwardListeners: make(map[string]struct{}),
+		configForwardListeners:  make(map[string]struct{}),
+		relayByUpstream:         make(map[uint64]*relayStream),
 		relayByDownstream:  make(map[uint64]*relayStream),
 		pendingControl:     make(map[uint64]*pendingControlRequest),
 		forwardedControl:   make(map[uint64]*forwardedControlRequest),
@@ -394,7 +404,8 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
 		a.healthServer.SetICMPProvider(a)          // Enable ICMP ping via HTTP API
 		a.healthServer.SetSleepProvider(a)         // Enable sleep mode via HTTP API
-		a.healthServer.SetRouteManageProvider(a)   // Enable dynamic route management via HTTP API
+		a.healthServer.SetRouteManageProvider(a)     // Enable dynamic route management via HTTP API
+		a.healthServer.SetForwardManageProvider(a)   // Enable dynamic forward listener management via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -484,7 +495,8 @@ func (a *Agent) initComponents() error {
 			Logger:         a.logger,
 		}
 		listener := forward.NewListener(cfg, a)
-		a.forwardListeners = append(a.forwardListeners, listener)
+		a.forwardListeners[lisCfg.Key] = listener
+		a.configForwardListeners[lisCfg.Key] = struct{}{}
 	}
 
 	return nil
@@ -673,8 +685,10 @@ func (a *Agent) Start() error {
 	}
 
 	// Start forward listeners
+	a.forwardListenersMu.RLock()
 	for _, listener := range a.forwardListeners {
 		if err := listener.Start(); err != nil {
+			a.forwardListenersMu.RUnlock()
 			a.logger.Error("failed to start forward listener",
 				"key", listener.Key(),
 				logging.KeyError, err)
@@ -685,6 +699,7 @@ func (a *Agent) Start() error {
 			"key", listener.Key(),
 			"address", listener.Address().String())
 	}
+	a.forwardListenersMu.RUnlock()
 
 	// Start route advertisement loop and announce initial routes
 	a.wg.Add(1)
@@ -1174,9 +1189,11 @@ func (a *Agent) Stop() error {
 		}
 
 		// Stop forward listeners
+		a.forwardListenersMu.RLock()
 		for _, listener := range a.forwardListeners {
 			listener.Stop()
 		}
+		a.forwardListenersMu.RUnlock()
 
 		// Stop forward handler
 		if a.forwardHandler != nil {
@@ -1381,6 +1398,153 @@ func (a *Agent) handleRouteManage(data []byte) ([]byte, bool) {
 	return resp, true
 }
 
+// TriggerNodeInfoAdvertise triggers an immediate node info advertisement.
+// This is useful when forward listeners change and you want peers to learn quickly.
+func (a *Agent) TriggerNodeInfoAdvertise() {
+	select {
+	case a.nodeInfoAdvertiseCh <- struct{}{}:
+		a.logger.Debug("node info advertisement triggered")
+	default:
+		// Already pending, skip
+	}
+}
+
+// ManageForwardListener handles dynamic forward listener management (add/remove/list).
+func (a *Agent) ManageForwardListener(action, key, address string, maxConnections int) (*health.ForwardManageResult, error) {
+	switch action {
+	case "add":
+		if key == "" {
+			return nil, fmt.Errorf("key is required")
+		}
+		if address == "" {
+			return nil, fmt.Errorf("address is required")
+		}
+
+		a.forwardListenersMu.Lock()
+
+		// Reject if key exists in config listeners
+		if _, isConfig := a.configForwardListeners[key]; isConfig {
+			a.forwardListenersMu.Unlock()
+			return nil, fmt.Errorf("listener %q is a config listener and cannot be replaced", key)
+		}
+
+		// If key exists as dynamic, stop the old listener first (allows replacing)
+		if oldListener, exists := a.forwardListeners[key]; exists {
+			if _, isDynamic := a.dynamicForwardListeners[key]; isDynamic {
+				a.forwardListenersMu.Unlock()
+				oldListener.Stop()
+				a.forwardListenersMu.Lock()
+			}
+		}
+
+		cfg := forward.ListenerConfig{
+			Key:            key,
+			Address:        address,
+			MaxConnections: maxConnections,
+			Logger:         a.logger,
+		}
+		listener := forward.NewListener(cfg, a)
+		if err := listener.Start(); err != nil {
+			a.forwardListenersMu.Unlock()
+			return nil, fmt.Errorf("failed to start listener: %w", err)
+		}
+
+		a.forwardListeners[key] = listener
+		a.dynamicForwardListeners[key] = struct{}{}
+		a.forwardListenersMu.Unlock()
+
+		a.TriggerNodeInfoAdvertise()
+
+		return &health.ForwardManageResult{
+			Status:  "ok",
+			Message: fmt.Sprintf("forward listener %q added on %s", key, listener.Address().String()),
+		}, nil
+
+	case "remove":
+		if key == "" {
+			return nil, fmt.Errorf("key is required")
+		}
+
+		a.forwardListenersMu.Lock()
+
+		// Reject if key is a config listener
+		if _, isConfig := a.configForwardListeners[key]; isConfig {
+			a.forwardListenersMu.Unlock()
+			return nil, fmt.Errorf("listener %q is a config listener and cannot be removed", key)
+		}
+
+		// Reject if key not in dynamic listeners
+		if _, isDynamic := a.dynamicForwardListeners[key]; !isDynamic {
+			a.forwardListenersMu.Unlock()
+			return nil, fmt.Errorf("listener %q not found", key)
+		}
+
+		listener := a.forwardListeners[key]
+		delete(a.forwardListeners, key)
+		delete(a.dynamicForwardListeners, key)
+		a.forwardListenersMu.Unlock()
+
+		if listener != nil {
+			listener.Stop()
+		}
+
+		a.TriggerNodeInfoAdvertise()
+
+		return &health.ForwardManageResult{
+			Status:  "ok",
+			Message: fmt.Sprintf("forward listener %q removed", key),
+		}, nil
+
+	case "list":
+		a.forwardListenersMu.RLock()
+		entries := make([]health.ForwardManageResultEntry, 0, len(a.forwardListeners))
+		for key, listener := range a.forwardListeners {
+			_, isDynamic := a.dynamicForwardListeners[key]
+			addr := ""
+			if lisAddr := listener.Address(); lisAddr != nil {
+				addr = lisAddr.String()
+			}
+			entries = append(entries, health.ForwardManageResultEntry{
+				Key:            key,
+				Address:        addr,
+				MaxConnections: listener.MaxConnections(),
+				Dynamic:        isDynamic,
+			})
+		}
+		a.forwardListenersMu.RUnlock()
+		return &health.ForwardManageResult{
+			Status:    "ok",
+			Listeners: entries,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown action %q (expected add, remove, or list)", action)
+	}
+}
+
+// handleForwardManage processes a ControlTypeForwardManage control request.
+func (a *Agent) handleForwardManage(data []byte) ([]byte, bool) {
+	var req struct {
+		Action         string `json:"action"`
+		Key            string `json:"key"`
+		Address        string `json:"address"`
+		MaxConnections int    `json:"max_connections"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": "invalid request: " + err.Error()})
+		return resp, false
+	}
+
+	result, err := a.ManageForwardListener(req.Action, req.Key, req.Address, req.MaxConnections)
+	if err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": err.Error()})
+		return resp, false
+	}
+
+	resp, _ := json.Marshal(result)
+	return resp, true
+}
+
 // routeAdvertiseLoop periodically announces local routes to peers.
 // Also responds to manual triggers for immediate advertisement.
 // Cleans up stale routes that haven't been refreshed within route_ttl.
@@ -1503,6 +1667,14 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
+				"display_name", info.DisplayName,
+				"hostname", info.Hostname,
+				"peers", len(info.Peers))
+		case <-a.nodeInfoAdvertiseCh:
+			// Triggered re-advertisement (e.g., after dynamic forward listener change)
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
+			a.flooder.AnnounceLocalNodeInfo(info)
+			a.logger.Debug("triggered node info advertisement sent",
 				"display_name", info.DisplayName,
 				"hostname", info.Hostname,
 				"peers", len(info.Peers))
@@ -2242,6 +2414,8 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.getLocalRoutes()
 	case protocol.ControlTypeRouteManage:
 		data, success = a.handleRouteManage(req.Data)
+	case protocol.ControlTypeForwardManage:
+		data, success = a.handleForwardManage(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false
@@ -3350,6 +3524,7 @@ func (a *Agent) getUDPConfig() *sysinfo.UDPConfig {
 
 // getForwardConfig returns the forward listener configuration for node info advertisements.
 func (a *Agent) getForwardConfig() *sysinfo.ForwardConfig {
+	a.forwardListenersMu.RLock()
 	var listeners []protocol.ForwardListenerInfo
 	for _, listener := range a.forwardListeners {
 		if addr := listener.Address(); addr != nil {
@@ -3359,6 +3534,7 @@ func (a *Agent) getForwardConfig() *sysinfo.ForwardConfig {
 			})
 		}
 	}
+	a.forwardListenersMu.RUnlock()
 	if len(listeners) == 0 {
 		return nil
 	}
@@ -3392,12 +3568,14 @@ func (a *Agent) GetPortForwardInfo() health.PortForwardInfo {
 	info := health.PortForwardInfo{}
 
 	// Get listener keys and addresses
+	a.forwardListenersMu.RLock()
 	for _, listener := range a.forwardListeners {
 		info.ListenerKeys = append(info.ListenerKeys, listener.Key())
 		if addr := listener.Address(); addr != nil {
 			info.ListenerAddresses = append(info.ListenerAddresses, addr.String())
 		}
 	}
+	a.forwardListenersMu.RUnlock()
 
 	// Get endpoint keys from forward handler
 	if a.forwardHandler != nil {
@@ -3414,11 +3592,13 @@ func (a *Agent) GetPortForwardRouteDetails() []health.PortForwardRouteDetails {
 
 	// Build a map of local listener addresses by key
 	listenerAddrs := make(map[string]string)
+	a.forwardListenersMu.RLock()
 	for _, listener := range a.forwardListeners {
 		if addr := listener.Address(); addr != nil {
 			listenerAddrs[listener.Key()] = addr.String()
 		}
 	}
+	a.forwardListenersMu.RUnlock()
 
 	// Add local forward endpoints (this agent is the exit)
 	if a.forwardHandler != nil {

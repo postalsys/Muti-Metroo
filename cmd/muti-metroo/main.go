@@ -144,6 +144,10 @@ root privileges.`,
 	routeC.GroupID = "remote"
 	rootCmd.AddCommand(routeC)
 
+	forwardC := forwardCmd()
+	forwardC.GroupID = "remote"
+	rootCmd.AddCommand(forwardC)
+
 	// Administration commands
 	svc := serviceCmd()
 	svc.GroupID = "admin"
@@ -3927,4 +3931,296 @@ func routeManageURL(agentAddr, targetID string) (string, error) {
 	}
 
 	return fmt.Sprintf("http://%s/agents/%s/routes/manage", agentAddr, resolvedID), nil
+}
+
+// forwardCmd creates the forward parent command with add/remove/list subcommands.
+func forwardCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "forward",
+		Short: "Manage dynamic forward listeners",
+		Long: `Manage dynamic forward listeners at runtime.
+
+Dynamic forward listeners are ephemeral (lost on restart). They allow adding
+port forward ingress listeners on the fly without restarting agents.
+Config-file listeners are protected from modification but appear in the list.
+
+Examples:
+  # Add a forward listener on the local agent
+  muti-metroo forward add web-server :9090
+
+  # Add with connection limit
+  muti-metroo forward add web-server :9090 --max-connections 100
+
+  # Add on a remote agent
+  muti-metroo forward add web-server :9090 --target abc123
+
+  # List all forward listeners
+  muti-metroo forward list
+
+  # Remove a dynamic forward listener
+  muti-metroo forward remove web-server`,
+	}
+
+	cmd.AddCommand(forwardAddCmd())
+	cmd.AddCommand(forwardRemoveCmd())
+	cmd.AddCommand(forwardListCmd())
+
+	return cmd
+}
+
+// forwardAddCmd creates the forward add subcommand.
+func forwardAddCmd() *cobra.Command {
+	var (
+		agentAddr      string
+		targetID       string
+		maxConnections int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "add <key> <address>",
+		Short: "Add a dynamic forward listener",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key := args[0]
+			address := args[1]
+
+			reqBody := struct {
+				Action         string `json:"action"`
+				Key            string `json:"key"`
+				Address        string `json:"address"`
+				MaxConnections int    `json:"max_connections"`
+			}{
+				Action:         "add",
+				Key:            key,
+				Address:        address,
+				MaxConnections: maxConnections,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := forwardManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Error   string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("forward add failed: %s", result.Error)
+				}
+				return fmt.Errorf("forward add failed: %s", resp.Status)
+			}
+
+			fmt.Printf("Forward listener added: %s\n", result.Message)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+	cmd.Flags().IntVar(&maxConnections, "max-connections", 0, "Maximum concurrent connections (0 = unlimited)")
+
+	return cmd
+}
+
+// forwardRemoveCmd creates the forward remove subcommand.
+func forwardRemoveCmd() *cobra.Command {
+	var (
+		agentAddr string
+		targetID  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "remove <key>",
+		Short: "Remove a dynamic forward listener",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			key := args[0]
+
+			reqBody := struct {
+				Action string `json:"action"`
+				Key    string `json:"key"`
+			}{
+				Action: "remove",
+				Key:    key,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := forwardManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Error   string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("forward remove failed: %s", result.Error)
+				}
+				return fmt.Errorf("forward remove failed: %s", resp.Status)
+			}
+
+			fmt.Printf("Forward listener removed: %s\n", result.Message)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+
+	return cmd
+}
+
+// forwardListCmd creates the forward list subcommand.
+func forwardListCmd() *cobra.Command {
+	var (
+		agentAddr  string
+		targetID   string
+		jsonOutput bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List forward listeners",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reqBody := struct {
+				Action string `json:"action"`
+			}{
+				Action: "list",
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := forwardManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status    string `json:"status"`
+				Error     string `json:"error,omitempty"`
+				Listeners []struct {
+					Key            string `json:"key"`
+					Address        string `json:"address"`
+					MaxConnections int    `json:"max_connections"`
+					Dynamic        bool   `json:"dynamic"`
+				} `json:"listeners"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("forward list failed: %s", result.Error)
+				}
+				return fmt.Errorf("forward list failed: %s", resp.Status)
+			}
+
+			if jsonOutput {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			}
+
+			if len(result.Listeners) == 0 {
+				fmt.Println("No forward listeners configured")
+				return nil
+			}
+
+			fmt.Printf("Forward Listeners (%d)\n", len(result.Listeners))
+			fmt.Printf("%-20s %-24s %-8s %s\n", "KEY", "ADDRESS", "TYPE", "MAX_CONN")
+			for _, l := range result.Listeners {
+				listenerType := "static"
+				if l.Dynamic {
+					listenerType = "dynamic"
+				}
+				maxConn := "unlimited"
+				if l.MaxConnections > 0 {
+					maxConn = fmt.Sprintf("%d", l.MaxConnections)
+				}
+				fmt.Printf("%-20s %-24s %-8s %s\n", l.Key, l.Address, listenerType, maxConn)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+
+	return cmd
+}
+
+// forwardManageURL builds the URL for forward listener management based on target.
+func forwardManageURL(agentAddr, targetID string) (string, error) {
+	if targetID == "" {
+		return fmt.Sprintf("http://%s/forward/manage", agentAddr), nil
+	}
+
+	resolvedID, err := resolveAgentID(targetID, agentAddr)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve agent ID: %w", err)
+	}
+
+	return fmt.Sprintf("http://%s/agents/%s/forward/manage", agentAddr, resolvedID), nil
 }

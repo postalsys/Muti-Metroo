@@ -256,6 +256,27 @@ type RouteManageProvider interface {
 	ManageRoute(action, network string, metric uint16) (*RouteManageResult, error)
 }
 
+// ForwardManageResult contains the response for a forward listener management operation.
+type ForwardManageResult struct {
+	Status    string                       `json:"status"`
+	Message   string                       `json:"message,omitempty"`
+	Listeners []ForwardManageResultEntry   `json:"listeners,omitempty"`
+}
+
+// ForwardManageResultEntry describes a single forward listener in list output.
+type ForwardManageResultEntry struct {
+	Key            string `json:"key"`
+	Address        string `json:"address"`
+	MaxConnections int    `json:"max_connections"`
+	Dynamic        bool   `json:"dynamic"`
+}
+
+// ForwardManageProvider provides dynamic forward listener management.
+type ForwardManageProvider interface {
+	// ManageForwardListener handles add/remove/list operations on dynamic forward listeners.
+	ManageForwardListener(action, key, address string, maxConnections int) (*ForwardManageResult, error)
+}
+
 // Stats contains agent health statistics.
 type Stats struct {
 	PeerCount      int  `json:"peer_count"`
@@ -413,8 +434,9 @@ type Server struct {
 	shellProvider       ShellProvider       // For shell WebSocket sessions
 	icmpProvider        ICMPProvider        // For ICMP WebSocket sessions
 	sleepProvider       SleepProvider       // For sleep mode endpoints
-	routeManageProvider RouteManageProvider // For dynamic route management
-	sealedBox           *crypto.SealedBox  // For checking decrypt capability
+	routeManageProvider   RouteManageProvider   // For dynamic route management
+	forwardManageProvider ForwardManageProvider // For dynamic forward listener management
+	sealedBox             *crypto.SealedBox    // For checking decrypt capability
 	meshTestState       *MeshTestState     // For mesh test caching
 	server              *http.Server
 	listener            net.Listener
@@ -537,6 +559,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/agents/", s.handleAgentInfo)
 		mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
 		mux.HandleFunc("/routes/manage", s.handleRouteManage)
+		mux.HandleFunc("/forward/manage", s.handleForwardManage)
 		// Sleep mode endpoints
 		mux.HandleFunc("/sleep", s.handleSleep)
 		mux.HandleFunc("/sleep/status", s.handleSleepStatus)
@@ -546,6 +569,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/agents/", disabledHandler("agents"))
 		mux.HandleFunc("/routes/advertise", disabledHandler("routes_advertise"))
 		mux.HandleFunc("/routes/manage", disabledHandler("routes_manage"))
+		mux.HandleFunc("/forward/manage", disabledHandler("forward_manage"))
 		mux.HandleFunc("/sleep", disabledHandler("sleep"))
 		mux.HandleFunc("/sleep/status", disabledHandler("sleep_status"))
 		mux.HandleFunc("/wake", disabledHandler("wake"))
@@ -616,6 +640,12 @@ func (s *Server) SetSleepProvider(provider SleepProvider) {
 // This is called after the agent is initialized.
 func (s *Server) SetRouteManageProvider(provider RouteManageProvider) {
 	s.routeManageProvider = provider
+}
+
+// SetForwardManageProvider sets the forward listener management provider.
+// This is called after the agent is initialized.
+func (s *Server) SetForwardManageProvider(provider ForwardManageProvider) {
+	s.forwardManageProvider = provider
 }
 
 // CanDecryptManagement returns true if management key decryption is available.
@@ -843,6 +873,9 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 			return
 		case parts[1] == "routes/manage":
 			s.handleRemoteRouteManage(w, r, targetID)
+			return
+		case parts[1] == "forward/manage":
+			s.handleRemoteForwardManage(w, r, targetID)
 			return
 		}
 	}
@@ -1240,8 +1273,9 @@ func (s *Server) handleRouteManage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// handleRemoteRouteManage forwards route management requests to a remote agent.
-func (s *Server) handleRemoteRouteManage(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+// forwardRemoteControl forwards a control request body to a remote agent and relays the response.
+// Used by both route and forward management remote handlers.
+func (s *Server) forwardRemoteControl(w http.ResponseWriter, r *http.Request, targetID identity.AgentID, controlType uint8, featureName string) {
 	if !requirePOST(w, r) {
 		return
 	}
@@ -1250,7 +1284,7 @@ func (s *Server) handleRemoteRouteManage(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	if s.shouldRestrictTopology() {
-		http.Error(w, "route management restricted: management key decryption unavailable", http.StatusForbidden)
+		http.Error(w, featureName+" restricted: management key decryption unavailable", http.StatusForbidden)
 		return
 	}
 
@@ -1263,7 +1297,7 @@ func (s *Server) handleRemoteRouteManage(w http.ResponseWriter, r *http.Request,
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, protocol.ControlTypeRouteManage, body)
+	resp, err := s.remoteProvider.SendControlRequestWithData(ctx, targetID, controlType, body)
 	if err != nil {
 		http.Error(w, "failed to send request: "+err.Error(), http.StatusBadGateway)
 		return
@@ -1278,6 +1312,50 @@ func (s *Server) handleRemoteRouteManage(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp.Data)
+}
+
+// handleRemoteRouteManage forwards route management requests to a remote agent.
+func (s *Server) handleRemoteRouteManage(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	s.forwardRemoteControl(w, r, targetID, protocol.ControlTypeRouteManage, "route management")
+}
+
+// handleForwardManage handles POST /forward/manage to add/remove/list dynamic forward listeners.
+func (s *Server) handleForwardManage(w http.ResponseWriter, r *http.Request) {
+	if !requirePOST(w, r) {
+		return
+	}
+	if s.forwardManageProvider == nil {
+		http.Error(w, "forward management not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if s.shouldRestrictTopology() {
+		http.Error(w, "forward management restricted: management key decryption unavailable", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Action         string `json:"action"`
+		Key            string `json:"key"`
+		Address        string `json:"address"`
+		MaxConnections int    `json:"max_connections"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request: " + err.Error()})
+		return
+	}
+
+	result, err := s.forwardManageProvider.ManageForwardListener(req.Action, req.Key, req.Address, req.MaxConnections)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRemoteForwardManage forwards forward listener management requests to a remote agent.
+func (s *Server) handleRemoteForwardManage(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	s.forwardRemoteControl(w, r, targetID, protocol.ControlTypeForwardManage, "forward management")
 }
 
 // handleSleep handles POST /sleep to trigger mesh-wide sleep mode.

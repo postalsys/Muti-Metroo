@@ -223,6 +223,14 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo route list --json                  # JSON output
 ./build/muti-metroo route add 10.0.0.0/8 -t abc123     # On remote agent
 
+# Dynamic Forward Listener Management
+./build/muti-metroo forward add web-server :9090                   # Add dynamic forward listener
+./build/muti-metroo forward add web-server :9090 --max-connections 100  # With connection limit
+./build/muti-metroo forward remove web-server                      # Remove dynamic forward listener
+./build/muti-metroo forward list                                   # List all forward listeners
+./build/muti-metroo forward list --json                            # JSON output
+./build/muti-metroo forward add web-server :9090 -t abc123         # On remote agent
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -502,6 +510,8 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/routes/advertise`           | POST   | Trigger immediate route advertisement         |
 | `/routes/manage`              | POST   | Add, remove, or list dynamic CIDR exit routes |
 | `/agents/{id}/routes/manage`  | POST   | Manage routes on a remote agent               |
+| `/forward/manage`             | POST   | Add, remove, or list dynamic forward listeners |
+| `/agents/{id}/forward/manage` | POST   | Manage forward listeners on a remote agent     |
 
 ### Sleep Mode
 

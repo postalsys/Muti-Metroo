@@ -757,6 +757,7 @@ All communication uses a consistent framing protocol:
 │  │ 0x04 │ ROUTES             │ Request route table                      │   │
 │  │ 0x05 │ RPC                │ Remote procedure call (shell command)    │   │
 │  │ 0x08 │ ROUTE_MANAGE       │ Add, remove, or list dynamic routes      │   │
+│  │ 0x09 │ FORWARD_MANAGE     │ Add, remove, or list forward listeners   │   │
 │  └──────┴────────────────────┴──────────────────────────────────────────┘   │
 │                                                                             │
 │  UDP Frames (for SOCKS5 UDP ASSOCIATE):                                     │
@@ -2931,6 +2932,10 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/routes/advertise` | POST | Trigger immediate route advertisement |
+| `/routes/manage` | POST | Add, remove, or list dynamic CIDR exit routes |
+| `/agents/{id}/routes/manage` | POST | Manage routes on a remote agent |
+| `/forward/manage` | POST | Add, remove, or list dynamic forward listeners |
+| `/agents/{id}/forward/manage` | POST | Manage forward listeners on a remote agent |
 
 **Debugging (pprof):**
 | Endpoint | Method | Description |
