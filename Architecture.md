@@ -959,6 +959,63 @@ All communication uses a consistent framing protocol:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+#### NODE_INFO_ADVERTISE (0x12)
+
+Flooded through the mesh to announce node metadata. The NodeInfo payload may be encrypted
+with the management key for topology compartmentalization.
+
+**Envelope (NodeInfoAdvertise):**
+
+```
++------------------+--------+--------------------------------------------------+
+| Field            | Size   | Description                                      |
++------------------+--------+--------------------------------------------------+
+| OriginAgent      | 16     | Agent advertising its info (128-bit AgentID)     |
+| Sequence         | 8      | Monotonically increasing sequence (uint64)       |
+| Encrypted        | 1      | 0x00 = plaintext, 0x01 = encrypted               |
+| DataLen          | 2      | Length of NodeInfo data (uint16)                  |
+| Data             | varies | NodeInfo bytes (plaintext or encrypted blob)     |
+| SeenByCount      | 1      | Number of agents in SeenBy list                  |
+| SeenBy[]         | N*16   | Agent IDs for loop prevention                    |
++------------------+--------+--------------------------------------------------+
+```
+
+When `Encrypted` is 0x01, the `Data` field contains `EphemeralPub(32) + Nonce(24) + Ciphertext + Tag(16)`
+and must be decrypted with the management key before decoding as NodeInfo.
+
+**NodeInfo payload (encoding order):**
+
+```
++---------------------------+--------+--------------------------------------------------+
+| Field                     | Size   | Description                                      |
++---------------------------+--------+--------------------------------------------------+
+| DisplayName               | 1+N    | Length-prefixed UTF-8 string                     |
+| Hostname                  | 1+N    | Length-prefixed UTF-8 string                     |
+| OS                        | 1+N    | Length-prefixed UTF-8 string                     |
+| Arch                      | 1+N    | Length-prefixed UTF-8 string                     |
+| Version                   | 1+N    | Length-prefixed UTF-8 string                     |
+| StartTime                 | 8      | Unix timestamp (uint64)                          |
+| IPCount                   | 1      | Number of IP addresses                           |
+| IPAddresses[]             | 1+N ea | Length-prefixed strings (one per IPCount)         |
+| PeerCount                 | 1      | Number of connected peers                        |
+| Peers[]                   | varies | Per peer: PeerID(16) + Transport(1+N)            |
+|                           |        |   + RTTMs(8) + IsDialer(1)                       |
+| PublicKey                 | 32     | X25519 public key for E2E encryption             |
+| UDPEnabled *              | 1      | 0x00 = disabled, 0x01 = enabled                  |
+| ForwardListenerCount *    | 1      | Number of forward listeners                      |
+| ForwardListeners[] *      | varies | Per listener: Key(1+N) + Address(1+N)            |
+| ShellCount *              | 1      | Number of shell commands                         |
+| Shells[] *                | 1+N ea | Length-prefixed strings (whitelisted commands)    |
+| FileTransferEnabled *     | 1      | 0x00 = disabled, 0x01 = enabled                  |
++---------------------------+--------+--------------------------------------------------+
+
+* Optional fields -- guarded by remaining-bytes check in decoder for backward
+  compatibility with older agents. Fields after PublicKey are decoded only if
+  bytes remain in the buffer.
+```
+
+Source: `internal/protocol/frame.go` -- `EncodeNodeInfo()` / `DecodeNodeInfo()`
+
 ---
 
 ## 6.5 UDP Relay Protocol
