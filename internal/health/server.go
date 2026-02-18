@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/postalsys/muti-metroo/internal/crypto"
+	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
 )
@@ -277,6 +278,11 @@ type ForwardManageProvider interface {
 	ManageForwardListener(action, key, address string, maxConnections int) (*ForwardManageResult, error)
 }
 
+// FileBrowseProvider provides file browsing (directory listing, stat, roots).
+type FileBrowseProvider interface {
+	BrowseFiles(req *filetransfer.BrowseRequest) *filetransfer.BrowseResponse
+}
+
 // Stats contains agent health statistics.
 type Stats struct {
 	PeerCount      int  `json:"peer_count"`
@@ -437,6 +443,7 @@ type Server struct {
 	sleepProvider         SleepProvider         // For sleep mode endpoints
 	routeManageProvider   RouteManageProvider   // For dynamic route management
 	forwardManageProvider ForwardManageProvider // For dynamic forward listener management
+	fileBrowseProvider    FileBrowseProvider    // For file browsing (list, stat, roots)
 	sealedBox             *crypto.SealedBox     // For checking decrypt capability
 	meshTestState         *MeshTestState        // For mesh test caching
 	server                *http.Server
@@ -650,6 +657,12 @@ func (s *Server) SetRouteManageProvider(provider RouteManageProvider) {
 // This is called after the agent is initialized.
 func (s *Server) SetForwardManageProvider(provider ForwardManageProvider) {
 	s.forwardManageProvider = provider
+}
+
+// SetFileBrowseProvider sets the file browse provider.
+// This is called after the agent is initialized.
+func (s *Server) SetFileBrowseProvider(provider FileBrowseProvider) {
+	s.fileBrowseProvider = provider
 }
 
 // CanDecryptManagement returns true if management key decryption is available.
@@ -880,6 +893,9 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 			return
 		case parts[1] == "forward/manage":
 			s.handleRemoteForwardManage(w, r, targetID)
+			return
+		case parts[1] == "file/browse":
+			s.handleFileBrowse(w, r, targetID)
 			return
 		}
 	}
@@ -1360,6 +1376,37 @@ func (s *Server) handleForwardManage(w http.ResponseWriter, r *http.Request) {
 // handleRemoteForwardManage forwards forward listener management requests to a remote agent.
 func (s *Server) handleRemoteForwardManage(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
 	s.forwardRemoteControl(w, r, targetID, protocol.ControlTypeForwardManage, "forward management")
+}
+
+// handleFileBrowse handles POST /agents/{agent-id}/file/browse for directory listing, stat, and roots.
+func (s *Server) handleFileBrowse(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	if !requirePOST(w, r) {
+		return
+	}
+
+	// For remote agents, forward via control channel
+	if targetID != s.remoteProvider.ID() {
+		s.forwardRemoteControl(w, r, targetID, protocol.ControlTypeFileBrowse, "file browse")
+		return
+	}
+
+	if s.fileBrowseProvider == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "file browsing not configured"})
+		return
+	}
+
+	var req filetransfer.BrowseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request: " + err.Error()})
+		return
+	}
+
+	resp := s.fileBrowseProvider.BrowseFiles(&req)
+	if resp.Error != "" {
+		writeJSON(w, http.StatusBadRequest, resp)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleSleep handles POST /sleep to trigger mesh-wide sleep mode.

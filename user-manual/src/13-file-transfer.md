@@ -142,6 +142,56 @@ file_transfer:
 | `/home/*/uploads` | `/home/alice/uploads` | `/home/uploads` |
 | `/var/log/*.log` | `/var/log/syslog.log` | `/var/log/app/error.log` |
 
+## File Browsing
+
+Browse the filesystem on remote agents via the HTTP API. Uses the same `allowed_paths` and authentication as file transfer.
+
+### API: POST /agents/{agent-id}/file/browse
+
+Three actions are available: `list`, `stat`, and `roots`.
+
+**List directory contents:**
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list","path":"/tmp","limit":100}'
+```
+
+Response:
+
+```json
+{
+  "path": "/tmp",
+  "entries": [
+    { "name": "subdir", "size": 4096, "mode": "0755",
+      "mod_time": "2026-02-17T08:00:00Z", "is_dir": true },
+    { "name": "file.txt", "size": 1024, "mode": "0644",
+      "mod_time": "2026-02-18T10:30:00Z" }
+  ],
+  "total": 2,
+  "truncated": false
+}
+```
+
+**Stat a single path:**
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"stat","path":"/tmp/file.txt"}'
+```
+
+**Discover browsable roots:**
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"roots"}'
+```
+
+The `list` action supports pagination via `offset` and `limit` (default 100, max 200). Entries are sorted with directories first, then files, alphabetically by name. Symlinks include `is_symlink` and `link_target` fields.
+
 ## Implementation Details
 
 - **Streaming**: Files transferred in 16KB chunks

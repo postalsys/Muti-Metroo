@@ -168,6 +168,16 @@ Get peer list from a specific agent:
 curl http://localhost:8080/agents/abc123def456/peers | jq
 ```
 
+### POST /agents/{agent-id}/file/browse
+
+Browse the filesystem on a remote agent (directory listing, stat, roots):
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list","path":"/tmp"}'
+```
+
 ## Management Endpoints
 
 ### POST /routes/advertise

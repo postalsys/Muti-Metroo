@@ -86,6 +86,100 @@ Download file or directory from remote agent.
 curl -X POST http://localhost:8080/agents/abc123/file/download   -H "Content-Type: application/json"   -d '{"password":"secret","path":"/tmp/data.bin"}'   -o data.bin
 ```
 
+## POST /agents/\{agent-id\}/file/browse
+
+Browse the filesystem on a remote agent. Supports directory listing, file stat, and discovering browsable root paths. Uses the same `allowed_paths` and `password_hash` configuration as file transfer.
+
+### Action: list
+
+List directory contents with pagination.
+
+**Request:**
+```json
+{
+  "action": "list",
+  "path": "/tmp",
+  "password": "secret",
+  "offset": 0,
+  "limit": 100
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | string | No | `"list"` (default), `"stat"`, or `"roots"` |
+| `path` | string | Yes | Directory path to list |
+| `password` | string | No | Authentication password |
+| `offset` | int | No | Pagination offset (default 0) |
+| `limit` | int | No | Max entries to return (default 100, max 200) |
+
+**Response:**
+```json
+{
+  "path": "/tmp",
+  "entries": [
+    { "name": "subdir", "size": 4096, "mode": "0755", "mod_time": "2026-02-17T08:00:00Z", "is_dir": true },
+    { "name": "file.txt", "size": 1024, "mode": "0644", "mod_time": "2026-02-18T10:30:00Z" },
+    { "name": "link", "size": 12, "mode": "0777", "mod_time": "2026-02-16T12:00:00Z", "is_symlink": true, "link_target": "/etc/hosts" }
+  ],
+  "total": 42,
+  "truncated": false
+}
+```
+
+Entries are sorted with directories first, then files, alphabetically by name within each group. Symlinks include `is_symlink` and `link_target` fields, with size and `is_dir` resolved from the symlink target.
+
+### Action: stat
+
+Get info about a single path.
+
+**Request:**
+```json
+{ "action": "stat", "path": "/tmp/file.txt", "password": "secret" }
+```
+
+**Response:**
+```json
+{
+  "path": "/tmp/file.txt",
+  "entry": { "name": "file.txt", "size": 1024, "mode": "0644", "mod_time": "2026-02-18T10:30:00Z" }
+}
+```
+
+### Action: roots
+
+Discover browsable root paths from the `allowed_paths` configuration.
+
+**Request:**
+```json
+{ "action": "roots", "password": "secret" }
+```
+
+**Response:**
+```json
+{ "roots": ["/tmp", "/data"], "wildcard": false }
+```
+
+When `allowed_paths: ["*"]`, the response is `{ "roots": ["/"], "wildcard": true }`. Glob patterns like `/data/**` are normalized to their base directory `/data`.
+
+**Example:**
+```bash
+# List directory
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list","path":"/tmp"}'
+
+# Stat a file
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"stat","path":"/tmp/config.yaml"}'
+
+# Get browsable roots
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"roots"}'
+```
+
 ## Implementation Notes
 
 - Files are streamed in 16KB chunks

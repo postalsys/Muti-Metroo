@@ -406,6 +406,7 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetSleepProvider(a)         // Enable sleep mode via HTTP API
 		a.healthServer.SetRouteManageProvider(a)   // Enable dynamic route management via HTTP API
 		a.healthServer.SetForwardManageProvider(a) // Enable dynamic forward listener management via HTTP API
+		a.healthServer.SetFileBrowseProvider(a)    // Enable file browsing via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -1545,6 +1546,28 @@ func (a *Agent) handleForwardManage(data []byte) ([]byte, bool) {
 	return resp, true
 }
 
+// BrowseFiles handles file browsing requests (list, stat, roots).
+// Implements the health.FileBrowseProvider interface.
+func (a *Agent) BrowseFiles(req *filetransfer.BrowseRequest) *filetransfer.BrowseResponse {
+	if a.fileStreamHandler == nil {
+		return &filetransfer.BrowseResponse{Error: "file transfer is disabled"}
+	}
+	return a.fileStreamHandler.Browse(req)
+}
+
+// handleFileBrowse handles a file browse control request from the control channel.
+func (a *Agent) handleFileBrowse(data []byte) ([]byte, bool) {
+	var req filetransfer.BrowseRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": "invalid request: " + err.Error()})
+		return resp, false
+	}
+
+	result := a.BrowseFiles(&req)
+	resp, _ := json.Marshal(result)
+	return resp, result.Error == ""
+}
+
 // routeAdvertiseLoop periodically announces local routes to peers.
 // Also responds to manual triggers for immediate advertisement.
 // Cleans up stale routes that haven't been refreshed within route_ttl.
@@ -2416,6 +2439,8 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.handleRouteManage(req.Data)
 	case protocol.ControlTypeForwardManage:
 		data, success = a.handleForwardManage(req.Data)
+	case protocol.ControlTypeFileBrowse:
+		data, success = a.handleFileBrowse(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false

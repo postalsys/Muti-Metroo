@@ -502,6 +502,7 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/agents/{agent-id}/icmp`          | GET    | WebSocket ICMP ping sessions           |
 | `/agents/{agent-id}/file/upload`   | POST   | Upload file to remote agent            |
 | `/agents/{agent-id}/file/download` | POST   | Download file from remote agent        |
+| `/agents/{agent-id}/file/browse`   | POST   | Browse filesystem on remote agent      |
 
 ### Management
 

@@ -758,6 +758,7 @@ All communication uses a consistent framing protocol:
 │  │ 0x05 │ RPC                │ Remote procedure call (shell command)    │   │
 │  │ 0x08 │ ROUTE_MANAGE       │ Add, remove, or list dynamic routes      │   │
 │  │ 0x09 │ FORWARD_MANAGE     │ Add, remove, or list forward listeners   │   │
+│  │ 0x0A │ FILE_BROWSE        │ File browsing (list, stat, roots)        │   │
 │  └──────┴────────────────────┴──────────────────────────────────────────┘   │
 │                                                                             │
 │  UDP Frames (for SOCKS5 UDP ASSOCIATE):                                     │

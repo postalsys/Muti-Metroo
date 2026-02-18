@@ -84,6 +84,31 @@ Request:
 
 Response: Binary file data
 
+## File Browsing
+
+Browse the filesystem on remote agents. Uses the same `allowed_paths` and authentication as file transfer -- no additional configuration needed.
+
+```bash
+# List directory contents
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list","path":"/tmp"}'
+
+# Get info about a specific file
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"stat","path":"/tmp/config.yaml"}'
+
+# Discover browsable root paths
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"roots"}'
+```
+
+The `list` action supports pagination with `offset` and `limit` parameters (default limit: 100, max: 200). Entries are sorted with directories first, then files, alphabetically by name.
+
+See [API - File Transfer](/api/file-transfer) for full request/response details.
+
 ## Implementation Details
 
 - **Streaming**: Files transferred in 16KB chunks
