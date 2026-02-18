@@ -102,7 +102,6 @@ func DetectShells() []string {
 	return cachedShells
 }
 
-// Collect gathers local system information and returns a NodeInfo struct.
 // UDPConfig contains UDP relay configuration for node info advertisements.
 type UDPConfig struct {
 	Enabled bool
@@ -118,12 +117,17 @@ type FileTransferConfig struct {
 	Enabled bool
 }
 
+// ShellConfig contains shell configuration for node info advertisements.
+type ShellConfig struct {
+	Enabled bool
+}
+
+// Collect gathers local system information and returns a NodeInfo struct.
+//
 // The peers parameter contains current peer connection details to include in the advertisement.
 // The publicKey parameter is the agent's X25519 public key for E2E encryption.
-// The udpConfig parameter is optional and can be nil if UDP is not configured.
-// The forwardConfig parameter is optional and can be nil if no forward listeners are configured.
-// The fileTransferConfig parameter is optional and can be nil if file transfer is not configured.
-func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte, udpConfig *UDPConfig, forwardConfig *ForwardConfig, fileTransferConfig *FileTransferConfig) *protocol.NodeInfo {
+// Optional config parameters can be nil if the corresponding feature is not configured.
+func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte, udpConfig *UDPConfig, forwardConfig *ForwardConfig, fileTransferConfig *FileTransferConfig, shellConfig *ShellConfig) *protocol.NodeInfo {
 	hostname, _ := os.Hostname()
 
 	info := &protocol.NodeInfo{
@@ -136,22 +140,23 @@ func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey 
 		IPAddresses: GetLocalIPs(),
 		Peers:       peers,
 		PublicKey:   publicKey,
-		Shells:      cachedShells,
 	}
 
-	// Add UDP config if provided
 	if udpConfig != nil {
 		info.UDPEnabled = udpConfig.Enabled
 	}
 
-	// Add forward listeners if provided
 	if forwardConfig != nil {
 		info.ForwardListeners = forwardConfig.Listeners
 	}
 
-	// Add file transfer config if provided
 	if fileTransferConfig != nil {
 		info.FileTransferEnabled = fileTransferConfig.Enabled
+	}
+
+	if shellConfig != nil && shellConfig.Enabled {
+		info.ShellEnabled = true
+		info.Shells = cachedShells
 	}
 
 	return info

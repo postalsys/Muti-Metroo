@@ -1027,19 +1027,20 @@ type ForwardListenerInfo struct {
 
 // NodeInfo contains metadata about an agent in the mesh.
 type NodeInfo struct {
-	DisplayName      string                 // Human-readable name (from config)
-	Hostname         string                 // System hostname
-	OS               string                 // Operating system (runtime.GOOS)
-	Arch             string                 // Architecture (runtime.GOARCH)
-	Version          string                 // Agent version
-	StartTime        int64                  // Agent start time (Unix timestamp)
-	IPAddresses      []string               // Local IP addresses (non-loopback)
-	Peers            []PeerConnectionInfo   // Connected peers (max 50)
-	PublicKey        [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
-	UDPEnabled       bool                   // UDP relay enabled (for exit agents)
-	ForwardListeners []ForwardListenerInfo  // Port forward listeners (for ingress agents)
-	Shells               []string               // Available shells (e.g., ["bash", "sh", "zsh"])
-	FileTransferEnabled  bool                   // File transfer enabled (for exit agents)
+	DisplayName         string                 // Human-readable name (from config)
+	Hostname            string                 // System hostname
+	OS                  string                 // Operating system (runtime.GOOS)
+	Arch                string                 // Architecture (runtime.GOARCH)
+	Version             string                 // Agent version
+	StartTime           int64                  // Agent start time (Unix timestamp)
+	IPAddresses         []string               // Local IP addresses (non-loopback)
+	Peers               []PeerConnectionInfo   // Connected peers (max 50)
+	PublicKey           [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
+	UDPEnabled          bool                   // UDP relay enabled (for exit agents)
+	ForwardListeners    []ForwardListenerInfo  // Port forward listeners (for ingress agents)
+	Shells              []string               // Available shells (e.g., ["bash", "sh", "zsh"])
+	FileTransferEnabled bool                   // File transfer enabled (for exit agents)
+	ShellEnabled        bool                   // Shell access enabled (for exit agents)
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -1088,6 +1089,7 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 		size += 1 + len(sh)
 	}
 	size += 1 // FileTransferEnabled
+	size += 1 // ShellEnabled
 
 	w := newBufferWriter(size)
 	w.writeString(info.DisplayName)
@@ -1130,6 +1132,9 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 
 	// FileTransferEnabled
 	w.writeBool(info.FileTransferEnabled)
+
+	// ShellEnabled
+	w.writeBool(info.ShellEnabled)
 
 	return w.bytes()
 }
@@ -1238,6 +1243,11 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 	// FileTransferEnabled (optional - for backward compatibility with older agents)
 	if r.remaining() > 0 {
 		info.FileTransferEnabled = r.readBool()
+	}
+
+	// ShellEnabled (optional - for backward compatibility with older agents)
+	if r.remaining() > 0 {
+		info.ShellEnabled = r.readBool()
 	}
 
 	return info, nil

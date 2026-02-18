@@ -136,8 +136,8 @@ type Agent struct {
 	forwardHandler          *forward.Handler
 	forwardListenersMu      sync.RWMutex
 	forwardListeners        map[string]*forward.Listener // key -> listener (all)
-	dynamicForwardListeners map[string]struct{}           // keys of dynamic-only
-	configForwardListeners  map[string]struct{}           // keys of config-only
+	dynamicForwardListeners map[string]struct{}          // keys of dynamic-only
+	configForwardListeners  map[string]struct{}          // keys of config-only
 
 	// Relay stream tracking
 	relayMu           sync.RWMutex
@@ -218,23 +218,23 @@ func New(cfg *config.Config) (*Agent, error) {
 	logger := logging.NewLogger(cfg.Agent.LogLevel, cfg.Agent.LogFormat)
 
 	a := &Agent{
-		cfg:                cfg,
-		id:                 agentID,
-		keypair:            keypair,
-		dataDir:            cfg.Agent.DataDir,
-		logger:             logger,
-		stopCh:             make(chan struct{}),
+		cfg:                     cfg,
+		id:                      agentID,
+		keypair:                 keypair,
+		dataDir:                 cfg.Agent.DataDir,
+		logger:                  logger,
+		stopCh:                  make(chan struct{}),
 		routeAdvertiseCh:        make(chan struct{}, 1), // Buffered to avoid blocking
 		nodeInfoAdvertiseCh:     make(chan struct{}, 1), // Buffered to avoid blocking
 		forwardListeners:        make(map[string]*forward.Listener),
 		dynamicForwardListeners: make(map[string]struct{}),
 		configForwardListeners:  make(map[string]struct{}),
 		relayByUpstream:         make(map[uint64]*relayStream),
-		relayByDownstream:  make(map[uint64]*relayStream),
-		pendingControl:     make(map[uint64]*pendingControlRequest),
-		forwardedControl:   make(map[uint64]*forwardedControlRequest),
-		fileStreams:        make(map[uint64]*fileTransferStream),
-		shellClientStreams: make(map[uint64]*health.ShellStreamAdapter),
+		relayByDownstream:       make(map[uint64]*relayStream),
+		pendingControl:          make(map[uint64]*pendingControlRequest),
+		forwardedControl:        make(map[uint64]*forwardedControlRequest),
+		fileStreams:             make(map[uint64]*fileTransferStream),
+		shellClientStreams:      make(map[uint64]*health.ShellStreamAdapter),
 	}
 
 	// Initialize components
@@ -404,8 +404,8 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
 		a.healthServer.SetICMPProvider(a)          // Enable ICMP ping via HTTP API
 		a.healthServer.SetSleepProvider(a)         // Enable sleep mode via HTTP API
-		a.healthServer.SetRouteManageProvider(a)     // Enable dynamic route management via HTTP API
-		a.healthServer.SetForwardManageProvider(a)   // Enable dynamic forward listener management via HTTP API
+		a.healthServer.SetRouteManageProvider(a)   // Enable dynamic route management via HTTP API
+		a.healthServer.SetForwardManageProvider(a) // Enable dynamic forward listener management via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -719,7 +719,7 @@ func (a *Agent) Start() error {
 		case <-a.stopCh:
 			return
 		}
-		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
+		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
@@ -1664,7 +1664,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			}
 
 			// Collect and announce local node info with current peer connections
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -1672,7 +1672,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 				"peers", len(info.Peers))
 		case <-a.nodeInfoAdvertiseCh:
 			// Triggered re-advertisement (e.g., after dynamic forward listener change)
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("triggered node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -3512,7 +3512,7 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
+	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 }
 
 // getUDPConfig returns the UDP configuration for node info advertisements.
@@ -3545,6 +3545,13 @@ func (a *Agent) getForwardConfig() *sysinfo.ForwardConfig {
 func (a *Agent) getFileTransferConfig() *sysinfo.FileTransferConfig {
 	return &sysinfo.FileTransferConfig{
 		Enabled: a.cfg.FileTransfer.Enabled,
+	}
+}
+
+// getShellConfig returns the shell configuration for node info advertisements.
+func (a *Agent) getShellConfig() *sysinfo.ShellConfig {
+	return &sysinfo.ShellConfig{
+		Enabled: a.cfg.Shell.Enabled,
 	}
 }
 

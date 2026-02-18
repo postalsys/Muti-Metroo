@@ -1008,6 +1008,7 @@ and must be decrypted with the management key before decoding as NodeInfo.
 | ShellCount *              | 1      | Number of shell commands                         |
 | Shells[] *                | 1+N ea | Length-prefixed strings (whitelisted commands)    |
 | FileTransferEnabled *     | 1      | 0x00 = disabled, 0x01 = enabled                  |
+| ShellEnabled *            | 1      | 0x00 = disabled, 0x01 = enabled                  |
 +---------------------------+--------+--------------------------------------------------+
 
 * Optional fields -- guarded by remaining-bytes check in decoder for backward

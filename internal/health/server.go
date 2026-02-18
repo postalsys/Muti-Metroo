@@ -258,9 +258,9 @@ type RouteManageProvider interface {
 
 // ForwardManageResult contains the response for a forward listener management operation.
 type ForwardManageResult struct {
-	Status    string                       `json:"status"`
-	Message   string                       `json:"message,omitempty"`
-	Listeners []ForwardManageResultEntry   `json:"listeners,omitempty"`
+	Status    string                     `json:"status"`
+	Message   string                     `json:"message,omitempty"`
+	Listeners []ForwardManageResultEntry `json:"listeners,omitempty"`
 }
 
 // ForwardManageResultEntry describes a single forward listener in list output.
@@ -288,26 +288,27 @@ type Stats struct {
 
 // TopologyAgentInfo contains information about an agent for the topology API.
 type TopologyAgentInfo struct {
-	ID               string   `json:"id"`
-	ShortID          string   `json:"short_id"`
-	DisplayName      string   `json:"display_name"`
-	IsLocal          bool     `json:"is_local"`
-	IsConnected      bool     `json:"is_connected"`
-	Hostname         string   `json:"hostname,omitempty"`
-	OS               string   `json:"os,omitempty"`
-	Arch             string   `json:"arch,omitempty"`
-	Version          string   `json:"version,omitempty"`
-	UptimeHours      float64  `json:"uptime_hours,omitempty"`
-	IPAddresses      []string `json:"ip_addresses,omitempty"`
-	Roles            []string `json:"roles,omitempty"`             // Agent roles: "ingress", "exit", "transit", "forward_ingress", "forward_exit"
-	SOCKS5Addr       string   `json:"socks5_addr,omitempty"`       // SOCKS5 listen address (for ingress)
-	ExitRoutes       []string `json:"exit_routes,omitempty"`       // CIDR routes (for exit)
-	DomainRoutes     []string `json:"domain_routes,omitempty"`     // Domain patterns (for exit)
-	UDPEnabled       bool     `json:"udp_enabled,omitempty"`       // UDP relay enabled (for exit)
-	ForwardListeners []string `json:"forward_listeners,omitempty"` // Port forward listener keys (for forward_ingress)
-	ForwardEndpoints []string `json:"forward_endpoints,omitempty"` // Port forward endpoint keys (for forward_exit)
-	Shells               []string `json:"shells,omitempty"`                // Available shells (e.g., ["bash", "sh"])
-	FileTransferEnabled  bool     `json:"file_transfer_enabled,omitempty"` // File transfer enabled
+	ID                  string   `json:"id"`
+	ShortID             string   `json:"short_id"`
+	DisplayName         string   `json:"display_name"`
+	IsLocal             bool     `json:"is_local"`
+	IsConnected         bool     `json:"is_connected"`
+	Hostname            string   `json:"hostname,omitempty"`
+	OS                  string   `json:"os,omitempty"`
+	Arch                string   `json:"arch,omitempty"`
+	Version             string   `json:"version,omitempty"`
+	UptimeHours         float64  `json:"uptime_hours,omitempty"`
+	IPAddresses         []string `json:"ip_addresses,omitempty"`
+	Roles               []string `json:"roles,omitempty"`                 // Agent roles: "ingress", "exit", "transit", "forward_ingress", "forward_exit"
+	SOCKS5Addr          string   `json:"socks5_addr,omitempty"`           // SOCKS5 listen address (for ingress)
+	ExitRoutes          []string `json:"exit_routes,omitempty"`           // CIDR routes (for exit)
+	DomainRoutes        []string `json:"domain_routes,omitempty"`         // Domain patterns (for exit)
+	UDPEnabled          bool     `json:"udp_enabled,omitempty"`           // UDP relay enabled (for exit)
+	ForwardListeners    []string `json:"forward_listeners,omitempty"`     // Port forward listener keys (for forward_ingress)
+	ForwardEndpoints    []string `json:"forward_endpoints,omitempty"`     // Port forward endpoint keys (for forward_exit)
+	Shells              []string `json:"shells,omitempty"`                // Available shells (e.g., ["bash", "sh"])
+	ShellEnabled        bool     `json:"shell_enabled,omitempty"`         // Shell access enabled
+	FileTransferEnabled bool     `json:"file_transfer_enabled,omitempty"` // File transfer enabled
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -427,20 +428,20 @@ func DefaultServerConfig() ServerConfig {
 
 // Server is an HTTP server for health check endpoints.
 type Server struct {
-	cfg                 ServerConfig
-	provider            StatsProvider
-	remoteProvider      RemoteStatusProvider
-	routeTrigger        RouteAdvertiseTrigger
-	shellProvider       ShellProvider       // For shell WebSocket sessions
-	icmpProvider        ICMPProvider        // For ICMP WebSocket sessions
-	sleepProvider       SleepProvider       // For sleep mode endpoints
+	cfg                   ServerConfig
+	provider              StatsProvider
+	remoteProvider        RemoteStatusProvider
+	routeTrigger          RouteAdvertiseTrigger
+	shellProvider         ShellProvider         // For shell WebSocket sessions
+	icmpProvider          ICMPProvider          // For ICMP WebSocket sessions
+	sleepProvider         SleepProvider         // For sleep mode endpoints
 	routeManageProvider   RouteManageProvider   // For dynamic route management
 	forwardManageProvider ForwardManageProvider // For dynamic forward listener management
-	sealedBox             *crypto.SealedBox    // For checking decrypt capability
-	meshTestState       *MeshTestState     // For mesh test caching
-	server              *http.Server
-	listener            net.Listener
-	running             atomic.Bool
+	sealedBox             *crypto.SealedBox     // For checking decrypt capability
+	meshTestState         *MeshTestState        // For mesh test caching
+	server                *http.Server
+	listener              net.Listener
+	running               atomic.Bool
 }
 
 // disabledHandler returns a handler that returns 404 for disabled endpoints.
@@ -502,6 +503,9 @@ func populateNodeInfo(agent *TopologyAgentInfo, nodeInfo *protocol.NodeInfo) {
 	}
 	if len(nodeInfo.Shells) > 0 {
 		agent.Shells = nodeInfo.Shells
+	}
+	if nodeInfo.ShellEnabled {
+		agent.ShellEnabled = true
 	}
 	if nodeInfo.FileTransferEnabled {
 		agent.FileTransferEnabled = true
