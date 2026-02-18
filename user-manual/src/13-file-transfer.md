@@ -167,7 +167,7 @@ Response:
     { "name": "subdir", "size": 4096, "mode": "0755",
       "mod_time": "2026-02-17T08:00:00Z", "is_dir": true },
     { "name": "file.txt", "size": 1024, "mode": "0644",
-      "mod_time": "2026-02-18T10:30:00Z" }
+      "mod_time": "2026-02-18T10:30:00Z", "is_dir": false }
   ],
   "total": 2,
   "truncated": false
@@ -188,6 +188,18 @@ curl -X POST http://localhost:8080/agents/abc123/file/browse \
 curl -X POST http://localhost:8080/agents/abc123/file/browse \
   -H "Content-Type: application/json" \
   -d '{"action":"roots"}'
+```
+
+Response:
+
+```json
+{ "roots": ["/tmp", "/data"] }
+```
+
+When `allowed_paths: ["*"]`, the response includes a `wildcard` flag:
+
+```json
+{ "roots": ["/"], "wildcard": true }
 ```
 
 The `list` action supports pagination via `offset` and `limit` (default 100, max 200). Entries are sorted with directories first, then files, alphabetically by name. Symlinks include `is_symlink` and `link_target` fields.

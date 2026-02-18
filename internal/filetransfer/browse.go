@@ -26,8 +26,8 @@ type BrowseRequest struct {
 type BrowseResponse struct {
 	Path      string      `json:"path,omitempty"`      // Echoed back for list/stat
 	Entries   []FileEntry `json:"entries,omitempty"`    // Directory entries (list only)
-	Total     int         `json:"total,omitempty"`      // Total entry count before pagination (list only)
-	Truncated bool        `json:"truncated,omitempty"`  // True when more entries exist beyond offset+limit
+	Total     int         `json:"total"`                // Total entry count before pagination (list only)
+	Truncated bool        `json:"truncated"`            // True when more entries exist beyond offset+limit
 	Entry     *FileEntry  `json:"entry,omitempty"`      // Single entry (stat only)
 	Roots     []string    `json:"roots,omitempty"`      // Browsable root paths (roots only)
 	Wildcard  bool        `json:"wildcard,omitempty"`   // True when allowed_paths contains "*" (roots only)
@@ -40,7 +40,7 @@ type FileEntry struct {
 	Size       int64  `json:"size"`
 	Mode       string `json:"mode"`                          // e.g. "0755"
 	ModTime    string `json:"mod_time"`                      // ISO 8601
-	IsDir      bool   `json:"is_dir,omitempty"`
+	IsDir      bool   `json:"is_dir"`
 	IsSymlink  bool   `json:"is_symlink,omitempty"`
 	LinkTarget string `json:"link_target,omitempty"`
 }

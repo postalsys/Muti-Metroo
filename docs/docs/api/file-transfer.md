@@ -119,15 +119,15 @@ List directory contents with pagination.
   "path": "/tmp",
   "entries": [
     { "name": "subdir", "size": 4096, "mode": "0755", "mod_time": "2026-02-17T08:00:00Z", "is_dir": true },
-    { "name": "file.txt", "size": 1024, "mode": "0644", "mod_time": "2026-02-18T10:30:00Z" },
-    { "name": "link", "size": 12, "mode": "0777", "mod_time": "2026-02-16T12:00:00Z", "is_symlink": true, "link_target": "/etc/hosts" }
+    { "name": "file.txt", "size": 1024, "mode": "0644", "mod_time": "2026-02-18T10:30:00Z", "is_dir": false },
+    { "name": "link", "size": 12, "mode": "0777", "mod_time": "2026-02-16T12:00:00Z", "is_dir": false, "is_symlink": true, "link_target": "/etc/hosts" }
   ],
-  "total": 42,
+  "total": 3,
   "truncated": false
 }
 ```
 
-Entries are sorted with directories first, then files, alphabetically by name within each group. Symlinks include `is_symlink` and `link_target` fields, with size and `is_dir` resolved from the symlink target.
+Entries are sorted with directories first, then files, alphabetically by name within each group. Symlinks include `is_symlink` and `link_target` fields, with size and `is_dir` resolved from the symlink target. For broken symlinks, size and mode reflect the symlink itself rather than the missing target.
 
 ### Action: stat
 
@@ -142,7 +142,7 @@ Get info about a single path.
 ```json
 {
   "path": "/tmp/file.txt",
-  "entry": { "name": "file.txt", "size": 1024, "mode": "0644", "mod_time": "2026-02-18T10:30:00Z" }
+  "entry": { "name": "file.txt", "size": 1024, "mode": "0644", "mod_time": "2026-02-18T10:30:00Z", "is_dir": false }
 }
 ```
 
@@ -157,7 +157,7 @@ Discover browsable root paths from the `allowed_paths` configuration.
 
 **Response:**
 ```json
-{ "roots": ["/tmp", "/data"], "wildcard": false }
+{ "roots": ["/tmp", "/data"] }
 ```
 
 When `allowed_paths: ["*"]`, the response is `{ "roots": ["/"], "wildcard": true }`. Glob patterns like `/data/**` are normalized to their base directory `/data`.
@@ -179,6 +179,14 @@ curl -X POST http://localhost:8080/agents/abc123/file/browse \
   -H "Content-Type: application/json" \
   -d '{"action":"roots"}'
 ```
+
+### Errors
+
+| HTTP Status | Body | Cause |
+|-------------|------|-------|
+| 405 | Method Not Allowed | Request used GET instead of POST |
+| 400 | `{"error": "..."}` | Authentication failure, invalid path, unknown action |
+| 503 | `{"error": "file browsing not configured"}` | File transfer is disabled on the target agent |
 
 ## Implementation Notes
 
