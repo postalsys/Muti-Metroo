@@ -115,7 +115,8 @@ Metro map topology data for visualization.
     "ip_addresses": ["192.168.1.10", "10.0.0.1"],
     "roles": ["ingress"],
     "socks5_addr": ":1080",
-    "shells": ["bash", "sh", "zsh"]
+    "shells": ["bash", "sh", "zsh"],
+    "shell_enabled": true
   },
   "agents": [
     {
@@ -132,7 +133,8 @@ Metro map topology data for visualization.
       "ip_addresses": ["192.168.1.10", "10.0.0.1"],
       "roles": ["ingress"],
       "socks5_addr": ":1080",
-      "shells": ["bash", "sh", "zsh"]
+      "shells": ["bash", "sh", "zsh"],
+      "shell_enabled": true
     },
     {
       "id": "def456789012345678901234567890cd",
@@ -151,7 +153,8 @@ Metro map topology data for visualization.
       "domain_routes": ["*.internal.example.com"],
       "udp_enabled": true,
       "file_transfer_enabled": true,
-      "shells": ["bash", "sh"]
+      "shells": ["bash", "sh"],
+      "shell_enabled": true
     }
   ],
   "connections": [
@@ -266,7 +269,8 @@ Detailed node information for all known agents.
       "exit_routes": ["10.0.0.0/8"],
       "udp_enabled": true,
       "file_transfer_enabled": true,
-      "shells": ["bash", "sh", "zsh"]
+      "shells": ["bash", "sh", "zsh"],
+      "shell_enabled": true
     },
     {
       "id": "def456789012345678901234567890cd",
@@ -280,8 +284,7 @@ Detailed node information for all known agents.
       "version": "1.0.7",
       "uptime_hours": 12.0,
       "ip_addresses": ["192.168.1.20"],
-      "roles": ["transit"],
-      "shells": ["bash", "sh", "zsh"]
+      "roles": ["transit"]
     }
   ]
 }
@@ -310,8 +313,8 @@ Detailed node information for all known agents.
 | `file_transfer_enabled` | boolean | Whether file transfer is enabled |
 | `forward_listeners` | string[] | Port forward listener keys (forward ingress agents only) |
 | `forward_endpoints` | string[] | Port forward endpoint keys (forward exit agents only) |
-| `shells` | string[] | Available shells detected on the agent (e.g., `["bash", "sh", "zsh"]`) |
-```
+| `shells` | string[] | Available shells detected on the agent (e.g., `["bash", "sh", "zsh"]`). Only present when shell is enabled. |
+| `shell_enabled` | boolean | Whether shell access is enabled on the agent |
 
 ## Examples
 

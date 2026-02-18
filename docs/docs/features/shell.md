@@ -118,7 +118,9 @@ Windows agents use ConPTY (Windows Pseudo Console) for interactive sessions. Con
 
 ### Available Shells
 
-Each agent automatically detects installed shells at startup and advertises them to the mesh via node info. You can see which shells are available on any agent through the [Dashboard API](/api/dashboard).
+Each agent automatically detects installed shells at startup. When `shell.enabled` is `true`, the agent advertises both the detected shells and a `shell_enabled` flag to the mesh via node info. You can see which shells are available on any agent through the [Dashboard API](/api/dashboard).
+
+When shell is disabled, neither the shell list nor the `shell_enabled` flag appears in the topology -- making it clear that shell access is not available on that agent.
 
 **Probed shells by platform:**
 

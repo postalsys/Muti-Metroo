@@ -152,7 +152,7 @@ Windows uses ConPTY (Windows Pseudo Console) for interactive sessions, available
 
 ## Shell Detection
 
-Each agent automatically detects installed shells at startup and advertises them to the mesh. This lets you see which shells are available on any agent through the `/api/nodes` endpoint.
+Each agent automatically detects installed shells at startup. When `shell.enabled` is `true`, the agent advertises both the detected shells and a `shell_enabled` flag to the mesh. You can see which shells are available on any agent through the `/api/nodes` endpoint. When shell is disabled, neither the shell list nor the enabled flag appears in the API response.
 
 Probed shells by platform:
 
