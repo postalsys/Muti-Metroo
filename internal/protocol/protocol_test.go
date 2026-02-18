@@ -1393,8 +1393,9 @@ func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
 			{Transport: "quic", RTTMs: 15, IsDialer: true},
 			{Transport: "h2", RTTMs: 25, IsDialer: false},
 		},
-		UDPEnabled: true,
-		Shells:     []string{"bash", "sh"},
+		UDPEnabled:          true,
+		Shells:              []string{"bash", "sh"},
+		FileTransferEnabled: true,
 	}
 	copy(original.PublicKey[:], bytes.Repeat([]byte{0xAB}, EphemeralKeySize))
 
@@ -1441,6 +1442,9 @@ func TestEncodeNodeInfo_DecodeNodeInfo(t *testing.T) {
 		if sh != original.Shells[i] {
 			t.Errorf("Shells[%d] = %s, want %s", i, sh, original.Shells[i])
 		}
+	}
+	if decoded.FileTransferEnabled != original.FileTransferEnabled {
+		t.Errorf("FileTransferEnabled = %v, want %v", decoded.FileTransferEnabled, original.FileTransferEnabled)
 	}
 }
 

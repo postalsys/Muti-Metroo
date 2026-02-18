@@ -512,14 +512,15 @@ func TestPopulateNodeInfo(t *testing.T) {
 			DisplayName: "abc123",
 		}
 		nodeInfo := &protocol.NodeInfo{
-			DisplayName: "test-agent",
-			Hostname:    "server1.example.com",
-			OS:          "linux",
-			Arch:        "amd64",
-			Version:     "2.0.0",
-			StartTime:   time.Now().Unix() - 7200, // 2 hours ago
-			IPAddresses: []string{"192.168.1.10", "10.0.0.5"},
-			UDPEnabled:  true,
+			DisplayName:         "test-agent",
+			Hostname:            "server1.example.com",
+			OS:                  "linux",
+			Arch:                "amd64",
+			Version:             "2.0.0",
+			StartTime:           time.Now().Unix() - 7200, // 2 hours ago
+			IPAddresses:         []string{"192.168.1.10", "10.0.0.5"},
+			UDPEnabled:          true,
+			FileTransferEnabled: true,
 		}
 
 		populateNodeInfo(agent, nodeInfo)
@@ -541,6 +542,9 @@ func TestPopulateNodeInfo(t *testing.T) {
 		}
 		if !agent.UDPEnabled {
 			t.Error("UDPEnabled should be true")
+		}
+		if !agent.FileTransferEnabled {
+			t.Error("FileTransferEnabled should be true")
 		}
 		// Uptime should be approximately 2 hours
 		if agent.UptimeHours < 1.9 || agent.UptimeHours > 2.1 {

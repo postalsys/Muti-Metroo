@@ -150,6 +150,7 @@ Metro map topology data for visualization.
       "exit_routes": ["10.0.0.0/8", "0.0.0.0/0"],
       "domain_routes": ["*.internal.example.com"],
       "udp_enabled": true,
+      "file_transfer_enabled": true,
       "shells": ["bash", "sh"]
     }
   ],
@@ -264,6 +265,7 @@ Detailed node information for all known agents.
       "socks5_addr": ":1080",
       "exit_routes": ["10.0.0.0/8"],
       "udp_enabled": true,
+      "file_transfer_enabled": true,
       "shells": ["bash", "sh", "zsh"]
     },
     {
@@ -305,6 +307,7 @@ Detailed node information for all known agents.
 | `exit_routes` | string[] | Advertised CIDR routes (exit agents only) |
 | `domain_routes` | string[] | Advertised domain patterns (exit agents only) |
 | `udp_enabled` | boolean | Whether UDP relay is enabled |
+| `file_transfer_enabled` | boolean | Whether file transfer is enabled |
 | `forward_listeners` | string[] | Port forward listener keys (forward ingress agents only) |
 | `forward_endpoints` | string[] | Port forward endpoint keys (forward exit agents only) |
 | `shells` | string[] | Available shells detected on the agent (e.g., `["bash", "sh", "zsh"]`) |

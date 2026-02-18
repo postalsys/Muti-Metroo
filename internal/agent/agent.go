@@ -704,7 +704,7 @@ func (a *Agent) Start() error {
 		case <-a.stopCh:
 			return
 		}
-		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig())
+		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
@@ -1500,7 +1500,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			}
 
 			// Collect and announce local node info with current peer connections
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig())
+			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -3338,7 +3338,7 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig())
+	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig())
 }
 
 // getUDPConfig returns the UDP configuration for node info advertisements.
@@ -3363,6 +3363,13 @@ func (a *Agent) getForwardConfig() *sysinfo.ForwardConfig {
 		return nil
 	}
 	return &sysinfo.ForwardConfig{Listeners: listeners}
+}
+
+// getFileTransferConfig returns the file transfer configuration for node info advertisements.
+func (a *Agent) getFileTransferConfig() *sysinfo.FileTransferConfig {
+	return &sysinfo.FileTransferConfig{
+		Enabled: a.cfg.FileTransfer.Enabled,
+	}
 }
 
 // GetSOCKS5Info returns SOCKS5 configuration info for the dashboard.

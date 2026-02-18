@@ -1038,7 +1038,8 @@ type NodeInfo struct {
 	PublicKey        [EphemeralKeySize]byte // Agent's static X25519 public key for E2E encryption
 	UDPEnabled       bool                   // UDP relay enabled (for exit agents)
 	ForwardListeners []ForwardListenerInfo  // Port forward listeners (for ingress agents)
-	Shells           []string               // Available shells (e.g., ["bash", "sh", "zsh"])
+	Shells               []string               // Available shells (e.g., ["bash", "sh", "zsh"])
+	FileTransferEnabled  bool                   // File transfer enabled (for exit agents)
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -1086,6 +1087,7 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	for _, sh := range shells {
 		size += 1 + len(sh)
 	}
+	size += 1 // FileTransferEnabled
 
 	w := newBufferWriter(size)
 	w.writeString(info.DisplayName)
@@ -1125,6 +1127,9 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	for _, sh := range shells {
 		w.writeString(sh)
 	}
+
+	// FileTransferEnabled
+	w.writeBool(info.FileTransferEnabled)
 
 	return w.bytes()
 }
@@ -1228,6 +1233,11 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 			}
 			info.Shells = append(info.Shells, sh)
 		}
+	}
+
+	// FileTransferEnabled (optional - for backward compatibility with older agents)
+	if r.remaining() > 0 {
+		info.FileTransferEnabled = r.readBool()
 	}
 
 	return info, nil

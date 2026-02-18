@@ -285,7 +285,8 @@ type TopologyAgentInfo struct {
 	UDPEnabled       bool     `json:"udp_enabled,omitempty"`       // UDP relay enabled (for exit)
 	ForwardListeners []string `json:"forward_listeners,omitempty"` // Port forward listener keys (for forward_ingress)
 	ForwardEndpoints []string `json:"forward_endpoints,omitempty"` // Port forward endpoint keys (for forward_exit)
-	Shells           []string `json:"shells,omitempty"`            // Available shells (e.g., ["bash", "sh"])
+	Shells               []string `json:"shells,omitempty"`                // Available shells (e.g., ["bash", "sh"])
+	FileTransferEnabled  bool     `json:"file_transfer_enabled,omitempty"` // File transfer enabled
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -479,6 +480,9 @@ func populateNodeInfo(agent *TopologyAgentInfo, nodeInfo *protocol.NodeInfo) {
 	}
 	if len(nodeInfo.Shells) > 0 {
 		agent.Shells = nodeInfo.Shells
+	}
+	if nodeInfo.FileTransferEnabled {
+		agent.FileTransferEnabled = true
 	}
 }
 
