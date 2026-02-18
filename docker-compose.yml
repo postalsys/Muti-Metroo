@@ -44,9 +44,11 @@ services:
       - ./testbed/agent1/data:/app/data
       - ./testbed/agent1/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "1090:1080"   # SOCKS5
-      - "8091:8080"   # Health/Metrics
+      - "8191:8080"   # Health/Metrics
     networks:
       - mesh
     depends_on:
@@ -116,6 +118,7 @@ services:
       - ./testbed/certs:/app/certs:ro
     ports:
       - "8095:8080"   # Health/Metrics
+      - "2777:2777"   # Forward listener
     networks:
       - mesh
     depends_on:
