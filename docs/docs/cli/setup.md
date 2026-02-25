@@ -41,21 +41,23 @@ DLL files cannot be used with `setup -c` for config embedding (UPX compression i
 
 ## What It Does
 
-Guides you through 13 steps:
+Guides you through 11 numbered steps:
 
 1. Basic configuration (config file, data directory, display name)
-2. Agent role selection (ingress, transit, exit - multi-select)
-3. Network configuration (transport, listen address, HTTP path)
-4. TLS certificate setup (generate, paste, or use files)
+2. Agent role selection (ingress, transit, exit - multi-select, transit is default)
+3. Network configuration (transport, listen address, reverse proxy option for HTTP/2 and WebSocket)
+4. TLS certificate setup (self-signed or strict CA verification)
 5. Peer connections (with connectivity testing)
 6. SOCKS5 configuration (if ingress role selected)
 7. Exit routes (if exit role selected)
-8. Advanced options (log level, HTTP API)
-9. Remote shell access (disabled by default)
-10. File transfer (disabled by default)
+8. Monitoring & logging (log level, HTTP management API, API authentication)
+9. Remote shell access (skipped for transit-only, password optional)
+10. File transfer (skipped for transit-only, password optional)
 11. Management key encryption (topology privacy)
-12. Configuration delivery (save to file or embed in binary)
-13. Service installation (if root/admin)
+
+Then:
+- Configuration delivery (save to file or embed in binary)
+- Service installation (if root/admin, with update support for existing services)
 
 ## Output
 
