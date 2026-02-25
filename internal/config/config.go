@@ -562,6 +562,11 @@ type HTTPConfig struct {
 	ReadTimeout  time.Duration `yaml:"read_timeout,omitempty"`
 	WriteTimeout time.Duration `yaml:"write_timeout,omitempty"`
 
+	// TokenHash is a bcrypt hash of the API bearer token.
+	// When set, all non-health endpoints require a valid Authorization: Bearer <token> header
+	// or ?token=<token> query parameter. Health endpoints (/health, /healthz, /ready) are exempt.
+	TokenHash string `yaml:"token_hash,omitempty"`
+
 	// Minimal mode - only enable /health, /healthz, /ready endpoints.
 	// When true, overrides all other endpoint flags to false.
 	Minimal bool `yaml:"minimal,omitempty"`
@@ -596,6 +601,11 @@ func (h HTTPConfig) RemoteAPIEnabled() bool {
 		return false
 	}
 	return h.RemoteAPI == nil || *h.RemoteAPI
+}
+
+// AuthEnabled returns whether bearer token authentication is enabled for the HTTP API.
+func (h HTTPConfig) AuthEnabled() bool {
+	return h.TokenHash != ""
 }
 
 // FileTransferConfig defines file transfer settings.

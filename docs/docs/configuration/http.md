@@ -26,6 +26,7 @@ http:
   address: ":8080"        # Bind address (host:port)
   read_timeout: 10s       # Request read timeout
   write_timeout: 10s      # Response write timeout
+  token_hash: ""          # bcrypt hash of API bearer token (empty = no auth)
 
   # Endpoint controls
   minimal: false          # When true, only health endpoints enabled
@@ -42,10 +43,50 @@ http:
 | `address` | string | `:8080` | Bind address (`:8080` or `127.0.0.1:8080`) |
 | `read_timeout` | duration | `10s` | Maximum time to read request |
 | `write_timeout` | duration | `10s` | Maximum time to write response |
+| `token_hash` | string | `""` | bcrypt hash of bearer token (empty = no auth) |
 | `minimal` | bool | `false` | Only enable health endpoints |
 | `pprof` | bool | `false` | Enable Go profiling endpoints |
 | `dashboard` | bool | `true` | Enable dashboard API endpoints |
 | `remote_api` | bool | `true` | Enable distributed mesh APIs |
+
+## Authentication
+
+Protect the HTTP API with bearer token authentication. When `token_hash` is set, all non-health endpoints require a valid token.
+
+### Setup
+
+```bash
+# 1. Generate a token hash
+muti-metroo hash
+# Enter your chosen token when prompted
+
+# 2. Add the hash to your config
+# http:
+#   token_hash: "$2a$10$..."
+```
+
+### Usage
+
+```bash
+# CLI flag
+muti-metroo status --token my-secret-token
+
+# Environment variable
+export MUTI_METROO_TOKEN=my-secret-token
+muti-metroo status
+
+# curl
+curl -H "Authorization: Bearer my-secret-token" http://localhost:8080/agents
+
+# WebSocket (query parameter fallback)
+wscat -c "ws://localhost:8080/agents/{id}/shell?token=my-secret-token"
+```
+
+### Exempt Endpoints
+
+These endpoints never require authentication (for load balancer probes):
+- `/health`, `/healthz`, `/ready`
+- `/` (splash page), `/logo.png`
 
 ## Endpoints
 
@@ -142,16 +183,18 @@ http:
 | Configuration | Access | Use Case |
 |---------------|--------|----------|
 | `address: "127.0.0.1:8080"` | Local only | Development, single-user |
+| `address: ":8080"` + `token_hash` | Authenticated | Production with remote access |
 | `address: ":8080"` + firewall | Controlled | Production with network controls |
 | `minimal: true` | Health only | High-security field deployments |
 | `pprof: true` | Profiling | Debugging only, never production |
 
 ### Recommendations
 
-1. **Bind to localhost** in production unless remote access is required
-2. **Disable pprof** in production deployments
-3. **Use minimal mode** for field agents that don't need dashboard API
-4. **Firewall the port** if binding to all interfaces
+1. **Set `token_hash`** when the API is accessible over a network
+2. **Bind to localhost** in production unless remote access is required
+3. **Disable pprof** in production deployments
+4. **Use minimal mode** for field agents that don't need dashboard API
+5. **Firewall the port** if binding to all interfaces
 
 ## Examples
 
@@ -173,6 +216,17 @@ http:
   enabled: true
   address: "127.0.0.1:8080"
   pprof: false      # Disable profiling
+  dashboard: true
+  remote_api: true
+```
+
+### Authenticated API
+
+```yaml
+http:
+  enabled: true
+  address: ":8080"
+  token_hash: "$2a$10$..."  # muti-metroo hash
   dashboard: true
   remote_api: true
 ```

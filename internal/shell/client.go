@@ -22,6 +22,7 @@ type Client struct {
 	url         string
 	interactive bool
 	password    string
+	token       string
 	command     string
 	args        []string
 	env         map[string]string
@@ -52,6 +53,8 @@ type ClientConfig struct {
 	Interactive bool
 	// Password is the shell authentication password
 	Password string
+	// Token is the API bearer token for HTTP authentication
+	Token string
 	// Command is the command to execute
 	Command string
 	// Args are command arguments
@@ -93,6 +96,7 @@ func NewClient(cfg ClientConfig) *Client {
 		url:         url,
 		interactive: cfg.Interactive,
 		password:    cfg.Password,
+		token:       cfg.Token,
 		command:     cfg.Command,
 		args:        cfg.Args,
 		env:         cfg.Env,
@@ -112,9 +116,15 @@ func (c *Client) Run(ctx context.Context) (int, error) {
 	}
 
 	// Connect to WebSocket
-	conn, _, err := websocket.Dial(ctx, c.url, &websocket.DialOptions{
+	dialOpts := &websocket.DialOptions{
 		Subprotocols: []string{"muti-shell"},
-	})
+	}
+	if c.token != "" {
+		dialOpts.HTTPHeader = http.Header{
+			"Authorization": []string{"Bearer " + c.token},
+		}
+	}
+	conn, _, err := websocket.Dial(ctx, c.url, dialOpts)
 	if err != nil {
 		return 1, fmt.Errorf("failed to connect: %w", err)
 	}
@@ -393,6 +403,9 @@ func (c *Client) fetchAgentInfo() {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
 	resp, err := http.DefaultClient.Do(req)

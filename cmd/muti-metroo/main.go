@@ -45,6 +45,10 @@ var (
 	// Version is set at build time via ldflags.
 	// When "dev", we use sysinfo.Version which has enhanced dev version info.
 	Version = "dev"
+
+	// apiToken is the bearer token for HTTP API authentication.
+	// Set via --token flag or MUTI_METROO_TOKEN environment variable.
+	apiToken string
 )
 
 func init() {
@@ -69,7 +73,14 @@ It enables multi-hop routing with SOCKS5 ingress and CIDR-based
 exit routing, operating entirely in userspace without requiring
 root privileges.`,
 		Version: Version,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if apiToken == "" {
+				apiToken = os.Getenv("MUTI_METROO_TOKEN")
+			}
+		},
 	}
+
+	rootCmd.PersistentFlags().StringVar(&apiToken, "token", "", "API bearer token for authentication (or set MUTI_METROO_TOKEN)")
 
 	// Define command groups for organized help output
 	rootCmd.AddGroup(&cobra.Group{ID: "start", Title: "Getting Started:"})
@@ -181,6 +192,13 @@ root privileges.`,
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+}
+
+// setAuthToken sets the Authorization: Bearer header on the request if apiToken is configured.
+func setAuthToken(req *http.Request) {
+	if apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+apiToken)
 	}
 }
 
@@ -460,6 +478,7 @@ Example output:
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -523,6 +542,7 @@ func peersCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -619,6 +639,7 @@ func routesCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -729,6 +750,7 @@ Example output:
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
+			setAuthToken(req)
 
 			if !jsonOutput {
 				fmt.Println("Testing mesh connectivity...")
@@ -1976,6 +1998,7 @@ Examples:
 				TargetID:    resolvedID,
 				Interactive: ttyMode,
 				Password:    password,
+				Token:       apiToken,
 				Command:     command,
 				Args:        cmdArgs,
 				Timeout:     timeoutSec,
@@ -2228,6 +2251,7 @@ func uploadFile(agentAddr, targetID, localPath, remotePath, password string, tim
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	setAuthToken(req)
 
 	if quiet {
 		// No progress output in quiet mode
@@ -2463,6 +2487,7 @@ func downloadFile(agentAddr, targetID, remotePath, localPath, password string, t
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setAuthToken(req)
 
 	if !quiet {
 		if offset > 0 {
@@ -2758,7 +2783,11 @@ func runPing(ctx context.Context, agentAddr, targetID string, destIP net.IP, cou
 	wsURL := fmt.Sprintf("ws://%s/agents/%s/icmp", agentAddr, targetID)
 
 	// Connect to WebSocket
-	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
+	var wsHeader http.Header
+	if apiToken != "" {
+		wsHeader = http.Header{"Authorization": []string{"Bearer " + apiToken}}
+	}
+	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, wsURL, wsHeader)
 	if err != nil {
 		if resp != nil {
 			body, _ := io.ReadAll(resp.Body)
@@ -2897,6 +2926,7 @@ func hashCmd() *cobra.Command {
 		Long: `Generate a bcrypt password hash for use in configuration files.
 
 The generated hash can be used in:
+  - http.token_hash                     (HTTP API bearer token authentication)
   - socks5.auth.users[].password_hash  (SOCKS5 proxy authentication)
   - shell.password_hash                 (Shell command authentication)
   - file_transfer.password_hash         (File transfer authentication)
@@ -2915,12 +2945,8 @@ Examples:
   muti-metroo hash --cost 12
 
   # Use in config file:
-  # socks5:
-  #   auth:
-  #     enabled: true
-  #     users:
-  #       - username: admin
-  #         password_hash: "<paste hash here>"`,
+  # http:
+  #   token_hash: "<paste hash here>"`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var password string
@@ -3258,6 +3284,7 @@ func resolveAgentID(shortID, agentAddr string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
+	setAuthToken(req)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -3465,6 +3492,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -3529,6 +3557,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -3595,6 +3624,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -3724,6 +3754,7 @@ func routeAddCmd() *cobra.Command {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -3799,6 +3830,7 @@ func routeRemoveCmd() *cobra.Command {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -3865,6 +3897,7 @@ func routeListCmd() *cobra.Command {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -4010,6 +4043,7 @@ func forwardAddCmd() *cobra.Command {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -4081,6 +4115,7 @@ func forwardRemoveCmd() *cobra.Command {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -4147,6 +4182,7 @@ func forwardListCmd() *cobra.Command {
 				return fmt.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {

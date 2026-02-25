@@ -392,6 +392,7 @@ func (a *Agent) initComponents() error {
 			Address:         a.cfg.HTTP.Address,
 			ReadTimeout:     a.cfg.HTTP.ReadTimeout,
 			WriteTimeout:    a.cfg.HTTP.WriteTimeout,
+			TokenHash:       a.cfg.HTTP.TokenHash,
 			EnablePprof:     a.cfg.HTTP.PprofEnabled(),
 			EnableDashboard: a.cfg.HTTP.DashboardEnabled(),
 			EnableRemoteAPI: a.cfg.HTTP.RemoteAPIEnabled(),

@@ -266,6 +266,12 @@ http:
   # When true, overrides all endpoint flags below to false
   minimal: false
 
+  # Bearer token authentication for the HTTP API.
+  # When set, all non-health endpoints require Authorization: Bearer <token>
+  # or ?token=<token> query parameter. Health endpoints are always public.
+  # Generate with: muti-metroo hash
+  # token_hash: "$2a$10$..."
+
   # Endpoint group controls (all default to true when http.enabled=true)
   # Set to false to disable (returns 404 with debug logging)
   pprof: false       # /debug/pprof/* - Go profiling (disable in production)
@@ -277,6 +283,15 @@ http:
 #   enabled: true
 #   address: "127.0.0.1:8080"
 #   minimal: true
+
+# Example: Authenticated API access
+# http:
+#   enabled: true
+#   address: ":8080"
+#   token_hash: "$2a$10$..."  # muti-metroo hash
+#   # CLI: muti-metroo status --token <token>
+#   # Env: MUTI_METROO_TOKEN=<token> muti-metroo status
+#   # curl: curl -H "Authorization: Bearer <token>" http://localhost:8080/agents
 
 # ------------------------------------------------------------------------------
 # Remote Shell

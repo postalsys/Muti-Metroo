@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +18,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +26,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/filetransfer"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // splashPageTemplate is the HTML for the root splash page.
@@ -407,6 +411,10 @@ type ServerConfig struct {
 	// WriteTimeout for HTTP writes
 	WriteTimeout time.Duration
 
+	// TokenHash is the bcrypt hash of the API bearer token.
+	// When non-empty, non-exempt endpoints require authentication.
+	TokenHash string
+
 	// Endpoint group toggles. Disabled endpoints return 404 with logging.
 	// /health, /healthz, /ready are always enabled.
 
@@ -449,6 +457,11 @@ type Server struct {
 	server                *http.Server
 	listener              net.Listener
 	running               atomic.Bool
+
+	// Bearer token authentication cache
+	tokenCacheMu    sync.RWMutex
+	cachedTokenSHA  [32]byte // SHA-256 of last validated token
+	tokenCacheValid bool
 }
 
 // disabledHandler returns a handler that returns 404 for disabled endpoints.
@@ -456,6 +469,74 @@ func disabledHandler(_ string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}
+}
+
+// authExemptPaths are paths that do not require authentication.
+// Health/readiness probes and the splash page are always accessible.
+var authExemptPaths = map[string]bool{
+	"/health":  true,
+	"/healthz": true,
+	"/ready":   true,
+	"/":        true,
+	"/logo.png": true,
+}
+
+// requireAuth returns middleware that enforces bearer token authentication.
+// Exempt paths (health probes, splash) bypass authentication.
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authExemptPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		token := extractBearerToken(r)
+		if token == "" || !s.validateToken(token) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="muti-metroo"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// extractBearerToken extracts the bearer token from the Authorization header,
+// falling back to the ?token= query parameter for WebSocket clients.
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return auth[7:]
+	}
+	return r.URL.Query().Get("token")
+}
+
+// validateToken checks whether the provided token matches the configured hash.
+// Fast path: compare SHA-256 of token against cached value.
+// Slow path: bcrypt verify, then update cache on success.
+func (s *Server) validateToken(token string) bool {
+	tokenSHA := sha256.Sum256([]byte(token))
+
+	// Fast path: check cache
+	s.tokenCacheMu.RLock()
+	if s.tokenCacheValid && subtle.ConstantTimeCompare(tokenSHA[:], s.cachedTokenSHA[:]) == 1 {
+		s.tokenCacheMu.RUnlock()
+		return true
+	}
+	s.tokenCacheMu.RUnlock()
+
+	// Slow path: bcrypt verify
+	if bcrypt.CompareHashAndPassword([]byte(s.cfg.TokenHash), []byte(token)) != nil {
+		return false
+	}
+
+	// Update cache on success
+	s.tokenCacheMu.Lock()
+	s.cachedTokenSHA = tokenSHA
+	s.tokenCacheValid = true
+	s.tokenCacheMu.Unlock()
+
+	return true
 }
 
 // writeJSON writes a JSON response with the given status code.
@@ -613,9 +694,15 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 	// Root splash page
 	mux.HandleFunc("/", s.handleSplash)
 
+	// Wrap with auth middleware if token_hash is configured
+	var handler http.Handler = mux
+	if cfg.TokenHash != "" {
+		handler = s.requireAuth(mux)
+	}
+
 	s.server = &http.Server{
 		Addr:         cfg.Address,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  cfg.ReadTimeout,
 		WriteTimeout: cfg.WriteTimeout,
 	}

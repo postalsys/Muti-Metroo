@@ -145,6 +145,12 @@ func (w *Wizard) Run() (*Result, error) {
 		return nil, err
 	}
 
+	// Step 8b: HTTP API authentication
+	httpTokenHash, err := w.askHTTPAuth(healthEnabled)
+	if err != nil {
+		return nil, err
+	}
+
 	// Step 9: Shell configuration
 	shellConfig, err := w.askShellConfig()
 	if err != nil {
@@ -185,7 +191,7 @@ func (w *Wizard) Run() (*Result, error) {
 	cfg := w.buildConfig(
 		dataDir, displayName, transport, listenAddr, listenPath, plainText,
 		tlsConfig, peers, socks5Config, exitConfig,
-		healthEnabled, logLevel, shellConfig, fileTransferConfig, managementConfig,
+		healthEnabled, logLevel, httpTokenHash, shellConfig, fileTransferConfig, managementConfig,
 	)
 
 	// Initialize identity - when embedding to target binary, don't create files
@@ -1383,6 +1389,40 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err 
 	return
 }
 
+// askHTTPAuth asks whether to enable HTTP API authentication and collects the token.
+// Returns the bcrypt hash of the token, or empty string if auth is not enabled.
+func (w *Wizard) askHTTPAuth(httpEnabled bool) (string, error) {
+	if !httpEnabled {
+		return "", nil
+	}
+
+	prompt.PrintHeader("HTTP API Authentication", "Protect the HTTP API with a bearer token.\nWhen enabled, all non-health endpoints require authentication.")
+
+	enableAuth, err := prompt.Confirm("Enable HTTP API authentication?", false)
+	if err != nil {
+		return "", err
+	}
+
+	if !enableAuth {
+		return "", nil
+	}
+
+	fmt.Println("\nSet a bearer token to protect the HTTP API.")
+	fmt.Println("Use this token with: --token <token> or MUTI_METROO_TOKEN=<token>")
+
+	token, err := readConfirmedPassword("API Token", 8)
+	if err != nil {
+		return "", err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash token: %w", err)
+	}
+
+	return string(hash), nil
+}
+
 func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 	cfg := config.ShellConfig{
 		Enabled:     false,
@@ -1707,6 +1747,7 @@ func (w *Wizard) buildConfig(
 	exitConfig config.ExitConfig,
 	healthEnabled bool,
 	logLevel string,
+	httpTokenHash string,
 	shellConfig config.ShellConfig,
 	fileTransferConfig config.FileTransferConfig,
 	managementConfig config.ManagementConfig,
@@ -1760,6 +1801,9 @@ func (w *Wizard) buildConfig(
 	if healthEnabled {
 		cfg.HTTP.Enabled = true
 		cfg.HTTP.Address = ":8080"
+		if httpTokenHash != "" {
+			cfg.HTTP.TokenHash = httpTokenHash
+		}
 	}
 
 	// Shell (only if enabled)

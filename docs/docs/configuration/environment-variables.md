@@ -72,6 +72,9 @@ peers:
 Never hardcode secrets in configuration:
 
 ```yaml
+http:
+  token_hash: "${HTTP_TOKEN_HASH}"
+
 socks5:
   auth:
     users:
@@ -84,6 +87,14 @@ shell:
 file_transfer:
   password_hash: "${FILE_TRANSFER_PASSWORD_HASH}"
 ```
+
+:::tip CLI Authentication
+The CLI also supports `MUTI_METROO_TOKEN` environment variable for API authentication:
+```bash
+export MUTI_METROO_TOKEN=my-secret-token
+muti-metroo status
+```
+:::
 
 ### TLS Certificates
 

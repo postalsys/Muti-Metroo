@@ -14,6 +14,7 @@ import (
 	"github.com/postalsys/muti-metroo/internal/crypto"
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/protocol"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // mockStatsProvider implements StatsProvider for testing.
@@ -2135,5 +2136,219 @@ func TestHandleRouteManage_NoManagementKey(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+}
+
+// newAuthServer creates a test server with bearer token authentication enabled.
+func newAuthServer(t *testing.T, token string) *Server {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("failed to hash token: %v", err)
+	}
+	cfg := DefaultServerConfig()
+	cfg.TokenHash = string(hash)
+	provider := &mockStatsProvider{running: true}
+	return NewServer(cfg, provider)
+}
+
+func TestAuth_NoTokenConfigured_PassesThrough(t *testing.T) {
+	cfg := DefaultServerConfig()
+	provider := &mockStatsProvider{running: true}
+	s := NewServer(cfg, provider)
+
+	// Request to a protected endpoint should succeed without any token
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestAuth_ValidBearerToken(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	// Use /agents which is a protected endpoint
+	req := httptest.NewRequest(http.MethodGet, "/agents", nil)
+	req.Header.Set("Authorization", "Bearer test-secret-token")
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, req)
+
+	// Should not get 401 (may get other status depending on provider, but not 401)
+	if rec.Code == http.StatusUnauthorized {
+		t.Errorf("valid token should not return 401, got %d", rec.Code)
+	}
+}
+
+func TestAuth_InvalidToken_Returns401(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/agents", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+	if rec.Header().Get("WWW-Authenticate") != `Bearer realm="muti-metroo"` {
+		t.Errorf("expected WWW-Authenticate header, got %q", rec.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestAuth_MissingToken_Returns401(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/agents", nil)
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rec.Code)
+	}
+}
+
+func TestAuth_QueryParamToken(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	req := httptest.NewRequest(http.MethodGet, "/agents?token=test-secret-token", nil)
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, req)
+
+	// Should not get 401 (may get other status depending on provider, but not 401)
+	if rec.Code == http.StatusUnauthorized {
+		t.Errorf("valid query param token should not return 401, got %d", rec.Code)
+	}
+}
+
+func TestAuth_HealthEndpointsExempt(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	exemptPaths := []string{"/health", "/healthz", "/ready", "/", "/logo.png"}
+	for _, path := range exemptPaths {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		s.server.Handler.ServeHTTP(rec, req)
+
+		if rec.Code == http.StatusUnauthorized {
+			t.Errorf("path %s should be exempt from auth, got 401", path)
+		}
+	}
+}
+
+func TestAuth_TokenCaching(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	// First request - slow path (bcrypt)
+	req1 := httptest.NewRequest(http.MethodGet, "/agents", nil)
+	req1.Header.Set("Authorization", "Bearer test-secret-token")
+	rec1 := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec1, req1)
+
+	if rec1.Code == http.StatusUnauthorized {
+		t.Fatalf("first request should pass auth, got 401")
+	}
+
+	// Verify cache is populated
+	s.tokenCacheMu.RLock()
+	if !s.tokenCacheValid {
+		t.Error("token cache should be valid after successful auth")
+	}
+	s.tokenCacheMu.RUnlock()
+
+	// Second request - fast path (SHA-256 cache)
+	req2 := httptest.NewRequest(http.MethodGet, "/agents", nil)
+	req2.Header.Set("Authorization", "Bearer test-secret-token")
+	rec2 := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code == http.StatusUnauthorized {
+		t.Errorf("second request (cached) should pass auth, got 401")
+	}
+}
+
+func TestAuth_WrongTokenAfterCacheHit(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	// First: valid token to populate cache
+	req1 := httptest.NewRequest(http.MethodGet, "/agents", nil)
+	req1.Header.Set("Authorization", "Bearer test-secret-token")
+	rec1 := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec1, req1)
+
+	if rec1.Code == http.StatusUnauthorized {
+		t.Fatalf("first request should pass auth, got 401")
+	}
+
+	// Second: wrong token should still fail
+	req2 := httptest.NewRequest(http.MethodGet, "/agents", nil)
+	req2.Header.Set("Authorization", "Bearer wrong-token")
+	rec2 := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusUnauthorized {
+		t.Errorf("wrong token after cache hit should return 401, got %d", rec2.Code)
+	}
+}
+
+func TestAuth_ProtectedEndpoints(t *testing.T) {
+	s := newAuthServer(t, "test-secret-token")
+
+	// These endpoints should be protected (return 401 without token)
+	protectedPaths := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/agents"},
+		{http.MethodGet, "/api/topology"},
+		{http.MethodGet, "/api/dashboard"},
+		{http.MethodPost, "/routes/advertise"},
+		{http.MethodPost, "/sleep"},
+		{http.MethodGet, "/sleep/status"},
+		{http.MethodPost, "/wake"},
+	}
+
+	for _, tc := range protectedPaths {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		s.server.Handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("path %s %s should require auth, got %d", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
+func TestExtractBearerToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		header   string
+		query    string
+		expected string
+	}{
+		{"bearer header", "Bearer my-token", "", "my-token"},
+		{"query param", "", "my-token", "my-token"},
+		{"header takes precedence", "Bearer header-token", "query-token", "header-token"},
+		{"no token", "", "", ""},
+		{"invalid header prefix", "Basic abc123", "", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			url := "/test"
+			if tc.query != "" {
+				url += "?token=" + tc.query
+			}
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			if tc.header != "" {
+				req.Header.Set("Authorization", tc.header)
+			}
+			got := extractBearerToken(req)
+			if got != tc.expected {
+				t.Errorf("expected %q, got %q", tc.expected, got)
+			}
+		})
 	}
 }

@@ -320,7 +320,7 @@ func TestBuildConfig(t *testing.T) {
 			cfg := w.buildConfig(
 				tc.dataDir, "", tc.transport, tc.listenAddr, tc.listenPath, false,
 				tc.tlsConfig, tc.peers, tc.socks5Config, tc.exitConfig,
-				tc.healthEnabled, tc.logLevel,
+				tc.healthEnabled, tc.logLevel, "",
 				config.ShellConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 			)
 
@@ -453,7 +453,7 @@ func TestBuildConfigLogFormat(t *testing.T) {
 		"/data", "", "quic", "0.0.0.0:4433", "", false,
 		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
-		false, "info",
+		false, "info", "",
 		config.ShellConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 
@@ -470,7 +470,7 @@ func TestBuildConfigDefaults(t *testing.T) {
 		"/data", "", "quic", "0.0.0.0:4433", "", false,
 		config.GlobalTLSConfig{Cert: "c", Key: "k"},
 		nil, config.SOCKS5Config{}, config.ExitConfig{},
-		false, "info",
+		false, "info", "",
 		config.ShellConfig{}, config.FileTransferConfig{}, config.ManagementConfig{},
 	)
 

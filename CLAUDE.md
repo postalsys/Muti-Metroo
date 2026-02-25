@@ -367,17 +367,20 @@ Set values to empty strings to disable custom identifiers if needed.
 
 ### HTTP Endpoint Control
 
-The `http` section supports granular endpoint toggling:
+The `http` section supports granular endpoint toggling and bearer token authentication:
 
 ```yaml
 http:
   enabled: true
   address: ":8080"
+  token_hash: "" # bcrypt hash of bearer token (empty = no auth)
   minimal: false # When true, only /health, /healthz, /ready are enabled
   pprof: false # /debug/pprof/* endpoints (disable in production)
   dashboard: true # /api/* endpoints
   remote_api: true # /agents/* endpoints
 ```
+
+When `token_hash` is set, all non-health endpoints require `Authorization: Bearer <token>` header or `?token=<token>` query parameter. Health endpoints (`/health`, `/healthz`, `/ready`), the splash page (`/`), and `/logo.png` are exempt. Generate with `muti-metroo hash`. CLI commands accept `--token` flag or `MUTI_METROO_TOKEN` env var.
 
 Disabled endpoints return HTTP 404 and log access attempts at debug level.
 

@@ -51,7 +51,46 @@ http:
 
 ## Authentication
 
-Most endpoints require no authentication. Shell and file transfer endpoints require password authentication when configured.
+### Bearer Token (API-wide)
+
+When `http.token_hash` is configured, all non-health endpoints require a bearer token:
+
+```
+Authorization: Bearer <token>
+```
+
+**Exempt endpoints** (always accessible without a token):
+- `/health`, `/healthz`, `/ready` -- health probes
+- `/` and `/logo.png` -- splash page
+
+**Query parameter fallback** for WebSocket clients that cannot set headers:
+```
+ws://localhost:8080/agents/{id}/shell?token=<token>
+```
+
+**CLI usage:**
+```bash
+# Flag
+muti-metroo status --token my-secret-token
+
+# Environment variable
+export MUTI_METROO_TOKEN=my-secret-token
+muti-metroo status
+```
+
+**Generate a token hash:**
+```bash
+muti-metroo hash
+# Paste the output into config:
+# http:
+#   token_hash: "$2a$10$..."
+```
+
+When `token_hash` is empty (default), no API-wide authentication is enforced.
+
+### Feature-specific Authentication
+
+Shell and file transfer endpoints have their own password authentication when configured (`shell.password_hash`, `file_transfer.password_hash`).
 
 ## Response Formats
 
