@@ -165,6 +165,27 @@ func installWindowsService(cfg ServiceConfig, execPath string, embedded bool) er
 	return nil
 }
 
+// stopServiceImpl stops a running Windows service.
+func stopServiceImpl(serviceName string) error {
+	if output, err := runCommand("net", "stop", serviceName); err != nil {
+		outputStr := strings.TrimSpace(output)
+		// Ignore "not started" errors
+		if !strings.Contains(strings.ToLower(outputStr), "not started") &&
+			!strings.Contains(strings.ToLower(outputStr), "is not started") {
+			return fmt.Errorf("failed to stop service: %s", outputStr)
+		}
+	}
+	return nil
+}
+
+// startServiceImpl starts a Windows service.
+func startServiceImpl(serviceName string) error {
+	if output, err := runCommand("net", "start", serviceName); err != nil {
+		return fmt.Errorf("failed to start service: %s", strings.TrimSpace(output))
+	}
+	return nil
+}
+
 // uninstallImpl removes the Windows service.
 func uninstallImpl(serviceName string) error {
 	// Open Service Control Manager

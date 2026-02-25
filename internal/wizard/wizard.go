@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,6 @@ import (
 	"github.com/postalsys/muti-metroo/internal/identity"
 	"github.com/postalsys/muti-metroo/internal/probe"
 	"github.com/postalsys/muti-metroo/internal/service"
-	"github.com/postalsys/muti-metroo/internal/transport"
 	"github.com/postalsys/muti-metroo/internal/wizard/prompt"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
@@ -91,85 +91,88 @@ func (w *Wizard) Run() (*Result, error) {
 		fmt.Println()
 	}
 
-	// Step 1: Basic setup
+	// Step 1/11: Basic setup
 	dataDir, configPath, displayName, err := w.askBasicSetup()
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 2: Agent role
+	// Step 2/11: Agent role
 	roles, err := w.askAgentRoles()
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 3: Network configuration
+	// Determine if transit-only (used to skip shell/file transfer)
+	transitOnly := len(roles) == 1 && roles[0] == "transit"
+
+	// Step 3/11: Network configuration
 	transport, listenAddr, listenPath, plainText, err := w.askNetworkConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 4: TLS setup
+	// Step 4/11: TLS setup
 	certsDir, tlsConfig, err := w.askTLSSetup(dataDir)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 5: Peer connections (if not standalone)
+	// Step 5/11: Peer connections
 	peers, err := w.askPeerConnections(transport)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 6: SOCKS5 config (if ingress)
+	// Step 6/11: SOCKS5 config (if ingress)
 	var socks5Config config.SOCKS5Config
-	if contains(roles, "ingress") {
+	if slices.Contains(roles, "ingress") {
 		socks5Config, err = w.askSOCKS5Config()
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// Step 7: Exit config (if exit)
+	// Step 7/11: Exit config (if exit)
 	var exitConfig config.ExitConfig
-	if contains(roles, "exit") {
+	if slices.Contains(roles, "exit") {
 		exitConfig, err = w.askExitConfig()
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// Step 8: Advanced options
-	healthEnabled, logLevel, err := w.askAdvancedOptions()
+	// Step 8/11: Monitoring & Logging (includes HTTP auth)
+	healthEnabled, logLevel, httpTokenHash, err := w.askMonitoringAndLogging()
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 8b: HTTP API authentication
-	httpTokenHash, err := w.askHTTPAuth(healthEnabled)
-	if err != nil {
-		return nil, err
+	// Step 9/11: Shell configuration (skip for transit-only)
+	var shellConfig config.ShellConfig
+	if !transitOnly {
+		shellConfig, err = w.askShellConfig()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Step 9: Shell configuration
-	shellConfig, err := w.askShellConfig()
-	if err != nil {
-		return nil, err
+	// Step 10/11: File transfer configuration (skip for transit-only)
+	var fileTransferConfig config.FileTransferConfig
+	if !transitOnly {
+		fileTransferConfig, err = w.askFileTransferConfig()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Step 10: File transfer configuration
-	fileTransferConfig, err := w.askFileTransferConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 11: Management key encryption
+	// Step 11/11: Management key encryption
 	managementConfig, err := w.askManagementKey()
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 12: Configuration delivery method
+	// Configuration delivery method
 	// Skip this step if a target binary was specified - always embed to it
 	var embedConfig bool
 	var serviceName string
@@ -287,11 +290,13 @@ func (w *Wizard) Run() (*Result, error) {
 	// Print summary
 	w.printSummary(agentID, keypair, configPath, cfg)
 
-	// Step 13: Service installation (on supported platforms)
-	// Skip if editing a target binary - it's likely already installed as a service
+	// Service installation (on supported platforms)
 	var serviceInstalled bool
-	if service.IsSupported() && w.targetBinaryPath == "" {
-		if embedConfig {
+	if service.IsSupported() {
+		if w.targetBinaryPath != "" {
+			// Target binary mode: offer service update if already installed
+			serviceInstalled, err = w.askServiceInstallationTargetBinary(w.targetBinaryPath, serviceName, dataDir)
+		} else if embedConfig {
 			serviceInstalled, err = w.askServiceInstallationEmbedded(embeddedBinary, serviceName, dataDir)
 		} else {
 			serviceInstalled, err = w.askServiceInstallationWithName(configPath, serviceName)
@@ -315,6 +320,7 @@ func (w *Wizard) Run() (*Result, error) {
 
 func (w *Wizard) printBanner() {
 	prompt.PrintBanner("Muti Metroo Setup Wizard", "Userspace Mesh Networking Agent")
+	fmt.Println("Tip: You can re-run this wizard on an existing config to modify settings.")
 	fmt.Println()
 }
 
@@ -326,7 +332,7 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 	// When embedding to a target binary, skip config path and data dir questions
 	// Config will be embedded, and identity will be generated in-memory
 	if w.targetBinaryPath != "" {
-		prompt.PrintHeader("Basic Setup", "Configure the agent display name.")
+		prompt.PrintHeader("Step 1/11: Basic Setup", "Configure the agent display name.")
 
 		// Use existing config defaults if available (from embedded config)
 		if w.existingCfg != nil {
@@ -337,8 +343,7 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 		return
 	}
 
-	prompt.PrintHeader("Basic Setup", "Configure the essential paths for your agent.\n"+
-		"Note: A config file is always generated, even if you later choose embedded deployment.")
+	prompt.PrintHeader("Step 1/11: Basic Setup", "Configure the essential paths for your agent.")
 
 	// First, ask for config path so we can try to load existing config
 	configPath, err = prompt.ReadLineValidated("Config File Path", "./config.yaml", func(s string) error {
@@ -347,6 +352,13 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 		}
 		if !strings.HasSuffix(s, ".yaml") && !strings.HasSuffix(s, ".yml") {
 			return fmt.Errorf("config file should have .yaml or .yml extension")
+		}
+		// Validate parent directory exists
+		parentDir := filepath.Dir(s)
+		if parentDir != "." {
+			if info, statErr := os.Stat(parentDir); statErr != nil || !info.IsDir() {
+				return fmt.Errorf("parent directory does not exist: %s", parentDir)
+			}
 		}
 		return nil
 	})
@@ -359,12 +371,10 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 		w.existingCfg = existingCfg
 		dataDir = existingCfg.Agent.DataDir
 		displayName = existingCfg.Agent.DisplayName
-		fmt.Println("\n  [INFO] Found existing configuration, using values as defaults.")
+		prompt.PrintInfo("Found existing configuration, using values as defaults.")
 	}
 
 	// Now ask for remaining settings with defaults from existing config
-	fmt.Println("\n  [INFO] Data directory stores agent identity. With embedded deployment,")
-	fmt.Println("         identity is stored in config instead, so this directory may not be created.")
 	dataDir, err = prompt.ReadLineValidated("Data Directory", dataDir, func(s string) error {
 		if s == "" {
 			return fmt.Errorf("data directory is required")
@@ -374,6 +384,7 @@ func (w *Wizard) askBasicSetup() (dataDir, configPath, displayName string, err e
 	if err != nil {
 		return
 	}
+	fmt.Println("  Data directory stores agent identity and encryption keys.")
 
 	displayName, err = prompt.ReadLine("Display Name (press Enter to use Agent ID)", displayName)
 	return
@@ -398,9 +409,12 @@ func (w *Wizard) askAgentRoles() ([]string, error) {
 		if len(selectedIndices) == 0 {
 			selectedIndices = append(selectedIndices, 1) // transit
 		}
+	} else {
+		// Default to Transit when no existing config
+		selectedIndices = []int{1}
 	}
 
-	prompt.PrintHeader("Agent Role", "Select the roles this agent will perform.\nYou can select multiple roles.")
+	prompt.PrintHeader("Step 2/11: Agent Role", "Select the roles this agent will perform.\nYou can select multiple roles.")
 
 	options := []string{
 		"Ingress (SOCKS5 proxy entry point)",
@@ -448,17 +462,16 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, plainTe
 		plainText = l.PlainText
 	}
 
-	prompt.PrintHeader("Network Configuration", "Configure how this agent listens for connections.")
+	prompt.PrintHeader("Step 3/11: Network Configuration", "Configure how this agent listens for connections.\n\nChoose based on your network:")
 
 	// Transport selection
 	transportOptions := []string{
-		"QUIC (UDP, fastest)",
-		"HTTP/2 (TCP, firewall-friendly)",
-		"WebSocket (TCP, proxy-friendly)",
+		"QUIC - Best performance, requires UDP port access",
+		"HTTP/2 - Works through firewalls that only allow TCP/443",
+		"WebSocket - Works through HTTP proxies and CDNs",
 	}
 
-	fmt.Println("Transport Protocol (QUIC is recommended for best performance):")
-	idx, err := prompt.Select("Select", transportOptions, transportIndex(transport))
+	idx, err := prompt.Select("Transport Protocol", transportOptions, transportIndex(transport))
 	if err != nil {
 		return
 	}
@@ -479,7 +492,7 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, plainTe
 		return
 	}
 
-	// Ask for path if using HTTP-based transport
+	// Ask for path and reverse proxy if using HTTP-based transport
 	if transport == "h2" || transport == "ws" {
 		path, err = prompt.ReadLineValidated("HTTP Path", path, func(s string) error {
 			if s == "" || !strings.HasPrefix(s, "/") {
@@ -490,19 +503,16 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, plainTe
 		if err != nil {
 			return
 		}
-	}
 
-	// Ask about reverse proxy for WebSocket transport
-	if transport == "ws" {
 		plainText, err = prompt.Confirm(
-			"Behind reverse proxy (TLS handled by Nginx/Caddy/Apache)?",
+			"Is TLS terminated by a reverse proxy? (e.g., Nginx, Caddy, Apache, Cloudflare)",
 			plainText,
 		)
 		if err != nil {
 			return
 		}
 		if plainText {
-			fmt.Println("\n[OK] Listener will accept plain WebSocket (no TLS)")
+			prompt.PrintSuccess("Listener will accept plain connections (no TLS).")
 			fmt.Println("    Your reverse proxy should handle TLS termination.")
 		}
 	}
@@ -513,7 +523,9 @@ func (w *Wizard) askNetworkConfig() (transport, listenAddr, path string, plainTe
 func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.GlobalTLSConfig, err error) {
 	certsDir = filepath.Join(dataDir, "certs")
 
-	prompt.PrintHeader("TLS Configuration", "Muti Metroo uses E2E encryption (X25519 + ChaCha20-Poly1305) for security.\nTransport TLS is optional - certificates are auto-generated if not configured.")
+	prompt.PrintHeader("Step 4/11: TLS Configuration",
+		"All traffic is end-to-end encrypted (X25519 + ChaCha20-Poly1305).\n"+
+			"Transport TLS adds certificate-based peer verification on top of E2E encryption.")
 
 	// Simplified certificate setup: 2 options only
 	tlsOptions := []string{
@@ -528,7 +540,7 @@ func (w *Wizard) askTLSSetup(dataDir string) (certsDir string, tlsConfig config.
 
 	switch idx {
 	case 0: // self-signed (auto-generate at startup)
-		fmt.Println("\n[OK] TLS certificates will be auto-generated at startup")
+		prompt.PrintSuccess("TLS certificates will be auto-generated at startup.")
 		fmt.Println("    E2E encryption provides security - TLS verification is optional.")
 		return certsDir, config.GlobalTLSConfig{}, nil
 
@@ -559,11 +571,9 @@ func (w *Wizard) askStrictTLSSetup() (config.GlobalTLSConfig, error) {
 	switch idx {
 	case 0:
 		return w.pasteCACertAndAgentCert()
-	case 1:
+	default:
 		return w.generateFromCAKey()
 	}
-
-	return config.GlobalTLSConfig{}, nil
 }
 
 // pasteCACertAndAgentCert prompts user to paste CA cert, agent cert, and key.
@@ -602,7 +612,7 @@ func (w *Wizard) pasteCACertAndAgentCert() (config.GlobalTLSConfig, error) {
 		return config.GlobalTLSConfig{}, fmt.Errorf("invalid private key: %w", err)
 	}
 
-	fmt.Println("\n[OK] Certificates validated and will be embedded in config with strict mode enabled")
+	prompt.PrintSuccess("Certificates validated and will be embedded in config with strict mode enabled")
 
 	return config.GlobalTLSConfig{
 		CAPEM:   caPEM,
@@ -674,7 +684,7 @@ func (w *Wizard) generateFromCAKey() (config.GlobalTLSConfig, error) {
 		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate agent certificate: %w", err)
 	}
 
-	fmt.Println("\n[OK] Certificates generated from CA key")
+	prompt.PrintSuccess("Certificates generated from CA key")
 	fmt.Printf("    CA Fingerprint:    %s\n", ca.Fingerprint())
 	fmt.Printf("    Agent Fingerprint: %s\n", agentCert.Fingerprint())
 	fmt.Println("    Certificates will be embedded in config with strict mode enabled")
@@ -687,324 +697,9 @@ func (w *Wizard) generateFromCAKey() (config.GlobalTLSConfig, error) {
 	}, nil
 }
 
-func (w *Wizard) generateCertificates(certsDir string) (config.GlobalTLSConfig, error) {
-	prompt.PrintHeader("Generate Certificates", "A CA and server certificate will be generated.")
 
-	commonName, err := prompt.ReadLine("Common Name", "muti-metroo")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	validDaysStr, err := prompt.ReadLineValidated("Validity (days)", "365", func(s string) error {
-		if s == "" {
-			return nil
-		}
-		d, err := strconv.Atoi(s)
-		if err != nil || d < 1 {
-			return fmt.Errorf("must be a positive number")
-		}
-		return nil
-	})
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	validDays := 365
-	if d, err := strconv.Atoi(validDaysStr); err == nil && d > 0 {
-		validDays = d
-	}
-
-	// Generate CA
-	validFor := time.Duration(validDays) * 24 * time.Hour
-	ca, err := certutil.GenerateCA(commonName+" CA", validFor)
-	if err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate CA: %w", err)
-	}
-
-	caPath := filepath.Join(certsDir, "ca.crt")
-	caKeyPath := filepath.Join(certsDir, "ca.key")
-	if err := ca.SaveToFiles(caPath, caKeyPath); err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to save CA: %w", err)
-	}
-
-	// Generate server certificate
-	opts := certutil.DefaultPeerOptions(commonName)
-	opts.ValidFor = validFor
-	opts.ParentCert = ca.Certificate
-	opts.ParentKey = ca.PrivateKey
-	opts.DNSNames = append(opts.DNSNames, "localhost")
-	opts.IPAddresses = append(opts.IPAddresses, net.ParseIP("127.0.0.1"))
-
-	cert, err := certutil.GenerateCert(opts)
-	if err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate certificate: %w", err)
-	}
-
-	certPath := filepath.Join(certsDir, "server.crt")
-	keyPath := filepath.Join(certsDir, "server.key")
-	if err := cert.SaveToFiles(certPath, keyPath); err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to save certificate: %w", err)
-	}
-
-	fmt.Printf("\n[OK] Generated CA certificate: %s\n", caPath)
-	fmt.Printf("[OK] Generated server certificate: %s\n", certPath)
-	fmt.Printf("  Fingerprint: %s\n\n", cert.Fingerprint())
-
-	return config.GlobalTLSConfig{
-		Cert: certPath,
-		Key:  keyPath,
-		CA:   caPath,
-	}, nil
-}
-
-func (w *Wizard) pasteCertificates(certsDir string) (config.GlobalTLSConfig, error) {
-	prompt.PrintHeader("Paste Certificate", "Paste your PEM-encoded certificate content.\nInclude the BEGIN/END markers.")
-
-	fmt.Println("Certificate (PEM) - paste server certificate:")
-	certContent, err := prompt.ReadMultiLine("Certificate (PEM)")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-	if !strings.Contains(certContent, "-----BEGIN CERTIFICATE-----") {
-		return config.GlobalTLSConfig{}, fmt.Errorf("invalid certificate format")
-	}
-
-	fmt.Println("Private Key (PEM) - paste private key:")
-	keyContent, err := prompt.ReadMultiLine("Private Key (PEM)")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-	if !strings.Contains(keyContent, "-----BEGIN") || !strings.Contains(keyContent, "PRIVATE KEY-----") {
-		return config.GlobalTLSConfig{}, fmt.Errorf("invalid private key format")
-	}
-
-	fmt.Println("CA Certificate (PEM) - optional, for peer verification and mTLS:")
-	caContent, err := prompt.ReadMultiLine("CA Certificate (PEM) - Optional")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	// Write certificate files
-	certPath := filepath.Join(certsDir, "server.crt")
-	keyPath := filepath.Join(certsDir, "server.key")
-
-	if err := os.WriteFile(certPath, []byte(certContent), 0644); err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to write certificate: %w", err)
-	}
-	if err := os.WriteFile(keyPath, []byte(keyContent), 0600); err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to write key: %w", err)
-	}
-
-	tlsConfig := config.GlobalTLSConfig{
-		Cert: certPath,
-		Key:  keyPath,
-	}
-
-	if caContent != "" && strings.Contains(caContent, "-----BEGIN CERTIFICATE-----") {
-		caPath := filepath.Join(certsDir, "ca.crt")
-		if err := os.WriteFile(caPath, []byte(caContent), 0644); err != nil {
-			return config.GlobalTLSConfig{}, fmt.Errorf("failed to write CA: %w", err)
-		}
-		tlsConfig.CA = caPath
-	}
-
-	fmt.Printf("\n[OK] Saved certificate to: %s\n", certPath)
-	fmt.Printf("[OK] Saved private key to: %s\n\n", keyPath)
-
-	return tlsConfig, nil
-}
-
-// generateSelfSignedCert generates a self-signed certificate and embeds it in the config.
-// No CA is generated - just a simple self-signed cert for transport encryption.
-func (w *Wizard) generateSelfSignedCert() (config.GlobalTLSConfig, error) {
-	prompt.PrintHeader("Generate Certificate", "A self-signed certificate will be generated and embedded in your config.")
-
-	commonName, err := prompt.ReadLine("Common Name", "muti-metroo")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	validDaysStr, err := prompt.ReadLineValidated("Validity (days)", "365", func(s string) error {
-		if s == "" {
-			return nil
-		}
-		d, err := strconv.Atoi(s)
-		if err != nil || d < 1 {
-			return fmt.Errorf("must be a positive number")
-		}
-		return nil
-	})
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	validDays := 365
-	if d, err := strconv.Atoi(validDaysStr); err == nil && d > 0 {
-		validDays = d
-	}
-
-	// Generate self-signed certificate using transport helper
-	validFor := time.Duration(validDays) * 24 * time.Hour
-	certPEM, keyPEM, err := transport.GenerateSelfSignedCert(commonName, validFor)
-	if err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate certificate: %w", err)
-	}
-
-	fmt.Println("\n[OK] Certificate generated and will be embedded in config")
-
-	return config.GlobalTLSConfig{
-		CertPEM: string(certPEM),
-		KeyPEM:  string(keyPEM),
-	}, nil
-}
-
-// pasteCertificatesEmbedded stores pasted certificates as embedded PEM in config.
-func (w *Wizard) pasteCertificatesEmbedded() (config.GlobalTLSConfig, error) {
-	prompt.PrintHeader("Paste Certificate", "Paste your PEM-encoded certificate content.\nCertificates will be embedded in the config file.")
-
-	fmt.Println("Certificate (PEM) - paste server certificate:")
-	certContent, err := prompt.ReadMultiLine("Certificate (PEM)")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-	if !strings.Contains(certContent, "-----BEGIN CERTIFICATE-----") {
-		return config.GlobalTLSConfig{}, fmt.Errorf("invalid certificate format")
-	}
-
-	fmt.Println("Private Key (PEM) - paste private key:")
-	keyContent, err := prompt.ReadMultiLine("Private Key (PEM)")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-	if !strings.Contains(keyContent, "-----BEGIN") || !strings.Contains(keyContent, "PRIVATE KEY-----") {
-		return config.GlobalTLSConfig{}, fmt.Errorf("invalid private key format")
-	}
-
-	fmt.Println("CA Certificate (PEM) - optional, for strict TLS verification and mTLS:")
-	caContent, err := prompt.ReadMultiLine("CA Certificate (PEM) - Optional")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	tlsConfig := config.GlobalTLSConfig{
-		CertPEM: certContent,
-		KeyPEM:  keyContent,
-	}
-
-	if caContent != "" && strings.Contains(caContent, "-----BEGIN CERTIFICATE-----") {
-		tlsConfig.CAPEM = caContent
-	}
-
-	fmt.Println("\n[OK] Certificates will be embedded in config")
-
-	return tlsConfig, nil
-}
-
-// setupStrictTLS generates a CA and agent certificate for strict TLS verification.
-func (w *Wizard) setupStrictTLS() (config.GlobalTLSConfig, error) {
-	prompt.PrintHeader("Strict TLS Setup", "This will generate a CA and agent certificate for strict TLS verification.\nPeer certificates will be validated against the CA.")
-
-	commonName, err := prompt.ReadLine("Common Name", "muti-metroo")
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	validDaysStr, err := prompt.ReadLineValidated("Validity (days)", "365", func(s string) error {
-		if s == "" {
-			return nil
-		}
-		d, err := strconv.Atoi(s)
-		if err != nil || d < 1 {
-			return fmt.Errorf("must be a positive number")
-		}
-		return nil
-	})
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	validDays := 365
-	if d, err := strconv.Atoi(validDaysStr); err == nil && d > 0 {
-		validDays = d
-	}
-
-	// Generate CA
-	validFor := time.Duration(validDays) * 24 * time.Hour
-	ca, err := certutil.GenerateCA(commonName+" CA", validFor)
-	if err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate CA: %w", err)
-	}
-
-	// Generate agent certificate signed by CA
-	opts := certutil.DefaultPeerOptions(commonName)
-	opts.ValidFor = validFor
-	opts.ParentCert = ca.Certificate
-	opts.ParentKey = ca.PrivateKey
-	opts.DNSNames = append(opts.DNSNames, "localhost")
-	opts.IPAddresses = append(opts.IPAddresses, net.ParseIP("127.0.0.1"))
-
-	cert, err := certutil.GenerateCert(opts)
-	if err != nil {
-		return config.GlobalTLSConfig{}, fmt.Errorf("failed to generate certificate: %w", err)
-	}
-
-	fmt.Println("\n[OK] CA and agent certificate generated")
-	fmt.Printf("  CA Fingerprint: %s\n", ca.Fingerprint())
-	fmt.Printf("  Agent Fingerprint: %s\n", cert.Fingerprint())
-	fmt.Println("  Certificates will be embedded in config with strict mode enabled")
-
-	return config.GlobalTLSConfig{
-		CAPEM:   string(ca.CertPEM),
-		CertPEM: string(cert.CertPEM),
-		KeyPEM:  string(cert.KeyPEM),
-		Strict:  true,
-	}, nil
-}
-
-func (w *Wizard) useExistingCertificates(certsDir string) (config.GlobalTLSConfig, error) {
-	prompt.PrintHeader("Existing Certificates", "Specify paths to your existing certificate files.")
-
-	certPath, err := prompt.ReadLineValidated("Certificate File", filepath.Join(certsDir, "server.crt"), func(s string) error {
-		if _, err := os.Stat(s); os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", s)
-		}
-		return nil
-	})
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	keyPath, err := prompt.ReadLineValidated("Private Key File", filepath.Join(certsDir, "server.key"), func(s string) error {
-		if _, err := os.Stat(s); os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", s)
-		}
-		return nil
-	})
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	caPath, err := prompt.ReadLine("CA Certificate File (optional)", filepath.Join(certsDir, "ca.crt"))
-	if err != nil {
-		return config.GlobalTLSConfig{}, err
-	}
-
-	tlsConfig := config.GlobalTLSConfig{
-		Cert: certPath,
-		Key:  keyPath,
-	}
-
-	if caPath != "" {
-		if _, err := os.Stat(caPath); err == nil {
-			tlsConfig.CA = caPath
-		}
-	}
-
-	return tlsConfig, nil
-}
-
-func (w *Wizard) askPeerConnections(transport string) ([]config.PeerConfig, error) {
-	prompt.PrintHeader("Peer Connections", "Configure connections to other mesh agents.")
+func (w *Wizard) askPeerConnections(listenerTransport string) ([]config.PeerConfig, error) {
+	prompt.PrintHeader("Step 5/11: Peer Connections", "Configure connections to other mesh agents.")
 
 	addPeers, err := prompt.Confirm("Add peer connections?", false)
 	if err != nil {
@@ -1019,43 +714,50 @@ func (w *Wizard) askPeerConnections(transport string) ([]config.PeerConfig, erro
 	addMore := true
 
 	for addMore {
-		peer, err := w.askSinglePeer(transport, len(peers)+1)
+		peer, err := w.askSinglePeer(listenerTransport, len(peers)+1)
 		if err != nil {
 			return nil, err
 		}
 
-		// Test connectivity to the peer
-		fmt.Println()
-		prompt.PrintInfo("Testing connectivity to peer...")
-		if err := w.testPeerConnectivity(peer); err != nil {
-			prompt.PrintWarning(fmt.Sprintf("Could not connect to peer: %v", err))
-			prompt.PrintInfo("The listener may not be running yet, or a firewall may be blocking.")
+		// Test connectivity to the peer - use inner loop for retry
+		for {
+			fmt.Println()
+			prompt.PrintInfo("Testing connectivity to peer...")
+			if testErr := w.testPeerConnectivity(peer); testErr != nil {
+				prompt.PrintWarning(fmt.Sprintf("Could not connect: %v", testErr))
+				prompt.PrintInfo("The listener may not be running yet, or a firewall may be blocking.")
 
-			options := []string{
-				"Continue anyway (I'll set up the listener later)",
-				"Retry the connection test",
-				"Re-enter peer configuration",
-				"Skip this peer",
-			}
+				options := []string{
+					"Continue anyway (I'll set up the listener later)",
+					"Retry the connection test",
+					"Re-enter peer configuration",
+					"Skip this peer",
+				}
 
-			action, err := prompt.Select("What would you like to do?", options, 0)
-			if err != nil {
-				return nil, err
-			}
+				action, err := prompt.Select("What would you like to do?", options, 0)
+				if err != nil {
+					return nil, err
+				}
 
-			switch action {
-			case 0: // Continue anyway
+				switch action {
+				case 0: // Continue anyway
+					peers = append(peers, peer)
+				case 1: // Retry - re-test same peer config
+					continue // Inner loop retries same peer
+				case 2: // Re-enter
+					peer, err = w.askSinglePeer(listenerTransport, len(peers)+1)
+					if err != nil {
+						return nil, err
+					}
+					continue // Inner loop tests newly entered peer
+				case 3: // Skip
+					// Don't add peer, continue to "add another?" prompt
+				}
+			} else {
+				prompt.PrintSuccess("Connected successfully!")
 				peers = append(peers, peer)
-			case 1: // Retry
-				continue // Loop will re-test same peer
-			case 2: // Re-enter
-				continue // Will prompt for new peer config
-			case 3: // Skip
-				// Don't add peer, continue to "add another?" prompt
 			}
-		} else {
-			prompt.PrintSuccess("Connected successfully!")
-			peers = append(peers, peer)
+			break // Exit inner retry loop
 		}
 
 		addMore, err = prompt.Confirm("Add another peer?", false)
@@ -1110,9 +812,9 @@ func (w *Wizard) testPeerConnectivity(peer config.PeerConfig) error {
 	return nil
 }
 
-func (w *Wizard) askSinglePeer(defaultTransport string, peerNum int) (config.PeerConfig, error) {
+func (w *Wizard) askSinglePeer(listenerTransport string, peerNum int) (config.PeerConfig, error) {
 	peer := config.PeerConfig{
-		Transport: defaultTransport,
+		Transport: listenerTransport,
 	}
 
 	prompt.PrintHeader(fmt.Sprintf("Peer #%d", peerNum), "")
@@ -1132,22 +834,41 @@ func (w *Wizard) askSinglePeer(defaultTransport string, peerNum int) (config.Pee
 	}
 	peer.Address = peerAddr
 
-	peerID, err := prompt.ReadLine("Expected Agent ID (hex string, or 'auto')", "auto")
+	// Pin to specific agent ID (behind confirmation)
+	pinToID, err := prompt.Confirm("Pin to specific agent ID?", false)
 	if err != nil {
 		return peer, err
 	}
-	if peerID == "" || peerID == "auto" {
-		peer.ID = "auto"
-	} else {
+	if pinToID {
+		peerID, err := prompt.ReadLineValidated("Agent ID (hex string)", "", func(s string) error {
+			if s == "" {
+				return fmt.Errorf("agent ID is required")
+			}
+			return nil
+		})
+		if err != nil {
+			return peer, err
+		}
 		peer.ID = peerID
+	} else {
+		peer.ID = "auto"
 	}
 
-	// Transport selection
-	idx, err := prompt.Select("Transport", transportLabels, transportIndex(defaultTransport))
+	// Transport selection - default to listener's transport
+	useSameTransport, err := prompt.Confirm(
+		fmt.Sprintf("Use same transport as listener (%s)?", transportLabels[transportIndex(listenerTransport)]),
+		true,
+	)
 	if err != nil {
 		return peer, err
 	}
-	peer.Transport = transportValues[idx]
+	if !useSameTransport {
+		idx, err := prompt.Select("Transport", transportLabels, transportIndex(listenerTransport))
+		if err != nil {
+			return peer, err
+		}
+		peer.Transport = transportValues[idx]
+	}
 
 	// Note: Certificate verification is OFF by default because E2E encryption provides security.
 	// Only ask about strict mode for advanced users who want additional CA-based verification.
@@ -1187,7 +908,7 @@ func (w *Wizard) askSOCKS5Config() (config.SOCKS5Config, error) {
 		enableAuth = w.existingCfg.SOCKS5.Auth.Enabled
 	}
 
-	prompt.PrintHeader("SOCKS5 Proxy", "Configure the SOCKS5 ingress proxy.")
+	prompt.PrintHeader("Step 6/11: SOCKS5 Proxy", "Configure the SOCKS5 ingress proxy.")
 
 	var err error
 	cfg.Address, err = prompt.ReadLineValidated("Listen Address", cfg.Address, func(s string) error {
@@ -1214,12 +935,11 @@ func (w *Wizard) askSOCKS5Config() (config.SOCKS5Config, error) {
 			return cfg, err
 		}
 
-		password, err := prompt.ReadPassword("Password")
+		fmt.Println("  Note: SOCKS5 password is stored in plaintext (protocol requirement).")
+
+		password, err := readConfirmedPassword("SOCKS5 Password", 8)
 		if err != nil {
 			return cfg, err
-		}
-		if password == "" {
-			return cfg, fmt.Errorf("password required")
 		}
 
 		cfg.Auth.Enabled = true
@@ -1248,10 +968,16 @@ func (w *Wizard) askExitConfig() (config.ExitConfig, error) {
 		cfg.DNS = w.existingCfg.Exit.DNS
 	}
 
-	prompt.PrintHeader("Exit Node Configuration", "Configure this agent as an exit node.\nIt will allow traffic to specified networks.")
+	prompt.PrintHeader("Step 7/11: Exit Node Configuration", "Configure this agent as an exit node.\nIt will allow traffic to specified networks.")
 
-	fmt.Println("Allowed Routes (CIDR) - one CIDR per line (e.g., 0.0.0.0/0 for all traffic):")
-	fmt.Println("Enter routes, one per line. Enter empty line to finish.")
+	// Show existing/default routes before prompting
+	fmt.Println("Allowed Routes (CIDR):")
+	if w.existingCfg != nil && len(w.existingCfg.Exit.Routes) > 0 {
+		fmt.Printf("  Current routes: %s (enter empty line to keep)\n", strings.Join(w.existingCfg.Exit.Routes, ", "))
+	} else {
+		fmt.Println("  Default: 0.0.0.0/0 and ::/0 (enter empty line to keep defaults)")
+	}
+	fmt.Println()
 
 	var routes []string
 	for {
@@ -1284,15 +1010,14 @@ func (w *Wizard) askExitConfig() (config.ExitConfig, error) {
 
 	// Domain routes (optional)
 	fmt.Println()
-	prompt.PrintHeader("Domain Routes (Optional)", "Route traffic by domain name.\nExamples: api.internal.corp, *.example.com")
-
-	fmt.Println("Enter domain patterns, one per line. Enter empty line to finish.")
+	fmt.Println("Route traffic by domain name. Examples: api.internal.corp, *.example.com")
 	fmt.Println("Use *.domain.tld for single-level wildcards.")
 
 	// Use existing domain routes as hints
 	if w.existingCfg != nil && len(w.existingCfg.Exit.DomainRoutes) > 0 {
 		fmt.Printf("Current domain routes: %v\n", w.existingCfg.Exit.DomainRoutes)
 	}
+	fmt.Println()
 
 	var domainRoutes []string
 	for {
@@ -1350,7 +1075,9 @@ func validateDomainPattern(pattern string) error {
 	return nil
 }
 
-func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err error) {
+// askMonitoringAndLogging handles log level, HTTP management API, and HTTP auth.
+// This replaces the former askAdvancedOptions() and askHTTPAuth() as a single step.
+func (w *Wizard) askMonitoringAndLogging() (healthEnabled bool, logLevel string, httpTokenHash string, err error) {
 	healthEnabled = true
 	logLevel = "info"
 
@@ -1360,7 +1087,7 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err 
 		logLevel = w.existingCfg.Agent.LogLevel
 	}
 
-	prompt.PrintHeader("Advanced Options", "Configure monitoring and logging.")
+	prompt.PrintHeader("Step 8/11: Monitoring & Logging", "Configure monitoring, logging, and the HTTP management API.")
 
 	// Log level selection
 	logLevelOptions := []string{
@@ -1379,48 +1106,48 @@ func (w *Wizard) askAdvancedOptions() (healthEnabled bool, logLevel string, err 
 		}
 	}
 
-	idx, err := prompt.Select("Log Level", logLevelOptions, defaultIdx)
-	if err != nil {
+	idx, selectErr := prompt.Select("Log Level", logLevelOptions, defaultIdx)
+	if selectErr != nil {
+		err = selectErr
 		return
 	}
 	logLevel = logLevelMap[idx]
 
-	healthEnabled, err = prompt.Confirm("Enable health check endpoint? (HTTP endpoint for monitoring and CLI)", healthEnabled)
+	healthEnabled, err = prompt.Confirm("Enable HTTP management API? (health checks, dashboard, CLI remote commands)", healthEnabled)
+	if err != nil {
+		return
+	}
+
+	// HTTP API authentication (only if HTTP is enabled)
+	if healthEnabled {
+		var enableAuth bool
+		enableAuth, err = prompt.Confirm("Enable HTTP API authentication?", false)
+		if err != nil {
+			return
+		}
+
+		if enableAuth {
+			fmt.Println("\n  Protect the HTTP API with a bearer token.")
+			fmt.Println("  When enabled, all non-health endpoints require authentication.")
+			fmt.Println("  Use this token with: --token <token> or MUTI_METROO_TOKEN=<token>")
+
+			var token string
+			token, err = readConfirmedPassword("API Token", 8)
+			if err != nil {
+				return
+			}
+
+			var hash []byte
+			hash, err = bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
+			if err != nil {
+				err = fmt.Errorf("failed to hash token: %w", err)
+				return
+			}
+			httpTokenHash = string(hash)
+		}
+	}
+
 	return
-}
-
-// askHTTPAuth asks whether to enable HTTP API authentication and collects the token.
-// Returns the bcrypt hash of the token, or empty string if auth is not enabled.
-func (w *Wizard) askHTTPAuth(httpEnabled bool) (string, error) {
-	if !httpEnabled {
-		return "", nil
-	}
-
-	prompt.PrintHeader("HTTP API Authentication", "Protect the HTTP API with a bearer token.\nWhen enabled, all non-health endpoints require authentication.")
-
-	enableAuth, err := prompt.Confirm("Enable HTTP API authentication?", false)
-	if err != nil {
-		return "", err
-	}
-
-	if !enableAuth {
-		return "", nil
-	}
-
-	fmt.Println("\nSet a bearer token to protect the HTTP API.")
-	fmt.Println("Use this token with: --token <token> or MUTI_METROO_TOKEN=<token>")
-
-	token, err := readConfirmedPassword("API Token", 8)
-	if err != nil {
-		return "", err
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
-	if err != nil {
-		return "", fmt.Errorf("failed to hash token: %w", err)
-	}
-
-	return string(hash), nil
 }
 
 func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
@@ -1436,9 +1163,9 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 		cfg.MaxSessions = w.existingCfg.Shell.MaxSessions
 	}
 
-	prompt.PrintHeader("Remote Shell Access", "Shell allows executing commands remotely on this agent.\nCommands must be whitelisted for security.")
+	prompt.PrintHeader("Step 9/11: Remote Shell Access", "Shell allows executing commands remotely on this agent.")
 
-	enableShell, err := prompt.Confirm("Enable Remote Shell? (requires authentication)", false)
+	enableShell, err := prompt.Confirm("Enable Remote Shell?", false)
 	if err != nil {
 		return cfg, err
 	}
@@ -1449,28 +1176,13 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 
 	cfg.Enabled = true
 
-	// Ask for password
-	fmt.Println("\nSet a password to protect shell access.")
-	fmt.Println("This password will be hashed and stored securely.")
-
-	password, err := readConfirmedPassword("Shell Password", 8)
-	if err != nil {
-		return cfg, err
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return cfg, fmt.Errorf("failed to hash password: %w", err)
-	}
-	cfg.PasswordHash = string(hash)
-
-	// Ask for whitelist
-	prompt.PrintHeader("Command Whitelist", "Only whitelisted commands can be executed.\nFor security, the default is no commands allowed.")
+	// Ask for whitelist first (before optional password)
+	fmt.Println("\n  Only whitelisted commands can be executed.")
 
 	whitelistOptions := []string{
-		"No commands (safest)",
-		"Allow all commands (testing only!)",
+		"Allow all commands",
 		"Custom whitelist",
+		"No commands (lockdown - configure later via config file)",
 	}
 
 	idx, err := prompt.Select("Whitelist Mode", whitelistOptions, 0)
@@ -1479,12 +1191,9 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 	}
 
 	switch idx {
-	case 0: // none
-		cfg.Whitelist = []string{}
-	case 1: // all
+	case 0: // all
 		cfg.Whitelist = []string{"*"}
-		fmt.Print("\n[WARNING] All commands are allowed! Use only for testing.\n\n")
-	case 2: // custom
+	case 1: // custom
 		fmt.Println("\nEnter allowed commands, one per line (e.g., whoami, ip, hostname, bash).")
 		fmt.Println("Enter empty line to finish.")
 
@@ -1504,6 +1213,29 @@ func (w *Wizard) askShellConfig() (config.ShellConfig, error) {
 			return cfg, fmt.Errorf("at least one command is required for custom whitelist")
 		}
 		cfg.Whitelist = commands
+	case 2: // none
+		cfg.Whitelist = []string{}
+	}
+
+	// Optional password
+	protectWithPassword, err := prompt.Confirm("Protect shell with a password?", false)
+	if err != nil {
+		return cfg, err
+	}
+
+	if protectWithPassword {
+		fmt.Println("  This password will be hashed and stored securely.")
+
+		password, err := readConfirmedPassword("Shell Password", 8)
+		if err != nil {
+			return cfg, err
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return cfg, fmt.Errorf("failed to hash password: %w", err)
+		}
+		cfg.PasswordHash = string(hash)
 	}
 
 	return cfg, nil
@@ -1524,9 +1256,11 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 		cfg.AllowedPaths = w.existingCfg.FileTransfer.AllowedPaths
 	}
 
-	prompt.PrintHeader("File Transfer", "File transfer allows uploading and downloading files to/from this agent.\nFiles are transferred via the control channel.")
+	prompt.PrintHeader("Step 10/11: File Transfer",
+		"File transfer allows uploading and downloading files to/from this agent.\n"+
+			"Files are streamed directly through the mesh network.")
 
-	enableFileTransfer, err := prompt.Confirm("Enable file transfer? (requires authentication)", false)
+	enableFileTransfer, err := prompt.Confirm("Enable file transfer?", false)
 	if err != nil {
 		return cfg, err
 	}
@@ -1537,29 +1271,15 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 
 	cfg.Enabled = true
 
-	// Ask for password
-	fmt.Println("\nSet a password to protect file transfer access.")
-	fmt.Println("This password will be hashed and stored securely.")
-
-	password, err := readConfirmedPassword("File Transfer Password", 8)
-	if err != nil {
-		return cfg, err
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return cfg, fmt.Errorf("failed to hash password: %w", err)
-	}
-	cfg.PasswordHash = string(hash)
-
 	// Ask for max file size
-	maxSizeMB, err := prompt.ReadLineValidated("Max File Size (MB)", "500", func(s string) error {
+	defaultSize := fmt.Sprintf("%d", cfg.MaxFileSize/(1024*1024))
+	maxSizeMB, err := prompt.ReadLineValidated("Max File Size (MB, 0 = unlimited)", defaultSize, func(s string) error {
 		if s == "" {
 			return nil
 		}
 		size, err := strconv.Atoi(s)
-		if err != nil || size < 1 {
-			return fmt.Errorf("must be a positive number")
+		if err != nil || size < 0 {
+			return fmt.Errorf("must be a non-negative number")
 		}
 		return nil
 	})
@@ -1567,8 +1287,12 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 		return cfg, err
 	}
 
-	if size, err := strconv.Atoi(maxSizeMB); err == nil && size > 0 {
-		cfg.MaxFileSize = int64(size) * 1024 * 1024
+	if size, err := strconv.Atoi(maxSizeMB); err == nil {
+		if size == 0 {
+			cfg.MaxFileSize = 0
+		} else {
+			cfg.MaxFileSize = int64(size) * 1024 * 1024
+		}
 	}
 
 	// Ask for path restrictions
@@ -1583,7 +1307,8 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 	}
 
 	if idx == 1 { // restricted
-		fmt.Println("\nEnter allowed path prefixes, one per line (e.g., /tmp, /home/user/uploads).")
+		fmt.Println("\nEnter allowed paths, one per line.")
+		fmt.Println("Examples: /tmp, /home/user/uploads, C:\\Data")
 		fmt.Println("Enter empty line to finish.")
 
 		var paths []string
@@ -1604,6 +1329,27 @@ func (w *Wizard) askFileTransferConfig() (config.FileTransferConfig, error) {
 		cfg.AllowedPaths = paths
 	}
 
+	// Optional password
+	protectWithPassword, err := prompt.Confirm("Protect file transfer with a password?", false)
+	if err != nil {
+		return cfg, err
+	}
+
+	if protectWithPassword {
+		fmt.Println("  This password will be hashed and stored securely.")
+
+		password, err := readConfirmedPassword("File Transfer Password", 8)
+		if err != nil {
+			return cfg, err
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return cfg, fmt.Errorf("failed to hash password: %w", err)
+		}
+		cfg.PasswordHash = string(hash)
+	}
+
 	return cfg, nil
 }
 
@@ -1613,7 +1359,7 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 	// Use existing config defaults if available
 	if w.existingCfg != nil && w.existingCfg.Management.PublicKey != "" {
 		// If there's an existing management key, offer to keep it
-		prompt.PrintHeader("Management Key Encryption (OPSEC Protection)", "Existing management key configuration found.")
+		prompt.PrintHeader("Step 11/11: Management Key Encryption", "Existing management key configuration found.")
 
 		keepExisting, err := prompt.Confirm(
 			fmt.Sprintf("Keep existing management key? (current: %s...)", w.existingCfg.Management.PublicKey[:16]),
@@ -1628,63 +1374,129 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 		}
 	}
 
-	prompt.PrintHeader("Management Key Encryption (OPSEC Protection)",
-		"Encrypt mesh topology data so only operators can view it.\nCompromised agents will only see encrypted blobs.\n\nThis is recommended for red team operations.")
+	prompt.PrintHeader("Step 11/11: Management Key Encryption",
+		"Encrypt mesh topology data so only operators can view it.\n"+
+			"Compromised agents will only see encrypted blobs.\n"+
+			"Recommended for sensitive deployments.")
 
 	keyOptions := []string{
-		"Skip (not recommended for red team ops)",
 		"Generate new management keypair",
-		"Enter existing public key",
+		"Enter existing key",
+		"Skip",
 	}
 
-	idx, err := prompt.Select("Management Key Setup", keyOptions, 0)
+	idx, err := prompt.Select("Management Key Setup", keyOptions, 1) // Default: Enter existing key
 	if err != nil {
 		return cfg, err
 	}
 
 	switch idx {
-	case 0: // skip
+	case 0: // generate
+		return w.generateManagementKey()
+	case 1: // enter existing key
+		return w.enterExistingManagementKey()
+	default: // skip
 		return cfg, nil
+	}
+}
 
-	case 1: // generate
-		keypair, err := identity.NewKeypair()
-		if err != nil {
-			return cfg, fmt.Errorf("failed to generate management keypair: %w", err)
-		}
+// generateManagementKey generates a new management keypair.
+func (w *Wizard) generateManagementKey() (config.ManagementConfig, error) {
+	cfg := config.ManagementConfig{}
 
-		cfg.PublicKey = hex.EncodeToString(keypair.PublicKey[:])
+	keypair, err := identity.NewKeypair()
+	if err != nil {
+		return cfg, fmt.Errorf("failed to generate management keypair: %w", err)
+	}
 
-		// Ask if this is an operator node
-		prompt.PrintHeader("Operator Node", "Operator nodes can view mesh topology data.\nField agents should NOT have the private key.")
+	cfg.PublicKey = hex.EncodeToString(keypair.PublicKey[:])
 
-		isOperator, err := prompt.Confirm("Is this an operator/management node?", false)
-		if err != nil {
-			return cfg, err
-		}
+	// Ask if this is an operator node
+	isOperator, err := prompt.Confirm("Is this an operator/management node?", false)
+	if err != nil {
+		return cfg, err
+	}
 
-		if isOperator {
-			cfg.PrivateKey = hex.EncodeToString(keypair.PrivateKey[:])
-		}
+	if isOperator {
+		cfg.PrivateKey = hex.EncodeToString(keypair.PrivateKey[:])
+	}
 
-		// Always show the private key so operator can save it
-		fmt.Println()
-		fmt.Println("=== SAVE THIS MANAGEMENT KEYPAIR ===")
-		fmt.Println()
-		fmt.Println("Public Key (add to ALL agent configs):")
-		fmt.Printf("  %s\n", hex.EncodeToString(keypair.PublicKey[:]))
+	// Always show public key
+	fmt.Println()
+	fmt.Println("Public Key (add to ALL agent configs):")
+	fmt.Printf("  %s\n", hex.EncodeToString(keypair.PublicKey[:]))
+
+	// Private key display behind confirmation
+	showPrivKey, err := prompt.Confirm("Display private key on screen?", true)
+	if err != nil {
+		return cfg, err
+	}
+
+	if showPrivKey {
 		fmt.Println()
 		fmt.Println("Private Key (add to OPERATOR config only, keep secure!):")
 		fmt.Printf("  %s\n", hex.EncodeToString(keypair.PrivateKey[:]))
+	} else {
 		fmt.Println()
-
+		fmt.Println("Private key generated but not displayed.")
 		if isOperator {
-			fmt.Println("[INFO] Private key will be included in this config.")
-		} else {
-			fmt.Println("[INFO] Private key NOT included in this config (field agent).")
+			fmt.Println("It is included in the config file.")
 		}
-		fmt.Println()
+	}
 
-	case 2: // existing
+	if isOperator {
+		prompt.PrintInfo("Private key will be included in this config.")
+	} else {
+		prompt.PrintInfo("Private key NOT included in this config (field agent).")
+	}
+	fmt.Println()
+
+	return cfg, nil
+}
+
+// enterExistingManagementKey prompts for an existing management key.
+func (w *Wizard) enterExistingManagementKey() (config.ManagementConfig, error) {
+	cfg := config.ManagementConfig{}
+
+	keyTypeOptions := []string{
+		"Private key (operator/management node)",
+		"Public key (field agent)",
+		"I don't have a key yet (generate new)",
+	}
+
+	idx, err := prompt.Select("Which key do you have?", keyTypeOptions, 0)
+	if err != nil {
+		return cfg, err
+	}
+
+	switch idx {
+	case 0: // Private key - derive public key automatically
+		privKey, err := prompt.ReadPassword("Management Private Key (64-char hex)")
+		if err != nil {
+			return cfg, err
+		}
+		privKey = normalizeHexKey(privKey)
+
+		if len(privKey) != 64 {
+			return cfg, fmt.Errorf("private key must be 64 hex characters (got %d)", len(privKey))
+		}
+		privKeyBytes, err := hex.DecodeString(privKey)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid hex string: %v", err)
+		}
+
+		// Derive public key from private key
+		var privKeyArr [32]byte
+		copy(privKeyArr[:], privKeyBytes)
+		derivedPub := identity.DerivePublicKey(privKeyArr)
+
+		cfg.PrivateKey = privKey
+		cfg.PublicKey = hex.EncodeToString(derivedPub[:])
+
+		fmt.Printf("  Derived public key: %s\n", cfg.PublicKey)
+		prompt.PrintSuccess("Both keys configured (operator node)")
+
+	case 1: // Public key only
 		pubKey, err := prompt.ReadLineValidated("Management Public Key (64-char hex)", "", func(s string) error {
 			s = normalizeHexKey(s)
 			if len(s) != 64 {
@@ -1699,40 +1511,10 @@ func (w *Wizard) askManagementKey() (config.ManagementConfig, error) {
 			return cfg, err
 		}
 		cfg.PublicKey = normalizeHexKey(pubKey)
+		prompt.PrintSuccess("Public key configured (field agent)")
 
-		// Ask if this is an operator node with the private key
-		hasPrivateKey, err := prompt.Confirm("Do you have the private key?", false)
-		if err != nil {
-			return cfg, err
-		}
-
-		if hasPrivateKey {
-			privKey, err := prompt.ReadPassword("Management Private Key (64-char hex)")
-			if err != nil {
-				return cfg, err
-			}
-			privKey = normalizeHexKey(privKey)
-
-			if len(privKey) != 64 {
-				return cfg, fmt.Errorf("private key must be 64 hex characters (got %d)", len(privKey))
-			}
-			if _, err := hex.DecodeString(privKey); err != nil {
-				return cfg, fmt.Errorf("invalid hex string: %v", err)
-			}
-
-			cfg.PrivateKey = privKey
-
-			// Verify keys match
-			privKeyBytes, _ := hex.DecodeString(privKey)
-			var privKeyArr [32]byte
-			copy(privKeyArr[:], privKeyBytes)
-			derivedPub := identity.DerivePublicKey(privKeyArr)
-			derivedPubHex := hex.EncodeToString(derivedPub[:])
-
-			if derivedPubHex != cfg.PublicKey {
-				return cfg, fmt.Errorf("private key does not match public key")
-			}
-		}
+	case 2: // Don't have a key - redirect to generate
+		return w.generateManagementKey()
 	}
 
 	return cfg, nil
@@ -1857,61 +1639,62 @@ func (w *Wizard) printSummary(agentID identity.AgentID, keypair *identity.Keypai
 
 	// Show display name if set, otherwise show agent ID
 	if cfg.Agent.DisplayName != "" {
-		fmt.Printf("  Display Name:   %s\n", cfg.Agent.DisplayName)
-		fmt.Printf("  Agent ID:       %s\n", agentID.String())
+		fmt.Printf("  Display Name:    %s\n", cfg.Agent.DisplayName)
+		fmt.Printf("  Agent ID:        %s\n", agentID.String())
 	} else {
-		fmt.Printf("  Agent ID:       %s\n", agentID.String())
+		fmt.Printf("  Agent ID:        %s\n", agentID.String())
 	}
-	fmt.Printf("  E2E Public Key: %s\n", keypair.PublicKeyString())
+	fmt.Printf("  E2E Public Key:  %s\n", keypair.PublicKeyString())
 
 	// When embedding to target binary, don't show config/data paths (they're embedded)
 	if w.targetBinaryPath == "" {
-		fmt.Printf("  Config file:    %s\n", configPath)
-		fmt.Printf("  Data dir:       %s\n", cfg.Agent.DataDir)
+		fmt.Printf("  Config file:     %s\n", configPath)
+		if cfg.Agent.DataDir != "" {
+			fmt.Printf("  Data dir:        %s\n", cfg.Agent.DataDir)
+		}
 	}
 	fmt.Println()
 
 	if len(cfg.Listeners) > 0 {
 		l := cfg.Listeners[0]
-		fmt.Printf("  Listener:     %s://%s\n", l.Transport, l.Address)
+		fmt.Printf("  Listener:        %s://%s\n", l.Transport, l.Address)
 	}
 
 	if cfg.SOCKS5.Enabled {
-		fmt.Printf("  SOCKS5:       %s\n", cfg.SOCKS5.Address)
+		fmt.Printf("  SOCKS5:          %s\n", cfg.SOCKS5.Address)
 	}
 
 	if cfg.Exit.Enabled {
-		fmt.Printf("  Exit routes:  %v\n", cfg.Exit.Routes)
+		fmt.Printf("  Exit routes:     %v\n", cfg.Exit.Routes)
 	}
 
 	if cfg.HTTP.Enabled {
-		fmt.Printf("  HTTP API:     http://%s\n", cfg.HTTP.Address)
+		fmt.Printf("  HTTP API:        http://%s\n", cfg.HTTP.Address)
 	}
 
 	if cfg.Shell.Enabled {
-		fmt.Printf("  Shell:        enabled (%d commands whitelisted)\n", len(cfg.Shell.Whitelist))
 		if len(cfg.Shell.Whitelist) == 1 && cfg.Shell.Whitelist[0] == "*" {
-			fmt.Println("                [WARNING] All commands allowed!")
+			fmt.Println("  Shell:           enabled (all commands)")
+		} else {
+			fmt.Printf("  Shell:           enabled (%d commands whitelisted)\n", len(cfg.Shell.Whitelist))
 		}
 	}
 
 	if cfg.FileTransfer.Enabled {
-		maxSizeMB := cfg.FileTransfer.MaxFileSize / (1024 * 1024)
-		fmt.Printf("  File Transfer: enabled (max %d MB)\n", maxSizeMB)
-		if len(cfg.FileTransfer.AllowedPaths) > 0 {
-			fmt.Printf("                 restricted to: %v\n", cfg.FileTransfer.AllowedPaths)
+		if cfg.FileTransfer.MaxFileSize == 0 {
+			fmt.Println("  File Transfer:   enabled (unlimited)")
 		} else {
-			fmt.Println("                 [WARNING] All paths allowed!")
+			maxSizeMB := cfg.FileTransfer.MaxFileSize / (1024 * 1024)
+			fmt.Printf("  File Transfer:   enabled (max %d MB)\n", maxSizeMB)
 		}
 	}
 
 	if cfg.Management.PublicKey != "" {
 		if cfg.Management.PrivateKey != "" {
-			fmt.Printf("  Management:   enabled (operator node, can decrypt)\n")
+			fmt.Println("  Management:      enabled (operator node)")
 		} else {
-			fmt.Printf("  Management:   enabled (field agent, encrypt only)\n")
+			fmt.Println("  Management:      enabled (field agent)")
 		}
-		fmt.Printf("                public key: %s...\n", cfg.Management.PublicKey[:16])
 	}
 
 	fmt.Println()
@@ -1945,6 +1728,13 @@ func (w *Wizard) askServiceInstallationWithName(configPath, serviceName string) 
 	cfg.Name = serviceName
 	cfg.DisplayName = serviceName + " Mesh Agent"
 
+	// Check if service already exists
+	if updated, err := w.offerServiceUpdate(serviceName, ""); err != nil {
+		return false, err
+	} else if updated {
+		return true, nil
+	}
+
 	// Handle Linux specially - offer user service option
 	if runtime.GOOS == "linux" {
 		return w.askLinuxServiceInstallationWithConfig(cfg, absConfigPath, false)
@@ -1963,6 +1753,13 @@ func (w *Wizard) askServiceInstallationEmbedded(embeddedBinaryPath, serviceName,
 		WorkingDir:  dataDir,
 	}
 
+	// Check if service already exists
+	if updated, err := w.offerServiceUpdate(serviceName, embeddedBinaryPath); err != nil {
+		return false, err
+	} else if updated {
+		return true, nil
+	}
+
 	// Handle Linux specially
 	if runtime.GOOS == "linux" {
 		return w.askLinuxServiceInstallationEmbedded(cfg, embeddedBinaryPath)
@@ -1970,6 +1767,108 @@ func (w *Wizard) askServiceInstallationEmbedded(embeddedBinaryPath, serviceName,
 
 	// macOS and Windows - system service only
 	return w.askSystemServiceInstallation(cfg, serviceName, true, embeddedBinaryPath)
+}
+
+// askServiceInstallationTargetBinary handles service installation when editing a target binary.
+func (w *Wizard) askServiceInstallationTargetBinary(binaryPath, serviceName, dataDir string) (bool, error) {
+	// For target binary mode, always check for existing service and offer update
+	if updated, err := w.offerServiceUpdate(serviceName, binaryPath); err != nil {
+		return false, err
+	} else if updated {
+		return true, nil
+	}
+
+	// If no existing service, offer fresh install
+	cfg := service.ServiceConfig{
+		Name:        serviceName,
+		DisplayName: serviceName + " Mesh Agent",
+		Description: "Userspace mesh networking agent for virtual TCP tunnels",
+		WorkingDir:  dataDir,
+	}
+
+	// Handle Linux specially
+	if runtime.GOOS == "linux" {
+		return w.askLinuxServiceInstallationEmbedded(cfg, binaryPath)
+	}
+
+	// macOS and Windows - system service only
+	return w.askSystemServiceInstallation(cfg, serviceName, true, binaryPath)
+}
+
+// offerServiceUpdate checks if a service is already installed and offers to update it.
+// Returns (true, nil) if the service was updated, (false, nil) if user declined or not installed.
+func (w *Wizard) offerServiceUpdate(serviceName, newBinaryPath string) (bool, error) {
+	isSystemInstalled := service.IsInstalled(serviceName)
+	isUserInstalled := service.IsUserInstalled(serviceName)
+
+	if !isSystemInstalled && !isUserInstalled {
+		return false, nil
+	}
+
+	prompt.PrintHeader("Service Installation", fmt.Sprintf("Service '%s' is already installed.", serviceName))
+
+	doUpdate, err := prompt.Confirm("Update binary and restart service?", true)
+	if err != nil {
+		return false, err
+	}
+
+	if !doUpdate {
+		return false, nil
+	}
+
+	// Determine the binary to install
+	binaryPath := newBinaryPath
+	if binaryPath == "" {
+		// Use the current executable
+		binaryPath, err = os.Executable()
+		if err != nil {
+			return false, fmt.Errorf("failed to get executable path: %w", err)
+		}
+		binaryPath, err = filepath.EvalSymlinks(binaryPath)
+		if err != nil {
+			return false, fmt.Errorf("failed to resolve executable path: %w", err)
+		}
+	}
+
+	fmt.Println()
+
+	if isUserInstalled {
+		// User service: stop, copy, start
+		fmt.Println("Stopping user service...")
+		if err := service.StopUser(serviceName); err != nil {
+			prompt.PrintWarning(fmt.Sprintf("Could not stop user service: %v", err))
+		}
+
+		fmt.Println("Updating binary...")
+		if err := service.UpdateServiceBinary(serviceName, binaryPath); err != nil {
+			return false, fmt.Errorf("failed to update binary: %w", err)
+		}
+
+		fmt.Println("Starting user service...")
+		if err := service.StartUser(serviceName); err != nil {
+			prompt.PrintWarning(fmt.Sprintf("Could not start user service: %v (may need manual start)", err))
+		}
+	} else {
+		// System service: stop, copy, start
+		fmt.Println("Stopping service...")
+		if err := service.StopService(serviceName); err != nil {
+			prompt.PrintWarning(fmt.Sprintf("Could not stop service: %v", err))
+		}
+
+		fmt.Println("Updating binary...")
+		if err := service.UpdateServiceBinary(serviceName, binaryPath); err != nil {
+			return false, fmt.Errorf("failed to update binary: %w", err)
+		}
+
+		fmt.Println("Starting service...")
+		if err := service.StartService(serviceName); err != nil {
+			prompt.PrintWarning(fmt.Sprintf("Could not start service: %v (may need manual start)", err))
+		}
+	}
+
+	fmt.Println()
+	prompt.PrintSuccess("Service updated and restarted.")
+	return true, nil
 }
 
 // askSystemServiceInstallation handles macOS/Windows service installation.
@@ -2078,10 +1977,7 @@ func (w *Wizard) askSystemServiceInstallation(cfg service.ServiceConfig, service
 // askWindowsUserServiceInstallation handles Windows user service installation via Registry Run key.
 func (w *Wizard) askWindowsUserServiceInstallation(cfg service.ServiceConfig, serviceName string, embedded bool, embeddedBinaryPath string) (bool, error) {
 	prompt.PrintHeader("Service Installation",
-		"You are not running as Administrator.\n\n"+
-			"Options:\n"+
-			"  1. Install as user service (Registry Run + DLL) - no admin required\n"+
-			"  2. Show instructions for Windows Service (requires admin)")
+		"You are not running as Administrator.")
 
 	options := []string{
 		"Install as user service (Registry Run)",
@@ -2228,7 +2124,7 @@ func (w *Wizard) askLinuxServiceInstallationWithConfig(cfg service.ServiceConfig
 	isRoot := service.IsRoot()
 
 	if isRoot {
-		// Root user: offer choice between systemd and cron+nohup
+		// Root user: offer choice between systemd and skip
 		prompt.PrintHeader("Service Installation",
 			fmt.Sprintf("You are running as root.\nChoose how to install %s as a service.\n\nThe service will start automatically on boot.", cfg.Name))
 
@@ -2272,10 +2168,7 @@ func (w *Wizard) askLinuxServiceInstallationWithConfig(cfg service.ServiceConfig
 
 	// Non-root user: offer user service or show systemd instructions
 	prompt.PrintHeader("Service Installation",
-		"You are not running as root.\n\n"+
-			"Options:\n"+
-			"  1. Install as user service (cron @reboot + nohup) - no root required\n"+
-			"  2. Show instructions for systemd (requires root)")
+		"You are not running as root.")
 
 	options := []string{
 		"Install as user service (cron + nohup)",
@@ -2388,9 +2281,7 @@ func (w *Wizard) askLinuxServiceInstallationEmbedded(cfg service.ServiceConfig, 
 // Returns whether to embed config and the custom service name.
 func (w *Wizard) askConfigDelivery() (embedConfig bool, serviceName string, err error) {
 	prompt.PrintHeader("Configuration Delivery",
-		"Choose how to deploy the configuration.\n"+
-			"Embedding creates a single-file binary with config baked in.\n"+
-			"Note: The config file is saved as a backup in either case.")
+		"Choose how to deploy the configuration.")
 
 	options := []string{
 		"Save to config file (traditional)",
@@ -2402,27 +2293,23 @@ func (w *Wizard) askConfigDelivery() (embedConfig bool, serviceName string, err 
 		return false, "", err
 	}
 
-	embedConfig = (idx == 1)
+	embedConfig = idx == 1
 
 	// Ask for custom service name
 	fmt.Println()
-	prompt.PrintInfo("Service name is used when installing as a system service.")
-	serviceName, err = prompt.ReadLine("Service name", "muti-metroo")
+	serviceName, err = prompt.ReadLineValidated("Service name", "muti-metroo", func(s string) error {
+		if s == "" {
+			return fmt.Errorf("service name is required")
+		}
+		for _, r := range s {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+				return fmt.Errorf("only alphanumeric characters, hyphens, and underscores are allowed")
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return false, "", err
-	}
-
-	// Validate service name (alphanumeric and hyphens only)
-	serviceName = strings.TrimSpace(serviceName)
-	if serviceName == "" {
-		serviceName = "muti-metroo"
-	}
-
-	// Simple validation: alphanumeric, hyphens, underscores
-	for _, r := range serviceName {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
-			return false, "", fmt.Errorf("invalid service name: only alphanumeric characters, hyphens, and underscores are allowed")
-		}
 	}
 
 	return embedConfig, serviceName, nil
@@ -2566,23 +2453,10 @@ func copyFile(src, dst string) error {
 }
 
 func (w *Wizard) privilegeLevel() string {
-	switch runtime.GOOS {
-	case "linux":
-		return "root"
-	case "windows":
+	if runtime.GOOS == "windows" {
 		return "Administrator"
-	default:
-		return "elevated privileges"
 	}
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return "root"
 }
 
 // Transport options and their display labels for selection prompts.

@@ -63,6 +63,24 @@ func installSystemdService(cfg ServiceConfig, execPath string, embedded bool) er
 	return nil
 }
 
+// stopServiceImpl stops a running systemd service.
+func stopServiceImpl(serviceName string) error {
+	if output, err := runCommand("systemctl", "stop", serviceName); err != nil {
+		if !strings.Contains(output, "not loaded") {
+			return fmt.Errorf("failed to stop service: %s", strings.TrimSpace(output))
+		}
+	}
+	return nil
+}
+
+// startServiceImpl starts a systemd service.
+func startServiceImpl(serviceName string) error {
+	if output, err := runCommand("systemctl", "start", serviceName); err != nil {
+		return fmt.Errorf("failed to start service: %s", strings.TrimSpace(output))
+	}
+	return nil
+}
+
 // uninstallImpl removes the systemd service on Linux.
 func uninstallImpl(serviceName string) error {
 	unitName := serviceName + ".service"

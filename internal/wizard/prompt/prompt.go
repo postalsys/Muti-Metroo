@@ -108,27 +108,28 @@ func Confirm(prompt string, defaultYes bool) (bool, error) {
 		hint = "Y/n"
 	}
 
-	fmt.Printf("%s [%s]: ", prompt, hint)
+	for {
+		fmt.Printf("%s [%s]: ", prompt, hint)
 
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return false, err
-	}
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return false, err
+		}
 
-	line = strings.TrimSpace(strings.ToLower(line))
+		line = strings.TrimSpace(strings.ToLower(line))
 
-	if line == "" {
-		return defaultYes, nil
-	}
+		if line == "" {
+			return defaultYes, nil
+		}
 
-	switch line {
-	case "y", "yes":
-		return true, nil
-	case "n", "no":
-		return false, nil
-	default:
-		fmt.Println("  Please enter 'y' or 'n'")
-		return Confirm(prompt, defaultYes)
+		switch line {
+		case "y", "yes":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		default:
+			fmt.Println("  Please enter 'y' or 'n'")
+		}
 	}
 }
 

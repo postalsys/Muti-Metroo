@@ -21,67 +21,6 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestContains(t *testing.T) {
-	tests := []struct {
-		name     string
-		slice    []string
-		item     string
-		expected bool
-	}{
-		{
-			name:     "item exists",
-			slice:    []string{"ingress", "transit", "exit"},
-			item:     "transit",
-			expected: true,
-		},
-		{
-			name:     "item does not exist",
-			slice:    []string{"ingress", "transit", "exit"},
-			item:     "other",
-			expected: false,
-		},
-		{
-			name:     "empty slice",
-			slice:    []string{},
-			item:     "test",
-			expected: false,
-		},
-		{
-			name:     "single item match",
-			slice:    []string{"only"},
-			item:     "only",
-			expected: true,
-		},
-		{
-			name:     "single item no match",
-			slice:    []string{"only"},
-			item:     "other",
-			expected: false,
-		},
-		{
-			name:     "empty item",
-			slice:    []string{"a", "", "b"},
-			item:     "",
-			expected: true,
-		},
-		{
-			name:     "case sensitive",
-			slice:    []string{"Ingress", "Transit"},
-			item:     "ingress",
-			expected: false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := contains(tc.slice, tc.item)
-			if result != tc.expected {
-				t.Errorf("contains(%v, %q) = %v, want %v", tc.slice, tc.item, result, tc.expected)
-			}
-		})
-	}
-}
-
 func TestBuildConfig(t *testing.T) {
 	w := New()
 

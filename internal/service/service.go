@@ -157,20 +157,10 @@ func InstallWithEmbedded(cfg ServiceConfig, embeddedBinaryPath string) error {
 		return fmt.Errorf("must run as root/administrator to install service")
 	}
 
-	// Determine destination path
 	destPath := GetInstallPath(cfg.Name)
 
-	// Create parent directory if needed (Windows)
-	if runtime.GOOS == "windows" {
-		parentDir := filepath.Dir(destPath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			return fmt.Errorf("failed to create program directory: %w", err)
-		}
-	}
-
-	// Copy the embedded binary to the destination
-	if err := copyFile(embeddedBinaryPath, destPath); err != nil {
-		return fmt.Errorf("failed to copy binary to %s: %w", destPath, err)
+	if err := deployBinary(embeddedBinaryPath, destPath); err != nil {
+		return err
 	}
 
 	fmt.Printf("Installed binary: %s\n", destPath)
@@ -208,22 +198,28 @@ func InstallWithDeployment(cfg ServiceConfig) error {
 		return installImpl(cfg, destPath)
 	}
 
-	// Create parent directory if needed (Windows)
-	if runtime.GOOS == "windows" {
-		parentDir := filepath.Dir(destPath)
-		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			return fmt.Errorf("failed to create program directory: %w", err)
-		}
-	}
-
-	// Copy the binary to the destination
-	if err := copyFile(srcPath, destPath); err != nil {
-		return fmt.Errorf("failed to copy binary to %s: %w", destPath, err)
+	if err := deployBinary(srcPath, destPath); err != nil {
+		return err
 	}
 
 	fmt.Printf("Installed binary: %s\n", destPath)
 
 	return installImpl(cfg, destPath)
+}
+
+// deployBinary copies a binary to destPath, creating the parent directory on Windows.
+func deployBinary(srcPath, destPath string) error {
+	if runtime.GOOS == "windows" {
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create program directory: %w", err)
+		}
+	}
+
+	if err := copyFile(srcPath, destPath); err != nil {
+		return fmt.Errorf("failed to copy binary to %s: %w", destPath, err)
+	}
+
+	return nil
 }
 
 // copyFile copies a file from src to dst, preserving permissions.
@@ -416,6 +412,28 @@ type UserServiceInfo struct {
 	DLLPath    string // Path to the DLL (Windows only)
 	ConfigPath string // Path to the config file
 	LogPath    string // Path to the log file (Linux only)
+}
+
+// StopService stops a running system service without uninstalling it.
+// On Linux: systemctl stop
+// On macOS: launchctl stop
+// On Windows: net stop
+func StopService(serviceName string) error {
+	return stopServiceImpl(serviceName)
+}
+
+// StartService starts an installed system service.
+// On Linux: systemctl start
+// On macOS: launchctl start (via kickstart)
+// On Windows: net start
+func StartService(serviceName string) error {
+	return startServiceImpl(serviceName)
+}
+
+// UpdateServiceBinary copies a new binary to the service's install path.
+// The service should be stopped before calling this.
+func UpdateServiceBinary(serviceName, newBinaryPath string) error {
+	return deployBinary(newBinaryPath, GetInstallPath(serviceName))
 }
 
 // GetUserServiceInfo returns information about the installed user-level service.

@@ -57,6 +57,26 @@ func installLaunchdService(cfg ServiceConfig, execPath string, embedded bool) er
 	return nil
 }
 
+// stopServiceImpl stops a running launchd service.
+func stopServiceImpl(serviceName string) error {
+	label := "com." + serviceName
+	if output, err := runCommand("launchctl", "stop", label); err != nil {
+		if !strings.Contains(output, "Could not find specified service") {
+			return fmt.Errorf("failed to stop service: %s", strings.TrimSpace(output))
+		}
+	}
+	return nil
+}
+
+// startServiceImpl starts a launchd service.
+func startServiceImpl(serviceName string) error {
+	label := "com." + serviceName
+	if output, err := runCommand("launchctl", "start", label); err != nil {
+		return fmt.Errorf("failed to start service: %s", strings.TrimSpace(output))
+	}
+	return nil
+}
+
 // uninstallImpl removes the launchd service on macOS.
 func uninstallImpl(serviceName string) error {
 	plistName := "com." + serviceName + ".plist"

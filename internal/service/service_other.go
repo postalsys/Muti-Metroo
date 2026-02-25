@@ -47,6 +47,16 @@ func runAsServiceImpl(name string, runner ServiceRunner) error {
 	return fmt.Errorf("running as service is not supported on this platform")
 }
 
+// stopServiceImpl is not supported on this platform.
+func stopServiceImpl(serviceName string) error {
+	return fmt.Errorf("service management is not supported on this platform")
+}
+
+// startServiceImpl is not supported on this platform.
+func startServiceImpl(serviceName string) error {
+	return fmt.Errorf("service management is not supported on this platform")
+}
+
 // =============================================================================
 // User service stubs (not supported on this platform)
 // =============================================================================
