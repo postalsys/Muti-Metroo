@@ -18,6 +18,8 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 - Multi-hop path routing via flood-based route propagation
 - Stream multiplexing with half-close support
 
+Muti Metroo is part of a three-component suite: **Muti Metroo** (mesh agent), **Mutiauk** (TUN interface), and **Metroo Manager** (web dashboard). Each is a standalone binary that can be used independently.
+
 ## Related Projects
 
 ### Mutiauk
@@ -30,6 +32,17 @@ Muti Metroo is a userspace mesh networking agent written in Go that creates virt
 - **Documentation**: `docs/docs/mutiauk.mdx` in this repository
 
 When updating Mutiauk documentation, you can explore the Mutiauk codebase to ensure accuracy.
+
+### Metroo Manager
+
+**Metroo Manager** is a companion web dashboard located in `../Muti-Metroo-Manager/` (relative to this repository). It provides a browser-based UI for managing and monitoring Muti Metroo mesh networks by reverse-proxying an agent's HTTP API.
+
+- **Location**: `../Muti-Metroo-Manager/` (sibling directory)
+- **Platform**: All (single Go binary with embedded React SPA)
+- **Purpose**: Web UI for managing/monitoring Muti Metroo mesh networks (topology visualization, real-time stats, route management, remote shell, file transfer, mesh testing, sleep/wake control)
+- **Documentation**: `docs/docs/metroo-manager.mdx` in this repository
+
+When updating Metroo Manager documentation, you can explore the Metroo Manager codebase to ensure accuracy.
 
 ## Documentation
 

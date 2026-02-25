@@ -91,6 +91,7 @@ const sidebars: SidebarsConfig = {
         'deployment/reverse-proxy',
         'deployment/high-availability',
         'mutiauk',
+        'metroo-manager',
       ],
     },
     {
