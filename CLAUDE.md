@@ -161,7 +161,7 @@ A standalone PDF user manual is maintained in `user-manual/` for offline distrib
 **Output**: `user-manual/build/muti-metroo-user-manual.pdf`
 **Build instructions**: `user-manual/BUILD.md`
 
-**Content scope**: Practical usage - installation, configuration, features, deployment, and Mutiauk TUN interface.
+**Content scope**: Practical usage - installation, configuration, features, deployment, Mutiauk TUN interface, and Metroo Manager web dashboard.
 **NOT included**: Protocol internals, frame formats, code architecture (these belong in Architecture.md).
 
 **Building locally**:

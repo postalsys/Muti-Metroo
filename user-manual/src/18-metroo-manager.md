@@ -40,24 +40,29 @@ chmod +x metroo-manager
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-addr` | `:3000` | Address for the web UI to listen on |
-| `-agent` | `localhost:8080` | Muti Metroo agent HTTP API address |
+| `-agent` | `http://127.0.0.1:8080` | Muti Metroo agent HTTP API URL |
 | `-agent-token` | | Bearer token for agent API authentication |
 | `-version` | | Print version and exit |
+
+The agent token can also be set via the `MUTI_METROO_TOKEN` environment variable. The `-agent-token` flag takes precedence over the environment variable.
 
 ### Examples
 
 ```bash
 # Connect to a remote agent
-./metroo-manager -agent 192.168.1.10:8080
+./metroo-manager -agent http://192.168.1.10:8080
 
 # Use a custom port for the web UI
 ./metroo-manager -addr :9090
 
 # Connect to a token-protected agent
-./metroo-manager -agent 192.168.1.10:8080 -agent-token mysecrettoken
+./metroo-manager -agent http://192.168.1.10:8080 -agent-token mysecrettoken
+
+# Connect to an HTTPS agent
+./metroo-manager -agent https://192.168.1.10:8080
 
 # Bind to all interfaces
-./metroo-manager -addr 0.0.0.0:3000 -agent 10.0.0.5:8080
+./metroo-manager -addr 0.0.0.0:3000 -agent http://10.0.0.5:8080
 ```
 
 ## Agent Configuration Requirements
@@ -72,7 +77,7 @@ http:
   remote_api: true   # Required for /agents/* endpoints
 ```
 
-If the agent uses bearer token authentication, pass the token via `-agent-token`:
+If the agent uses bearer token authentication, pass the token via `-agent-token` or the `MUTI_METROO_TOKEN` environment variable:
 
 ```yaml
 http:
@@ -84,7 +89,12 @@ http:
 ```
 
 ```bash
-./metroo-manager -agent localhost:8080 -agent-token yourtoken
+# Via flag
+./metroo-manager -agent http://localhost:8080 -agent-token yourtoken
+
+# Via environment variable
+export MUTI_METROO_TOKEN=yourtoken
+./metroo-manager -agent http://localhost:8080
 ```
 
 ## Features

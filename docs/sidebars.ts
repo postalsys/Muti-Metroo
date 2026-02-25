@@ -90,6 +90,12 @@ const sidebars: SidebarsConfig = {
         'deployment/dll-mode',
         'deployment/reverse-proxy',
         'deployment/high-availability',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Companion Tools',
+      items: [
         'mutiauk',
         'metroo-manager',
       ],
