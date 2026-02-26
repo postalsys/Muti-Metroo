@@ -111,6 +111,8 @@ agent:
 
 If not set, the agent ID is used for display.
 
+The display name can also be changed at runtime using `muti-metroo display-name set` or the HTTP API. Dynamic names are ephemeral and revert to the config value on restart. See [Display Name CLI](/cli/display-name) and [Display Name API](/api/display-name-management).
+
 ## Data Directory
 
 Where agent persists state:

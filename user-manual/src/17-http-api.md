@@ -249,6 +249,44 @@ curl -X POST http://localhost:8080/agents/abc123def456/routes/manage \
   -d '{"action":"add","network":"10.0.0.0/8"}'
 ```
 
+### POST /display-name/manage
+
+Set or get the agent's display name dynamically:
+
+```bash
+# Set display name
+curl -X POST http://localhost:8080/display-name/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"set","name":"gateway-us-east"}'
+
+# Get current display name
+curl -X POST http://localhost:8080/display-name/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"get"}'
+```
+
+Response:
+
+```json
+{
+  "status": "ok",
+  "message": "display name set to \"gateway-us-east\"",
+  "name": "gateway-us-east"
+}
+```
+
+Setting an empty name reverts to the config value. Dynamic names are ephemeral and lost on restart.
+
+### POST /agents/{agent-id}/display-name/manage
+
+Set or get display name on a remote agent:
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123def456/display-name/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"set","name":"exit-eu-west"}'
+```
+
 ## Sleep Mode Endpoints
 
 Control mesh hibernation via HTTP.

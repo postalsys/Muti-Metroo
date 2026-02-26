@@ -84,6 +84,7 @@ Available for all commands:
 | `service` | Service management (install, uninstall, status) |
 | `management-key` | Generate and manage mesh topology encryption keys |
 | `signing-key` | Generate and manage Ed25519 signing keys for sleep/wake authentication |
+| `display-name` | Set or get agent display name dynamically |
 
 ## Quick Examples
 
@@ -133,4 +134,8 @@ muti-metroo shell --tty agent123 bash
 
 # Upload file
 muti-metroo upload agent123 local.txt /tmp/remote.txt
+
+# Set display name
+muti-metroo display-name set "My Gateway"
+muti-metroo display-name get
 ```

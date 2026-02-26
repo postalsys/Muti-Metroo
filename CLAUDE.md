@@ -244,6 +244,11 @@ make init-dev                 # Initialize data directory and agent identity
 ./build/muti-metroo forward list --json                            # JSON output
 ./build/muti-metroo forward add web-server :9090 -t abc123         # On remote agent
 
+# Dynamic Display Name Management
+./build/muti-metroo display-name set "gateway-us-east"           # Set display name
+./build/muti-metroo display-name get                             # Get current display name
+./build/muti-metroo display-name set "exit-eu-west" -t abc123    # On remote agent
+
 # Run
 make run                      # Run agent with ./config.yaml
 ./build/muti-metroo init -d ./data           # Initialize new agent
@@ -529,6 +534,8 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 | `/agents/{id}/routes/manage`  | POST   | Manage routes on a remote agent               |
 | `/forward/manage`             | POST   | Add, remove, or list dynamic forward listeners |
 | `/agents/{id}/forward/manage` | POST   | Manage forward listeners on a remote agent     |
+| `/display-name/manage`             | POST   | Set or get agent display name dynamically   |
+| `/agents/{id}/display-name/manage` | POST   | Manage display name on a remote agent       |
 
 ### Sleep Mode
 
