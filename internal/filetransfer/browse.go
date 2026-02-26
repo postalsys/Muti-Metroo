@@ -15,11 +15,12 @@ const (
 
 // BrowseRequest is the request payload for file browsing operations.
 type BrowseRequest struct {
-	Action   string `json:"action"`            // "list", "stat", "roots"
-	Path     string `json:"path,omitempty"`     // Required for "list" and "stat"
+	Action   string `json:"action"`            // "list", "stat", "roots", "chmod"
+	Path     string `json:"path,omitempty"`     // Required for "list", "stat", and "chmod"
 	Password string `json:"password,omitempty"` // Authentication password
 	Offset   int    `json:"offset,omitempty"`   // Pagination offset (list only)
 	Limit    int    `json:"limit,omitempty"`    // Pagination limit (list only, default 100, max 200)
+	Mode     string `json:"mode,omitempty"`     // Octal permission string, e.g. "0755" (chmod only)
 }
 
 // BrowseResponse is the response payload for file browsing operations.
@@ -62,6 +63,8 @@ func (h *StreamHandler) Browse(req *BrowseRequest) *BrowseResponse {
 		return h.browseStat(req)
 	case "roots":
 		return h.browseRoots()
+	case "chmod":
+		return h.browseChmod(req)
 	default:
 		return &BrowseResponse{Error: fmt.Sprintf("unknown action: %s", req.Action)}
 	}
@@ -154,6 +157,44 @@ func (h *StreamHandler) browseStat(req *BrowseRequest) *BrowseResponse {
 	}
 
 	cleanPath := filepath.Clean(req.Path)
+
+	entry, err := statPath(cleanPath)
+	if err != nil {
+		return &BrowseResponse{Error: err.Error()}
+	}
+
+	return &BrowseResponse{
+		Path:  cleanPath,
+		Entry: entry,
+	}
+}
+
+// browseChmod changes file permissions.
+func (h *StreamHandler) browseChmod(req *BrowseRequest) *BrowseResponse {
+	if req.Path == "" {
+		return &BrowseResponse{Error: "path is required"}
+	}
+	if req.Mode == "" {
+		return &BrowseResponse{Error: "mode is required"}
+	}
+
+	if err := h.validatePath(req.Path); err != nil {
+		return &BrowseResponse{Error: err.Error()}
+	}
+
+	cleanPath := filepath.Clean(req.Path)
+
+	var mode uint32
+	if _, err := fmt.Sscanf(req.Mode, "%o", &mode); err != nil {
+		return &BrowseResponse{Error: fmt.Sprintf("invalid mode: %s (expected octal, e.g. 0755)", req.Mode)}
+	}
+	if mode > 0777 {
+		return &BrowseResponse{Error: fmt.Sprintf("mode out of range: %s (max 0777)", req.Mode)}
+	}
+
+	if err := os.Chmod(cleanPath, os.FileMode(mode)); err != nil {
+		return &BrowseResponse{Error: fmt.Sprintf("chmod failed: %v", err)}
+	}
 
 	entry, err := statPath(cleanPath)
 	if err != nil {

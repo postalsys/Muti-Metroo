@@ -107,7 +107,7 @@ List directory contents with pagination.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `action` | string | No | `"list"` (default), `"stat"`, or `"roots"` |
+| `action` | string | No | `"list"` (default), `"stat"`, `"roots"`, or `"chmod"` |
 | `path` | string | Yes | Directory path to list |
 | `password` | string | No | Authentication password |
 | `offset` | int | No | Pagination offset (default 0) |
@@ -146,6 +146,37 @@ Get info about a single path.
 }
 ```
 
+### Action: chmod
+
+Change file permissions on a remote agent.
+
+**Request:**
+```json
+{
+  "action": "chmod",
+  "path": "/tmp/script.sh",
+  "mode": "0755",
+  "password": "secret"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | string | Yes | `"chmod"` |
+| `path` | string | Yes | File or directory path |
+| `password` | string | No | Authentication password |
+| `mode` | string | Yes | Octal permission string (e.g. `"0755"`, `"0644"`) |
+
+Mode must be a valid octal value up to `0777`. Returns the updated file entry (same format as `stat`).
+
+**Response:**
+```json
+{
+  "path": "/tmp/script.sh",
+  "entry": { "name": "script.sh", "size": 1024, "mode": "0755", "mod_time": "2026-02-18T10:30:00Z", "is_dir": false }
+}
+```
+
 ### Action: roots
 
 Discover browsable root paths from the `allowed_paths` configuration.
@@ -178,6 +209,11 @@ curl -X POST http://localhost:8080/agents/abc123/file/browse \
 curl -X POST http://localhost:8080/agents/abc123/file/browse \
   -H "Content-Type: application/json" \
   -d '{"action":"roots"}'
+
+# Change file permissions
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"chmod","path":"/tmp/script.sh","mode":"0755"}'
 ```
 
 ### Errors

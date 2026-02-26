@@ -403,6 +403,102 @@ func TestPatternBaseDir(t *testing.T) {
 	}
 }
 
+func TestBrowseChmod_Success(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.sh")
+	os.WriteFile(file, []byte("#!/bin/sh"), 0600)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file, Mode: "0755"})
+
+	if resp.Error != "" {
+		t.Fatalf("unexpected error: %s", resp.Error)
+	}
+	if resp.Entry == nil {
+		t.Fatal("expected entry in response")
+	}
+	if resp.Entry.Mode != "0755" {
+		t.Fatalf("expected mode 0755, got %s", resp.Entry.Mode)
+	}
+	if resp.Path != file {
+		t.Fatalf("expected path %s, got %s", file, resp.Path)
+	}
+
+	// Verify actual file permissions
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatalf("stat failed: %v", err)
+	}
+	if info.Mode().Perm() != 0755 {
+		t.Fatalf("expected file perm 0755, got %04o", info.Mode().Perm())
+	}
+}
+
+func TestBrowseChmod_MissingPath(t *testing.T) {
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{"*"}})
+	resp := h.Browse(&BrowseRequest{Action: "chmod", Mode: "0644"})
+	if resp.Error != "path is required" {
+		t.Fatalf("expected path required error, got: %s", resp.Error)
+	}
+}
+
+func TestBrowseChmod_MissingMode(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.txt")
+	os.WriteFile(file, []byte("data"), 0644)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file})
+	if resp.Error != "mode is required" {
+		t.Fatalf("expected mode required error, got: %s", resp.Error)
+	}
+}
+
+func TestBrowseChmod_InvalidMode(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.txt")
+	os.WriteFile(file, []byte("data"), 0644)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file, Mode: "xyz"})
+	if resp.Error == "" {
+		t.Fatal("expected error for invalid mode")
+	}
+}
+
+func TestBrowseChmod_ModeOutOfRange(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.txt")
+	os.WriteFile(file, []byte("data"), 0644)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file, Mode: "1000"})
+	if resp.Error == "" {
+		t.Fatal("expected error for mode out of range")
+	}
+}
+
+func TestBrowseChmod_PathNotAllowed(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.txt")
+	os.WriteFile(file, []byte("data"), 0644)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{"/tmp"}})
+	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file, Mode: "0755"})
+	if resp.Error == "" {
+		t.Fatal("expected error for disallowed path")
+	}
+}
+
+func TestBrowseChmod_Nonexistent(t *testing.T) {
+	dir := t.TempDir()
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: filepath.Join(dir, "nonexistent"), Mode: "0644"})
+	if resp.Error == "" {
+		t.Fatal("expected error for nonexistent path")
+	}
+}
+
 func TestBrowseList_EmptyDirectory(t *testing.T) {
 	dir := t.TempDir()
 	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
