@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -311,12 +312,16 @@ func (h *Handler) waitForReply(session *Session, identifier, sequence uint16, ti
 		return
 	}
 
+	// Resolve the local outbound IP (the address this agent uses to reach the destination).
+	// reply.SrcIP is the responder address which equals the destination -- not useful.
+	localIP := resolveLocalIP(session.DestIP)
+
 	// Send reply back through mesh
 	echoReply := &protocol.ICMPEcho{
 		Identifier: reply.ID,
 		Sequence:   reply.Seq,
 		IsReply:    true,
-		SrcIP:      reply.SrcIP,
+		SrcIP:      localIP,
 		Data:       ciphertext,
 	}
 
@@ -438,4 +443,22 @@ func (h *Handler) cleanupExpired() {
 			h.removeSession(streamID)
 		}
 	}
+}
+
+// resolveLocalIP returns the local outbound IP used to reach destIP.
+// Uses a UDP dial (no traffic sent) to let the OS select the source address.
+func resolveLocalIP(destIP net.IP) net.IP {
+	network := "udp4"
+	if destIP.To4() == nil {
+		network = "udp6"
+	}
+	conn, err := net.Dial(network, net.JoinHostPort(destIP.String(), "80"))
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+		return addr.IP
+	}
+	return nil
 }
