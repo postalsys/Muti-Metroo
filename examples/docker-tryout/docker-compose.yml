@@ -1,5 +1,8 @@
-# 4-Agent Muti Metroo Example
-# Topology: agent1 (ingress) -> agent2 (transit) -> agent3/agent4 (exits)
+# 6-Agent Muti Metroo Example
+# Topology:
+#   agent1 (ingress) -> agent2 (transit) -> agent3 (exit-low)
+#                    |                   -> agent4 (exit-high)
+#                    -> agent5 (branch)  -> agent6 (exit-remote)
 
 services:
   # Agent 1: SOCKS5 Ingress + Dashboard
@@ -18,6 +21,7 @@ services:
       - mesh
     depends_on:
       - agent2
+      - agent5
 
   # Agent 2: Transit Node (Ubuntu)
   agent2:
@@ -55,6 +59,32 @@ services:
     hostname: agent4
     volumes:
       - ./configs/agent4.yaml:/app/config.yaml:ro
+    networks:
+      - mesh
+
+  # Agent 5: Branch Office Transit
+  agent5:
+    build:
+      context: ../..
+      dockerfile: examples/docker-tryout/Dockerfile.ubuntu
+    container_name: tryout-agent5
+    hostname: agent5
+    volumes:
+      - ./configs/agent5.yaml:/app/config.yaml:ro
+    networks:
+      - mesh
+    depends_on:
+      - agent6
+
+  # Agent 6: Remote Site Exit (private networks + domains)
+  agent6:
+    build:
+      context: ../..
+      dockerfile: examples/docker-tryout/Dockerfile.ubuntu
+    container_name: tryout-agent6
+    hostname: agent6
+    volumes:
+      - ./configs/agent6.yaml:/app/config.yaml:ro
     networks:
       - mesh
 

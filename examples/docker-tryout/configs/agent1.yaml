@@ -11,6 +11,9 @@ peers:
   - id: "bbbb222222222222bbbb222222222222"
     transport: quic
     address: "agent2:4433"
+  - id: "eeee555555555555eeee555555555555"
+    transport: quic
+    address: "agent5:4433"
 
 socks5:
   enabled: true
