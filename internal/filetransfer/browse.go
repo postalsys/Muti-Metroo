@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -46,7 +47,7 @@ type FileEntry struct {
 	LinkTarget string `json:"link_target,omitempty"`
 }
 
-// Browse handles file browsing requests (list, stat, roots).
+// Browse handles file browsing requests (list, stat, roots, chmod).
 func (h *StreamHandler) Browse(req *BrowseRequest) *BrowseResponse {
 	if !h.cfg.Enabled {
 		return &BrowseResponse{Error: "file transfer is disabled"}
@@ -70,17 +71,24 @@ func (h *StreamHandler) Browse(req *BrowseRequest) *BrowseResponse {
 	}
 }
 
+// requirePath validates that the request has a non-empty path within allowed paths,
+// and returns the cleaned path. If validation fails, it returns an error response.
+func (h *StreamHandler) requirePath(path string) (string, *BrowseResponse) {
+	if path == "" {
+		return "", &BrowseResponse{Error: "path is required"}
+	}
+	if err := h.validatePath(path); err != nil {
+		return "", &BrowseResponse{Error: err.Error()}
+	}
+	return filepath.Clean(path), nil
+}
+
 // browseList lists directory contents with pagination.
 func (h *StreamHandler) browseList(req *BrowseRequest) *BrowseResponse {
-	if req.Path == "" {
-		return &BrowseResponse{Error: "path is required"}
+	cleanPath, errResp := h.requirePath(req.Path)
+	if errResp != nil {
+		return errResp
 	}
-
-	if err := h.validatePath(req.Path); err != nil {
-		return &BrowseResponse{Error: err.Error()}
-	}
-
-	cleanPath := filepath.Clean(req.Path)
 
 	info, err := os.Stat(cleanPath)
 	if err != nil {
@@ -148,15 +156,10 @@ func (h *StreamHandler) browseList(req *BrowseRequest) *BrowseResponse {
 
 // browseStat returns info about a single path.
 func (h *StreamHandler) browseStat(req *BrowseRequest) *BrowseResponse {
-	if req.Path == "" {
-		return &BrowseResponse{Error: "path is required"}
+	cleanPath, errResp := h.requirePath(req.Path)
+	if errResp != nil {
+		return errResp
 	}
-
-	if err := h.validatePath(req.Path); err != nil {
-		return &BrowseResponse{Error: err.Error()}
-	}
-
-	cleanPath := filepath.Clean(req.Path)
 
 	entry, err := statPath(cleanPath)
 	if err != nil {
@@ -171,28 +174,17 @@ func (h *StreamHandler) browseStat(req *BrowseRequest) *BrowseResponse {
 
 // browseChmod changes file permissions.
 func (h *StreamHandler) browseChmod(req *BrowseRequest) *BrowseResponse {
-	if req.Path == "" {
-		return &BrowseResponse{Error: "path is required"}
-	}
-	if req.Mode == "" {
-		return &BrowseResponse{Error: "mode is required"}
+	cleanPath, errResp := h.requirePath(req.Path)
+	if errResp != nil {
+		return errResp
 	}
 
-	if err := h.validatePath(req.Path); err != nil {
+	mode, err := parseOctalMode(req.Mode)
+	if err != nil {
 		return &BrowseResponse{Error: err.Error()}
 	}
 
-	cleanPath := filepath.Clean(req.Path)
-
-	var mode uint32
-	if _, err := fmt.Sscanf(req.Mode, "%o", &mode); err != nil {
-		return &BrowseResponse{Error: fmt.Sprintf("invalid mode: %s (expected octal, e.g. 0755)", req.Mode)}
-	}
-	if mode > 0777 {
-		return &BrowseResponse{Error: fmt.Sprintf("mode out of range: %s (max 0777)", req.Mode)}
-	}
-
-	if err := os.Chmod(cleanPath, os.FileMode(mode)); err != nil {
+	if err := os.Chmod(cleanPath, mode); err != nil {
 		return &BrowseResponse{Error: fmt.Sprintf("chmod failed: %v", err)}
 	}
 
@@ -205,6 +197,22 @@ func (h *StreamHandler) browseChmod(req *BrowseRequest) *BrowseResponse {
 		Path:  cleanPath,
 		Entry: entry,
 	}
+}
+
+// parseOctalMode parses an octal permission string (e.g. "0755") and validates
+// it is within the valid range (0-0777).
+func parseOctalMode(s string) (os.FileMode, error) {
+	if s == "" {
+		return 0, fmt.Errorf("mode is required")
+	}
+	mode, err := strconv.ParseUint(s, 8, 32)
+	if err != nil {
+		return 0, fmt.Errorf("invalid mode: %s (expected octal, e.g. 0755)", s)
+	}
+	if mode > 0777 {
+		return 0, fmt.Errorf("mode out of range: %s (max 0777)", s)
+	}
+	return os.FileMode(mode), nil
 }
 
 // browseRoots returns the browsable root paths derived from allowed_paths config.

@@ -3,6 +3,7 @@ package filetransfer
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -434,68 +435,73 @@ func TestBrowseChmod_Success(t *testing.T) {
 	}
 }
 
-func TestBrowseChmod_MissingPath(t *testing.T) {
-	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{"*"}})
-	resp := h.Browse(&BrowseRequest{Action: "chmod", Mode: "0644"})
-	if resp.Error != "path is required" {
-		t.Fatalf("expected path required error, got: %s", resp.Error)
-	}
-}
-
-func TestBrowseChmod_MissingMode(t *testing.T) {
+func TestBrowseChmod_Errors(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "test.txt")
 	os.WriteFile(file, []byte("data"), 0644)
 
-	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
-	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file})
-	if resp.Error != "mode is required" {
-		t.Fatalf("expected mode required error, got: %s", resp.Error)
+	tests := []struct {
+		name         string
+		allowedPaths []string
+		path         string
+		mode         string
+		wantError    string
+	}{
+		{
+			name:         "missing path",
+			allowedPaths: []string{"*"},
+			path:         "",
+			mode:         "0644",
+			wantError:    "path is required",
+		},
+		{
+			name:         "missing mode",
+			allowedPaths: []string{dir},
+			path:         file,
+			mode:         "",
+			wantError:    "mode is required",
+		},
+		{
+			name:         "invalid mode",
+			allowedPaths: []string{dir},
+			path:         file,
+			mode:         "xyz",
+			wantError:    "invalid mode",
+		},
+		{
+			name:         "mode out of range",
+			allowedPaths: []string{dir},
+			path:         file,
+			mode:         "1000",
+			wantError:    "mode out of range",
+		},
+		{
+			name:         "path not allowed",
+			allowedPaths: []string{"/tmp"},
+			path:         file,
+			mode:         "0755",
+			wantError:    "path not in allowed list",
+		},
+		{
+			name:         "nonexistent file",
+			allowedPaths: []string{dir},
+			path:         filepath.Join(dir, "nonexistent"),
+			mode:         "0644",
+			wantError:    "chmod failed",
+		},
 	}
-}
 
-func TestBrowseChmod_InvalidMode(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "test.txt")
-	os.WriteFile(file, []byte("data"), 0644)
-
-	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
-	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file, Mode: "xyz"})
-	if resp.Error == "" {
-		t.Fatal("expected error for invalid mode")
-	}
-}
-
-func TestBrowseChmod_ModeOutOfRange(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "test.txt")
-	os.WriteFile(file, []byte("data"), 0644)
-
-	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
-	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file, Mode: "1000"})
-	if resp.Error == "" {
-		t.Fatal("expected error for mode out of range")
-	}
-}
-
-func TestBrowseChmod_PathNotAllowed(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "test.txt")
-	os.WriteFile(file, []byte("data"), 0644)
-
-	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{"/tmp"}})
-	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: file, Mode: "0755"})
-	if resp.Error == "" {
-		t.Fatal("expected error for disallowed path")
-	}
-}
-
-func TestBrowseChmod_Nonexistent(t *testing.T) {
-	dir := t.TempDir()
-	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
-	resp := h.Browse(&BrowseRequest{Action: "chmod", Path: filepath.Join(dir, "nonexistent"), Mode: "0644"})
-	if resp.Error == "" {
-		t.Fatal("expected error for nonexistent path")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: tt.allowedPaths})
+			resp := h.Browse(&BrowseRequest{Action: "chmod", Path: tt.path, Mode: tt.mode})
+			if resp.Error == "" {
+				t.Fatalf("expected error containing %q, got success", tt.wantError)
+			}
+			if !strings.Contains(resp.Error, tt.wantError) {
+				t.Fatalf("expected error containing %q, got: %s", tt.wantError, resp.Error)
+			}
+		})
 	}
 }
 
