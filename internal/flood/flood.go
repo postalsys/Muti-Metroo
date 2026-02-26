@@ -108,10 +108,11 @@ type PeerSender interface {
 
 // Flooder handles route flooding to mesh peers.
 type Flooder struct {
-	cfg              FloodConfig
-	localID          identity.AgentID
-	localDisplayName string
-	routeMgr         *routing.Manager
+	cfg                FloodConfig
+	localID            identity.AgentID
+	displayNameMu      sync.RWMutex
+	localDisplayName   string
+	routeMgr           *routing.Manager
 	sender           PeerSender
 	logger           *slog.Logger
 	sealedBox        *crypto.SealedBox // Management key encryption (nil if not configured)
@@ -455,6 +456,21 @@ func (f *Flooder) floodWithdrawal(
 	f.floodFrame(fromPeer, seenBy, frame, "failed to send route withdrawal")
 }
 
+// SetLocalDisplayName updates the local display name used in route advertisements.
+func (f *Flooder) SetLocalDisplayName(name string) {
+	f.displayNameMu.Lock()
+	f.localDisplayName = name
+	f.displayNameMu.Unlock()
+}
+
+// getLocalDisplayName returns the local display name, safe for concurrent access.
+func (f *Flooder) getLocalDisplayName() string {
+	f.displayNameMu.RLock()
+	name := f.localDisplayName
+	f.displayNameMu.RUnlock()
+	return name
+}
+
 // AnnounceLocalRoutes floods all local routes (CIDR, domain, and forward) to all peers.
 func (f *Flooder) AnnounceLocalRoutes() {
 	localRoutes := f.routeMgr.GetLocalRoutes()
@@ -515,7 +531,7 @@ func (f *Flooder) AnnounceLocalRoutes() {
 
 	// When management key encryption is enabled, omit display names from
 	// route advertisements to avoid leaking them in plaintext on the wire.
-	displayName := f.localDisplayName
+	displayName := f.getLocalDisplayName()
 	if f.sealedBox != nil {
 		displayName = ""
 	}
@@ -656,7 +672,7 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 		var originDisplayName string
 		if f.sealedBox == nil {
 			if originAgent == f.localID {
-				originDisplayName = f.localDisplayName
+				originDisplayName = f.getLocalDisplayName()
 			} else {
 				originDisplayName = f.routeMgr.GetDisplayName(originAgent)
 			}

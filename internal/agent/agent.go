@@ -162,6 +162,10 @@ type Agent struct {
 	wakeSignal   chan struct{}
 	pollCancel   context.CancelFunc // Cancel function for active poll context
 
+	// Dynamic display name override (ephemeral, reverts on restart)
+	dynamicDisplayName   string
+	dynamicDisplayNameMu sync.RWMutex
+
 	// State
 	running  atomic.Bool
 	stopOnce sync.Once
@@ -405,9 +409,10 @@ func (a *Agent) initComponents() error {
 		a.healthServer.SetShellProvider(a)         // Enable remote shell via HTTP API
 		a.healthServer.SetICMPProvider(a)          // Enable ICMP ping via HTTP API
 		a.healthServer.SetSleepProvider(a)         // Enable sleep mode via HTTP API
-		a.healthServer.SetRouteManageProvider(a)   // Enable dynamic route management via HTTP API
-		a.healthServer.SetForwardManageProvider(a) // Enable dynamic forward listener management via HTTP API
-		a.healthServer.SetFileBrowseProvider(a)    // Enable file browsing via HTTP API
+		a.healthServer.SetRouteManageProvider(a)        // Enable dynamic route management via HTTP API
+		a.healthServer.SetForwardManageProvider(a)      // Enable dynamic forward listener management via HTTP API
+		a.healthServer.SetFileBrowseProvider(a)         // Enable file browsing via HTTP API
+		a.healthServer.SetDisplayNameManageProvider(a)  // Enable dynamic display name management via HTTP API
 	}
 
 	// Initialize file transfer handler (stream-based)
@@ -721,7 +726,7 @@ func (a *Agent) Start() error {
 		case <-a.stopCh:
 			return
 		}
-		info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+		info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
@@ -1267,10 +1272,23 @@ func (a *Agent) ID() identity.AgentID {
 
 // DisplayName returns the agent's display name, or falls back to the short ID.
 func (a *Agent) DisplayName() string {
-	if a.cfg.Agent.DisplayName != "" {
-		return a.cfg.Agent.DisplayName
+	if dn := a.displayNameForAdvertise(); dn != "" {
+		return dn
 	}
 	return a.id.ShortString()
+}
+
+// displayNameForAdvertise returns the display name for route/node info advertisements.
+// Unlike DisplayName(), this returns empty string when no name is set (rather than
+// falling back to the short ID), matching the original sysinfo.Collect behavior.
+func (a *Agent) displayNameForAdvertise() string {
+	a.dynamicDisplayNameMu.RLock()
+	dn := a.dynamicDisplayName
+	a.dynamicDisplayNameMu.RUnlock()
+	if dn != "" {
+		return dn
+	}
+	return a.cfg.Agent.DisplayName
 }
 
 // TriggerRouteAdvertise triggers an immediate route advertisement.
@@ -1547,6 +1565,62 @@ func (a *Agent) handleForwardManage(data []byte) ([]byte, bool) {
 	return resp, true
 }
 
+// ManageDisplayName handles dynamic display name management (set/get).
+// Implements the health.DisplayNameManageProvider interface.
+func (a *Agent) ManageDisplayName(action, name string) (*health.DisplayNameManageResult, error) {
+	switch action {
+	case "set":
+		a.dynamicDisplayNameMu.Lock()
+		a.dynamicDisplayName = name
+		a.dynamicDisplayNameMu.Unlock()
+
+		advertiseName := a.displayNameForAdvertise()
+		displayName := a.DisplayName()
+
+		a.flooder.SetLocalDisplayName(advertiseName)
+		a.routeMgr.SetDisplayName(a.id, displayName)
+
+		a.TriggerRouteAdvertise()
+		a.TriggerNodeInfoAdvertise()
+
+		return &health.DisplayNameManageResult{
+			Status:  "ok",
+			Message: fmt.Sprintf("display name set to %q", displayName),
+			Name:    displayName,
+		}, nil
+
+	case "get":
+		return &health.DisplayNameManageResult{
+			Status: "ok",
+			Name:   a.DisplayName(),
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown action %q (expected set or get)", action)
+	}
+}
+
+// handleDisplayNameManage processes a ControlTypeDisplayNameManage control request.
+func (a *Agent) handleDisplayNameManage(data []byte) ([]byte, bool) {
+	var req struct {
+		Action string `json:"action"`
+		Name   string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &req); err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": "invalid request: " + err.Error()})
+		return resp, false
+	}
+
+	result, err := a.ManageDisplayName(req.Action, req.Name)
+	if err != nil {
+		resp, _ := json.Marshal(map[string]string{"error": err.Error()})
+		return resp, false
+	}
+
+	resp, _ := json.Marshal(result)
+	return resp, true
+}
+
 // BrowseFiles handles file browsing requests (list, stat, roots).
 // Implements the health.FileBrowseProvider interface.
 func (a *Agent) BrowseFiles(req *filetransfer.BrowseRequest) *filetransfer.BrowseResponse {
@@ -1702,7 +1776,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			}
 
 			// Collect and announce local node info with current peer connections
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+			info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -1710,7 +1784,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 				"peers", len(info.Peers))
 		case <-a.nodeInfoAdvertiseCh:
 			// Triggered re-advertisement (e.g., after dynamic forward listener change)
-			info := sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+			info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("triggered node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -2464,6 +2538,8 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 		data, success = a.handleForwardManage(req.Data)
 	case protocol.ControlTypeFileBrowse:
 		data, success = a.handleFileBrowse(req.Data)
+	case protocol.ControlTypeDisplayNameManage:
+		data, success = a.handleDisplayNameManage(req.Data)
 	default:
 		data = []byte("unknown control type")
 		success = false
@@ -3568,7 +3644,7 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.cfg.Agent.DisplayName, a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+	return sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
 }
 
 // getUDPConfig returns the UDP configuration for node info advertisements.

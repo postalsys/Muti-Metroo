@@ -287,6 +287,19 @@ type FileBrowseProvider interface {
 	BrowseFiles(req *filetransfer.BrowseRequest) *filetransfer.BrowseResponse
 }
 
+// DisplayNameManageResult contains the response for a display name management operation.
+type DisplayNameManageResult struct {
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+	Name    string `json:"name,omitempty"`
+}
+
+// DisplayNameManageProvider provides dynamic display name management.
+type DisplayNameManageProvider interface {
+	// ManageDisplayName handles set/get operations on the agent display name.
+	ManageDisplayName(action, name string) (*DisplayNameManageResult, error)
+}
+
 // Stats contains agent health statistics.
 type Stats struct {
 	PeerCount      int  `json:"peer_count"`
@@ -451,8 +464,9 @@ type Server struct {
 	sleepProvider         SleepProvider         // For sleep mode endpoints
 	routeManageProvider   RouteManageProvider   // For dynamic route management
 	forwardManageProvider ForwardManageProvider // For dynamic forward listener management
-	fileBrowseProvider    FileBrowseProvider    // For file browsing (list, stat, roots)
-	sealedBox             *crypto.SealedBox     // For checking decrypt capability
+	fileBrowseProvider       FileBrowseProvider       // For file browsing (list, stat, roots)
+	displayNameManageProvider DisplayNameManageProvider // For dynamic display name management
+	sealedBox                *crypto.SealedBox        // For checking decrypt capability
 	meshTestState         *MeshTestState        // For mesh test caching
 	server                *http.Server
 	listener              net.Listener
@@ -652,6 +666,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/routes/advertise", s.handleTriggerAdvertise)
 		mux.HandleFunc("/routes/manage", s.handleRouteManage)
 		mux.HandleFunc("/forward/manage", s.handleForwardManage)
+		mux.HandleFunc("/display-name/manage", s.handleDisplayNameManage)
 		// Sleep mode endpoints
 		mux.HandleFunc("/sleep", s.handleSleep)
 		mux.HandleFunc("/sleep/status", s.handleSleepStatus)
@@ -662,6 +677,7 @@ func NewServer(cfg ServerConfig, provider StatsProvider) *Server {
 		mux.HandleFunc("/routes/advertise", disabledHandler("routes_advertise"))
 		mux.HandleFunc("/routes/manage", disabledHandler("routes_manage"))
 		mux.HandleFunc("/forward/manage", disabledHandler("forward_manage"))
+		mux.HandleFunc("/display-name/manage", disabledHandler("display_name_manage"))
 		mux.HandleFunc("/sleep", disabledHandler("sleep"))
 		mux.HandleFunc("/sleep/status", disabledHandler("sleep_status"))
 		mux.HandleFunc("/wake", disabledHandler("wake"))
@@ -750,6 +766,12 @@ func (s *Server) SetForwardManageProvider(provider ForwardManageProvider) {
 // This is called after the agent is initialized.
 func (s *Server) SetFileBrowseProvider(provider FileBrowseProvider) {
 	s.fileBrowseProvider = provider
+}
+
+// SetDisplayNameManageProvider sets the display name management provider.
+// This is called after the agent is initialized.
+func (s *Server) SetDisplayNameManageProvider(provider DisplayNameManageProvider) {
+	s.displayNameManageProvider = provider
 }
 
 // CanDecryptManagement returns true if management key decryption is available.
@@ -980,6 +1002,9 @@ func (s *Server) handleAgentInfo(w http.ResponseWriter, r *http.Request) {
 			return
 		case parts[1] == "forward/manage":
 			s.handleRemoteForwardManage(w, r, targetID)
+			return
+		case parts[1] == "display-name/manage":
+			s.handleRemoteDisplayNameManage(w, r, targetID)
 			return
 		case parts[1] == "file/browse":
 			s.handleFileBrowse(w, r, targetID)
@@ -1463,6 +1488,43 @@ func (s *Server) handleForwardManage(w http.ResponseWriter, r *http.Request) {
 // handleRemoteForwardManage forwards forward listener management requests to a remote agent.
 func (s *Server) handleRemoteForwardManage(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
 	s.forwardRemoteControl(w, r, targetID, protocol.ControlTypeForwardManage, "forward management")
+}
+
+// handleDisplayNameManage handles POST /display-name/manage to set/get the agent display name.
+func (s *Server) handleDisplayNameManage(w http.ResponseWriter, r *http.Request) {
+	if !requirePOST(w, r) {
+		return
+	}
+	if s.displayNameManageProvider == nil {
+		http.Error(w, "display name management not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if s.shouldRestrictTopology() {
+		http.Error(w, "display name management restricted: management key decryption unavailable", http.StatusForbidden)
+		return
+	}
+
+	var req struct {
+		Action string `json:"action"`
+		Name   string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request: " + err.Error()})
+		return
+	}
+
+	result, err := s.displayNameManageProvider.ManageDisplayName(req.Action, req.Name)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleRemoteDisplayNameManage forwards display name management requests to a remote agent.
+func (s *Server) handleRemoteDisplayNameManage(w http.ResponseWriter, r *http.Request, targetID identity.AgentID) {
+	s.forwardRemoteControl(w, r, targetID, protocol.ControlTypeDisplayNameManage, "display name management")
 }
 
 // handleFileBrowse handles POST /agents/{agent-id}/file/browse for directory listing, stat, and roots.

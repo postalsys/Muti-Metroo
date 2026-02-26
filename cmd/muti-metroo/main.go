@@ -159,6 +159,10 @@ root privileges.`,
 	forwardC.GroupID = "remote"
 	rootCmd.AddCommand(forwardC)
 
+	displayNameC := displayNameCmd()
+	displayNameC.GroupID = "remote"
+	rootCmd.AddCommand(displayNameC)
+
 	// Administration commands
 	svc := serviceCmd()
 	svc.GroupID = "admin"
@@ -4264,4 +4268,187 @@ func forwardManageURL(agentAddr, targetID string) (string, error) {
 	}
 
 	return fmt.Sprintf("http://%s/agents/%s/forward/manage", agentAddr, resolvedID), nil
+}
+
+// displayNameCmd creates the display-name parent command with set/get subcommands.
+func displayNameCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "display-name",
+		Short: "Manage agent display name",
+		Long: `Manage the agent display name at runtime.
+
+Dynamic display names are ephemeral (lost on restart). They allow renaming
+agents on the fly to label topology maps without touching config files.
+Setting an empty name reverts to the config value.
+
+Examples:
+  # Set display name on the local agent
+  muti-metroo display-name set "gateway-us-east"
+
+  # Set display name on a remote agent
+  muti-metroo display-name set "exit-eu-west" --target abc123
+
+  # Get current display name
+  muti-metroo display-name get
+
+  # Revert to config value
+  muti-metroo display-name set ""`,
+	}
+
+	cmd.AddCommand(displayNameSetCmd())
+	cmd.AddCommand(displayNameGetCmd())
+
+	return cmd
+}
+
+// displayNameSetCmd creates the display-name set subcommand.
+func displayNameSetCmd() *cobra.Command {
+	var (
+		agentAddr string
+		targetID  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "set <name>",
+		Short: "Set the agent display name",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+
+			reqBody := struct {
+				Action string `json:"action"`
+				Name   string `json:"name"`
+			}{
+				Action: "set",
+				Name:   name,
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := displayNameManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Name    string `json:"name"`
+				Error   string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("display name set failed: %s", result.Error)
+				}
+				return fmt.Errorf("display name set failed: %s", resp.Status)
+			}
+
+			fmt.Printf("Display name set: %s\n", result.Name)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+
+	return cmd
+}
+
+// displayNameGetCmd creates the display-name get subcommand.
+func displayNameGetCmd() *cobra.Command {
+	var (
+		agentAddr string
+		targetID  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "get",
+		Short: "Get the current agent display name",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reqBody := struct {
+				Action string `json:"action"`
+			}{
+				Action: "get",
+			}
+			body, _ := json.Marshal(reqBody)
+
+			url, err := displayNameManageURL(agentAddr, targetID)
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return fmt.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			setAuthToken(req)
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to connect to agent: %w", err)
+			}
+			defer resp.Body.Close()
+
+			var result struct {
+				Status string `json:"status"`
+				Name   string `json:"name"`
+				Error  string `json:"error,omitempty"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				return fmt.Errorf("failed to decode response: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				if result.Error != "" {
+					return fmt.Errorf("display name get failed: %s", result.Error)
+				}
+				return fmt.Errorf("display name get failed: %s", resp.Status)
+			}
+
+			fmt.Println(result.Name)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVarP(&agentAddr, "agent", "a", "localhost:8080", "Agent API address (host:port)")
+	cmd.Flags().StringVarP(&targetID, "target", "t", "", "Target agent ID (omit for local agent)")
+
+	return cmd
+}
+
+// displayNameManageURL builds the URL for display name management based on target.
+func displayNameManageURL(agentAddr, targetID string) (string, error) {
+	if targetID == "" {
+		return fmt.Sprintf("http://%s/display-name/manage", agentAddr), nil
+	}
+
+	resolvedID, err := resolveAgentID(targetID, agentAddr)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve agent ID: %w", err)
+	}
+
+	return fmt.Sprintf("http://%s/agents/%s/display-name/manage", agentAddr, resolvedID), nil
 }

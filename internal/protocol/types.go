@@ -56,7 +56,8 @@ const (
 	// 0x06 and 0x07 reserved (previously used for legacy file transfer)
 	ControlTypeRouteManage   uint8 = 0x08 // Dynamic route management (add/remove/list)
 	ControlTypeForwardManage uint8 = 0x09 // Dynamic forward listener management (add/remove/list)
-	ControlTypeFileBrowse    uint8 = 0x0A // File browsing (directory listing, stat, roots)
+	ControlTypeFileBrowse          uint8 = 0x0A // File browsing (directory listing, stat, roots)
+	ControlTypeDisplayNameManage   uint8 = 0x0B // Dynamic display name management
 )
 
 // Frame flags
