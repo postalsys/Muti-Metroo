@@ -316,6 +316,7 @@ func (h *Handler) waitForReply(session *Session, identifier, sequence uint16, ti
 		Identifier: reply.ID,
 		Sequence:   reply.Seq,
 		IsReply:    true,
+		SrcIP:      reply.SrcIP,
 		Data:       ciphertext,
 	}
 

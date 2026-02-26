@@ -1846,6 +1846,7 @@ type ICMPEcho struct {
 	Identifier uint16 // Original ICMP identifier
 	Sequence   uint16 // ICMP sequence number
 	IsReply    bool   // false = echo request, true = echo reply
+	SrcIP      []byte // Source IP of echo reply (4=IPv4, 16=IPv6, 0=request)
 	Data       []byte // Echo payload (encrypted with E2E session key)
 }
 
@@ -1854,11 +1855,13 @@ const MaxICMPEchoDataSize = 1472
 
 // Encode serializes ICMPEcho to bytes.
 func (i *ICMPEcho) Encode() []byte {
-	// Format: Identifier(2) + Sequence(2) + IsReply(1) + DataLen(2) + Data
-	w := newBufferWriter(2 + 2 + 1 + 2 + len(i.Data))
+	// Format: Identifier(2) + Sequence(2) + IsReply(1) + SrcIPLen(1) + SrcIP(0/4/16) + DataLen(2) + Data
+	w := newBufferWriter(2 + 2 + 1 + 1 + len(i.SrcIP) + 2 + len(i.Data))
 	w.writeUint16(i.Identifier)
 	w.writeUint16(i.Sequence)
 	w.writeBool(i.IsReply)
+	w.writeUint8(uint8(len(i.SrcIP)))
+	w.writeBytes(i.SrcIP)
 	w.writeUint16(uint16(len(i.Data)))
 	w.writeBytes(i.Data)
 
@@ -1867,7 +1870,7 @@ func (i *ICMPEcho) Encode() []byte {
 
 // DecodeICMPEcho deserializes ICMPEcho from bytes.
 func DecodeICMPEcho(buf []byte) (*ICMPEcho, error) {
-	if len(buf) < 7 { // 2 + 2 + 1 + 2 minimum (empty data)
+	if len(buf) < 8 { // 2 + 2 + 1 + 1 + 2 minimum (no SrcIP, empty data)
 		return nil, fmt.Errorf("%w: ICMPEcho too short", ErrInvalidFrame)
 	}
 
@@ -1876,6 +1879,11 @@ func DecodeICMPEcho(buf []byte) (*ICMPEcho, error) {
 		Identifier: r.readUint16(),
 		Sequence:   r.readUint16(),
 		IsReply:    r.readBool(),
+	}
+
+	srcIPLen := int(r.readUint8())
+	if srcIPLen > 0 {
+		i.SrcIP = r.readBytes(srcIPLen)
 	}
 
 	dataLen := int(r.readUint16())

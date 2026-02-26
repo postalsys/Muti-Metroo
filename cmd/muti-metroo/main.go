@@ -2860,6 +2860,7 @@ func runPing(ctx context.Context, agentAddr, targetID string, destIP net.IP, cou
 			Sequence int     `json:"sequence"`
 			RTTMS    float64 `json:"rtt_ms,omitempty"`
 			Error    string  `json:"error,omitempty"`
+			SrcIP    string  `json:"src_ip,omitempty"`
 		}
 		if err := conn.ReadJSON(&reply); err != nil {
 			if ctx.Err() != nil {
@@ -2883,7 +2884,11 @@ func runPing(ctx context.Context, agentAddr, targetID string, destIP net.IP, cou
 			if rtt > rttMax {
 				rttMax = rtt
 			}
-			fmt.Printf("Reply from %s: seq=%d time=%.1fms\n", destIP, reply.Sequence, float64(rtt.Microseconds())/1000)
+			replyFrom := destIP.String()
+			if reply.SrcIP != "" {
+				replyFrom = reply.SrcIP
+			}
+			fmt.Printf("Reply from %s: seq=%d time=%.1fms\n", replyFrom, reply.Sequence, float64(rtt.Microseconds())/1000)
 		}
 
 		seq++

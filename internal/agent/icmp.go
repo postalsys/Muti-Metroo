@@ -459,6 +459,7 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 			Sequence:   echo.Sequence,
 			Payload:    plaintext,
 			Error:      errStr,
+			SrcIP:      net.IP(echo.SrcIP),
 		}:
 		default:
 			// Channel full, drop the response

@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"net"
 	"testing"
 
 	"github.com/postalsys/muti-metroo/internal/identity"
@@ -271,6 +272,76 @@ func TestICMPEcho_EncodeDecode_Reply(t *testing.T) {
 	}
 	if decoded.Sequence != 5 {
 		t.Errorf("Sequence = %d, want 5", decoded.Sequence)
+	}
+}
+
+func TestICMPEcho_EncodeDecode_ReplyWithSrcIPv4(t *testing.T) {
+	srcIP := net.IPv4(192, 168, 1, 1).To4()
+	original := &ICMPEcho{
+		Identifier: 12345,
+		Sequence:   5,
+		IsReply:    true,
+		SrcIP:      srcIP,
+		Data:       []byte("pong reply data"),
+	}
+
+	data := original.Encode()
+
+	decoded, err := DecodeICMPEcho(data)
+	if err != nil {
+		t.Fatalf("DecodeICMPEcho() error = %v", err)
+	}
+
+	if !decoded.IsReply {
+		t.Error("IsReply should be true for reply")
+	}
+	if !bytes.Equal(decoded.SrcIP, srcIP) {
+		t.Errorf("SrcIP = %v, want %v", decoded.SrcIP, srcIP)
+	}
+	if !bytes.Equal(decoded.Data, original.Data) {
+		t.Errorf("Data = %v, want %v", decoded.Data, original.Data)
+	}
+}
+
+func TestICMPEcho_EncodeDecode_ReplyWithSrcIPv6(t *testing.T) {
+	srcIP := net.ParseIP("2001:db8::1")
+	original := &ICMPEcho{
+		Identifier: 9999,
+		Sequence:   3,
+		IsReply:    true,
+		SrcIP:      srcIP,
+		Data:       []byte("ipv6 reply"),
+	}
+
+	data := original.Encode()
+
+	decoded, err := DecodeICMPEcho(data)
+	if err != nil {
+		t.Fatalf("DecodeICMPEcho() error = %v", err)
+	}
+
+	if !bytes.Equal(decoded.SrcIP, srcIP) {
+		t.Errorf("SrcIP = %v, want %v", decoded.SrcIP, srcIP)
+	}
+}
+
+func TestICMPEcho_EncodeDecode_RequestNoSrcIP(t *testing.T) {
+	original := &ICMPEcho{
+		Identifier: 100,
+		Sequence:   1,
+		IsReply:    false,
+		Data:       []byte("ping"),
+	}
+
+	data := original.Encode()
+
+	decoded, err := DecodeICMPEcho(data)
+	if err != nil {
+		t.Fatalf("DecodeICMPEcho() error = %v", err)
+	}
+
+	if len(decoded.SrcIP) != 0 {
+		t.Errorf("SrcIP should be empty for request, got %v", decoded.SrcIP)
 	}
 }
 

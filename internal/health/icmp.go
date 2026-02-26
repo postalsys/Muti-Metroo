@@ -54,6 +54,7 @@ type ICMPEchoResponse struct {
 	Sequence   uint16
 	Payload    []byte
 	Error      string
+	SrcIP      net.IP
 }
 
 // handleICMPWebSocket handles WebSocket connections for ICMP ping sessions.
@@ -209,6 +210,9 @@ func (s *Server) handleICMPWebSocket(w http.ResponseWriter, r *http.Request, tar
 					resp := map[string]interface{}{
 						"type":     "reply",
 						"sequence": reply.Sequence,
+					}
+					if len(reply.SrcIP) > 0 {
+						resp["src_ip"] = reply.SrcIP.String()
 					}
 					respData, _ = json.Marshal(resp)
 				}
