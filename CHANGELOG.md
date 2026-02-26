@@ -1,5 +1,34 @@
 # Changelog
 
+## [3.0.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.22.0...muti-metroo-v3.0.0) (2026-02-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* The embedded web dashboard at /ui/ is no longer available. Use the /api/* endpoints directly or the standalone dashboard application.
+
+### Features
+
+* add bearer token authentication for HTTP management API ([271cec4](https://github.com/postalsys/Muti-Metroo/commit/271cec4b002f6a093f9b8e588a9dde1444f13b45))
+* add chmod action to file browse API ([b65cb0f](https://github.com/postalsys/Muti-Metroo/commit/b65cb0fbbca27e9cba1b805ee0a24da59a6aebad))
+* add delete action to file browse API ([93752b5](https://github.com/postalsys/Muti-Metroo/commit/93752b52d86d4e3e667476577eed1f63f8a4b4f3))
+* add dynamic display name API for runtime agent renaming ([d2fe8f4](https://github.com/postalsys/Muti-Metroo/commit/d2fe8f4ac31dff595e5203902f3120a9f568d256))
+* add dynamic forward listener management (add/remove/list) ([f8ad288](https://github.com/postalsys/Muti-Metroo/commit/f8ad28809ee9c8023cab3eca962f6b7f86412672))
+* add file browsing API for remote filesystem navigation ([5a763aa](https://github.com/postalsys/Muti-Metroo/commit/5a763aa47e1418293f463fb7595ee1a967e01b50))
+* add ShellEnabled to node info advertisement ([6a465cb](https://github.com/postalsys/Muti-Metroo/commit/6a465cb5d0377a3427d3b4cc8da27920d5f6c2c4))
+* add source IP to ICMP ping protocol and CLI output ([23f47b0](https://github.com/postalsys/Muti-Metroo/commit/23f47b04002ed4aeca6d93136041a42ecff46881))
+* advertise file transfer capability in node info ([5b4bc1f](https://github.com/postalsys/Muti-Metroo/commit/5b4bc1f5d36aae68fdd272ee82425fd4ca330b5c))
+* expand docker-tryout to 6-agent topology ([fe607a0](https://github.com/postalsys/Muti-Metroo/commit/fe607a02aaa939879b487423a0ccb5111af64dcf))
+* redesign setup wizard with improved UX and service update support ([fbe370f](https://github.com/postalsys/Muti-Metroo/commit/fbe370f8cc53152964cf0d692431cb6ba65a84a6))
+* remove embedded web dashboard UI ([74bd609](https://github.com/postalsys/Muti-Metroo/commit/74bd609fe28924771cda4cd54387ccfcbdad5d91))
+
+
+### Bug Fixes
+
+* prevent control channel deadlock in peer read loop ([125c1e2](https://github.com/postalsys/Muti-Metroo/commit/125c1e292644bd89b2bfdf676dab63aa3d5e2030))
+* remove omitempty from browse response fields and fix API docs ([c070e7f](https://github.com/postalsys/Muti-Metroo/commit/c070e7f3474ab363763ddb52b43d4fa48f953f2b))
+* use exit agent local outbound IP as ICMP ping source IP ([976139d](https://github.com/postalsys/Muti-Metroo/commit/976139d7b3530324c5723c710f41a8b287ac0de8))
+
 ## [2.22.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.21.0...muti-metroo-v2.22.0) (2026-02-17)
 
 
