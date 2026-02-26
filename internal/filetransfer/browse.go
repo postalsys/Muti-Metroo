@@ -215,6 +215,7 @@ func (h *StreamHandler) browseDelete(req *BrowseRequest) *BrowseResponse {
 		return &BrowseResponse{Error: err.Error()}
 	}
 
+	// Guard: non-empty directories require the recursive flag
 	if entry.IsDir {
 		dirEntries, err := os.ReadDir(cleanPath)
 		if err != nil {
@@ -223,19 +224,15 @@ func (h *StreamHandler) browseDelete(req *BrowseRequest) *BrowseResponse {
 		if len(dirEntries) > 0 && !req.Recursive {
 			return &BrowseResponse{Error: "directory is not empty (use recursive to delete)"}
 		}
-		if len(dirEntries) > 0 {
-			if err := os.RemoveAll(cleanPath); err != nil {
-				return &BrowseResponse{Error: fmt.Sprintf("delete failed: %v", err)}
-			}
-		} else {
-			if err := os.Remove(cleanPath); err != nil {
-				return &BrowseResponse{Error: fmt.Sprintf("delete failed: %v", err)}
-			}
-		}
-	} else {
-		if err := os.Remove(cleanPath); err != nil {
-			return &BrowseResponse{Error: fmt.Sprintf("delete failed: %v", err)}
-		}
+	}
+
+	// RemoveAll handles non-empty directories; Remove handles files and empty directories
+	removeFunc := os.Remove
+	if req.Recursive && entry.IsDir {
+		removeFunc = os.RemoveAll
+	}
+	if err := removeFunc(cleanPath); err != nil {
+		return &BrowseResponse{Error: fmt.Sprintf("delete failed: %v", err)}
 	}
 
 	return &BrowseResponse{
