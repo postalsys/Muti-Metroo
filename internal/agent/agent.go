@@ -1634,10 +1634,24 @@ func (a *Agent) routeAdvertiseLoop() {
 					staleCount++
 				}
 			}
+
+			// Clean up stale pending control requests (locally initiated)
+			// to prevent unbounded map growth if responses never arrive.
+			staleLocalCount := 0
+			for id, req := range a.pendingControl {
+				if time.Now().After(req.Timeout) {
+					delete(a.pendingControl, id)
+					staleLocalCount++
+				}
+			}
 			a.controlMu.Unlock()
 			if staleCount > 0 {
 				a.logger.Debug("cleaned up stale forwarded control requests",
 					"removed", staleCount)
+			}
+			if staleLocalCount > 0 {
+				a.logger.Debug("cleaned up stale pending control requests",
+					"removed", staleLocalCount)
 			}
 
 			a.flooder.AnnounceLocalRoutes()
@@ -2421,7 +2435,15 @@ func (a *Agent) handleControlRequest(peerID identity.AgentID, frame *protocol.Fr
 			StreamID: protocol.ControlStreamID,
 			Payload:  fwdReq.Encode(),
 		}
-		a.peerMgr.SendToPeer(nextHop, fwdFrame)
+		if err := a.peerMgr.SendToPeer(nextHop, fwdFrame); err != nil {
+			a.logger.Debug("failed to forward control request",
+				logging.KeyPeerID, nextHop.ShortString(),
+				logging.KeyError, err)
+			a.controlMu.Lock()
+			delete(a.forwardedControl, req.RequestID)
+			a.controlMu.Unlock()
+			a.sendControlResponse(peerID, req.RequestID, req.ControlType, false, []byte("failed to forward: "+err.Error()))
+		}
 		return
 	}
 
@@ -2500,7 +2522,11 @@ func (a *Agent) handleControlResponse(peerID identity.AgentID, frame *protocol.F
 			StreamID: protocol.ControlStreamID,
 			Payload:  resp.Encode(),
 		}
-		a.peerMgr.SendToPeer(forwarded.SourcePeer, responseFrame)
+		if err := a.peerMgr.SendToPeer(forwarded.SourcePeer, responseFrame); err != nil {
+			a.logger.Debug("failed to forward control response",
+				logging.KeyPeerID, forwarded.SourcePeer.ShortString(),
+				logging.KeyError, err)
+		}
 	}
 }
 
@@ -2525,7 +2551,11 @@ func (a *Agent) sendControlResponse(peerID identity.AgentID, requestID uint64, c
 		Payload:  resp.Encode(),
 	}
 
-	a.peerMgr.SendToPeer(peerID, frame)
+	if err := a.peerMgr.SendToPeer(peerID, frame); err != nil {
+		a.logger.Debug("failed to send control response",
+			logging.KeyPeerID, peerID.ShortString(),
+			logging.KeyError, err)
+	}
 }
 
 // findControlPath finds the next hop and remaining path to reach a target agent for control requests.

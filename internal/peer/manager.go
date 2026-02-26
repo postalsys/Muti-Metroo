@@ -294,7 +294,7 @@ func (m *Manager) readLoop(conn *Connection) {
 		case protocol.FrameKeepalive:
 			ka, err := protocol.DecodeKeepalive(frame.Payload)
 			if err == nil {
-				conn.SendKeepaliveAck(ka.Timestamp)
+				go conn.SendKeepaliveAck(ka.Timestamp)
 			}
 		case protocol.FrameKeepaliveAck:
 			ka, err := protocol.DecodeKeepalive(frame.Payload)
@@ -302,9 +302,11 @@ func (m *Manager) readLoop(conn *Connection) {
 				conn.UpdateRTT(ka.Timestamp)
 			}
 		default:
-			// Pass to callback
+			// Pass to callback asynchronously to prevent blocking the read loop.
+			// A blocked write in a frame handler (e.g., control response send) would
+			// otherwise freeze the read loop, causing cascading deadlocks.
 			if conn.onFrame != nil {
-				conn.onFrame(conn, frame)
+				go conn.onFrame(conn, frame)
 			}
 		}
 	}
