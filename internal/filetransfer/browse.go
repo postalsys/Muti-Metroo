@@ -16,12 +16,13 @@ const (
 
 // BrowseRequest is the request payload for file browsing operations.
 type BrowseRequest struct {
-	Action   string `json:"action"`            // "list", "stat", "roots", "chmod"
-	Path     string `json:"path,omitempty"`     // Required for "list", "stat", and "chmod"
-	Password string `json:"password,omitempty"` // Authentication password
-	Offset   int    `json:"offset,omitempty"`   // Pagination offset (list only)
-	Limit    int    `json:"limit,omitempty"`    // Pagination limit (list only, default 100, max 200)
-	Mode     string `json:"mode,omitempty"`     // Octal permission string, e.g. "0755" (chmod only)
+	Action    string `json:"action"`              // "list", "stat", "roots", "chmod", "delete"
+	Path      string `json:"path,omitempty"`      // Required for "list", "stat", "chmod", and "delete"
+	Password  string `json:"password,omitempty"`  // Authentication password
+	Offset    int    `json:"offset,omitempty"`    // Pagination offset (list only)
+	Limit     int    `json:"limit,omitempty"`     // Pagination limit (list only, default 100, max 200)
+	Mode      string `json:"mode,omitempty"`      // Octal permission string, e.g. "0755" (chmod only)
+	Recursive bool   `json:"recursive,omitempty"` // Required for deleting non-empty directories (delete only)
 }
 
 // BrowseResponse is the response payload for file browsing operations.
@@ -47,7 +48,7 @@ type FileEntry struct {
 	LinkTarget string `json:"link_target,omitempty"`
 }
 
-// Browse handles file browsing requests (list, stat, roots, chmod).
+// Browse handles file browsing requests (list, stat, roots, chmod, delete).
 func (h *StreamHandler) Browse(req *BrowseRequest) *BrowseResponse {
 	if !h.cfg.Enabled {
 		return &BrowseResponse{Error: "file transfer is disabled"}
@@ -66,6 +67,8 @@ func (h *StreamHandler) Browse(req *BrowseRequest) *BrowseResponse {
 		return h.browseRoots()
 	case "chmod":
 		return h.browseChmod(req)
+	case "delete":
+		return h.browseDelete(req)
 	default:
 		return &BrowseResponse{Error: fmt.Sprintf("unknown action: %s", req.Action)}
 	}
@@ -191,6 +194,48 @@ func (h *StreamHandler) browseChmod(req *BrowseRequest) *BrowseResponse {
 	entry, err := statPath(cleanPath)
 	if err != nil {
 		return &BrowseResponse{Error: err.Error()}
+	}
+
+	return &BrowseResponse{
+		Path:  cleanPath,
+		Entry: entry,
+	}
+}
+
+// browseDelete deletes a file or directory.
+func (h *StreamHandler) browseDelete(req *BrowseRequest) *BrowseResponse {
+	cleanPath, errResp := h.requirePath(req.Path)
+	if errResp != nil {
+		return errResp
+	}
+
+	// Capture entry info before deletion
+	entry, err := statPath(cleanPath)
+	if err != nil {
+		return &BrowseResponse{Error: err.Error()}
+	}
+
+	if entry.IsDir {
+		dirEntries, err := os.ReadDir(cleanPath)
+		if err != nil {
+			return &BrowseResponse{Error: fmt.Sprintf("failed to read directory: %v", err)}
+		}
+		if len(dirEntries) > 0 && !req.Recursive {
+			return &BrowseResponse{Error: "directory is not empty (use recursive to delete)"}
+		}
+		if len(dirEntries) > 0 {
+			if err := os.RemoveAll(cleanPath); err != nil {
+				return &BrowseResponse{Error: fmt.Sprintf("delete failed: %v", err)}
+			}
+		} else {
+			if err := os.Remove(cleanPath); err != nil {
+				return &BrowseResponse{Error: fmt.Sprintf("delete failed: %v", err)}
+			}
+		}
+	} else {
+		if err := os.Remove(cleanPath); err != nil {
+			return &BrowseResponse{Error: fmt.Sprintf("delete failed: %v", err)}
+		}
 	}
 
 	return &BrowseResponse{

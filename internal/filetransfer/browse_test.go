@@ -57,8 +57,8 @@ func TestBrowse_AuthSuccess(t *testing.T) {
 
 func TestBrowse_UnknownAction(t *testing.T) {
 	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{"*"}})
-	resp := h.Browse(&BrowseRequest{Action: "delete"})
-	if resp.Error != "unknown action: delete" {
+	resp := h.Browse(&BrowseRequest{Action: "bogus"})
+	if resp.Error != "unknown action: bogus" {
 		t.Fatalf("expected unknown action error, got: %s", resp.Error)
 	}
 }
@@ -569,5 +569,153 @@ func TestBrowseStat_Symlink(t *testing.T) {
 	}
 	if resp.Entry.Size != 5 {
 		t.Fatalf("expected resolved size 5, got %d", resp.Entry.Size)
+	}
+}
+
+func TestBrowseDelete_File(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "test.txt")
+	os.WriteFile(file, []byte("hello world"), 0644)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "delete", Path: file})
+
+	if resp.Error != "" {
+		t.Fatalf("unexpected error: %s", resp.Error)
+	}
+	if resp.Entry == nil {
+		t.Fatal("expected entry in response")
+	}
+	if resp.Entry.Name != "test.txt" {
+		t.Fatalf("expected name test.txt, got %s", resp.Entry.Name)
+	}
+	if resp.Entry.Size != 11 {
+		t.Fatalf("expected size 11, got %d", resp.Entry.Size)
+	}
+	if resp.Path != file {
+		t.Fatalf("expected path %s, got %s", file, resp.Path)
+	}
+
+	// Verify file is actually gone
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Fatal("expected file to be deleted")
+	}
+}
+
+func TestBrowseDelete_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "empty")
+	os.Mkdir(subdir, 0755)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "delete", Path: subdir})
+
+	if resp.Error != "" {
+		t.Fatalf("unexpected error: %s", resp.Error)
+	}
+	if resp.Entry == nil {
+		t.Fatal("expected entry in response")
+	}
+	if !resp.Entry.IsDir {
+		t.Fatal("expected is_dir true")
+	}
+
+	// Verify directory is gone
+	if _, err := os.Stat(subdir); !os.IsNotExist(err) {
+		t.Fatal("expected directory to be deleted")
+	}
+}
+
+func TestBrowseDelete_NonEmptyDir_NoRecursive(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "notempty")
+	os.Mkdir(subdir, 0755)
+	os.WriteFile(filepath.Join(subdir, "file.txt"), []byte("data"), 0644)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "delete", Path: subdir})
+
+	if resp.Error == "" {
+		t.Fatal("expected error for non-empty directory without recursive")
+	}
+	if !strings.Contains(resp.Error, "directory is not empty") {
+		t.Fatalf("expected 'directory is not empty' error, got: %s", resp.Error)
+	}
+
+	// Verify directory still exists
+	if _, err := os.Stat(subdir); err != nil {
+		t.Fatal("expected directory to still exist")
+	}
+}
+
+func TestBrowseDelete_RecursiveDir(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "tree")
+	os.MkdirAll(filepath.Join(subdir, "nested"), 0755)
+	os.WriteFile(filepath.Join(subdir, "file1.txt"), []byte("data"), 0644)
+	os.WriteFile(filepath.Join(subdir, "nested", "file2.txt"), []byte("more"), 0644)
+
+	h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: []string{dir}})
+	resp := h.Browse(&BrowseRequest{Action: "delete", Path: subdir, Recursive: true})
+
+	if resp.Error != "" {
+		t.Fatalf("unexpected error: %s", resp.Error)
+	}
+	if resp.Entry == nil {
+		t.Fatal("expected entry in response")
+	}
+	if !resp.Entry.IsDir {
+		t.Fatal("expected is_dir true")
+	}
+	if resp.Entry.Name != "tree" {
+		t.Fatalf("expected name tree, got %s", resp.Entry.Name)
+	}
+
+	// Verify directory is gone
+	if _, err := os.Stat(subdir); !os.IsNotExist(err) {
+		t.Fatal("expected directory to be deleted")
+	}
+}
+
+func TestBrowseDelete_Errors(t *testing.T) {
+	dir := t.TempDir()
+
+	tests := []struct {
+		name         string
+		allowedPaths []string
+		path         string
+		wantError    string
+	}{
+		{
+			name:         "missing path",
+			allowedPaths: []string{"*"},
+			path:         "",
+			wantError:    "path is required",
+		},
+		{
+			name:         "path not allowed",
+			allowedPaths: []string{"/tmp"},
+			path:         filepath.Join(dir, "file.txt"),
+			wantError:    "path not in allowed list",
+		},
+		{
+			name:         "nonexistent path",
+			allowedPaths: []string{dir},
+			path:         filepath.Join(dir, "nonexistent"),
+			wantError:    "path not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewStreamHandler(StreamConfig{Enabled: true, AllowedPaths: tt.allowedPaths})
+			resp := h.Browse(&BrowseRequest{Action: "delete", Path: tt.path})
+			if resp.Error == "" {
+				t.Fatalf("expected error containing %q, got success", tt.wantError)
+			}
+			if !strings.Contains(resp.Error, tt.wantError) {
+				t.Fatalf("expected error containing %q, got: %s", tt.wantError, resp.Error)
+			}
+		})
 	}
 }

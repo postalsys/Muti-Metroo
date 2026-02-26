@@ -107,7 +107,7 @@ List directory contents with pagination.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `action` | string | No | `"list"` (default), `"stat"`, `"roots"`, or `"chmod"` |
+| `action` | string | No | `"list"` (default), `"stat"`, `"roots"`, `"chmod"`, or `"delete"` |
 | `path` | string | Yes | Directory path to list |
 | `password` | string | No | Authentication password |
 | `offset` | int | No | Pagination offset (default 0) |
@@ -177,6 +177,47 @@ Mode must be a valid octal value up to `0777`. Returns the updated file entry (s
 }
 ```
 
+### Action: delete
+
+Delete a file or directory on a remote agent.
+
+**Request:**
+```json
+{
+  "action": "delete",
+  "path": "/tmp/old-config.yaml",
+  "password": "secret"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `action` | string | Yes | `"delete"` |
+| `path` | string | Yes | File or directory path to delete |
+| `password` | string | No | Authentication password |
+| `recursive` | bool | No | Required for non-empty directories (default `false`) |
+
+Files, symlinks, and empty directories are deleted directly. Non-empty directories require `recursive: true` -- without it, the request is rejected. This mirrors standard `rm` / `rm -r` behavior.
+
+The response returns the entry info captured before deletion, confirming what was removed.
+
+**Response:**
+```json
+{
+  "path": "/tmp/old-config.yaml",
+  "entry": { "name": "old-config.yaml", "size": 1024, "mode": "0644", "mod_time": "2026-02-18T10:30:00Z", "is_dir": false }
+}
+```
+
+**Delete a non-empty directory:**
+```json
+{
+  "action": "delete",
+  "path": "/tmp/old-logs",
+  "recursive": true
+}
+```
+
 ### Action: roots
 
 Discover browsable root paths from the `allowed_paths` configuration.
@@ -214,6 +255,16 @@ curl -X POST http://localhost:8080/agents/abc123/file/browse \
 curl -X POST http://localhost:8080/agents/abc123/file/browse \
   -H "Content-Type: application/json" \
   -d '{"action":"chmod","path":"/tmp/script.sh","mode":"0755"}'
+
+# Delete a file
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","path":"/tmp/old-config.yaml"}'
+
+# Delete a non-empty directory
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","path":"/tmp/old-logs","recursive":true}'
 ```
 
 ### Errors
