@@ -103,9 +103,24 @@ curl -X POST http://localhost:8080/agents/abc123/file/browse \
 curl -X POST http://localhost:8080/agents/abc123/file/browse \
   -H "Content-Type: application/json" \
   -d '{"action":"roots"}'
+
+# Change file permissions
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"chmod","path":"/tmp/script.sh","mode":"0755"}'
+
+# Delete a file
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","path":"/tmp/old-config.yaml"}'
+
+# Delete a non-empty directory
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","path":"/tmp/old-logs","recursive":true}'
 ```
 
-The `list` action supports pagination with `offset` and `limit` parameters (default limit: 100, max: 200). Entries are sorted with directories first, then files, alphabetically by name.
+The `list` action supports pagination with `offset` and `limit` parameters (default limit: 100, max: 200). Entries are sorted with directories first, then files, alphabetically by name. The `delete` action removes files and empty directories directly; non-empty directories require `"recursive": true`.
 
 See [API - File Transfer](/api/file-transfer) for full request/response details.
 

@@ -148,7 +148,7 @@ Browse the filesystem on remote agents via the HTTP API. Uses the same `allowed_
 
 ### API: POST /agents/{agent-id}/file/browse
 
-Three actions are available: `list`, `stat`, and `roots`.
+Five actions are available: `list`, `stat`, `roots`, `chmod`, and `delete`.
 
 **List directory contents:**
 
@@ -201,6 +201,30 @@ When `allowed_paths: ["*"]`, the response includes a `wildcard` flag:
 ```json
 { "roots": ["/"], "wildcard": true }
 ```
+
+**Change file permissions:**
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"chmod","path":"/tmp/script.sh","mode":"0755"}'
+```
+
+**Delete a file or directory:**
+
+```bash
+# Delete a file
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","path":"/tmp/old-config.yaml"}'
+
+# Delete a non-empty directory (requires recursive flag)
+curl -X POST http://localhost:8080/agents/abc123/file/browse \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","path":"/tmp/old-logs","recursive":true}'
+```
+
+Files, symlinks, and empty directories are deleted directly. Non-empty directories require `"recursive": true` -- without it, the request is rejected.
 
 The `list` action supports pagination via `offset` and `limit` (default 100, max 200). Entries are sorted with directories first, then files, alphabetically by name. Symlinks include `is_symlink` and `link_target` fields.
 
