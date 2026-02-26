@@ -2139,6 +2139,191 @@ func TestHandleRouteManage_NoManagementKey(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// Display Name Management Tests
+// ============================================================================
+
+// mockDisplayNameManageProvider implements DisplayNameManageProvider for testing.
+type mockDisplayNameManageProvider struct {
+	result *DisplayNameManageResult
+	err    error
+}
+
+func (m *mockDisplayNameManageProvider) ManageDisplayName(action, name string) (*DisplayNameManageResult, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.result, nil
+}
+
+func TestHandleDisplayNameManage_Set(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetDisplayNameManageProvider(&mockDisplayNameManageProvider{
+		result: &DisplayNameManageResult{
+			Status:  "ok",
+			Message: `display name set to "gateway-us-east"`,
+			Name:    "gateway-us-east",
+		},
+	})
+
+	body := strings.NewReader(`{"action":"set","name":"gateway-us-east"}`)
+	req := httptest.NewRequest(http.MethodPost, "/display-name/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var result DisplayNameManageResult
+	json.NewDecoder(rec.Body).Decode(&result)
+	if result.Status != "ok" {
+		t.Errorf("expected status 'ok', got %q", result.Status)
+	}
+	if result.Name != "gateway-us-east" {
+		t.Errorf("expected name 'gateway-us-east', got %q", result.Name)
+	}
+}
+
+func TestHandleDisplayNameManage_Get(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetDisplayNameManageProvider(&mockDisplayNameManageProvider{
+		result: &DisplayNameManageResult{
+			Status: "ok",
+			Name:   "gateway-us-east",
+		},
+	})
+
+	body := strings.NewReader(`{"action":"get"}`)
+	req := httptest.NewRequest(http.MethodPost, "/display-name/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+
+	var result DisplayNameManageResult
+	json.NewDecoder(rec.Body).Decode(&result)
+	if result.Status != "ok" {
+		t.Errorf("expected status 'ok', got %q", result.Status)
+	}
+	if result.Name != "gateway-us-east" {
+		t.Errorf("expected name 'gateway-us-east', got %q", result.Name)
+	}
+}
+
+func TestHandleDisplayNameManage_InvalidAction(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetDisplayNameManageProvider(&mockDisplayNameManageProvider{
+		err: fmt.Errorf("unknown action foo (expected set or get)"),
+	})
+
+	body := strings.NewReader(`{"action":"foo"}`)
+	req := httptest.NewRequest(http.MethodPost, "/display-name/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestHandleDisplayNameManage_MethodNotAllowed(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetDisplayNameManageProvider(&mockDisplayNameManageProvider{})
+
+	req := httptest.NewRequest(http.MethodGet, "/display-name/manage", nil)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status %d, got %d", http.StatusMethodNotAllowed, rec.Code)
+	}
+}
+
+func TestHandleDisplayNameManage_NoProvider(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	// No display name manage provider set
+
+	body := strings.NewReader(`{"action":"get"}`)
+	req := httptest.NewRequest(http.MethodPost, "/display-name/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+}
+
+func TestHandleDisplayNameManage_ManagementKeyRestriction(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetDisplayNameManageProvider(&mockDisplayNameManageProvider{
+		result: &DisplayNameManageResult{Status: "ok"},
+	})
+
+	// Set up sealed box without private key (public-key-only = can't decrypt = restricted)
+	_, pub, _ := crypto.GenerateEphemeralKeypair()
+	sb := crypto.NewSealedBox(pub)
+	s.SetSealedBox(sb)
+
+	body := strings.NewReader(`{"action":"get"}`)
+	req := httptest.NewRequest(http.MethodPost, "/display-name/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status %d, got %d", http.StatusForbidden, rec.Code)
+	}
+}
+
+func TestHandleDisplayNameManage_NoManagementKey(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetDisplayNameManageProvider(&mockDisplayNameManageProvider{
+		result: &DisplayNameManageResult{Status: "ok"},
+	})
+	// No sealed box = no restriction
+
+	body := strings.NewReader(`{"action":"get"}`)
+	req := httptest.NewRequest(http.MethodPost, "/display-name/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleDisplayNameManage_DecodeError(t *testing.T) {
+	cfg := DefaultServerConfig()
+	s := NewServer(cfg, &mockStatsProvider{running: true})
+	s.SetDisplayNameManageProvider(&mockDisplayNameManageProvider{})
+
+	body := strings.NewReader(`{invalid json`)
+	req := httptest.NewRequest(http.MethodPost, "/display-name/manage", body)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
 // newAuthServer creates a test server with bearer token authentication enabled.
 func newAuthServer(t *testing.T, token string) *Server {
 	t.Helper()
