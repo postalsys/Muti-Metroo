@@ -96,6 +96,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Companion Tools',
       items: [
+        'suite-overview',
         'mutiauk',
         'metroo-manager',
       ],
