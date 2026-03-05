@@ -1,7 +1,7 @@
 # Mesh Agent Network Architecture
 
-**Version:** 2.3
-**Date:** January 2026
+**Version:** 2.4
+**Date:** March 2026
 
 ## Executive Overview
 
@@ -231,10 +231,10 @@ An agent can serve one or more roles simultaneously:
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                       OBSERVABILITY LAYER                             │  │
 │  │                                                                       │  │
-│  │  ┌──────────────────────────────┐  ┌────────────────┐                 │  │
-│  │  │         Health Check         │  │   Control API  │                 │  │
-│  │  │           (HTTP)             │  │ (Unix Socket)  │                 │  │
-│  │  └──────────────────────────────┘  └────────────────┘                 │  │
+│  │  ┌──────────────────────────────────────────────────┐                 │  │
+│  │  │            Health Check / HTTP API              │                 │  │
+│  │  │                   (HTTP)                        │                 │  │
+│  │  └──────────────────────────────────────────────────┘                 │  │
 │  │                                                                       │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
@@ -256,7 +256,6 @@ An agent can serve one or more roles simultaneously:
 | **WebSocket Transport** | HTTP/1.1 WebSocket for proxy traversal                  |
 | **SOCKS5 Server**       | Accept client connections, initiate streams             |
 | **Health Check**        | HTTP endpoints for liveness/readiness probes            |
-| **Control API**         | Unix socket API for management commands                 |
 
 ---
 
@@ -476,12 +475,21 @@ type PeerConn interface {
 
     // RemoteAddr returns the remote address
     RemoteAddr() net.Addr
+
+    // IsDialer returns true if this side initiated the connection
+    IsDialer() bool
+
+    // TransportType returns the transport protocol type
+    TransportType() TransportType
 }
 
 // Stream is a bidirectional byte stream
 type Stream interface {
     io.Reader
     io.Writer
+
+    // StreamID returns the stream identifier
+    StreamID() uint64
 
     // CloseWrite sends a half-close (FIN)
     CloseWrite() error
@@ -493,9 +501,6 @@ type Stream interface {
     SetDeadline(t time.Time) error
     SetReadDeadline(t time.Time) error
     SetWriteDeadline(t time.Time) error
-
-    // StreamID returns the stream identifier
-    StreamID() uint64
 }
 ```
 
@@ -759,6 +764,7 @@ All communication uses a consistent framing protocol:
 │  │ 0x08 │ ROUTE_MANAGE       │ Add, remove, or list dynamic routes      │   │
 │  │ 0x09 │ FORWARD_MANAGE     │ Add, remove, or list forward listeners   │   │
 │  │ 0x0A │ FILE_BROWSE        │ File browsing (list, stat, roots, chmod, delete) │   │
+│  │ 0x0B │ DISPLAY_NAME_MANAGE│ Dynamic display name management              │   │
 │  └──────┴────────────────────┴──────────────────────────────────────────┘   │
 │                                                                             │
 │  UDP Frames (for SOCKS5 UDP ASSOCIATE):                                     │
@@ -831,6 +837,7 @@ All communication uses a consistent framing protocol:
 │   │ Version         │ 2      │ Protocol version (currently 1)           │   │
 │   │ AgentID         │ 16     │ Sender's agent ID                        │   │
 │   │ Timestamp       │ 8      │ Unix timestamp (seconds)                 │   │
+│   │ DisplayName     │ 1+N    │ Length-prefixed UTF-8 display name       │   │
 │   │ CapabilitiesLen │ 1      │ Number of capabilities                   │   │
 │   │ Capabilities    │ varies │ List of capability strings               │   │
 │   └─────────────────┴────────┴──────────────────────────────────────────┘   │
@@ -1278,8 +1285,8 @@ forward:
 | Code | Name | Description |
 |------|------|-------------|
 | 40 | `ErrForwardNotFound` | Routing key not configured on endpoint |
-| 41 | `ErrConnectionRefused` | Target service refused connection |
-| 42 | `ErrConnectionTimeout` | Target dial timed out |
+| 2 | `ErrConnectionRefused` | Target service refused connection (shared error code) |
+| 3 | `ErrConnectionTimeout` | Target dial timed out (shared error code) |
 
 ### Package Structure
 
@@ -1288,6 +1295,7 @@ internal/forward/
 ├── forward.go        # Endpoint struct, ForwardDialer interface
 ├── handler.go        # Exit point handler (processes STREAM_OPEN for forward)
 ├── listener.go       # TCP listener (accepts connections, calls DialForward)
+├── forward_test.go   # Forward unit tests
 ├── handler_test.go   # Handler unit tests
 └── listener_test.go  # Listener unit tests
 ```
@@ -1464,6 +1472,7 @@ icmp:
 | Code | Name                  | Description                           |
 |------|-----------------------|---------------------------------------|
 | 50   | ICMP_DISABLED         | ICMP feature is disabled              |
+| 51   | ICMP_DEST_NOT_ALLOWED | Destination not in allowed CIDRs      |
 | 52   | ICMP_SESSION_LIMIT    | Max concurrent sessions reached       |
 | 18   | GENERAL_FAILURE       | Socket creation or key exchange error |
 
@@ -1474,9 +1483,12 @@ internal/icmp/
 ├── handler.go       # Exit node ICMP processing, session management
 ├── session.go       # Session state and lifecycle
 ├── socket.go        # Platform-specific ICMP socket operations
-├── config.go        # Configuration structure
+├── config.go        # Configuration and CIDR validation
+├── doc.go           # Package documentation
 ├── handler_test.go  # Handler unit tests
-└── session_test.go  # Session unit tests
+├── session_test.go  # Session unit tests
+├── socket_test.go   # Socket unit tests
+└── config_test.go   # Config unit tests
 ```
 
 ---
@@ -1648,6 +1660,11 @@ sleep:
   persist_state: true        # Survive agent restarts
   max_queued_messages: 1000  # Queue limit per peer
   auto_sleep_on_start: false # Start in sleep mode
+  deterministic_windows:     # Deterministic listening windows
+    enabled: false           # Use predictable windows derived from AgentID
+    window_length: 30s       # Duration of each listening window (max 30s)
+    clock_tolerance: 5s      # Clock drift tolerance
+    epoch: ""                # Reference point for window calculations (RFC3339, default: Unix epoch)
 ```
 
 ### State Persistence
@@ -2679,19 +2696,13 @@ http:
   address: ":8080"
   read_timeout: 10s
   write_timeout: 10s
+  token_hash: "" # bcrypt hash of bearer token (empty = no auth)
 
   # Endpoint control flags
   minimal: false # When true, only /health, /healthz, /ready are enabled
   pprof: false # /debug/pprof/* endpoints (disable in production)
   dashboard: true # /api/* endpoints
   remote_api: true # /agents/* endpoints
-
-# ------------------------------------------------------------------------------
-# Control Socket
-# ------------------------------------------------------------------------------
-control:
-  enabled: true
-  socket_path: "./data/control.sock"
 
 # ------------------------------------------------------------------------------
 # Remote Shell
@@ -2727,6 +2738,10 @@ management:
   # NEVER distribute to field agents
   # When set, this node can decrypt NodeInfo and view mesh topology
   private_key: ""
+
+  # Signing keys (for sleep/wake command authentication)
+  signing_public_key: ""   # 64 hex chars (32 bytes) - ALL agents
+  signing_private_key: ""  # 128 hex chars (64 bytes) - OPERATORS ONLY
 ```
 
 ### 13.2 Environment Variable Substitution
@@ -2758,14 +2773,21 @@ muti-metroo init --data-dir ./data
 # Run agent
 muti-metroo run --config ./config.yaml
 
-# Show status
-muti-metroo status --socket ./data/control.sock
+# Show status (via HTTP API)
+muti-metroo status -a localhost:8080
 
 # List peers
 muti-metroo peers
 
 # List routes
 muti-metroo routes
+
+# Mesh connectivity testing
+muti-metroo mesh-test                # Test connectivity to all agents
+muti-metroo mesh-test --json         # JSON output
+
+# ICMP ping through mesh
+muti-metroo ping <target-agent-id> <destination-ip>
 
 # Certificate management
 muti-metroo cert ca -n "My CA" -o ./certs -d 365
@@ -2783,6 +2805,20 @@ muti-metroo shell --tty abc123def456 bash
 muti-metroo upload <target-agent-id> <local-path> <remote-path>
 muti-metroo download <target-agent-id> <remote-path> <local-path>
 
+# Dynamic route management
+muti-metroo route add 10.0.0.0/8
+muti-metroo route remove 10.0.0.0/8
+muti-metroo route list
+
+# Dynamic forward listener management
+muti-metroo forward add <key> <address>
+muti-metroo forward remove <key>
+muti-metroo forward list
+
+# Dynamic display name management
+muti-metroo display-name set "my-agent"
+muti-metroo display-name get
+
 # Password hash generation (for SOCKS5, shell, file transfer auth)
 muti-metroo hash                     # Interactive prompt
 muti-metroo hash "password"          # From argument
@@ -2790,7 +2826,16 @@ muti-metroo hash --cost 12           # Custom bcrypt cost
 
 # Management key encryption
 muti-metroo management-key generate  # Generate keypair
-muti-metroo management-key public --private <key>  # Derive public from private
+muti-metroo management-key public    # Derive public from private
+
+# Signing key management (for sleep/wake authentication)
+muti-metroo signing-key generate     # Generate Ed25519 keypair
+muti-metroo signing-key public       # Derive public from private
+
+# Sleep/wake commands
+muti-metroo sleep                    # Put mesh to sleep
+muti-metroo wake                     # Wake mesh
+muti-metroo sleep-status             # Check sleep status
 
 # Service management
 muti-metroo service install -c /path/to/config.yaml
@@ -2884,13 +2929,20 @@ Sensitive configuration values are automatically redacted in logs:
 
 ```go
 // Redacted fields:
+// - tls.key
+// - tls.key_pem
 // - peers[].proxy_auth.password
 // - peers[].tls.key
 // - peers[].tls.key_pem
 // - listeners[].tls.key
 // - listeners[].tls.key_pem
 // - socks5.auth.users[].password
+// - socks5.auth.users[].password_hash
+// - agent.private_key
 // - shell.password_hash
+// - file_transfer.password_hash
+// - management.private_key
+// - management.signing_private_key
 
 config.String()       // Returns YAML with [REDACTED] for sensitive values
 config.StringUnsafe() // Returns full YAML (use only for debugging)
@@ -2918,6 +2970,7 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/api/topology` | GET | Topology data (agents and connections) |
 | `/api/dashboard` | GET | Dashboard overview (agent info, stats, peers, routes) |
 | `/api/nodes` | GET | Detailed node info listing for all known agents |
+| `/api/mesh-test` | GET | Mesh connectivity test results |
 
 **Distributed Status:**
 | Endpoint | Method | Description |
@@ -2927,8 +2980,10 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/agents/{agent-id}/routes` | GET | Get route table from specific agent |
 | `/agents/{agent-id}/peers` | GET | Get peer list from specific agent |
 | `/agents/{agent-id}/shell` | GET | WebSocket shell access on remote agent |
+| `/agents/{agent-id}/icmp` | GET | WebSocket ICMP ping sessions |
 | `/agents/{agent-id}/file/upload` | POST | Upload file to remote agent |
 | `/agents/{agent-id}/file/download` | POST | Download file from remote agent |
+| `/agents/{agent-id}/file/browse` | POST | Browse filesystem on remote agent |
 
 **Management:**
 | Endpoint | Method | Description |
@@ -2938,6 +2993,15 @@ HTTP endpoints are exposed when `http.enabled: true`:
 | `/agents/{id}/routes/manage` | POST | Manage routes on a remote agent |
 | `/forward/manage` | POST | Add, remove, or list dynamic forward listeners |
 | `/agents/{id}/forward/manage` | POST | Manage forward listeners on a remote agent |
+| `/display-name/manage` | POST | Set or get agent display name dynamically |
+| `/agents/{id}/display-name/manage` | POST | Manage display name on a remote agent |
+
+**Sleep Mode:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/sleep` | POST | Trigger mesh-wide sleep (signed if signing_private_key set) |
+| `/wake` | POST | Trigger mesh-wide wake (signed if signing_private_key set) |
+| `/sleep/status` | GET | Get current sleep status |
 
 **Debugging (pprof):**
 | Endpoint | Method | Description |
@@ -2983,7 +3047,11 @@ const (
     KeyHops       = "hops"
     KeyError      = "error"
     KeyComponent  = "component"
+    KeyAgentID    = "agent_id"
+    KeyRemoteAddr = "remote_addr"
+    KeyLocalAddr  = "local_addr"
     KeyDuration   = "duration"
+    KeyCount      = "count"
 )
 ```
 
@@ -2991,30 +3059,7 @@ const (
 
 ## 16. Operations
 
-### 16.1 Control Socket API
-
-Unix socket HTTP API for management commands when `control.enabled: true`.
-
-**Socket Path:** Configured via `control.socket_path` (default: `./data/control.sock`)
-
-| Endpoint  | Method | Response                        |
-| --------- | ------ | ------------------------------- |
-| `/status` | GET    | Agent ID, running state, counts |
-| `/peers`  | GET    | List of connected peer IDs      |
-| `/routes` | GET    | Routing table entries           |
-
-**Example `/status` response:**
-
-```json
-{
-  "agent_id": "a3f8c2d1e5b94a7c8d2e1f0a3b5c7d9e",
-  "running": true,
-  "peer_count": 3,
-  "route_count": 10
-}
-```
-
-### 16.2 Service Installation
+### 16.1 Service Installation
 
 The agent can be installed as a system service.
 
@@ -3076,7 +3121,7 @@ sudo launchctl unload -w /Library/LaunchDaemons/com.muti-metroo.plist
 tail -f /path/to/working/dir/muti-metroo.log
 ```
 
-### 16.3 Setup Wizard
+### 16.2 Setup Wizard
 
 Interactive CLI wizard for initial configuration:
 
@@ -3181,12 +3226,16 @@ muti-metroo cert info ./certs/agent-1.crt
 ```
 muti-metroo/
 ├── cmd/
-│   └── muti-metroo/
-│       └── main.go                 # CLI entrypoint and all commands
+│   ├── muti-metroo/
+│   │   └── main.go                 # CLI entrypoint and all commands
+│   └── muti-dll/
+│       └── main.go                 # Windows DLL entry point for service installation
 │
 ├── internal/
 │   ├── agent/
 │   │   ├── agent.go                # Main agent orchestration
+│   │   ├── udp.go                  # UDP relay integration
+│   │   ├── icmp.go                 # ICMP echo integration
 │   │   └── agent_test.go           # Agent tests
 │   │
 │   ├── config/
@@ -3202,8 +3251,10 @@ muti-metroo/
 │   ├── crypto/
 │   │   ├── crypto.go               # E2E encryption: X25519 + ChaCha20-Poly1305
 │   │   ├── sealed.go               # Sealed box for management key encryption
+│   │   ├── signing.go              # Ed25519 signing for sleep/wake commands
 │   │   ├── crypto_test.go          # Crypto tests
-│   │   └── sealed_test.go          # Sealed box tests
+│   │   ├── sealed_test.go          # Sealed box tests
+│   │   └── signing_test.go         # Signing tests
 │   │
 │   ├── transport/
 │   │   ├── transport.go            # Transport interface
@@ -3211,6 +3262,7 @@ muti-metroo/
 │   │   ├── h2.go                   # HTTP/2 implementation
 │   │   ├── ws.go                   # WebSocket implementation
 │   │   ├── tls.go                  # TLS helpers
+│   │   ├── fingerprint.go          # TLS fingerprint customization (uTLS)
 │   │   ├── transport_test.go       # Transport tests
 │   │   ├── h2_test.go              # HTTP/2 tests
 │   │   └── ws_test.go              # WebSocket tests
@@ -3226,16 +3278,23 @@ muti-metroo/
 │   ├── protocol/
 │   │   ├── frame.go                # Frame encode/decode
 │   │   ├── types.go                # Frame types, flags, error codes
-│   │   └── protocol_test.go        # Protocol tests
+│   │   ├── protocol_test.go        # Protocol tests
+│   │   ├── udp_test.go             # UDP frame tests
+│   │   └── icmp_test.go            # ICMP frame tests
 │   │
 │   ├── stream/
 │   │   ├── manager.go              # Stream lifecycle and forward table
 │   │   └── stream_test.go          # Stream tests
 │   │
 │   ├── routing/
-│   │   ├── table.go                # Route table
-│   │   ├── manager.go              # Route management
-│   │   └── routing_test.go         # Routing tests
+│   │   ├── table.go                # CIDR route table with longest-prefix match
+│   │   ├── domain.go               # Domain route table with exact/wildcard matching
+│   │   ├── forward.go              # Forward route table for port forwarding keys
+│   │   ├── agent.go                # Agent presence table
+│   │   ├── manager.go              # Route management (dynamic routes)
+│   │   ├── routing_test.go         # CIDR routing tests
+│   │   ├── domain_test.go          # Domain routing tests
+│   │   └── agent_test.go           # Agent presence tests
 │   │
 │   ├── flood/
 │   │   ├── flood.go                # Flood protocol (advertise/withdraw)
@@ -3252,9 +3311,14 @@ muti-metroo/
 │   │   ├── server.go               # SOCKS5 server
 │   │   ├── handler.go              # SOCKS5 command handler
 │   │   ├── auth.go                 # Authentication
+│   │   ├── udp.go                  # UDP ASSOCIATE handler
+│   │   ├── icmp.go                 # ICMP ping integration
 │   │   ├── ws_listener.go          # WebSocket SOCKS5 listener
 │   │   ├── conn_tracker.go         # Generic connection tracker
-│   │   └── socks5_test.go          # SOCKS5 tests
+│   │   ├── socks5_test.go          # SOCKS5 tests
+│   │   ├── udp_test.go             # UDP tests
+│   │   ├── ws_listener_test.go     # WebSocket listener tests
+│   │   └── auth_security_test.go   # Auth security tests
 │   │
 │   ├── exit/
 │   │   ├── handler.go              # Exit handler
@@ -3270,45 +3334,67 @@ muti-metroo/
 │   │   └── certutil_test.go        # Certificate tests
 │   │
 │   ├── health/
-│   │   ├── server.go               # Health check HTTP server
+│   │   ├── server.go               # Health check HTTP server and API endpoints
+│   │   ├── shell.go                # WebSocket shell relay handler
+│   │   ├── icmp.go                 # WebSocket ICMP relay handler
+│   │   ├── meshtest.go             # Mesh connectivity test handler
+│   │   ├── logo.go                 # Embedded logo for splash page
 │   │   └── server_test.go          # Health server tests
 │   │
 │   ├── udp/
 │   │   ├── handler.go              # UDP relay handler (SOCKS5 UDP ASSOCIATE)
 │   │   ├── association.go          # UDP association lifecycle management
 │   │   ├── config.go               # UDP configuration
-│   │   └── doc.go                  # Package documentation
+│   │   ├── doc.go                  # Package documentation
+│   │   ├── handler_test.go         # Handler tests
+│   │   ├── association_test.go     # Association tests
+│   │   └── config_test.go          # Config tests
 │   │
 │   ├── icmp/
 │   │   ├── handler.go              # ICMP echo (ping) handler at exit node
 │   │   ├── socket.go               # Platform-specific ICMP socket operations
 │   │   ├── session.go              # ICMP session state management
 │   │   ├── config.go               # ICMP CIDR validation and configuration
+│   │   ├── doc.go                  # Package documentation
+│   │   ├── handler_test.go         # Handler tests
 │   │   ├── config_test.go          # Config tests
-│   │   └── session_test.go         # Session tests
+│   │   ├── session_test.go         # Session tests
+│   │   └── socket_test.go          # Socket tests
 │   │
 │   ├── probe/
-│   │   └── probe.go                # Connectivity testing for listeners
+│   │   ├── probe.go                # Connectivity testing for listeners
+│   │   ├── listen.go               # Probe listener for verifying inbound connectivity
+│   │   └── listen_test.go          # Probe listener tests
 │   │
 │   ├── wizard/
 │   │   ├── wizard.go               # Setup wizard implementation
-│   │   └── wizard_test.go          # Wizard tests
+│   │   ├── wizard_test.go          # Wizard tests
+│   │   └── prompt/
+│   │       └── prompt.go           # Terminal prompt utilities for wizard
 │   │
 │   ├── service/
-│   │   ├── service.go              # Service management interface
+│   │   ├── service.go              # Service management interface and DeriveNames
 │   │   ├── service_linux.go        # Linux systemd implementation
 │   │   ├── service_darwin.go       # macOS launchd implementation
 │   │   ├── service_windows.go      # Windows service implementation
 │   │   ├── service_other.go        # Stub for unsupported platforms
-│   │   └── service_test.go         # Service tests
+│   │   ├── service_test.go         # Service tests
+│   │   ├── service_linux_test.go   # Linux-specific tests
+│   │   └── service_windows_test.go # Windows-specific tests
 │   │
 │   ├── shell/
-│   │   ├── shell.go                # Remote shell executor
 │   │   ├── handler.go              # Shell request/response handling
+│   │   ├── executor.go             # Command execution (PTY and streaming)
+│   │   ├── client.go               # Shell client for CLI
+│   │   ├── messages.go             # Wire protocol messages
 │   │   ├── pty_unix.go             # PTY allocation for Unix platforms
 │   │   ├── pty_windows.go          # ConPTY for Windows
-│   │   ├── streaming.go            # Non-PTY streaming command execution
-│   │   └── shell_test.go           # Shell tests
+│   │   ├── signal_unix.go          # Signal handling for Unix
+│   │   ├── signal_windows.go       # Signal handling for Windows
+│   │   ├── handler_test.go         # Handler tests
+│   │   ├── executor_test.go        # Executor tests
+│   │   ├── client_test.go          # Client tests
+│   │   └── messages_test.go        # Messages tests
 │   │
 │   ├── sleep/
 │   │   ├── sleep.go                # Sleep manager state machine, persistence
@@ -3320,8 +3406,17 @@ muti-metroo/
 │   ├── filetransfer/
 │   │   ├── stream.go               # Stream-based file transfer protocol
 │   │   ├── tar.go                  # Directory tar/untar with gzip compression
+│   │   ├── browse.go               # File browsing (directory listing, stat, roots)
+│   │   ├── partial.go              # Partial/resumable transfers
+│   │   ├── ratelimit.go            # Bandwidth rate limiting
+│   │   ├── size.go                 # Human-readable size formatting
 │   │   ├── stream_test.go          # Stream transfer tests
-│   │   └── tar_test.go             # Tar archive tests
+│   │   ├── tar_test.go             # Tar archive tests
+│   │   ├── browse_test.go          # Browse tests
+│   │   ├── partial_test.go         # Partial transfer tests
+│   │   ├── ratelimit_test.go       # Rate limit tests
+│   │   ├── security_test.go        # Security tests
+│   │   └── size_test.go            # Size tests
 │   │
 │   ├── sysinfo/
 │   │   └── sysinfo.go              # System info and shell detection for node advertisements
@@ -3336,44 +3431,59 @@ muti-metroo/
 │   │
 │   ├── chaos/
 │   │   ├── chaos.go                # Fault injection for testing
-│   │   └── chaos_test.go           # Chaos testing tests
+│   │   ├── chaos_test.go           # Chaos testing tests
+│   │   └── connection_state_test.go # Connection state tests
 │   │
 │   ├── loadtest/
 │   │   ├── loadtest.go             # Load testing utilities
 │   │   └── loadtest_test.go        # Load test tests
 │   │
 │   └── integration/
+│       ├── agent_chain_test.go     # Agent chain orchestration tests
 │       ├── chain_test.go           # Multi-agent chain tests
 │       ├── e2e_stream_test.go      # End-to-end stream tests
-│       └── ...                     # Additional integration tests
+│       ├── exit_cidr_test.go       # Exit CIDR filtering tests
+│       ├── file_transfer_test.go   # File transfer integration tests
+│       ├── halfclose_test.go       # Half-close semantics tests
+│       ├── mesh_runner_test.go     # Mesh runner test utilities
+│       ├── multi_transport_ssh_test.go # Multi-transport SSH tests
+│       ├── reconnect_test.go       # Reconnection tests
+│       ├── shell_test.go           # Remote shell integration tests
+│       ├── sleep_test.go           # Sleep mode integration tests
+│       ├── socks5_auth_test.go     # SOCKS5 authentication tests
+│       └── transport_relay_test.go # Transport relay tests
 │
 ├── configs/
 │   └── example.yaml                # Example configuration
 │
-├── docs/
-│   └── RUNBOOK.md                  # Operational runbook
+├── docs/                           # Docusaurus documentation site
+│
+├── user-manual/                    # Standalone PDF user manual
 │
 ├── go.mod
 ├── go.sum
 ├── Makefile
 ├── Dockerfile
 ├── Dockerfile.test
+├── docker-compose.yml              # Multi-agent test environment
+├── docker-compose.override.yml     # Local overrides
 └── README.md
 ```
 
 ### 18.2 Dependencies
 
-| Package                             | Purpose                               |
-| ----------------------------------- | ------------------------------------- |
-| `github.com/quic-go/quic-go`        | QUIC transport                        |
-| `golang.org/x/net/http2`            | HTTP/2 transport                      |
-| `nhooyr.io/websocket`               | WebSocket transport                   |
+| Package                                 | Purpose                               |
+| --------------------------------------- | ------------------------------------- |
+| `github.com/quic-go/quic-go`            | QUIC transport                        |
+| `golang.org/x/net/http2`                | HTTP/2 transport                      |
+| `nhooyr.io/websocket`                   | WebSocket transport (SOCKS5 WS)       |
+| `github.com/gorilla/websocket`          | WebSocket (shell, ICMP relay)         |
 | `github.com/refraction-networking/utls` | TLS fingerprint customization (JA3/JA4 blending) |
-| `gopkg.in/yaml.v3`                  | Configuration parsing                 |
-| `github.com/spf13/cobra`            | CLI framework                         |
-| `log/slog`                          | Structured logging (stdlib)           |
-| `github.com/charmbracelet/huh`      | Interactive setup wizard TUI          |
-| `github.com/charmbracelet/lipgloss` | Terminal styling                      |
+| `golang.org/x/crypto`                   | bcrypt, Ed25519, X25519               |
+| `gopkg.in/yaml.v3`                      | Configuration parsing                 |
+| `github.com/spf13/cobra`                | CLI framework                         |
+| `log/slog`                              | Structured logging (stdlib)           |
+| `github.com/charmbracelet/x/conpty`     | Windows ConPTY for interactive shell  |
 
 ---
 
@@ -3568,6 +3678,11 @@ docker run --rm muti-metroo-test
 | 0x32 | UDP_OPEN_ERR        | Association failed     |
 | 0x33 | UDP_DATAGRAM        | UDP datagram payload   |
 | 0x34 | UDP_CLOSE           | Close association      |
+| 0x40 | ICMP_OPEN           | Request ICMP session   |
+| 0x41 | ICMP_OPEN_ACK       | Session established    |
+| 0x42 | ICMP_OPEN_ERR       | Session failed         |
+| 0x43 | ICMP_ECHO           | Echo request/reply     |
+| 0x44 | ICMP_CLOSE          | Close session          |
 | 0x50 | SLEEP_COMMAND       | Mesh-wide sleep        |
 | 0x51 | WAKE_COMMAND        | Mesh-wide wake         |
 | 0x52 | QUEUED_STATE        | Queued state for peer  |
@@ -3602,6 +3717,9 @@ docker run --rm muti-metroo-test
 | 30   | UDP_DISABLED         | UDP relay is disabled            |
 | 31   | UDP_PORT_NOT_ALLOWED | UDP port not in whitelist        |
 | 40   | FORWARD_NOT_FOUND    | Port forward key not configured  |
+| 50   | ICMP_DISABLED        | ICMP feature is disabled         |
+| 51   | ICMP_DEST_NOT_ALLOWED| ICMP destination not in allowed CIDRs |
+| 52   | ICMP_SESSION_LIMIT   | Max ICMP sessions reached        |
 
 ### Default Timing
 
@@ -3627,15 +3745,26 @@ docker run --rm muti-metroo-test
 | `peers`             | List connected peers                   |
 | `routes`            | Show routing table                     |
 | `probe`             | Test connectivity to a listener        |
+| `mesh-test`         | Test connectivity to all mesh agents   |
+| `ping`              | ICMP ping through remote exit agent    |
 | `shell`             | Execute command on remote agent        |
 | `upload`            | Upload file to remote agent            |
 | `download`          | Download file from remote agent        |
+| `route add`         | Add dynamic CIDR exit route            |
+| `route remove`      | Remove dynamic CIDR exit route         |
+| `route list`        | List dynamic routes                    |
+| `forward add`       | Add dynamic forward listener           |
+| `forward remove`    | Remove dynamic forward listener        |
+| `forward list`      | List forward listeners                 |
+| `display-name set`  | Set agent display name                 |
+| `display-name get`  | Get current display name               |
 | `cert ca`           | Generate CA certificate                |
 | `cert agent`        | Generate agent certificate             |
 | `cert client`       | Generate client certificate            |
 | `cert info`         | Display certificate details            |
 | `hash`              | Generate bcrypt password hash          |
 | `management-key`    | Generate mesh topology encryption keys |
+| `signing-key`       | Generate Ed25519 signing keypair       |
 | `service install`   | Install as system service              |
 | `service uninstall` | Remove system service                  |
 | `service status`    | Check service status                   |
