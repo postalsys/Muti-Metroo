@@ -77,21 +77,7 @@ npm run build      # Build for production
 
 ### Deploying Documentation
 
-Documentation is hosted at https://mutimetroo.com via GitHub Pages.
-
-**Automatic deployment**: Documentation is automatically built and deployed by GitHub Actions whenever:
-- Changes are pushed to `docs/` on the master branch
-- A new release is published
-- Manually triggered via workflow_dispatch
-
-**Local preview**:
-
-```bash
-cd docs
-npm install
-npm start          # Start dev server at http://localhost:3000
-npm run build      # Build for production (to test)
-```
+Documentation is hosted at https://mutimetroo.com via GitHub Pages. Automatically built and deployed by GitHub Actions on pushes to `docs/` on master, new releases, or manual workflow_dispatch.
 
 ### Making Releases
 
@@ -264,26 +250,9 @@ docker compose run test                       # Run tests in container
 
 ## Development Environment Guidelines
 
-**Always use Docker for building and testing** unless explicitly requested otherwise. This ensures consistent environments and avoids host system dependencies.
+**Always use Docker for building and testing** unless explicitly requested otherwise. Docker commands are in Build & Development Commands above. Test endpoints: `curl http://localhost:808{1,2,3}/health`.
 
-```bash
-# Preferred: Docker-based development
-docker compose build                          # Build images
-docker compose up -d agent1 agent2 agent3     # Start testbed
-docker compose run test                       # Run tests
-
-# Test endpoints from host
-curl http://localhost:8081/health             # Agent1 health
-curl http://localhost:8082/health             # Agent2 health
-curl http://localhost:8083/health             # Agent3 health
-```
-
-**Exception: SSH client testing** - Run SSH client on the host machine, not in Docker containers. This tests the actual SOCKS5 proxy path correctly.
-
-```bash
-# SSH via SOCKS5 proxy (run from HOST, not container)
-ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@target-host
-```
+**Exception: SSH client testing** - Run SSH client on the host machine, not in Docker containers: `ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@target-host`
 
 ## Code Style Guidelines
 
@@ -440,23 +409,6 @@ Disabled endpoints return HTTP 404 and log access attempts at debug level.
 | Protocol Version  | 0x01             | Current wire protocol version                 |
 | Control Stream ID | 0                | Reserved for control channel                  |
 
-### Proxy Chain Practical Limits
-
-**Important**: `max_hops` only limits route advertisement propagation, NOT stream path length. Stream paths are limited by the 30-second open timeout.
-
-| Use Case         | Recommended Max Hops | Limiting Factor           |
-| ---------------- | -------------------- | ------------------------- |
-| Interactive SSH  | 8-12 hops            | Latency (~5-50ms per hop) |
-| Video Streaming  | 6-10 hops            | Buffering (256KB × hops)  |
-| Bulk Transfer    | 12-16 hops           | Throughput (16KB chunks)  |
-| High-latency WAN | 4-6 hops             | 30s stream open timeout   |
-
-**Per-hop overhead:**
-
-- Latency: +1-5ms (LAN), +50-200ms (WAN)
-- Memory: +256KB buffer per active stream
-- CPU: Frame decode/encode at each relay
-
 ### Route Selection Algorithm
 
 Routes are selected using **longest-prefix-match** with metric tiebreaker:
@@ -473,31 +425,11 @@ Example with routes from different agents:
 
 ### Topology Support
 
-The flood-based routing supports arbitrary mesh topologies:
-
-- **Linear chains**: A→B→C→D
-- **Tree structures**: A→B→C and A→B→D (branches from B)
-- **Full mesh**: Any agent can connect to any other
-- **Redundant paths**: Multiple paths to same destination (lowest metric wins)
-
-Loop prevention uses `SeenBy` lists in route advertisements - each agent tracks which peers have already seen an advertisement.
+Flood-based routing supports arbitrary topologies (linear chains, trees, full mesh, redundant paths). Loop prevention uses `SeenBy` lists in route advertisements.
 
 ### Triggering Immediate Route Advertisement
 
-By default, routes are advertised periodically based on `advertise_interval` (default 2 minutes). For faster route propagation after configuration changes, you can trigger immediate advertisement via the HTTP API:
-
-```bash
-# Trigger immediate route advertisement on local agent
-curl -X POST http://localhost:8080/routes/advertise
-```
-
-Response:
-
-```json
-{ "status": "triggered", "message": "route advertisement triggered" }
-```
-
-**Programmatic access**: The agent exposes `TriggerRouteAdvertise()` method which can be called internally when routes change.
+Routes are advertised periodically (`advertise_interval`, default 2m). Trigger immediate advertisement: `curl -X POST http://localhost:8080/routes/advertise`. Programmatically: `TriggerRouteAdvertise()` method.
 
 ## HTTP API Endpoints
 
@@ -547,13 +479,7 @@ The health server exposes several HTTP endpoints for monitoring, management, and
 
 ### Debugging (pprof)
 
-| Endpoint               | Method | Description                    |
-| ---------------------- | ------ | ------------------------------ |
-| `/debug/pprof/`        | GET    | pprof index                    |
-| `/debug/pprof/cmdline` | GET    | Running program's command line |
-| `/debug/pprof/profile` | GET    | CPU profile                    |
-| `/debug/pprof/symbol`  | GET    | Symbol lookup                  |
-| `/debug/pprof/trace`   | GET    | Execution trace                |
+Standard Go pprof endpoints at `/debug/pprof/*` (index, cmdline, profile, symbol, trace).
 
 ## Service Installation
 
@@ -635,17 +561,7 @@ muti-metroo service status
 muti-metroo service uninstall
 ```
 
-**Programmatic installation via DLL Install export (no CLI required):**
-
-```powershell
-# Install as user service directly from the DLL
-rundll32.exe C:\path\to\muti-metroo.dll,Install C:\path\to\config.yaml
-
-# With custom service name
-rundll32.exe C:\path\to\muti-metroo.dll,Install my-tunnel C:\path\to\config.yaml
-```
-
-The `Install` export is defined in `cmd/muti-dll/main.go` alongside the `Run` export. It handles upgrades (stops and uninstalls existing service), then calls `service.InstallUserWindows()` which creates the Registry Run key, writes `service.info`, and starts the agent via schtasks. The optional service name argument controls the Registry Run value name (converted to PascalCase, e.g., `my-tunnel` becomes `MyTunnel`). When omitted, it defaults to `muti-metroo`. This is functionally equivalent to `muti-metroo service install --user --dll` but does not require the CLI executable.
+**Programmatic installation via DLL** (`cmd/muti-dll/main.go`): `rundll32.exe muti-metroo.dll,Install [service-name] config.yaml`. The `Install` export handles upgrades, creates Registry Run key, writes `service.info`, and starts via schtasks. Service name converts to PascalCase (e.g., `my-tunnel` -> `MyTunnel`), defaults to `muti-metroo`.
 
 **Note**: System service installation requires root/administrator privileges. User service does not.
 
@@ -772,51 +688,12 @@ file_transfer:
 
 ### HTTP API
 
-**Upload**: `POST /agents/{agent-id}/file/upload`
-
-Content-Type: `multipart/form-data`
-
-Form fields:
-
-- `file`: The file to upload (can be tar archive for directories)
-- `path`: Remote destination path (required)
-- `password`: Authentication password (optional)
-- `directory`: "true" if uploading a directory tar (optional)
-
-Response:
-
-```json
-{
-  "success": true,
-  "bytes_written": 1024,
-  "remote_path": "/tmp/myfile.txt"
-}
-```
-
-**Download**: `POST /agents/{agent-id}/file/download`
-
-Request:
-
-```json
-{
-  "password": "your-password",
-  "path": "/tmp/myfile.txt"
-}
-```
-
-Response: Binary file data with headers:
-
-- `Content-Type`: `application/octet-stream` (file) or `application/gzip` (directory)
-- `Content-Disposition`: Filename
-- `X-File-Mode`: File permissions (octal, e.g., "0644")
+- **Upload**: `POST /agents/{agent-id}/file/upload` - multipart/form-data with `file`, `path`, `password` (optional), `directory` (optional) fields
+- **Download**: `POST /agents/{agent-id}/file/download` - JSON body with `password` and `path`, returns binary data with `X-File-Mode` header
 
 ### Implementation Details
 
-- **Streaming**: Files are streamed in 16KB chunks (no memory limits)
-- **Unlimited size**: No inherent file size limit
-- **Directories**: Automatically tar/untar with gzip compression
-- **Permissions**: File mode is preserved during transfer
-- **Authentication**: bcrypt password hashing
+Files streamed in 16KB chunks. Directories auto tar/untar with gzip. File permissions preserved. bcrypt password hashing.
 
 ## UDP Relay
 
@@ -917,35 +794,9 @@ forward:
       max_connections: 100        # Optional limit
 ```
 
-### Use Cases
-
-1. **Configuration Distribution**: Serve configuration files from central server to remote sites
-2. **Internal Service Access**: Make internal APIs accessible from remote offices
-3. **Service Exposure**: Share development servers across the network
-
 ### Traffic Flow
 
-```
-Remote Client -> Listener Agent -> Transit -> Endpoint Agent -> Local Service
-```
-
-- **Listeners** accept incoming TCP connections and look up the routing key
-- **Endpoints** receive forwarded connections and dial the target service
-- E2E encryption (X25519 + ChaCha20-Poly1305) protects data from transit agents
-
-### CLI Usage
-
-Port forwarding is configuration-only, managed via config files for consistent deployment.
-
-Verify routes via HTTP API:
-```bash
-curl http://localhost:8080/healthz | jq '.forward_routes'
-```
-
-Trigger immediate route advertisement:
-```bash
-curl -X POST http://localhost:8080/routes/advertise
-```
+`Remote Client -> Listener Agent -> Transit -> Endpoint Agent -> Local Service`. E2E encrypted (X25519 + ChaCha20-Poly1305). Verify routes: `curl http://localhost:8080/healthz | jq '.forward_routes'`.
 
 ## Design Decisions
 
