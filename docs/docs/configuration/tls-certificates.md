@@ -134,6 +134,36 @@ protocol:
 
 For more information on traffic analysis and reducing detectability, see [Traffic Patterns & Detection](/security/traffic-patterns).
 
+## Protocol Identifiers
+
+The `protocol` section customizes identifiers that appear in network traffic. These can help blend with legitimate traffic or reduce fingerprinting.
+
+```yaml
+protocol:
+  alpn: "muti-metroo/1"                    # ALPN for QUIC/TLS
+  http_header: "X-Muti-Metroo-Protocol"    # HTTP/2 header
+  ws_subprotocol: "muti-metroo/1"          # WebSocket subprotocol
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `alpn` | string | `muti-metroo/1` | ALPN identifier for QUIC and TLS connections |
+| `http_header` | string | `X-Muti-Metroo-Protocol` | Custom header for HTTP/2 transport |
+| `ws_subprotocol` | string | `muti-metroo/1` | WebSocket subprotocol identifier |
+
+Set any value to an empty string `""` to disable that identifier. For example, to reduce distinctiveness:
+
+```yaml
+protocol:
+  alpn: ""              # Use transport defaults (e.g., "h2")
+  http_header: ""       # No custom HTTP header
+  ws_subprotocol: ""    # No custom subprotocol
+```
+
+See [Traffic Patterns & Detection](/security/traffic-patterns) for OPSEC considerations around protocol identifiers.
+
 ## Setup Options
 
 ### Option 1: Automatic (Recommended for Development)
@@ -157,7 +187,7 @@ listeners:
 Use the setup wizard to generate and embed certificates in config:
 
 ```bash
-muti-metroo init --wizard
+muti-metroo setup
 ```
 
 The wizard offers two certificate setup options:

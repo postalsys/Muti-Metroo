@@ -118,7 +118,7 @@ See [configs/example.yaml](https://github.com/postalsys/Muti-Metroo/blob/master/
 |---------|---------|---------------|
 | `routing` | Route advertisement | [Routing](/configuration/routing) |
 | `connections` | Keepalive, reconnection | [Routing](/configuration/routing#connection-tuning) |
-| `limits` | Stream limits, buffers | [Routing](/configuration/routing) |
+| `limits` | Stream limits, buffers | [Routing](/configuration/routing#resource-limits) |
 
 ### Sleep
 

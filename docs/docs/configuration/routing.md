@@ -156,6 +156,35 @@ connections:
 | `jitter` | float | `0.2` | Retry timing randomization |
 | `max_retries` | int | `0` | Maximum attempts (0 = infinite) |
 
+## Resource Limits
+
+The `limits` section controls stream and buffer resources:
+
+```yaml
+limits:
+  max_streams_per_peer: 1000    # Concurrent streams per peer
+  max_streams_total: 10000      # Total concurrent streams
+  max_pending_opens: 100        # Pending stream open requests
+  stream_open_timeout: 30s      # Stream open round-trip timeout
+  buffer_size: 262144           # Per-stream buffer (bytes)
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `max_streams_per_peer` | int | `1000` | Maximum concurrent streams per peer connection |
+| `max_streams_total` | int | `10000` | Maximum concurrent streams across all peers |
+| `max_pending_opens` | int | `100` | Maximum pending stream open requests |
+| `stream_open_timeout` | duration | `30s` | Total round-trip time allowed for stream open |
+| `buffer_size` | int | `262144` | Per-stream buffer size in bytes (256 KB) |
+
+### When to Adjust
+
+- **High-traffic proxy**: Increase `max_streams_per_peer` and `max_streams_total`
+- **Memory-constrained**: Reduce `buffer_size` (trades throughput for memory)
+- **High-latency paths**: Increase `stream_open_timeout`
+
 ## Tuning Guide
 
 ### Fast Failover

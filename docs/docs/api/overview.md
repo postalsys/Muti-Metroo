@@ -104,8 +104,7 @@ Shell and file transfer endpoints have their own password authentication when co
 
 ```json
 {
-  "error": "error message",
-  "code": "ERROR_CODE"
+  "error": "error message"
 }
 ```
 
