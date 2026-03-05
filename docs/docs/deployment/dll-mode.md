@@ -241,7 +241,6 @@ Since there's no console output, configure file-based logging in your config:
 ```yaml
 agent:
   log_format: json
-  log_file: C:\ProgramData\muti-metroo\logs\agent.log
 ```
 
 ## Security Considerations

@@ -33,6 +33,7 @@ The generated hash can be used in:
 
 | Config Field | Purpose |
 |--------------|---------|
+| `http.token_hash` | HTTP API bearer token authentication |
 | `socks5.auth.users[].password_hash` | SOCKS5 proxy authentication |
 | `shell.password_hash` | Remote shell authorization |
 | `file_transfer.password_hash` | File transfer authorization |

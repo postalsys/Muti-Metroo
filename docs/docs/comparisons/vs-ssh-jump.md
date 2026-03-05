@@ -154,8 +154,8 @@ peers:
 ```yaml
 # Agent C (exit) - advertises routes
 exit:
-  cidr_routes:
-    - cidr: "10.20.30.0/24"
+  routes:
+    - "10.20.30.0/24"
 ```
 
 **That's it.** Routes propagate automatically. No per-target configuration needed.

@@ -12,14 +12,14 @@ sidebar_position: 7
 Ping remote hosts through your mesh network. Test connectivity, measure latency, and diagnose network issues - all through your encrypted tunnel.
 
 ```bash
-# Ping through the mesh
-muti-metroo ping 8.8.8.8
+# Ping through the mesh (requires target agent ID and destination)
+muti-metroo ping <target-agent-id> 8.8.8.8
 
 # Continuous ping
-muti-metroo ping -c 0 192.168.1.1
+muti-metroo ping <target-agent-id> -c 0 192.168.1.1
 
 # IPv6 ping
-muti-metroo ping 2001:4860:4860::8888
+muti-metroo ping <target-agent-id> 2001:4860:4860::8888
 ```
 
 ## How It Works
@@ -88,8 +88,8 @@ Unlike traditional ping, Muti Metroo uses unprivileged ICMP sockets. Once the sy
 ### Basic Ping
 
 ```bash
-# Ping a host
-muti-metroo ping 8.8.8.8
+# Ping a host through a specific exit agent
+muti-metroo ping abc123def456 8.8.8.8
 
 # Output:
 # PING 8.8.8.8 via agent abc123def456
@@ -101,21 +101,21 @@ muti-metroo ping 8.8.8.8
 
 ```bash
 # Ping indefinitely (Ctrl+C to stop)
-muti-metroo ping -c 0 192.168.1.1
+muti-metroo ping abc123def456 -c 0 192.168.1.1
 ```
 
 ### IPv6 Ping
 
 ```bash
 # Ping IPv6 addresses
-muti-metroo ping 2001:4860:4860::8888
+muti-metroo ping abc123def456 2001:4860:4860::8888
 ```
 
 ### Via Specific Agent
 
 ```bash
 # Ping through a specific agent's API
-muti-metroo ping -a 192.168.1.10:8080 8.8.8.8
+muti-metroo ping -a 192.168.1.10:8080 abc123def456 8.8.8.8
 ```
 
 ## IPv4 and IPv6 Support

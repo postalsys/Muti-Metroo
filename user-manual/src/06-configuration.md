@@ -101,7 +101,7 @@ http:
   enabled: true
   address: ":8080"
   minimal: false
-  pprof: false
+  pprof: true
   dashboard: true
   remote_api: true
 
@@ -340,7 +340,7 @@ socks5:
 ```
 
 Syntax:
-- `${VAR}` - Use environment variable (error if not set)
+- `${VAR}` - Use environment variable (kept as literal if not set)
 - `${VAR:-default}` - Use default if variable not set
 
 ## Minimal Configuration

@@ -262,10 +262,10 @@ curl http://ingress2:8080/health
 curl http://exit:8080/health
 
 # Check peer connectivity
-curl http://ingress1:8080/healthz | jq '.peers'
+curl http://ingress1:8080/healthz | jq '.peer_count'
 
 # Check routes
-curl http://ingress1:8080/healthz | jq '.routes'
+curl http://ingress1:8080/healthz | jq '.route_count'
 ```
 
 ### Key Indicators
@@ -274,8 +274,8 @@ Monitor these for HA:
 
 | Indicator | Check Method | Alert Condition |
 |-----------|--------------|-----------------|
-| Peer count | `curl /healthz \| jq '.peers'` | < expected count |
-| Route count | `curl /healthz \| jq '.routes'` | < expected count |
+| Peer count | `curl /healthz \| jq '.peer_count'` | < expected count |
+| Route count | `curl /healthz \| jq '.route_count'` | < expected count |
 | Health status | `curl /health` | Not "OK" |
 
 ### External Monitoring
@@ -330,14 +330,14 @@ docker stop transit-primary
 curl -x socks5://localhost:1080 https://example.com
 
 # Check routes updated
-curl http://localhost:8080/healthz | jq '.routes'
+curl http://localhost:8080/healthz | jq '.route_count'
 
 # Bring transit back
 docker start transit-primary
 
 # Verify primary route restored
 sleep 120  # Wait for advertisement
-curl http://localhost:8080/healthz | jq '.routes'
+curl http://localhost:8080/healthz | jq '.route_count'
 ```
 
 ### Chaos Testing

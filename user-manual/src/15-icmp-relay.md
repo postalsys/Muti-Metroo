@@ -22,7 +22,6 @@ icmp:
 | `max_sessions` | `100` | Max concurrent sessions (0 = unlimited) |
 | `idle_timeout` | `60s` | Session cleanup after inactivity |
 | `echo_timeout` | `5s` | Timeout for individual echo requests |
-| `max_concurrent_replies` | `0` | Limit reply goroutines (0 = unlimited) |
 
 ## Platform Support
 
@@ -58,8 +57,8 @@ Without this setting, ICMP will fail with "socket: operation not permitted".
 ### CLI Ping Command
 
 ```bash
-# Basic ping
-muti-metroo ping 8.8.8.8
+# Basic ping (requires target agent ID and destination IP)
+muti-metroo ping abc123def456 8.8.8.8
 
 # Output:
 # PING 8.8.8.8 via agent abc123def456
@@ -67,13 +66,13 @@ muti-metroo ping 8.8.8.8
 # 64 bytes from 8.8.8.8: seq=2 time=11.8ms
 
 # Continuous ping (Ctrl+C to stop)
-muti-metroo ping -c 0 192.168.1.1
+muti-metroo ping abc123def456 -c 0 192.168.1.1
 
 # IPv6 ping
-muti-metroo ping 2001:4860:4860::8888
+muti-metroo ping abc123def456 2001:4860:4860::8888
 
 # Ping via specific agent's API
-muti-metroo ping -a 192.168.1.10:8080 8.8.8.8
+muti-metroo ping -a 192.168.1.10:8080 abc123def456 8.8.8.8
 ```
 
 ### Mutiauk (TUN Interface)

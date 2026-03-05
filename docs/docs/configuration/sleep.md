@@ -1,3 +1,8 @@
+---
+title: Sleep
+sidebar_position: 14
+---
+
 # Sleep Configuration
 
 The `sleep` section configures mesh hibernation mode.
@@ -207,3 +212,30 @@ management:
 ```
 
 See [Management Configuration](/configuration/management) for details on signing key setup, or [signing-key CLI](/cli/signing-key) for key generation.
+
+## Deterministic Windows
+
+For more predictable reconnection timing, configure deterministic listening windows:
+
+```yaml
+sleep:
+  enabled: true
+  deterministic_windows:
+    enabled: true           # Use predictable windows derived from AgentID
+    window_length: 30s      # Duration of each listening window (max 30s)
+    clock_tolerance: 5s     # Clock drift tolerance
+    epoch: ""               # Reference point for calculations (RFC3339, default: Unix epoch)
+```
+
+When enabled, sleeping agents listen at predictable times derived from their AgentID, allowing peers to calculate when a sleeping agent will be available and time reconnection attempts efficiently.
+
+### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Use deterministic windows instead of random jitter |
+| `window_length` | duration | `30s` | Duration of each listening window (max 30s) |
+| `clock_tolerance` | duration | `5s` | Clock drift tolerance between agents |
+| `epoch` | string | `""` | Reference point for window calculations (RFC3339 format, default: Unix epoch) |
+
+All agents should use the same `epoch` for interoperability.

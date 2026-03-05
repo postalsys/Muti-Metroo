@@ -280,10 +280,10 @@ data_dir: "C:\\muti-metroo\\data"
 Enable debug logging:
 
 ```bash
-muti-metroo run -c config.yaml --log-level debug
+muti-metroo run -c config.yaml
 ```
 
-Or in config:
+Set debug level in config:
 
 ```yaml
 agent:

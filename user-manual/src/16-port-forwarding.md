@@ -262,4 +262,4 @@ ss -tlnp | grep :<port>
 - Each connection gets E2E encryption (X25519 + ChaCha20-Poly1305)
 - Transit agents cannot decrypt forwarded traffic
 - Only configured routing keys are accepted
-- No CLI commands exist (configuration-only)
+- Dynamic management via CLI (`muti-metroo forward add/remove/list`) and HTTP API (`/forward/manage`)

@@ -230,7 +230,7 @@ The response shows all endpoint-listener pairings with hop counts.
 ## Limitations
 
 - **TCP only**: UDP is not supported for port forwarding
-- **Static keys**: Routing keys must be pre-configured (no dynamic registration API)
+- **Dynamic management**: Routing keys can be managed at runtime via CLI (`muti-metroo forward add/remove/list`) or HTTP API (`/forward/manage`)
 - **Fixed ports**: Unlike ngrok, listener ports are not dynamically assigned
 
 ## Related

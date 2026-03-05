@@ -308,8 +308,8 @@ flowchart LR
 ```yaml
 # Agent B config (Windows) - just advertise routes
 exit:
-  cidr_routes:
-    - cidr: "10.0.0.0/8"
+  routes:
+    - "10.0.0.0/8"
 # Routes automatically propagate to Agent A
 ```
 

@@ -256,7 +256,7 @@ Error: no route to agent abc123
 curl http://localhost:8080/agents
 
 # Verify connectivity
-curl http://localhost:8080/healthz | jq '.peers'
+curl http://localhost:8080/healthz | jq '.peer_count'
 ```
 
 ## Related

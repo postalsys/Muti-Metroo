@@ -159,7 +159,7 @@ After installation, you will typically have:
     agent.key
 /var/lib/muti-metroo/          # Data directory
   agent_id                     # Agent identity
-  keypair.json                 # E2E encryption keypair
+  agent_key                 # E2E encryption keypair
 ```
 
 ### Development Layout
@@ -169,7 +169,7 @@ After installation, you will typically have:
 ./config.yaml                  # Configuration file
 ./data/                        # Data directory
   agent_id                     # Agent identity (128-bit hex)
-  keypair.json                 # E2E encryption keypair
+  agent_key                 # E2E encryption keypair
 ./certs/                       # TLS certificates
   ca.crt                       # Certificate Authority
   ca.key                       # CA private key

@@ -50,12 +50,13 @@ Get status from specific agent.
 **Response:**
 ```json
 {
-  "id": "abc123...",
-  "display_name": "Agent 1",
-  "uptime": 3600,
-  "peers": 3,
-  "streams": 42,
-  "routes": 5
+  "agent_id": "abc123def456789012345678901234ab",
+  "running": true,
+  "peer_count": 3,
+  "stream_count": 42,
+  "route_count": 5,
+  "socks5_running": true,
+  "exit_running": false
 }
 ```
 
@@ -65,16 +66,15 @@ Get route table from specific agent.
 
 **Response:**
 ```json
-{
-  "routes": [
-    {
-      "cidr": "10.0.0.0/8",
-      "next_hop": "def456...",
-      "metric": 1,
-      "ttl": 300
-    }
-  ]
-}
+[
+  {
+    "network": "10.0.0.0/8",
+    "next_hop": "def456...",
+    "origin": "abc123...",
+    "metric": 1,
+    "hop_count": 2
+  }
+]
 ```
 
 ## GET /agents/\{agent-id\}/peers
@@ -83,16 +83,7 @@ Get peer list from specific agent.
 
 **Response:**
 ```json
-{
-  "peers": [
-    {
-      "id": "def456...",
-      "address": "192.168.1.20:4433",
-      "transport": "quic",
-      "connected": true
-    }
-  ]
-}
+["abc123def456789012345678901234ab", "def456789012345678901234567890cd"]
 ```
 
 ## GET /agents/\{agent-id\}/shell
@@ -118,3 +109,27 @@ See [File Transfer Endpoints](/api/file-transfer).
 Download file from remote agent.
 
 See [File Transfer Endpoints](/api/file-transfer).
+
+## POST /agents/\{agent-id\}/file/browse
+
+Browse filesystem on remote agent.
+
+See [File Transfer Endpoints](/api/file-transfer).
+
+## POST /agents/\{agent-id\}/routes/manage
+
+Manage dynamic routes on remote agent.
+
+See [Route Management](/api/route-management).
+
+## POST /agents/\{agent-id\}/forward/manage
+
+Manage dynamic forward listeners on remote agent.
+
+See [Forward Management](/api/forward-management).
+
+## POST /agents/\{agent-id\}/display-name/manage
+
+Manage display name on remote agent.
+
+See [Display Name Management](/api/display-name-management).

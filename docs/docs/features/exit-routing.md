@@ -109,7 +109,7 @@ Check which routes are available in the mesh:
 
 ```bash
 # View all routes (CIDR and domain)
-curl http://localhost:8080/healthz | jq '{routes: .routes, domain_routes: .domain_routes}'
+curl http://localhost:8080/healthz | jq '{route_count: .route_count}'
 
 # Trigger route advertisement after config changes
 curl -X POST http://localhost:8080/routes/advertise
@@ -131,10 +131,10 @@ curl: (7) Can't complete SOCKS5 connection to 10.1.2.3:443
 **Solutions:**
 ```bash
 # Check available routes
-curl http://localhost:8080/healthz | jq '.routes'
+curl http://localhost:8080/healthz | jq '.route_count'
 
 # Verify peer connections
-curl http://localhost:8080/healthz | jq '.peers'
+curl http://localhost:8080/healthz | jq '.peer_count'
 
 # Trigger route advertisement on the exit node
 curl -X POST http://exit-node:8080/routes/advertise

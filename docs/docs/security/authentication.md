@@ -19,7 +19,7 @@ Control who can use your mesh. Require passwords for SOCKS5 proxy access, shell 
 | Remote shell | Password | Who can run commands |
 | File transfer | Password | Who can upload/download files |
 | Peer connections | TLS certificates (mTLS) | Which agents can join the mesh |
-| HTTP API | Firewall/reverse proxy | Monitoring and management access |
+| HTTP API | Bearer token (built-in) | Monitoring and management access |
 
 ## Password Hashing
 
@@ -105,43 +105,38 @@ muti-metroo download -p mypassword agent123 /tmp/remote.txt ./local.txt
 
 ## HTTP API Security
 
-The HTTP API does not have built-in authentication. Secure it using:
-
-### Bind to Localhost
-
-Only expose the API locally:
+The HTTP API supports built-in bearer token authentication:
 
 ```yaml
 http:
-  address: "127.0.0.1:8080"  # Only local access
+  address: ":8080"
+  token_hash: "$2a$10$..."  # bcrypt hash of your bearer token
 ```
 
-### Firewall Rules
+When `token_hash` is set, all non-health endpoints require authentication via:
+- `Authorization: Bearer <token>` header, or
+- `?token=<token>` query parameter
 
-Restrict access to specific IPs:
+Health endpoints (`/health`, `/healthz`, `/ready`) are always exempt.
+
+Generate the hash with `muti-metroo hash`.
+
+### Additional Security Measures
+
+For defense in depth, you can also:
+
+**Bind to localhost** (only local access):
+
+```yaml
+http:
+  address: "127.0.0.1:8080"
+```
+
+**Firewall rules** (restrict to management network):
 
 ```bash
-# Only allow from management network
 iptables -A INPUT -p tcp --dport 8080 -s 10.0.0.0/24 -j ACCEPT
 iptables -A INPUT -p tcp --dport 8080 -j DROP
-```
-
-### Reverse Proxy with Auth
-
-Use nginx or another proxy for HTTP authentication:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name api.example.com;
-
-    auth_basic "Restricted";
-    auth_basic_user_file /etc/nginx/.htpasswd;
-
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-    }
-}
 ```
 
 ## Environment Variables

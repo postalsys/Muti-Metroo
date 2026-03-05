@@ -147,7 +147,7 @@ curl -x socks5h://localhost:1080 http://internal-server/health
 
 ```bash
 # Via health endpoint
-curl http://localhost:8080/healthz | jq '.streams'
+curl http://localhost:8080/healthz | jq '.stream_count'
 ```
 
 ## Transparent Proxying
@@ -210,10 +210,10 @@ curl: (7) Can't complete SOCKS5 connection to example.com:443
 **Solutions:**
 ```bash
 # Check routes exist
-curl http://localhost:8080/healthz | jq '.routes'
+curl http://localhost:8080/healthz | jq '.route_count'
 
 # Verify peer connections
-curl http://localhost:8080/healthz | jq '.peers'
+curl http://localhost:8080/healthz | jq '.peer_count'
 ```
 
 ### DNS Resolution Failed

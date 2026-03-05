@@ -71,8 +71,8 @@ Error: open ./certs/agent.crt: no such file or directory
 
 ```bash
 # Generate certificates
-muti-metroo cert ca -n "My CA"
-muti-metroo cert agent -n "agent-1" \
+muti-metroo cert ca --cn "My CA"
+muti-metroo cert agent --cn "agent-1" \
   --ca ./certs/ca.crt \
   --ca-key ./certs/ca.key
 
@@ -232,7 +232,7 @@ Error: no route to 1.2.3.4
 
 1. Check exit is running and connected:
    ```bash
-   curl http://localhost:8080/healthz | jq '.peers, .routes'
+   curl http://localhost:8080/healthz | jq '.peer_count, .route_count'
    ```
 
 2. Check exit has route configured:
@@ -526,7 +526,7 @@ curl -X POST http://localhost:8080/routes/advertise
 sleep 5
 
 # Check routes on ingress agent
-curl http://ingress-agent:8080/healthz | jq '.routes'
+curl http://ingress-agent:8080/healthz | jq '.route_count'
 ```
 
 ### Verifying Multi-Agent Topology
@@ -608,10 +608,10 @@ done
 Enable debug logging for detailed diagnostics:
 
 ```bash
-muti-metroo run -c config.yaml --log-level debug
+muti-metroo run -c config.yaml
 ```
 
-Or in config:
+Set debug level in config:
 
 ```yaml
 agent:

@@ -105,7 +105,8 @@ For development:
 ./config.yaml              # Configuration file
 ./data/                    # Data directory
   agent_id                 # Agent identity (128-bit hex)
-  keypair.json             # E2E encryption keypair
+  agent_key                # E2E encryption private key
+  agent_key.pub            # E2E encryption public key
 ./certs/                   # TLS certificates
   ca.crt                   # Certificate Authority
   ca.key                   # CA private key
@@ -127,7 +128,7 @@ muti-metroo init -d ./data
 
 # Check the generated files
 ls ./data/
-# Output: agent_id  keypair.json
+# Output: agent_id  agent_key  agent_key.pub
 ```
 
 :::info No Certificate Setup Required

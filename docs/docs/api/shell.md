@@ -32,7 +32,7 @@ GET /agents/{agent-id}/shell?mode=tty|stream
 | Parameter | Values | Description |
 |-----------|--------|-------------|
 | `mode` | `tty` | Interactive mode with PTY (default) |
-| | `normal` | Normal mode without PTY |
+| | `stream` | Streaming mode without PTY |
 
 ### Subprotocol
 

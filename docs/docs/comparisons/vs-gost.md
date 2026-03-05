@@ -231,9 +231,9 @@ Routes propagate automatically - no chain configuration:
 ```yaml
 # Agent C (Exit) - just declare what you can reach
 exit:
-  cidr_routes:
-    - cidr: "10.0.0.0/8"
-    - cidr: "192.168.0.0/16"
+  routes:
+    - "10.0.0.0/8"
+    - "192.168.0.0/16"
 
 # Agent A (Ingress) - routes received via flood-based routing
 socks5:
@@ -346,8 +346,8 @@ socks5:
   address: "127.0.0.1:1080"
 
 exit:
-  cidr_routes:
-    - cidr: "10.0.0.0/8"
+  routes:
+    - "10.0.0.0/8"
 ```
 
 **Changes require restart** - but the design is intentional:
@@ -477,9 +477,9 @@ Muti Metroo uses declarative exit routing:
 
 ```yaml
 exit:
-  cidr_routes:
-    - cidr: "10.0.0.0/8"
-    - cidr: "192.168.1.0/24"
+  routes:
+    - "10.0.0.0/8"
+    - "192.168.1.0/24"
 
   domain_routes:
     - pattern: "*.internal.corp"
@@ -537,8 +537,8 @@ socks5:
 
 # Agent C (Exit)
 exit:
-  cidr_routes:
-    - cidr: "10.0.0.0/8"
+  routes:
+    - "10.0.0.0/8"
 ```
 
 ```bash

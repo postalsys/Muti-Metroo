@@ -343,7 +343,8 @@ udp:
 icmp:
   enabled: true
   max_sessions: 100            # Max concurrent ICMP sessions
-  session_timeout: 30s         # Session timeout for waiting on replies
+  idle_timeout: 60s            # Session idle timeout
+  echo_timeout: 5s             # Per-echo request timeout
 
 # ------------------------------------------------------------------------------
 # Port Forwarding

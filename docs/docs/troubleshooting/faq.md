@@ -272,7 +272,7 @@ agent:
 Or at runtime:
 
 ```bash
-./muti-metroo run -c config.yaml --log-level debug
+./muti-metroo run -c config.yaml
 ```
 
 ### How do I check if agents are connected?

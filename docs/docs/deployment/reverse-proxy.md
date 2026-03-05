@@ -245,7 +245,7 @@ peers:
     transport: ws
     address: "wss://mesh.example.com/mesh"
     tls:
-      insecure_skip_verify: false
+      strict: true
 
 socks5:
   enabled: true

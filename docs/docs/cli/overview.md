@@ -60,7 +60,8 @@ muti-metroo download <target-agent-id> /tmp/file.txt ./file.txt
 Available for all commands:
 
 - `-h, --help`: Show help for command
-- `-v, --version`: Show version information
+- `--version`: Show version information
+- `--token`: API bearer token for authentication (or set `MUTI_METROO_TOKEN` env var)
 
 ## Commands
 
@@ -74,6 +75,8 @@ Available for all commands:
 | `status` | Show agent status via HTTP API |
 | `peers` | List connected peers via HTTP API |
 | `routes` | List route table via HTTP API |
+| `route` | Dynamic route management (add, remove, list) |
+| `forward` | Dynamic forward listener management (add, remove, list) |
 | `ping` | Send ICMP echo requests through the mesh |
 | `probe` | Test connectivity to a listener (standalone) |
 | `probe listen` | Start a test listener for connectivity probing |
@@ -81,6 +84,9 @@ Available for all commands:
 | `shell` | Interactive or streaming remote shell |
 | `upload` | Upload file to remote agent |
 | `download` | Download file from remote agent |
+| `sleep` | Trigger mesh-wide sleep |
+| `wake` | Trigger mesh-wide wake |
+| `sleep-status` | Check sleep mode status |
 | `service` | Service management (install, uninstall, status) |
 | `management-key` | Generate and manage mesh topology encryption keys |
 | `signing-key` | Generate and manage Ed25519 signing keys for sleep/wake authentication |

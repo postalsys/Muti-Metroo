@@ -35,7 +35,7 @@ curl http://localhost:8080/debug/pprof/heap > heap.prof
 
 ```bash
 # Count hops
-curl http://localhost:8080/healthz | jq '.routes'
+curl http://localhost:8080/healthz | jq '.route_count'
 # Look at metric values - each increment is one hop
 
 # Check logs for latency issues

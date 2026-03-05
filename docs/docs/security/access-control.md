@@ -212,7 +212,7 @@ Error: no route to host
 
 **Cause:** Destination doesn't match any advertised exit route.
 
-**Solution:** Check exit routes with `curl http://localhost:8080/healthz | jq '.routes'`
+**Solution:** Check exit routes with `curl http://localhost:8080/healthz | jq '.route_count'`
 
 ### Command Rejected
 

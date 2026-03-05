@@ -30,7 +30,7 @@ http:
 
   # Endpoint controls
   minimal: false          # When true, only health endpoints enabled
-  pprof: false            # /debug/pprof/* profiling endpoints
+  pprof: false            # /debug/pprof/* profiling endpoints (default: true, disable in production)
   dashboard: true         # /api/* dashboard endpoints
   remote_api: true        # /agents/* distributed APIs
 ```
@@ -45,7 +45,7 @@ http:
 | `write_timeout` | duration | `10s` | Maximum time to write response |
 | `token_hash` | string | `""` | bcrypt hash of bearer token (empty = no auth) |
 | `minimal` | bool | `false` | Only enable health endpoints |
-| `pprof` | bool | `false` | Enable Go profiling endpoints |
+| `pprof` | bool | `true` | Enable Go profiling endpoints |
 | `dashboard` | bool | `true` | Enable dashboard API endpoints |
 | `remote_api` | bool | `true` | Enable distributed mesh APIs |
 

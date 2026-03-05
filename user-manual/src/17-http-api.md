@@ -249,6 +249,37 @@ curl -X POST http://localhost:8080/agents/abc123def456/routes/manage \
   -d '{"action":"add","network":"10.0.0.0/8"}'
 ```
 
+### POST /forward/manage
+
+Add, remove, or list dynamic forward listeners:
+
+```bash
+# Add a forward listener
+curl -X POST http://localhost:8080/forward/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","key":"web-server","address":":9090"}'
+
+# List forward listeners
+curl -X POST http://localhost:8080/forward/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list"}'
+
+# Remove a forward listener
+curl -X POST http://localhost:8080/forward/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"remove","key":"web-server"}'
+```
+
+### POST /agents/{agent-id}/forward/manage
+
+Manage forward listeners on a remote agent:
+
+```bash
+curl -X POST http://localhost:8080/agents/abc123def456/forward/manage \
+  -H "Content-Type: application/json" \
+  -d '{"action":"add","key":"web-server","address":":9090"}'
+```
+
 ### POST /display-name/manage
 
 Set or get the agent's display name dynamically:

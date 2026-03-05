@@ -60,11 +60,6 @@ peers:
     tls:
       ca: "./certs/other-ca.crt"       # Override global CA (rare)
       strict: true                      # Enable verification for this peer
-    reconnect:
-      initial_delay: 1s
-      max_delay: 60s
-      multiplier: 2.0
-      jitter: 0.2
 ```
 
 ## Peer ID
@@ -233,17 +228,16 @@ peers:
 
 ## Reconnection
 
-Configure automatic reconnection behavior:
+Reconnection is a **global** setting (not per-peer). Configure it in the `connections` section:
 
 ```yaml
-peers:
-  - id: "..."
-    reconnect:
-      initial_delay: 1s         # First retry delay
-      max_delay: 60s            # Maximum retry delay
-      multiplier: 2.0           # Exponential backoff multiplier
-      jitter: 0.2               # 20% random jitter
-      max_retries: 0            # 0 = infinite retries
+connections:
+  reconnect:
+    initial_delay: 1s         # First retry delay
+    max_delay: 60s            # Maximum retry delay
+    multiplier: 2.0           # Exponential backoff multiplier
+    jitter: 0.2               # 20% random jitter
+    max_retries: 0            # 0 = infinite retries
 ```
 
 ### Reconnection Algorithm

@@ -23,6 +23,7 @@ Control every aspect of your agent through a single YAML file. Start with the mi
 | Set up port forwarding | [Forward](/configuration/forward) |
 | Enable UDP relay | [UDP](/configuration/udp) |
 | Enable ICMP ping | [ICMP](/configuration/icmp) |
+| Configure sleep mode | [Sleep](/configuration/sleep) |
 | Enable remote shell | [Shell](/configuration/shell) |
 | Enable file transfer | [File Transfer](/configuration/file-transfer) |
 | Configure HTTP API | [HTTP](/configuration/http) |
@@ -119,6 +120,12 @@ See [configs/example.yaml](https://github.com/postalsys/Muti-Metroo/blob/master/
 | `connections` | Keepalive, reconnection | [Routing](/configuration/routing#connection-tuning) |
 | `limits` | Stream limits, buffers | [Routing](/configuration/routing) |
 
+### Sleep
+
+| Section | Purpose | Documentation |
+|---------|---------|---------------|
+| `sleep` | Mesh hibernation mode | [Sleep](/configuration/sleep) |
+
 ### Security
 
 | Section | Purpose | Documentation |
@@ -143,7 +150,7 @@ socks5:
 ```
 
 Syntax:
-- `${VAR}` - Use environment variable (error if not set)
+- `${VAR}` - Use environment variable (kept as literal if not set)
 - `${VAR:-default}` - Use default if variable not set
 
 See [Environment Variables](/configuration/environment-variables) for more details.

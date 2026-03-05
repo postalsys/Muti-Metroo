@@ -274,7 +274,7 @@ Inline PEM takes precedence over file paths if both are specified.
 
 ## Setup Wizard Options
 
-The setup wizard (`muti-metroo init --wizard`) offers these TLS options:
+The setup wizard (`muti-metroo setup`) offers these TLS options:
 
 1. **Self-signed certificates (Recommended)** - Auto-generate at startup, no config needed
 2. **Strict TLS with CA verification (Advanced)** - CA-based verification with options:

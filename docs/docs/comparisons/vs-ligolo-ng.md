@@ -270,8 +270,8 @@ flowchart LR
 ```yaml
 # Agent C config - just advertise the route
 exit:
-  cidr_routes:
-    - cidr: "10.1.30.0/24"
+  routes:
+    - "10.1.30.0/24"
 # Routes automatically propagate through B to A
 ```
 

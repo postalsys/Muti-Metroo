@@ -58,19 +58,20 @@ For OPERATOR nodes only (sign commands):
 Derive public key from a private key:
 
 ```bash
+# Interactive (input hidden)
 muti-metroo signing-key public
-```
 
-The command reads the private key from stdin (input is hidden for security).
+# With --private flag
+muti-metroo signing-key public --private "e5f6a7b8c9d0..."
 
-**Example:**
-```bash
+# Via pipe
 echo "e5f6a7b8c9d0..." | muti-metroo signing-key public
 ```
 
 **Output:**
 ```
-Signing Public Key: a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
+Public Key:
+  a1b2c3d4e5f6789012345678901234567890123456789012345678901234abcd
 ```
 
 ## Usage Guide

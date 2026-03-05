@@ -127,7 +127,7 @@ See [API - File Transfer](/api/file-transfer) for full request/response details.
 ## Implementation Details
 
 - **Streaming**: Files transferred in 16KB chunks
-- **No size limits**: Stream directly without memory buffering
+- **Streaming**: Stream directly without full-file memory buffering (configurable `max_file_size`, default 500 MB)
 - **Directories**: Automatically tar/gzip with permission preservation
 - **Authentication**: bcrypt password hashing
 - **Permissions**: File mode preserved (Unix)
@@ -240,7 +240,7 @@ Error: no route to agent abc123
 curl http://localhost:8080/agents
 
 # Verify connectivity
-curl http://localhost:8080/healthz | jq '.peers'
+curl http://localhost:8080/healthz | jq '.peer_count'
 ```
 
 ### Transfer Interrupted

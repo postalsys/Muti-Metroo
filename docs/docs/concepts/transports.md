@@ -41,8 +41,7 @@ flowchart LR
 - UDP with built-in TLS 1.3
 - Native stream multiplexing (no head-of-line blocking)
 - Lowest latency, best throughput
-- Fast 0-RTT reconnection
-- Modern congestion control (BBR)
+- Fast reconnection
 
 **When to use:**
 - Connecting servers you control (cloud, data center)
