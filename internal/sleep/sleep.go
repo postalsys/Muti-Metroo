@@ -251,24 +251,21 @@ func (m *Manager) Sleep() error {
 	}
 
 	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 
 	currentState := m.state.Load().(State)
 	if currentState == StateSleeping || currentState == StatePolling {
-		m.stateMu.Unlock()
 		return ErrAlreadySleeping
 	}
 
-	m.stateMu.Unlock()
-
-	// Call sleep callback outside the lock to prevent deadlock
+	// Call sleep callback under the lock to prevent concurrent
+	// Sleep/Wake transitions. Safe because callbacks (agent.enterSleep)
+	// do not call back into stateMu-protected methods.
 	if m.callbacks.OnSleep != nil {
 		if err := m.callbacks.OnSleep(); err != nil {
 			return err
 		}
 	}
-
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
 
 	// Update state
 	m.state.Store(StateSleeping)
@@ -298,10 +295,10 @@ func (m *Manager) Wake() error {
 	}
 
 	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 
 	currentState := m.state.Load().(State)
 	if currentState == StateAwake {
-		m.stateMu.Unlock()
 		return ErrNotSleeping
 	}
 
@@ -311,17 +308,14 @@ func (m *Manager) Wake() error {
 		m.pollTimer = nil
 	}
 
-	m.stateMu.Unlock()
-
-	// Call wake callback outside the lock to prevent deadlock
+	// Call wake callback under the lock to prevent concurrent
+	// Sleep/Wake transitions. Safe because callbacks (agent.exitSleep)
+	// do not call back into stateMu-protected methods.
 	if m.callbacks.OnWake != nil {
 		if err := m.callbacks.OnWake(); err != nil {
 			return err
 		}
 	}
-
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
 
 	// Update state
 	m.state.Store(StateAwake)

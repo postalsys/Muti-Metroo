@@ -138,16 +138,21 @@ func NewConnection(conn transport.PeerConn, cfg ConnectionConfig) *Connection {
 // This preserves frame ordering per connection, preventing races
 // where STREAM_CLOSE is processed before STREAM_DATA.
 func (c *Connection) processFrames() {
-	for frame := range c.frameCh {
-		if c.onFrame != nil {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						// Don't let a panic in one frame handler kill the processor
-					}
+	for {
+		select {
+		case frame := <-c.frameCh:
+			if c.onFrame != nil {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							// Don't let a panic in one frame handler kill the processor
+						}
+					}()
+					c.onFrame(c, frame)
 				}()
-				c.onFrame(c, frame)
-			}()
+			}
+		case <-c.closed:
+			return
 		}
 	}
 }
@@ -290,7 +295,10 @@ func (c *Connection) Close() error {
 		}
 		err = c.conn.Close()
 		close(c.closed)
-		close(c.frameCh)
+		// Do not close frameCh: processFrames exits via c.closed, and
+		// readLoop stops sending after conn.Done() fires. Closing frameCh
+		// here would race with readLoop's select (send on closed channel
+		// panic).
 	})
 	return err
 }

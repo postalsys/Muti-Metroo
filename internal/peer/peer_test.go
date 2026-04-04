@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1695,5 +1696,178 @@ func TestBackoffCalculator_EdgeCases(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("CalculateDelay(%d) = %v, want %v", tt.attempt, got, tt.want)
 		}
+	}
+}
+
+// ============================================================================
+// Concurrency Race Condition Tests
+// ============================================================================
+
+// TestConnection_ConcurrentCloseAndFrameSend verifies that closing a connection
+// while frames are being sent to frameCh does not panic (send on closed channel).
+func TestConnection_ConcurrentCloseAndFrameSend(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+
+	cfg := ConnectionConfig{
+		LocalID:          localID,
+		HandshakeTimeout: 10 * time.Second,
+		OnFrame:          func(c *Connection, f *protocol.Frame) {},
+	}
+
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+
+	// Mark ready so frames can be processed
+	conn.markReady()
+
+	var wg sync.WaitGroup
+
+	// Spawn senders that send frames until the connection is closed
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				frame := &protocol.Frame{
+					Type:     protocol.FrameStreamData,
+					StreamID: 1,
+					Payload:  []byte("test"),
+				}
+				select {
+				case conn.frameCh <- frame:
+				case <-conn.Done():
+					return
+				}
+			}
+		}()
+	}
+
+	// Close after a brief delay to create the race window
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(1 * time.Millisecond)
+		conn.Close()
+	}()
+
+	wg.Wait()
+
+	// Verify connection is closed
+	select {
+	case <-conn.Done():
+		// expected
+	default:
+		t.Error("connection Done() channel should be closed")
+	}
+}
+
+// TestConnection_CloseWithPendingFrames verifies that closing a connection
+// with buffered frames in frameCh does not panic or leak.
+func TestConnection_CloseWithPendingFrames(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+
+	cfg := ConnectionConfig{
+		LocalID:          localID,
+		HandshakeTimeout: 10 * time.Second,
+		OnFrame: func(c *Connection, f *protocol.Frame) {
+			// Slow handler to allow buffer to fill
+			time.Sleep(10 * time.Millisecond)
+		},
+	}
+
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	conn.markReady()
+
+	// Fill the frame channel buffer (capacity 256)
+	filled := 0
+	for i := 0; i < 256; i++ {
+		frame := &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: 1,
+			Payload:  []byte("test"),
+		}
+		select {
+		case conn.frameCh <- frame:
+			filled++
+		default:
+			// Buffer full
+		}
+	}
+
+	if filled == 0 {
+		t.Fatal("failed to fill any frames into buffer")
+	}
+
+	// Close with buffered frames -- must not panic
+	conn.Close()
+
+	select {
+	case <-conn.Done():
+		// expected
+	default:
+		t.Error("connection Done() channel should be closed")
+	}
+}
+
+// TestConnection_ProcessFramesExitsOnClose verifies that processFrames
+// stops processing after the connection is closed.
+func TestConnection_ProcessFramesExitsOnClose(t *testing.T) {
+	localID, _ := identity.NewAgentID()
+
+	var processed atomic.Int64
+	cfg := ConnectionConfig{
+		LocalID:          localID,
+		HandshakeTimeout: 10 * time.Second,
+		OnFrame: func(c *Connection, f *protocol.Frame) {
+			processed.Add(1)
+		},
+	}
+
+	mockConn := &mockPeerConn{}
+	conn := NewConnection(mockConn, cfg)
+	conn.markReady()
+
+	// Send some frames
+	for i := 0; i < 5; i++ {
+		conn.frameCh <- &protocol.Frame{
+			Type:     protocol.FrameStreamData,
+			StreamID: 1,
+			Payload:  []byte("test"),
+		}
+	}
+
+	// Wait for frames to be processed
+	time.Sleep(50 * time.Millisecond)
+
+	beforeClose := processed.Load()
+	if beforeClose == 0 {
+		t.Fatal("no frames were processed before close")
+	}
+
+	// Close the connection
+	conn.Close()
+
+	// Wait for processFrames to exit
+	time.Sleep(50 * time.Millisecond)
+
+	// Try to send more frames -- should not be processed
+	select {
+	case conn.frameCh <- &protocol.Frame{
+		Type:     protocol.FrameStreamData,
+		StreamID: 1,
+		Payload:  []byte("after-close"),
+	}:
+		// Sent to buffer, but won't be processed
+	default:
+		// Channel buffer might be full, that's ok
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	afterClose := processed.Load()
+
+	// No new frames should have been processed after close
+	if afterClose > beforeClose {
+		t.Errorf("frames processed after close: before=%d, after=%d", beforeClose, afterClose)
 	}
 }

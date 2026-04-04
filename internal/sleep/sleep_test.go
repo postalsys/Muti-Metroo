@@ -3,6 +3,8 @@ package sleep
 import (
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -377,5 +379,193 @@ func TestIsSleeping(t *testing.T) {
 
 	if !mgr.IsSleeping() {
 		t.Error("IsSleeping() = false when sleeping, want true")
+	}
+}
+
+// ============================================================================
+// Concurrency Race Condition Tests
+// ============================================================================
+
+// TestManager_ConcurrentSleepWake verifies that concurrent Sleep and Wake
+// calls do not cause panics, data races, or callback overlap.
+func TestManager_ConcurrentSleepWake(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.SleepConfig{
+		Enabled:            true,
+		PollInterval:       1 * time.Hour, // Long interval to avoid poll interference
+		PollIntervalJitter: 0,
+		PollDuration:       1 * time.Millisecond,
+		PersistState:       false,
+		MaxQueuedMessages:  100,
+	}
+	logger := logging.NewLogger("error", "text")
+
+	mgr := NewManager(cfg, tmpDir, logger)
+	defer mgr.Stop()
+
+	// Track concurrent callback execution
+	var callbackActive atomic.Bool
+	var overlapDetected atomic.Bool
+
+	checkOverlap := func() {
+		if !callbackActive.CompareAndSwap(false, true) {
+			overlapDetected.Store(true)
+			return
+		}
+		time.Sleep(100 * time.Microsecond) // Brief hold to widen race window
+		callbackActive.Store(false)
+	}
+
+	mgr.SetCallbacks(Callbacks{
+		OnSleep: func() error {
+			checkOverlap()
+			return nil
+		},
+		OnWake: func() error {
+			checkOverlap()
+			return nil
+		},
+	})
+
+	var wg sync.WaitGroup
+	const goroutines = 20
+	const iterations = 50
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				if id%2 == 0 {
+					mgr.Sleep()
+				} else {
+					mgr.Wake()
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if overlapDetected.Load() {
+		t.Error("detected concurrent callback execution (Sleep/Wake overlap)")
+	}
+
+	// Final state must be valid
+	state := mgr.GetState()
+	if state != StateAwake && state != StateSleeping {
+		t.Errorf("final state = %v, want Awake or Sleeping", state)
+	}
+}
+
+// TestManager_ConcurrentWakeWake verifies that when multiple goroutines
+// call Wake() concurrently, OnWake is called exactly once.
+func TestManager_ConcurrentWakeWake(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.SleepConfig{
+		Enabled:            true,
+		PollInterval:       1 * time.Hour,
+		PollIntervalJitter: 0,
+		PollDuration:       1 * time.Millisecond,
+		PersistState:       false,
+		MaxQueuedMessages:  100,
+	}
+	logger := logging.NewLogger("error", "text")
+
+	mgr := NewManager(cfg, tmpDir, logger)
+	defer mgr.Stop()
+
+	var wakeCount atomic.Int64
+
+	mgr.SetCallbacks(Callbacks{
+		OnSleep: func() error { return nil },
+		OnWake: func() error {
+			wakeCount.Add(1)
+			return nil
+		},
+	})
+
+	// Put to sleep first
+	if err := mgr.Sleep(); err != nil {
+		t.Fatalf("Sleep() error = %v", err)
+	}
+
+	// Concurrent wake attempts
+	var wg sync.WaitGroup
+	const goroutines = 10
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mgr.Wake()
+		}()
+	}
+
+	wg.Wait()
+
+	if count := wakeCount.Load(); count != 1 {
+		t.Errorf("OnWake called %d times, want exactly 1", count)
+	}
+
+	if mgr.GetState() != StateAwake {
+		t.Errorf("final state = %v, want Awake", mgr.GetState())
+	}
+}
+
+// TestManager_ConcurrentSleepSleep verifies that when multiple goroutines
+// call Sleep() concurrently, OnSleep is called exactly once.
+func TestManager_ConcurrentSleepSleep(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := config.SleepConfig{
+		Enabled:            true,
+		PollInterval:       1 * time.Hour,
+		PollIntervalJitter: 0,
+		PollDuration:       1 * time.Millisecond,
+		PersistState:       false,
+		MaxQueuedMessages:  100,
+	}
+	logger := logging.NewLogger("error", "text")
+
+	mgr := NewManager(cfg, tmpDir, logger)
+	defer mgr.Stop()
+
+	var sleepCount atomic.Int64
+	var nilErrors atomic.Int64
+
+	mgr.SetCallbacks(Callbacks{
+		OnSleep: func() error {
+			sleepCount.Add(1)
+			return nil
+		},
+		OnWake: func() error { return nil },
+	})
+
+	// Concurrent sleep attempts from awake state
+	var wg sync.WaitGroup
+	const goroutines = 10
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := mgr.Sleep(); err == nil {
+				nilErrors.Add(1)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if count := sleepCount.Load(); count != 1 {
+		t.Errorf("OnSleep called %d times, want exactly 1", count)
+	}
+
+	if count := nilErrors.Load(); count != 1 {
+		t.Errorf("%d goroutines returned nil error, want exactly 1", count)
+	}
+
+	if mgr.GetState() != StateSleeping {
+		t.Errorf("final state = %v, want Sleeping", mgr.GetState())
 	}
 }
