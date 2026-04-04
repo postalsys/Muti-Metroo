@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v3.0.0...muti-metroo-v3.0.1) (2026-04-04)
+
+
+### Bug Fixes
+
+* resolve shell stream ordering races with sequential frame dispatch ([75a0ec4](https://github.com/postalsys/Muti-Metroo/commit/75a0ec4d398a60ed1b40e0d040e7932a2dd1b0bd))
+
 ## [3.0.0](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v2.22.0...muti-metroo-v3.0.0) (2026-02-26)
 
 
