@@ -302,11 +302,13 @@ func (m *Manager) readLoop(conn *Connection) {
 				conn.UpdateRTT(ka.Timestamp)
 			}
 		default:
-			// Pass to callback asynchronously to prevent blocking the read loop.
-			// A blocked write in a frame handler (e.g., control response send) would
-			// otherwise freeze the read loop, causing cascading deadlocks.
-			if conn.onFrame != nil {
-				go conn.onFrame(conn, frame)
+			// Send to sequential frame processor via buffered channel.
+			// This preserves frame ordering while keeping the read loop
+			// non-blocking (channel has 256-frame buffer).
+			select {
+			case conn.frameCh <- frame:
+			case <-conn.Done():
+				return
 			}
 		}
 	}

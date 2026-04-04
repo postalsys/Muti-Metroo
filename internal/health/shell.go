@@ -169,7 +169,6 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 				return
 			}
 
-			// Forward to shell session
 			select {
 			case session.Send <- data:
 			case <-sessionCtx.Done():
@@ -186,15 +185,9 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 		defer wg.Done()
 		defer cancel()
 		for {
-			// First check if context is cancelled
 			select {
 			case <-sessionCtx.Done():
 				return
-			default:
-			}
-
-			// Try to read data first (prioritize data over Done to drain buffer)
-			select {
 			case data, ok := <-session.Receive:
 				if !ok {
 					return
@@ -202,30 +195,17 @@ func (s *Server) handleShellWebSocket(w http.ResponseWriter, r *http.Request, ta
 				if err := conn.Write(sessionCtx, websocket.MessageBinary, data); err != nil {
 					return
 				}
-			default:
-				// No data available, now check if session is done
-				select {
-				case <-sessionCtx.Done():
-					return
-				case data, ok := <-session.Receive:
-					if !ok {
-						return
-					}
-					if err := conn.Write(sessionCtx, websocket.MessageBinary, data); err != nil {
-						return
-					}
-				case <-session.Done:
-					// Drain any remaining data in receive buffer before exiting
-					for {
-						select {
-						case data, ok := <-session.Receive:
-							if !ok {
-								return
-							}
-							conn.Write(sessionCtx, websocket.MessageBinary, data)
-						default:
+			case <-session.Done:
+				// Drain remaining data before exiting.
+				for {
+					select {
+					case data, ok := <-session.Receive:
+						if !ok {
 							return
 						}
+						conn.Write(sessionCtx, websocket.MessageBinary, data)
+					default:
+						return
 					}
 				}
 			}

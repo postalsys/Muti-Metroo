@@ -80,6 +80,9 @@ type Connection struct {
 	closed    chan struct{}
 	ready     chan struct{} // Closed when handshake completes and reader/writer are set
 
+	// Frame processing
+	frameCh chan *protocol.Frame // Sequential frame dispatch channel
+
 	// Callbacks
 	onFrame      func(*Connection, *protocol.Frame)
 	onDisconnect func(*Connection, error)
@@ -118,6 +121,7 @@ func NewConnection(conn transport.PeerConn, cfg ConnectionConfig) *Connection {
 		cancel:       cancel,
 		closed:       make(chan struct{}),
 		ready:        make(chan struct{}),
+		frameCh:      make(chan *protocol.Frame, 256),
 		onFrame:      cfg.OnFrame,
 		onDisconnect: cfg.OnDisconnect,
 	}
@@ -125,7 +129,27 @@ func NewConnection(conn transport.PeerConn, cfg ConnectionConfig) *Connection {
 	c.state.Store(int32(StateHandshaking))
 	c.updateActivity()
 
+	go c.processFrames()
+
 	return c
+}
+
+// processFrames processes frames sequentially from the channel.
+// This preserves frame ordering per connection, preventing races
+// where STREAM_CLOSE is processed before STREAM_DATA.
+func (c *Connection) processFrames() {
+	for frame := range c.frameCh {
+		if c.onFrame != nil {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// Don't let a panic in one frame handler kill the processor
+					}
+				}()
+				c.onFrame(c, frame)
+			}()
+		}
+	}
 }
 
 // State returns the current connection state.
@@ -266,6 +290,7 @@ func (c *Connection) Close() error {
 		}
 		err = c.conn.Close()
 		close(c.closed)
+		close(c.frameCh)
 	})
 	return err
 }

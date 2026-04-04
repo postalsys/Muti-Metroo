@@ -313,10 +313,17 @@ func (c *Client) pumpOutput(ctx context.Context) {
 
 		_, data, err := c.conn.Read(ctx)
 		if err != nil {
-			if websocket.CloseStatus(err) == websocket.StatusNormalClosure {
-				return
+			// Normal closure or EOF after MsgExit: clean shutdown.
+			// Otherwise: record the error for the caller.
+			select {
+			case <-c.done:
+				// MsgExit already received
+			default:
+				if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+					c.setError(err)
+				}
+				close(c.done)
 			}
-			c.setError(err)
 			return
 		}
 

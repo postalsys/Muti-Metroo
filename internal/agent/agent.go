@@ -5558,7 +5558,6 @@ func (a *Agent) handleShellClientClose(streamID uint64) bool {
 	}
 
 	a.logger.Debug("handleShellClientClose: closing adapter", logging.KeyStreamID, streamID)
-	// Close adapter (closeFunc will be a no-op since we already removed from map)
 	adapter.Close()
 	return true
 }
