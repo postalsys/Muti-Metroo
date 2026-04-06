@@ -69,6 +69,10 @@ type AgentChain struct {
 	ForwardEndpoints map[int][]config.ForwardEndpoint
 	// ForwardListeners maps agent index -> static forward listeners to declare on that agent.
 	ForwardListeners map[int][]config.ForwardListener
+	// ExitDomainRoutes, when non-empty, sets cfg.Exit.DomainRoutes on the exit node (D).
+	ExitDomainRoutes []string
+	// ExitDNSServers, when non-empty, sets cfg.Exit.DNS.Servers on the exit node (D).
+	ExitDNSServers []string
 }
 
 // CertPair holds TLS certificate and key file paths.
@@ -200,6 +204,15 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 		// Enable file transfer on exit node if configured
 		if c.FileTransferConfig != nil {
 			cfg.FileTransfer = *c.FileTransferConfig
+		}
+
+		// Apply per-test exit-domain config
+		if len(c.ExitDomainRoutes) > 0 {
+			cfg.Exit.DomainRoutes = c.ExitDomainRoutes
+		}
+		if len(c.ExitDNSServers) > 0 {
+			cfg.Exit.DNS.Servers = c.ExitDNSServers
+			cfg.Exit.DNS.Timeout = 2 * time.Second
 		}
 	}
 
@@ -347,6 +360,25 @@ func (c *AgentChain) WaitForForwardRoute(t *testing.T, key string, agentIdx int)
 	}
 
 	t.Logf("forward route %q did not propagate to agent %d within %v", key, agentIdx, timeout)
+	return false
+}
+
+// WaitForDomainRoute waits for at least one domain route to appear at the
+// agent at agentIdx. Returns true if a domain route is present within the
+// timeout.
+func (c *AgentChain) WaitForDomainRoute(t *testing.T, agentIdx int) bool {
+	timeout := 30 * time.Second
+	interval := 100 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		if len(c.Agents[agentIdx].GetDomainRouteDetails()) > 0 {
+			return true
+		}
+		time.Sleep(interval)
+	}
+
+	t.Logf("domain route did not propagate to agent %d within %v", agentIdx, timeout)
 	return false
 }
 

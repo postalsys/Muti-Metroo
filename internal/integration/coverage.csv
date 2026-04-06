@@ -47,10 +47,10 @@ Exit-CIDR,CIDR deny (rejection),Dial to non-allowed destination is refused,2,L,e
 Exit-CIDR,Multiple CIDR ranges,Several allowed CIDRs combined,2,L,exit_cidr::MultipleRanges,-,Full,Low,Already covered
 Exit-CIDR,Default route 0.0.0.0/0,Catch-all route works alongside specific routes,2,L,multi_transport::RouteLongestPrefixMatch,-,Partial,Low,LPM already validated
 Exit-CIDR,IPv6 CIDR routes,IPv6 destinations via ::/0 or specific v6 prefix,2,L,-,-,None,Med,IPv6 path likely untested
-Exit-Domain,Domain exact match,exit.domain_routes with example.com,2,M,-,-,None,High,Documented feature -- zero coverage
-Exit-Domain,Domain wildcard pattern,*.example.com matches subdomains,2,M,-,-,None,High,Documented feature -- zero coverage
-Exit-Domain,DNS resolved at exit,"Ingress sends domain string, exit resolves locally",2,M,-,-,None,High,Differentiator from CIDR mode -- untested
-Exit-Domain,Configurable DNS servers,exit.dns.servers + timeout used for resolution,2,L,-,-,None,Med,Untested
+Exit-Domain,Domain exact match,exit.domain_routes with example.com,2,M,exit_domain::ExactMatch,-,Full,High,Uses in-process DNS responder; ingress LookupDomain matches the propagated route and forwards the verbatim QNAME to the exit
+Exit-Domain,Domain wildcard pattern,*.example.com matches subdomains,2,M,exit_domain::Wildcard,-,Full,High,Two distinct subdomains share the same propagated *.test.example route end-to-end. Negative wildcard matching covered by routing/domain_test.go unit tests
+Exit-Domain,DNS resolved at exit,"Ingress sends domain string, exit resolves locally",2,M,exit_domain::DNSResolvedAtExit,-,Full,High,In-process UDP DNS responder counts queries to prove the exit (not ingress) issued the lookup
+Exit-Domain,Configurable DNS servers,exit.dns.servers + timeout used for resolution,2,L,exit_domain::DNSResolvedAtExit,-,Full,Med,Same test verifies the configured DNS server received the query and saw the expected QNAME
 Exit,Dial failure handling,Dial to unreachable address -> proper STREAM_OPEN_ERR,2,L,-,-,None,Med,Negative path
 Routing,Periodic advertisement,Routes re-flooded every advertise_interval,2,L,-,-,None,Low,Implicit; could explicitly assert timing
 Routing,Triggered advertisement (POST /routes/advertise),Manual trigger via HTTP API,2,L,-,T11,Full,Low,Covered in e2e
