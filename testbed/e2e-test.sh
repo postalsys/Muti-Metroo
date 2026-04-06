@@ -465,7 +465,7 @@ header "Test 11: Route Re-advertisement"
 if [ "$SKIP_SLEEP" = true ]; then
   skip "Route re-advertisement (--skip-sleep)"
 else
-  # Trigger route advertisement
+  # Trigger route advertisement on agent1 (sends its own local routes, if any)
   adv_resp=$(ccurl -X POST "http://localhost:8091/routes/advertise" 2>/dev/null || echo "")
   adv_ok=$(echo "$adv_resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print('ok' if d.get('status') == 'triggered' else 'no')" 2>/dev/null || echo "no")
   if [ "$adv_ok" = "ok" ]; then
@@ -474,16 +474,29 @@ else
     fail "Route advertisement trigger" "$adv_resp"
   fi
 
-  # Wait for propagation
-  sleep 5
+  # Routes are removed from agents when peers disconnect (during sleep), so
+  # they must re-propagate from agent6 (the exit/origin) back through the
+  # cascade after wake. Trigger advertise on the exit and intermediate agents
+  # to speed this up instead of waiting for the natural advertise interval.
+  for p in 8096 8095 8094 8093 8092; do
+    ccurl -X POST "http://localhost:${p}/routes/advertise" >/dev/null 2>&1 || true
+  done
 
-  # Verify routes still present
-  resp=$(ccurl "http://localhost:8091/healthz" 2>/dev/null || echo "")
-  rc=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('route_count',0))" 2>/dev/null || echo "0")
+  # Poll for routes to re-propagate (cascade through 4 hops takes a few seconds).
+  route_deadline=$((SECONDS + 30))
+  rc=0
+  while [ $SECONDS -lt $route_deadline ]; do
+    resp=$(ccurl "http://localhost:8091/healthz" 2>/dev/null || echo "")
+    rc=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('route_count',0))" 2>/dev/null || echo "0")
+    if [ "$rc" -gt 0 ]; then
+      break
+    fi
+    sleep 1
+  done
   if [ "$rc" -gt 0 ]; then
-    pass "Routes present after wake: route_count=${rc}"
+    pass "Routes re-propagated after wake: route_count=${rc}"
   else
-    fail "Routes lost after wake: route_count=0"
+    fail "Routes did not re-propagate within 30s"
   fi
 
   # Verify SOCKS5 still works after sleep/wake cycle
