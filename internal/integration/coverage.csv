@@ -1,6 +1,6 @@
 Category,Feature,Description,MinAgents,Complexity,GoIntegrationTests,E2EShellTests,Coverage,Priority,Notes
-Transport-QUIC,QUIC peer handshake (auto-cert),Two agents establish QUIC peer connection with auto-generated self-signed certs,2,L,"agent_chain::BasicConnectivity, chain::BasicConnectivity",T1-T2,Full,Low,Baseline -- exercised by every chain test
-Transport-QUIC,QUIC stream multiplexing,Many concurrent streams over a single QUIC connection,2,M,"agent_chain::LargeFileStream, chain::StreamLargeFile",T6,Full,Low,Implicit in chain tests
+Transport-QUIC,QUIC peer handshake (auto-cert),Two agents establish QUIC peer connection with auto-generated self-signed certs,2,L,"agent_chain::BasicConnectivity, agent_chain::StreamThroughMesh, chain::BasicConnectivity",T1-T2,Full,Low,Baseline -- exercised by every chain test
+Transport-QUIC,QUIC stream multiplexing,Many concurrent streams over a single QUIC connection,2,M,"agent_chain::LargeFileStream, chain::StreamLargeFile, chain::FullRelayStream",T6,Full,Low,Implicit in chain tests; FullRelayStream exercises a multi-MB relay across the chain
 Transport-QUIC,QUIC keepalive + idle handling,Keepalive frames keep idle connection alive past idle threshold,2,M,reconnect::*,-,Partial,Med,No explicit assertion that keepalives fire on schedule
 Transport-QUIC,QUIC custom ALPN,Connect with non-default protocol.alpn value (and with empty/disabled),2,L,-,-,None,Med,OPSEC feature -- never asserted in tests
 Transport-H2,H2 with TLS,HTTP/2 transport over TLS with default ALPN,2,M,"transport_relay::H2BidirectionalRelay, H2ConcurrentReadWrite, H2LargeDataTransfer",-,Full,Low,Single-listener tests cover the wire
@@ -8,7 +8,7 @@ Transport-H2,H2 plaintext (behind reverse proxy),H2 listener with plaintext: tru
 Transport-H2,H2 custom path,Listener path != /mesh,2,L,-,-,None,Low,Trivial but unverified
 Transport-H2,H2 custom protocol header,Custom http_header value (and disabled),2,L,-,-,None,Low,OPSEC customization
 Transport-H2,H2 TLS fingerprinting (uTLS preset),Client hello matches Chrome/Firefox/Safari etc fingerprint preset,2,M,-,-,None,Med,uTLS feature unique to this project
-Transport-WS,WS with TLS (wss://),WebSocket transport over TLS,2,M,"transport_relay::WSBidirectionalRelay, WSConcurrentReadWrite, WSLargeDataTransfer",-,Full,Low,Same coverage as H2
+Transport-WS,WS with TLS (wss://),WebSocket transport over TLS,2,M,"transport_relay::WSBidirectionalRelay, WSConcurrentReadWrite",-,Full,Low,Bidirectional + concurrent R/W only; no large-data variant exists for WS (H2 has one)
 Transport-WS,WS plaintext (ws:// behind reverse proxy),WS listener with plaintext: true; cleartext through nginx,2,M,-,-,None,High,Common production deployment pattern -- untested
 Transport-WS,WS custom path + subprotocol,Non-default path and ws_subprotocol values,2,L,-,-,None,Low,OPSEC customization
 Transport-WS,WS through HTTP CONNECT proxy (no auth),Peer dials wss:// through corporate http proxy,2,H,-,-,None,High,Documented feature with config example -- never tested
@@ -22,7 +22,7 @@ Transport-TLS,mTLS handshake (mutual auth),tls.mtls=true with valid client cert,
 Transport-TLS,mTLS rejection (missing client cert),Client connects without cert and is rejected,2,M,-,-,None,High,Security-critical -- untested
 Transport-TLS,Per-listener TLS override,Listener-level cert/key overrides global tls,2,L,-,-,None,Low,Trivial config path
 Transport-TLS,Per-peer TLS override,Peer-level CA/strict overrides global tls,2,L,-,-,None,Low,Trivial config path
-SOCKS5,TCP CONNECT no-auth,Anonymous SOCKS5 client through mesh,4,L,"agent_chain::SOCKS5Connectivity, socks5_auth::ThroughMesh",T5,Full,Low,Baseline
+SOCKS5,TCP CONNECT no-auth,Anonymous SOCKS5 client through mesh,4,L,"agent_chain::SOCKS5Connectivity, agent_chain::DialThroughMesh, socks5_auth::ThroughMesh",T5,Full,Low,Baseline; DialThroughMesh exercises Agent.DialContext (the SOCKS5 dialer interface) directly
 SOCKS5,Username/password auth (plaintext),SOCKS5 with users[].password (deprecated mode),2,L,socks5_auth::Authentication,-,Full,Low,Edge mode
 SOCKS5,Username/password auth (bcrypt),SOCKS5 with users[].password_hash; recommended,2,L,"socks5_auth::Authentication, AuthThroughMesh",-,Full,Low,Already covered
 SOCKS5,Auth invalid credentials rejection,Wrong password / wrong username -> auth fail,2,L,socks5_auth::Authentication,-,Full,Low,Already covered
