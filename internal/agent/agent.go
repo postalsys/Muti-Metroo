@@ -3528,6 +3528,22 @@ func (a *Agent) GetRoutes() []*routing.Route {
 	return a.routeMgr.Table().GetAllRoutes()
 }
 
+// LookupForwardRoute returns the best forward route for a key, or nil if none.
+func (a *Agent) LookupForwardRoute(key string) *routing.ForwardRoute {
+	return a.routeMgr.LookupForward(key)
+}
+
+// ForwardListenerAddress returns the bound address of the forward listener for the
+// given key, or nil if no such listener exists.
+func (a *Agent) ForwardListenerAddress(key string) net.Addr {
+	a.forwardListenersMu.RLock()
+	defer a.forwardListenersMu.RUnlock()
+	if listener, ok := a.forwardListeners[key]; ok {
+		return listener.Address()
+	}
+	return nil
+}
+
 // GetPeerIDs returns all connected peer IDs for debugging.
 func (a *Agent) GetPeerIDs() []identity.AgentID {
 	return a.peerMgr.GetPeerIDs()

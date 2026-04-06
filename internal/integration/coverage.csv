@@ -133,16 +133,16 @@ ICMP,E2E encrypted echoes,ChaCha20 wrapping of echo frames,2,H,-,-,None,Med,Cryp
 ICMP,Max sessions limit,Reject 101st session when max=100,2,L,-,-,None,Low,Limit
 ICMP,WebSocket /agents/{id}/icmp,Remote ICMP via WebSocket upgrade,2,H,-,-,None,High,Web UI path
 ICMP,Disabled state rejection,icmp.enabled=false returns error,2,L,-,-,None,Low,Negative path
-Forward,Endpoint registration,Static endpoint declared in config visible in mesh,2,M,-,-,None,High,Whole feature has zero integration coverage
-Forward,Listener registration,Static listener accepts connections,2,M,-,-,None,High,Whole feature has zero integration coverage
-Forward,End-to-end forwarding flow,Client -> listener -> endpoint -> local service,2,M,-,-,None,High,Most-requested user feature
-Forward,Multi-hop forward through mesh,Listener and endpoint on far ends of 4-hop chain,4,H,-,-,None,High,Validates routing for forwards
+Forward,Endpoint registration,Static endpoint declared in config visible in mesh,2,M,forward::StaticEndToEnd,-,Full,High,Verified by 4-hop chain test (route propagation from D to A)
+Forward,Listener registration,Static listener accepts connections,2,M,"forward::StaticEndToEnd, DynamicAddRemoveList",-,Full,High,Static via fixture; dynamic via /forward/manage
+Forward,End-to-end forwarding flow,Client -> listener -> endpoint -> local service,2,M,"forward::StaticEndToEnd, HalfClose, DynamicAddRemoveList",-,Full,High,Most-requested user feature
+Forward,Multi-hop forward through mesh,Listener and endpoint on far ends of 4-hop chain,4,H,forward::StaticEndToEnd,-,Full,High,Same test as 138 -- 4-hop chain by default
 Forward,E2E encryption on forward streams,X25519 between listener and endpoint,2,H,-,-,None,Med,Implicit in stream protocol but unverified for forward
-Forward,Max connections per listener,max_connections rejects overflow,2,L,-,-,None,Med,Limit
+Forward,Max connections per listener,max_connections rejects overflow,2,L,forward::MaxConnectionsLimit,-,Full,Med,Verifies limit=2 rejects 3rd connection
 Forward,Dynamic add/remove via CLI,muti-metroo forward add/remove/list,2,M,-,-,None,Med,CLI untested
-Forward,Dynamic add/remove via HTTP API,POST /forward/manage,2,M,-,-,None,Med,API untested
+Forward,Dynamic add/remove via HTTP API,POST /forward/manage,2,M,forward::DynamicAddRemoveList,-,Full,Med,Add/list/remove + traffic + negative remove
 Forward,Remote dynamic forward mgmt,/agents/{id}/forward/manage,2,M,-,-,None,Med,API untested
-Forward,Missing key error,Listener with no matching endpoint returns error,2,L,-,-,None,Low,Negative path
+Forward,Missing key error,Listener with no matching endpoint returns error,2,L,forward::MissingKeyError,-,Full,Low,Listener accepts but DialForward fails immediately
 HTTP-Health,GET /health 200,Liveness probe,1,L,-,T1,Full,Low,Covered in e2e
 HTTP-Health,GET /healthz JSON shape,Detailed JSON with peer/stream/route counts,1,L,-,T2,Partial,Low,e2e checks fields but Go side does not
 HTTP-Health,GET /ready,Readiness probe,1,L,-,-,None,Low,Untested

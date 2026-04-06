@@ -65,6 +65,10 @@ type AgentChain struct {
 	ShellConfig        *config.ShellConfig
 	FileTransferConfig *config.FileTransferConfig
 	EnableHTTP         bool // Enable HTTP server on agent A
+	// ForwardEndpoints maps agent index -> static forward endpoints to declare on that agent.
+	ForwardEndpoints map[int][]config.ForwardEndpoint
+	// ForwardListeners maps agent index -> static forward listeners to declare on that agent.
+	ForwardListeners map[int][]config.ForwardListener
 }
 
 // CertPair holds TLS certificate and key file paths.
@@ -213,6 +217,14 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 		}
 	}
 
+	// Apply per-agent forward endpoints/listeners (opt-in via fixture fields)
+	if eps, ok := c.ForwardEndpoints[i]; ok {
+		cfg.Forward.Endpoints = eps
+	}
+	if lns, ok := c.ForwardListeners[i]; ok {
+		cfg.Forward.Listeners = lns
+	}
+
 	return cfg
 }
 
@@ -317,6 +329,24 @@ func (c *AgentChain) WaitForRoutes(t *testing.T) bool {
 		stats := a.Stats()
 		t.Logf("Agent %d: %d peers, %d routes", i, stats.PeerCount, stats.RouteCount)
 	}
+	return false
+}
+
+// WaitForForwardRoute waits for a forward route with the given key to propagate to
+// the agent at agentIdx. Returns true if the route appears within the timeout.
+func (c *AgentChain) WaitForForwardRoute(t *testing.T, key string, agentIdx int) bool {
+	timeout := 30 * time.Second
+	interval := 100 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		if c.Agents[agentIdx].LookupForwardRoute(key) != nil {
+			return true
+		}
+		time.Sleep(interval)
+	}
+
+	t.Logf("forward route %q did not propagate to agent %d within %v", key, agentIdx, timeout)
 	return false
 }
 
