@@ -264,6 +264,12 @@ docker compose run test                       # Run tests in container
 
 **Exception: SSH client testing** - Run SSH client on the host machine, not in Docker containers: `ssh -o ProxyCommand='nc -x localhost:1080 %h %p' user@target-host`
 
+## Integration Tests
+
+Before writing or modifying integration tests, read `internal/integration/README.md` for the conventions (in-process Go tests vs Docker testbed, three-agent minimum for tunnel tests, topology choices, real-network requirement, no-flake policy).
+
+The live coverage matrix is in `internal/integration/coverage.csv` -- it tracks every testable feature with its current coverage status, priority, and the tests that cover it. When adding or extending a test, update the matching row.
+
 ## Code Style Guidelines
 
 - **ASCII only**: Do not use emojis or non-ASCII characters in code, comments, documentation, commit messages, or any other text files. Stick with ASCII characters only.
