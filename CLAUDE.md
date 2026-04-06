@@ -75,6 +75,16 @@ npm start          # Start dev server at http://localhost:3000
 npm run build      # Build for production
 ```
 
+### Docusaurus Dependency Policy
+
+Docusaurus produces a fully static site (HTML/CSS/JS deployed to https://mutimetroo.com) with no user-controlled input. Dependabot alerts on `docs/package-lock.json` and `user-manual/package-lock.json` are **out of scope**:
+
+- The static site has no exploit path for XSS, ReDoS, prototype pollution, or similar npm vulnerabilities
+- The actual product is the Go binary, which has its own (separate) Go module dependencies
+- We **intentionally hold back** Docusaurus and plugin updates because newer versions can break existing plugins and themes
+
+**Do not**: propose npm dependency upgrades for `docs/` or `user-manual/`, run `npm audit fix`, gate releases on these alerts, or flag them as production risks. When reviewing Dependabot alerts, only Go module (`gomod`) alerts are relevant.
+
 ### Deploying Documentation
 
 Documentation is hosted at https://mutimetroo.com via GitHub Pages. Automatically built and deployed by GitHub Actions on pushes to `docs/` on master, new releases, or manual workflow_dispatch.
