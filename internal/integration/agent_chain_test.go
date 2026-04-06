@@ -73,6 +73,10 @@ type AgentChain struct {
 	ExitDomainRoutes []string
 	// ExitDNSServers, when non-empty, sets cfg.Exit.DNS.Servers on the exit node (D).
 	ExitDNSServers []string
+	// HTTPConfigure, when non-nil, is invoked against the HTTP config on agent
+	// A after EnableHTTP defaults are applied. Use it to set TokenHash,
+	// Minimal, Pprof, Dashboard, or RemoteAPI without bloating the fixture.
+	HTTPConfigure func(*config.HTTPConfig)
 }
 
 // CertPair holds TLS certificate and key file paths.
@@ -227,6 +231,9 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 			cfg.HTTP.Address = "127.0.0.1:0" // Random port
 			remoteAPI := true
 			cfg.HTTP.RemoteAPI = &remoteAPI
+			if c.HTTPConfigure != nil {
+				c.HTTPConfigure(&cfg.HTTP)
+			}
 		}
 	}
 

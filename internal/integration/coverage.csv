@@ -166,14 +166,14 @@ HTTP-WebSocket,WS upgrade /agents/{id}/icmp,Remote ICMP session via WebSocket fr
 HTTP-File,POST /agents/{id}/file/upload,Multipart upload through HTTP API,2,M,file_transfer::*,-,Full,Low,Covered
 HTTP-File,POST /agents/{id}/file/download,Streaming download through HTTP API,2,M,file_transfer::*,-,Full,Low,Covered
 HTTP-File,POST /agents/{id}/file/browse,Filesystem browse on remote agent,2,M,-,-,None,Med,Endpoint untested
-HTTP-Auth,Bearer token via Authorization header,token_hash protects /api/* and /agents/*,1,L,-,-,None,High,Security-critical -- untested
-HTTP-Auth,Bearer token via ?token= query,Same auth via query string,1,L,-,-,None,Med,Untested
-HTTP-Auth,Health endpoints exempt from auth,/health /healthz /ready bypass token check,1,L,-,-,None,High,Negative test for auth bypass
-HTTP-Auth,Invalid token rejection,Wrong token returns 401,1,L,-,-,None,High,Untested
-HTTP-Auth,Minimal mode,http.minimal=true disables non-health endpoints,1,L,-,-,None,Med,OPSEC feature untested
-HTTP-Auth,Endpoint group toggle (pprof),http.pprof=false returns 404,1,L,-,-,None,Low,Untested
-HTTP-Auth,Endpoint group toggle (dashboard),http.dashboard=false returns 404,1,L,-,-,None,Low,Untested
-HTTP-Auth,Endpoint group toggle (remote_api),http.remote_api=false returns 404,1,L,-,-,None,Low,Untested
+HTTP-Auth,Bearer token via Authorization header,token_hash protects /api/* and /agents/*,1,L,http_auth::BearerHeaderAllowed,-,Full,High,End-to-end through agent.Agent + health.requireAuth middleware
+HTTP-Auth,Bearer token via ?token= query,Same auth via query string,1,L,http_auth::QueryTokenAllowed,-,Full,Med,Same fixture as BearerHeaderAllowed but with ?token= form
+HTTP-Auth,Health endpoints exempt from auth,/health /healthz /ready bypass token check,1,L,http_auth::HealthExempt,-,Full,High,Asserts /health /healthz /ready / /logo.png all bypass the bearer gate
+HTTP-Auth,Invalid token rejection,Wrong token returns 401,1,L,"http_auth::InvalidTokenRejected, http_auth::MissingTokenRejected",-,Full,High,Wrong token (header + query) and missing token both return 401
+HTTP-Auth,Minimal mode,http.minimal=true disables non-health endpoints,1,L,http_auth::MinimalMode,-,Full,Med,Asserts /api/dashboard 404 + /health 200
+HTTP-Auth,Endpoint group toggle (pprof),http.pprof=false returns 404,1,L,http_auth::PprofDisabled,-,Full,Low,Other endpoint groups remain available
+HTTP-Auth,Endpoint group toggle (dashboard),http.dashboard=false returns 404,1,L,http_auth::DashboardDisabled,-,Full,Low,Other endpoint groups remain available
+HTTP-Auth,Endpoint group toggle (remote_api),http.remote_api=false returns 404,1,L,http_auth::RemoteAPIDisabled,-,Full,Low,Other endpoint groups remain available
 HTTP-Auth,Disabled endpoint logging,Disabled endpoints log access at debug level,1,L,-,-,None,Low,Untested
 MgmtKey,Encrypted NodeInfo flooding,public_key set -> NodeInfo encrypted before flood,2,H,-,-,None,High,Whole feature has zero integration coverage
 MgmtKey,Encrypted route paths,AS-path encrypted before flood,2,H,-,-,None,High,Whole feature has zero integration coverage
