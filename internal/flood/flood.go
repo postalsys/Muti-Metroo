@@ -601,12 +601,14 @@ func (f *Flooder) WithdrawLocalRoutes() {
 
 // SendFullTable sends the full routing table to a newly connected peer.
 // Routes are grouped by origin agent and sent with their original path preserved.
-// Includes CIDR routes and agent presence routes.
+// Includes CIDR, domain, forward, and agent presence routes.
 func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 	fullRoutes := f.routeMgr.GetFullRoutesForAdvertise(peerID)
 	agentRoutes := f.routeMgr.AgentTable().GetAllRoutes()
+	forwardRoutes := f.routeMgr.ForwardTable().GetAllRoutes()
+	domainRoutes := f.routeMgr.DomainTable().GetAllRoutes()
 
-	if len(fullRoutes) == 0 && len(agentRoutes) == 0 {
+	if len(fullRoutes) == 0 && len(agentRoutes) == 0 && len(forwardRoutes) == 0 && len(domainRoutes) == 0 {
 		return
 	}
 
@@ -626,12 +628,38 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 		agentByOrigin[route.OriginAgent] = append(agentByOrigin[route.OriginAgent], route)
 	}
 
+	// Group forward routes by origin agent
+	forwardByOrigin := make(map[identity.AgentID][]*routing.ForwardRoute)
+	for _, route := range forwardRoutes {
+		// Don't send routes learned from the peer we're sending to
+		if route.NextHop == peerID {
+			continue
+		}
+		forwardByOrigin[route.OriginAgent] = append(forwardByOrigin[route.OriginAgent], route)
+	}
+
+	// Group domain routes by origin agent
+	domainByOrigin := make(map[identity.AgentID][]*routing.DomainRoute)
+	for _, route := range domainRoutes {
+		// Don't send routes learned from the peer we're sending to
+		if route.NextHop == peerID {
+			continue
+		}
+		domainByOrigin[route.OriginAgent] = append(domainByOrigin[route.OriginAgent], route)
+	}
+
 	// Collect all origin agents
 	allOrigins := make(map[identity.AgentID]struct{})
 	for id := range byOrigin {
 		allOrigins[id] = struct{}{}
 	}
 	for id := range agentByOrigin {
+		allOrigins[id] = struct{}{}
+	}
+	for id := range forwardByOrigin {
+		allOrigins[id] = struct{}{}
+	}
+	for id := range domainByOrigin {
 		allOrigins[id] = struct{}{}
 	}
 
@@ -641,8 +669,10 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 
 		cidrRoutes := byOrigin[originAgent]
 		agentPresenceRoutes := agentByOrigin[originAgent]
+		forwardOriginRoutes := forwardByOrigin[originAgent]
+		domainOriginRoutes := domainByOrigin[originAgent]
 
-		routes := make([]protocol.Route, 0, len(cidrRoutes)+len(agentPresenceRoutes))
+		routes := make([]protocol.Route, 0, len(cidrRoutes)+len(agentPresenceRoutes)+len(forwardOriginRoutes)+len(domainOriginRoutes))
 		for _, r := range cidrRoutes {
 			routes = append(routes, routeToProtocol(r))
 		}
@@ -654,15 +684,40 @@ func (f *Flooder) SendFullTable(peerID identity.AgentID) {
 				Metric:        r.Metric,
 			})
 		}
+		for _, r := range forwardOriginRoutes {
+			routes = append(routes, protocol.Route{
+				AddressFamily: protocol.AddrFamilyForward,
+				PrefixLength:  0,
+				Prefix:        protocol.EncodeForwardKeyWithTarget(r.Key, r.Target),
+				Metric:        r.Metric,
+			})
+		}
+		for _, r := range domainOriginRoutes {
+			prefixLen := uint8(0)
+			if r.IsWildcard {
+				prefixLen = 1
+			}
+			routes = append(routes, protocol.Route{
+				AddressFamily: protocol.AddrFamilyDomain,
+				PrefixLength:  prefixLen,
+				Prefix:        protocol.EncodeDomainPrefix(r.Pattern),
+				Metric:        r.Metric,
+			})
+		}
 
 		// Use the path from the first available route
 		// Prepend ourselves to the path
 		var path []identity.AgentID
-		if len(cidrRoutes) > 0 && len(cidrRoutes[0].Path) > 0 {
+		switch {
+		case len(cidrRoutes) > 0 && len(cidrRoutes[0].Path) > 0:
 			path = append([]identity.AgentID{f.localID}, cidrRoutes[0].Path...)
-		} else if len(agentPresenceRoutes) > 0 && len(agentPresenceRoutes[0].Path) > 0 {
+		case len(agentPresenceRoutes) > 0 && len(agentPresenceRoutes[0].Path) > 0:
 			path = append([]identity.AgentID{f.localID}, agentPresenceRoutes[0].Path...)
-		} else {
+		case len(forwardOriginRoutes) > 0 && len(forwardOriginRoutes[0].Path) > 0:
+			path = append([]identity.AgentID{f.localID}, forwardOriginRoutes[0].Path...)
+		case len(domainOriginRoutes) > 0 && len(domainOriginRoutes[0].Path) > 0:
+			path = append([]identity.AgentID{f.localID}, domainOriginRoutes[0].Path...)
+		default:
 			path = []identity.AgentID{f.localID}
 		}
 
