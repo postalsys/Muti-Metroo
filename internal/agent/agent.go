@@ -4931,11 +4931,14 @@ func (a *Agent) DownloadFileStream(ctx context.Context, targetID identity.AgentI
 		"is_directory", responseMeta.IsDirectory,
 		"compressed", responseMeta.Compress)
 
-	// Create a stream reader that reads from the stream with E2E decryption
+	// Create a stream reader that reads from the stream with E2E decryption.
+	// Directories ship to the HTTP handler as raw gz(tar(...)) so the
+	// Content-Type: application/gzip header matches the body bytes; only
+	// regular file downloads have their gzip wrapper peeled off here.
 	reader := &streamReader{
 		stream:     s,
 		ctx:        ctx,
-		compressed: responseMeta.Compress,
+		compressed: responseMeta.Compress && !responseMeta.IsDirectory,
 		sessionKey: sessionKey,
 	}
 
@@ -5002,7 +5005,7 @@ func (r *streamReader) Read(p []byte) (int, error) {
 		data = plaintext
 	}
 
-	// If compressed and this is the first read, set up gzip reader
+	// If compressed and this is the first read, set up gzip reader.
 	if r.compressed && r.gzReader == nil {
 		// We need to create a gzip reader, but it needs an io.Reader
 		// Create a pipe to feed data to the gzip reader

@@ -4,6 +4,7 @@ package integration
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -114,50 +114,13 @@ func downloadDirectory(t *testing.T, agentAddr, targetID, remoteDir, localDir, p
 	return extractTarStream(resp.Body, localDir)
 }
 
-// extractTarStream extracts a plain tar archive from r into destDir.
-//
-// NOTE: The server's download handler advertises Content-Type: application/gzip
-// for directory downloads, but the `streamReader` in internal/agent/agent.go
-// already decompresses the gzip layer before the HTTP response body sees it --
-// so the body is actually plain tar. This helper therefore does NOT wrap with
-// gzip.NewReader. If the server is ever fixed to send what its Content-Type
-// header advertises, this test will fail loudly with an "invalid tar header"
-// error, which is the desired signal to update this helper.
+// extractTarStream is a thin wrapper around filetransfer.UntarDirectory used
+// by downloadDirectory. The download handler advertises Content-Type:
+// application/gzip and (since the streamReader directory fix) the body
+// actually contains gzip-wrapped tar, which is exactly what UntarDirectory
+// expects.
 func extractTarStream(r io.Reader, destDir string) error {
-	tr := tar.NewReader(r)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("tar read: %w", err)
-		}
-		target := filepath.Join(destDir, filepath.FromSlash(hdr.Name))
-		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)) {
-			return fmt.Errorf("tar entry escapes destDir: %s", hdr.Name)
-		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
-				return err
-			}
-			f.Close()
-		}
-	}
-	return nil
+	return filetransfer.UntarDirectory(r, destDir)
 }
 
 // dirFile describes an expected file in a directory tree: its relative
@@ -406,4 +369,89 @@ func TestFileTransfer_DirectoryPermissions(t *testing.T) {
 		t.Fatalf("downloadDirectory: %v", err)
 	}
 	assertDirTreeMatches(t, tree, readDirTree(t, roundTripped), true)
+}
+
+// TestFileTransfer_DirectoryDownload_ContentTypeIsGzip is a regression test
+// for the bug where the download handler advertised Content-Type:
+// application/gzip but the streamReader inline-decompressed the gzip layer,
+// leaving the HTTP body as plain tar. The fix preserves the gzip wrapper for
+// directory transfers so the header and body agree.
+func TestFileTransfer_DirectoryDownload_ContentTypeIsGzip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	chain := startFileTransferChain(t, &config.FileTransferConfig{
+		Enabled:      true,
+		AllowedPaths: []string{tmpDir},
+	})
+	targetID := chain.Agents[3].ID().String()
+
+	source := filepath.Join(tmpDir, "ct-test")
+	writeDirTree(t, source, []dirFile{
+		{"a.txt", []byte("hello"), 0o644},
+	})
+
+	reqBody, err := json.Marshal(downloadRequest{Path: source})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	url := fmt.Sprintf("http://%s/agents/%s/file/download", chain.HTTPAddrs[0], targetID)
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("download request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status %d: %s", resp.StatusCode, body)
+	}
+	if got := resp.Header.Get("Content-Type"); got != "application/gzip" {
+		t.Errorf("Content-Type = %q, want application/gzip", got)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if len(body) < 2 || body[0] != 0x1f || body[1] != 0x8b {
+		head := body
+		if len(head) > 8 {
+			head = head[:8]
+		}
+		t.Fatalf("body does not start with gzip magic 0x1f 0x8b; first bytes = %x", head)
+	}
+
+	// Sanity: the body really is a valid gzip-wrapped tar containing our file.
+	gzr, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("body is not gzip: %v", err)
+	}
+	defer gzr.Close()
+	tr := tar.NewReader(gzr)
+	var foundFile bool
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("tar read: %v", err)
+		}
+		if filepath.Base(hdr.Name) == "a.txt" {
+			foundFile = true
+		}
+	}
+	if !foundFile {
+		t.Error("a.txt not found in extracted tar")
+	}
 }
