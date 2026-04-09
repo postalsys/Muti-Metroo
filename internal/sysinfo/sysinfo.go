@@ -122,12 +122,17 @@ type ShellConfig struct {
 	Enabled bool
 }
 
+// ICMPConfig contains ICMP echo configuration for node info advertisements.
+type ICMPConfig struct {
+	Enabled bool
+}
+
 // Collect gathers local system information and returns a NodeInfo struct.
 //
 // The peers parameter contains current peer connection details to include in the advertisement.
 // The publicKey parameter is the agent's X25519 public key for E2E encryption.
 // Optional config parameters can be nil if the corresponding feature is not configured.
-func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte, udpConfig *UDPConfig, forwardConfig *ForwardConfig, fileTransferConfig *FileTransferConfig, shellConfig *ShellConfig) *protocol.NodeInfo {
+func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey [protocol.EphemeralKeySize]byte, udpConfig *UDPConfig, forwardConfig *ForwardConfig, fileTransferConfig *FileTransferConfig, shellConfig *ShellConfig, icmpConfig *ICMPConfig) *protocol.NodeInfo {
 	hostname, _ := os.Hostname()
 
 	info := &protocol.NodeInfo{
@@ -157,6 +162,10 @@ func Collect(displayName string, peers []protocol.PeerConnectionInfo, publicKey 
 	if shellConfig != nil && shellConfig.Enabled {
 		info.ShellEnabled = true
 		info.Shells = cachedShells
+	}
+
+	if icmpConfig != nil {
+		info.IcmpEnabled = icmpConfig.Enabled
 	}
 
 	return info

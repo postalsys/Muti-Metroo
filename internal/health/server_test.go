@@ -573,6 +573,60 @@ func TestPopulateNodeInfo(t *testing.T) {
 			t.Errorf("DisplayName = %q, want %q", agent.DisplayName, "custom-name")
 		}
 	})
+
+	t.Run("hides shell, file transfer, and icmp for local agent", func(t *testing.T) {
+		// The local agent's HTTP API cannot route /agents/{self}/shell,
+		// /agents/{self}/file/*, or /agents/{self}/icmp through the mesh,
+		// so these capabilities are reported as disabled even when actually
+		// enabled in config.
+		agent := &TopologyAgentInfo{
+			ShortID:     "abc123",
+			DisplayName: "abc123",
+			IsLocal:     true,
+		}
+		nodeInfo := &protocol.NodeInfo{
+			ShellEnabled:        true,
+			FileTransferEnabled: true,
+			IcmpEnabled:         true,
+		}
+
+		populateNodeInfo(agent, nodeInfo)
+
+		if agent.ShellEnabled {
+			t.Error("ShellEnabled must be false for local agent (cannot loop back through mesh)")
+		}
+		if agent.FileTransferEnabled {
+			t.Error("FileTransferEnabled must be false for local agent (cannot loop back through mesh)")
+		}
+		if agent.IcmpEnabled {
+			t.Error("IcmpEnabled must be false for local agent (cannot loop back through mesh)")
+		}
+	})
+
+	t.Run("preserves shell, file transfer, and icmp for remote agent", func(t *testing.T) {
+		agent := &TopologyAgentInfo{
+			ShortID:     "abc123",
+			DisplayName: "abc123",
+			IsLocal:     false,
+		}
+		nodeInfo := &protocol.NodeInfo{
+			ShellEnabled:        true,
+			FileTransferEnabled: true,
+			IcmpEnabled:         true,
+		}
+
+		populateNodeInfo(agent, nodeInfo)
+
+		if !agent.ShellEnabled {
+			t.Error("ShellEnabled should be true for remote agent")
+		}
+		if !agent.FileTransferEnabled {
+			t.Error("FileTransferEnabled should be true for remote agent")
+		}
+		if !agent.IcmpEnabled {
+			t.Error("IcmpEnabled should be true for remote agent")
+		}
+	})
 }
 
 func TestBuildAgentRoles(t *testing.T) {

@@ -1041,6 +1041,7 @@ type NodeInfo struct {
 	Shells              []string               // Available shells (e.g., ["bash", "sh", "zsh"])
 	FileTransferEnabled bool                   // File transfer enabled (for exit agents)
 	ShellEnabled        bool                   // Shell access enabled (for exit agents)
+	IcmpEnabled         bool                   // ICMP echo (ping) handler is running
 }
 
 // EncodeNodeInfo encodes just the NodeInfo portion to bytes.
@@ -1090,6 +1091,7 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 	}
 	size += 1 // FileTransferEnabled
 	size += 1 // ShellEnabled
+	size += 1 // IcmpEnabled
 
 	w := newBufferWriter(size)
 	w.writeString(info.DisplayName)
@@ -1135,6 +1137,9 @@ func EncodeNodeInfo(info *NodeInfo) []byte {
 
 	// ShellEnabled
 	w.writeBool(info.ShellEnabled)
+
+	// IcmpEnabled
+	w.writeBool(info.IcmpEnabled)
 
 	return w.bytes()
 }
@@ -1248,6 +1253,11 @@ func DecodeNodeInfo(buf []byte) (*NodeInfo, error) {
 	// ShellEnabled (optional - for backward compatibility with older agents)
 	if r.remaining() > 0 {
 		info.ShellEnabled = r.readBool()
+	}
+
+	// IcmpEnabled (optional - for backward compatibility with older agents)
+	if r.remaining() > 0 {
+		info.IcmpEnabled = r.readBool()
 	}
 
 	return info, nil

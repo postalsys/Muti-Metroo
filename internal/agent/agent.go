@@ -748,7 +748,7 @@ func (a *Agent) Start() error {
 		case <-a.stopCh:
 			return
 		}
-		info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+		info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig(), a.getICMPConfig())
 		a.flooder.AnnounceLocalNodeInfo(info)
 		a.logger.Debug("initial node info advertisement sent",
 			"display_name", info.DisplayName,
@@ -1796,7 +1796,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 			}
 
 			// Collect and announce local node info with current peer connections
-			info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+			info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig(), a.getICMPConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("periodic node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -1804,7 +1804,7 @@ func (a *Agent) nodeInfoAdvertiseLoop() {
 				"peers", len(info.Peers))
 		case <-a.nodeInfoAdvertiseCh:
 			// Triggered re-advertisement (e.g., after dynamic forward listener change)
-			info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+			info := sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig(), a.getICMPConfig())
 			a.flooder.AnnounceLocalNodeInfo(info)
 			a.logger.Debug("triggered node info advertisement sent",
 				"display_name", info.DisplayName,
@@ -3593,7 +3593,7 @@ func (a *Agent) GetAllNodeInfo() map[identity.AgentID]*protocol.NodeInfo {
 
 // GetLocalNodeInfo returns local node info.
 func (a *Agent) GetLocalNodeInfo() *protocol.NodeInfo {
-	return sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig())
+	return sysinfo.Collect(a.displayNameForAdvertise(), a.getPeerConnectionInfo(), a.keypair.PublicKey, a.getUDPConfig(), a.getForwardConfig(), a.getFileTransferConfig(), a.getShellConfig(), a.getICMPConfig())
 }
 
 // getUDPConfig returns the UDP configuration for node info advertisements.
@@ -3633,6 +3633,13 @@ func (a *Agent) getFileTransferConfig() *sysinfo.FileTransferConfig {
 func (a *Agent) getShellConfig() *sysinfo.ShellConfig {
 	return &sysinfo.ShellConfig{
 		Enabled: a.cfg.Shell.Enabled,
+	}
+}
+
+// getICMPConfig returns the ICMP configuration for node info advertisements.
+func (a *Agent) getICMPConfig() *sysinfo.ICMPConfig {
+	return &sysinfo.ICMPConfig{
+		Enabled: a.cfg.ICMP.Enabled,
 	}
 }
 

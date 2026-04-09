@@ -332,6 +332,7 @@ type TopologyAgentInfo struct {
 	Shells              []string `json:"shells,omitempty"`                // Available shells (e.g., ["bash", "sh"])
 	ShellEnabled        bool     `json:"shell_enabled,omitempty"`         // Shell access enabled
 	FileTransferEnabled bool     `json:"file_transfer_enabled,omitempty"` // File transfer enabled
+	IcmpEnabled         bool     `json:"icmp_enabled,omitempty"`          // ICMP echo (ping) enabled
 }
 
 // TopologyConnection represents a connection between two agents.
@@ -587,6 +588,12 @@ func calculateUptimeHours(startTime int64) float64 {
 }
 
 // populateNodeInfo fills in TopologyAgentInfo fields from NodeInfo.
+//
+// Shell, file transfer, and ICMP are reported as disabled when populating
+// the local agent's row: their /agents/{id}/... endpoints route through the
+// mesh, and the local agent has no mesh route to itself, so the client
+// holding this connection cannot use them against the local entry. Remote
+// agents in the same response are unaffected.
 func populateNodeInfo(agent *TopologyAgentInfo, nodeInfo *protocol.NodeInfo) {
 	if nodeInfo == nil {
 		return
@@ -606,11 +613,16 @@ func populateNodeInfo(agent *TopologyAgentInfo, nodeInfo *protocol.NodeInfo) {
 	if len(nodeInfo.Shells) > 0 {
 		agent.Shells = nodeInfo.Shells
 	}
-	if nodeInfo.ShellEnabled {
-		agent.ShellEnabled = true
-	}
-	if nodeInfo.FileTransferEnabled {
-		agent.FileTransferEnabled = true
+	if !agent.IsLocal {
+		if nodeInfo.ShellEnabled {
+			agent.ShellEnabled = true
+		}
+		if nodeInfo.FileTransferEnabled {
+			agent.FileTransferEnabled = true
+		}
+		if nodeInfo.IcmpEnabled {
+			agent.IcmpEnabled = true
+		}
 	}
 }
 
