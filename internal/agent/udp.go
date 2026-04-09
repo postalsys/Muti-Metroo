@@ -879,14 +879,16 @@ func (a *Agent) startUDPDestCleanupLoop() {
 }
 
 // cleanupIdleDestAssociations removes destination associations that have been
-// idle for too long. To minimize lock-holding time on hot paths, this scans
-// each ingress under an RLock to collect idle candidates, then performs the
-// per-entry teardown work (UDP_CLOSE send, map deletes) outside the scan.
+// idle for too long. The scan + per-ingress map removal happens under one
+// destMu.Lock so a concurrent getOrCreateDestAssociation cannot hand out a
+// dest we are about to close. No I/O happens under the lock; UDP_CLOSE
+// frames are sent after the lock is released.
 func (a *Agent) cleanupIdleDestAssociations() {
 	now := time.Now()
 
-	// Snapshot the ingress list under the global RLock so we don't hold it
-	// for the per-entry walk.
+	// Snapshot under RLock so we can acquire each ingress.destMu without
+	// holding the global lock (avoids lock-order inversion with the
+	// hot-path getOrCreateDestAssociation, which takes destMu first).
 	a.udpIngressMu.RLock()
 	ingressList := make([]*udpIngressAssociation, 0, len(a.udpIngressByBase))
 	for _, ingress := range a.udpIngressByBase {
@@ -895,56 +897,39 @@ func (a *Agent) cleanupIdleDestAssociations() {
 	a.udpIngressMu.RUnlock()
 
 	type idleCandidate struct {
-		key      string
 		dest     *udpDestAssociation
 		streamID uint64
 	}
 
 	for _, ingress := range ingressList {
-		// Collect idle candidates under RLock so the hot path can keep
-		// reading destAssocs while we scan.
-		ingress.destMu.RLock()
 		var candidates []idleCandidate
+		ingress.destMu.Lock()
 		for key, dest := range ingress.destAssocs {
 			dest.mu.RLock()
 			idle := now.Sub(dest.LastActivity) > ingress.idleTimeout
 			streamID := dest.StreamID
 			dest.mu.RUnlock()
 			if idle {
-				candidates = append(candidates, idleCandidate{key: key, dest: dest, streamID: streamID})
+				delete(ingress.destAssocs, key)
+				candidates = append(candidates, idleCandidate{dest: dest, streamID: streamID})
 			}
 		}
-		ingress.destMu.RUnlock()
+		ingress.destMu.Unlock()
 
 		if len(candidates) == 0 {
 			continue
 		}
 
-		// Send UDP_CLOSE frames outside any lock so a slow next-hop send
-		// does not block the ingress.
-		for _, c := range candidates {
-			a.closeDestAssociation(c.dest)
-		}
-
-		// Remove from the per-ingress map under Lock, double-checking that
-		// each entry is still the same dest (concurrent goroutines may have
-		// replaced or removed it between the snapshot and now).
-		ingress.destMu.Lock()
-		for _, c := range candidates {
-			if ingress.destAssocs[c.key] == c.dest {
-				delete(ingress.destAssocs, c.key)
-			}
-		}
-		ingress.destMu.Unlock()
-
-		// Batch the global-map deletes under one Lock acquisition.
 		a.udpIngressMu.Lock()
 		for _, c := range candidates {
 			delete(a.udpIngressByLocalStream, c.streamID)
 		}
 		a.udpIngressMu.Unlock()
 
+		// By this point the dest is unreachable via both indices, so no
+		// concurrent goroutine can race a datagram against the close.
 		for _, c := range candidates {
+			a.closeDestAssociation(c.dest)
 			a.logger.Debug("Cleaned up idle UDP destination association",
 				logging.KeyStreamID, c.streamID)
 		}

@@ -1324,6 +1324,120 @@ func TestAgent_cleanupFileTransferStream(t *testing.T) {
 	agent.cleanupFileTransferStream(99999)
 }
 
+// TestAgent_cleanupIdleDestAssociations_RemovesFromBothIndices verifies that
+// an idle UDP destination association is removed from both the per-ingress
+// destAssocs map and the agent-global udpIngressByLocalStream map. Regression
+// test for the race where a concurrent getOrCreateDestAssociation could
+// observe (and hand out) a dest that was on the cleanup chopping block.
+func TestAgent_cleanupIdleDestAssociations_RemovesFromBothIndices(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test")
+	if err != nil {
+		t.Fatalf("Create temp dir error: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := config.Default()
+	cfg.Agent.DataDir = tmpDir
+
+	agent, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ingress := &udpIngressAssociation{
+		BaseStreamID: 1,
+		destAssocs:   make(map[string]*udpDestAssociation),
+		idleTimeout:  100 * time.Millisecond,
+	}
+	nextHop, _ := identity.NewAgentID()
+	dest := &udpDestAssociation{
+		StreamID:     42,
+		OriginKey:    "origin1",
+		NextHop:      nextHop,
+		LastActivity: time.Now().Add(-1 * time.Hour), // far past => idle
+		PendingOpen:  make(chan struct{}),
+	}
+	close(dest.PendingOpen) // mark "open complete" so it looks like a valid in-use dest
+	ingress.destAssocs["origin1"] = dest
+
+	agent.udpIngressMu.Lock()
+	agent.udpIngressByBase[1] = ingress
+	agent.udpIngressByLocalStream[42] = &udpDestLookup{Ingress: ingress, Dest: dest}
+	agent.udpIngressMu.Unlock()
+
+	agent.cleanupIdleDestAssociations()
+
+	// Both indices must have dropped the dest.
+	ingress.destMu.RLock()
+	_, perIngressExists := ingress.destAssocs["origin1"]
+	ingress.destMu.RUnlock()
+	if perIngressExists {
+		t.Error("dest should have been removed from ingress.destAssocs")
+	}
+
+	agent.udpIngressMu.RLock()
+	_, globalExists := agent.udpIngressByLocalStream[42]
+	agent.udpIngressMu.RUnlock()
+	if globalExists {
+		t.Error("dest should have been removed from udpIngressByLocalStream")
+	}
+}
+
+// TestAgent_cleanupIdleDestAssociations_KeepsActive verifies that a
+// destination association whose LastActivity is recent is NOT removed.
+func TestAgent_cleanupIdleDestAssociations_KeepsActive(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-test")
+	if err != nil {
+		t.Fatalf("Create temp dir error: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := config.Default()
+	cfg.Agent.DataDir = tmpDir
+
+	agent, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ingress := &udpIngressAssociation{
+		BaseStreamID: 2,
+		destAssocs:   make(map[string]*udpDestAssociation),
+		idleTimeout:  1 * time.Hour,
+	}
+	nextHop, _ := identity.NewAgentID()
+	dest := &udpDestAssociation{
+		StreamID:     43,
+		OriginKey:    "origin2",
+		NextHop:      nextHop,
+		LastActivity: time.Now(), // active
+		PendingOpen:  make(chan struct{}),
+	}
+	close(dest.PendingOpen)
+	ingress.destAssocs["origin2"] = dest
+
+	agent.udpIngressMu.Lock()
+	agent.udpIngressByBase[2] = ingress
+	agent.udpIngressByLocalStream[43] = &udpDestLookup{Ingress: ingress, Dest: dest}
+	agent.udpIngressMu.Unlock()
+
+	agent.cleanupIdleDestAssociations()
+
+	ingress.destMu.RLock()
+	_, exists := ingress.destAssocs["origin2"]
+	ingress.destMu.RUnlock()
+	if !exists {
+		t.Error("active dest should not have been removed")
+	}
+
+	agent.udpIngressMu.RLock()
+	_, globalExists := agent.udpIngressByLocalStream[43]
+	agent.udpIngressMu.RUnlock()
+	if !globalExists {
+		t.Error("active dest should still be in udpIngressByLocalStream")
+	}
+}
+
 // Tests for ProcessFrame with ControlRequest
 func TestAgent_ProcessFrame_ControlRequest(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-test")
