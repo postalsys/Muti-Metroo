@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Test runner service
   test:
@@ -19,21 +17,20 @@ services:
       dockerfile: Dockerfile
     command: ["--version"]
 
-  # 6-agent mesh testbed with mixed transports
-  # Topology: A->B, B<-C, C->D, C<-E, E->F, D<-F
+  # 5-agent linear-chain mesh testbed with mixed transports.
   #
-  #     A (agent1)
-  #     |
-  #     v  QUIC
-  #     B (agent2) <--- C (agent3) ---> D (agent4)
-  #                H2        ^      WS       ^
-  #                          |               |
-  #                    QUIC  |               | WS
-  #                          |               |
-  #                    E (agent5) ---> F (agent6)
-  #                               H2
+  # Topology (left dials right; transport is the listener side's protocol):
+  #
+  #   agent1 --ws--> agent2 --h2--> agent3 --quic--> agent4 --ws--> agent5
+  #   (entry)        (transit)      (transit)        (transit)      (exit)
+  #
+  # Roles:
+  #   agent1: SOCKS5 ingress on host port 1090
+  #           Forward endpoint key="host-1337" -> host.docker.internal:1337
+  #   agent5: Exit (0.0.0.0/0)
+  #           Forward listener key="host-1337" on host port 2777
 
-  # Agent A: SOCKS5 ingress, connects to B via QUIC
+  # Agent 1: SOCKS5 ingress + forward endpoint, dials agent2 over WebSocket
   agent1:
     build:
       context: .
@@ -48,13 +45,13 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "1090:1080"   # SOCKS5
-      - "8091:8080"   # Health/Metrics
+      - "8091:8080"   # HTTP API
     networks:
       - mesh
     depends_on:
       - agent2
 
-  # Agent B: Transit hub, receives from A (QUIC) and C (H2)
+  # Agent 2: ws listener (for agent1), dials agent3 over h2
   agent2:
     build:
       context: .
@@ -66,11 +63,13 @@ services:
       - ./testbed/agent2/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "8092:8080"   # Health/Metrics
+      - "8092:8080"   # HTTP API
     networks:
       - mesh
+    depends_on:
+      - agent3
 
-  # Agent C: Central hub, connects to B (H2) and D (WS), receives from E (QUIC)
+  # Agent 3: h2 listener (for agent2), dials agent4 over QUIC
   agent3:
     build:
       context: .
@@ -82,14 +81,13 @@ services:
       - ./testbed/agent3/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "8093:8080"   # Health/Metrics
+      - "8093:8080"   # HTTP API
     networks:
       - mesh
     depends_on:
-      - agent2
       - agent4
 
-  # Agent D: Transit node, receives from C (WS) and F (WS)
+  # Agent 4: QUIC listener (for agent3), dials agent5 over WebSocket
   agent4:
     build:
       context: .
@@ -101,11 +99,13 @@ services:
       - ./testbed/agent4/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "8094:8080"   # Health/Metrics
+      - "8094:8080"   # HTTP API
     networks:
       - mesh
+    depends_on:
+      - agent5
 
-  # Agent E: Transit node, connects to C (QUIC) and F (H2)
+  # Agent 5: ws listener (for agent4), exit 0.0.0.0/0, forward listener
   agent5:
     build:
       context: .
@@ -117,40 +117,10 @@ services:
       - ./testbed/agent5/config.yaml:/app/config.yaml:ro
       - ./testbed/certs:/app/certs:ro
     ports:
-      - "8095:8080"   # Health/Metrics
-      - "2777:2777"   # Forward listener
+      - "8095:8080"   # HTTP API
+      - "2777:2777"   # Forward listener for key="host-1337"
     networks:
       - mesh
-    depends_on:
-      - agent3
-      - agent6
-
-  # Agent F: Exit node, connects to D (WS), receives from E (H2)
-  agent6:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: muti-metroo-agent6
-    hostname: agent6
-    volumes:
-      - ./testbed/agent6/data:/app/data
-      - ./testbed/agent6/config.yaml:/app/config.yaml:ro
-      - ./testbed/certs:/app/certs:ro
-    ports:
-      - "8096:8080"   # Health/Metrics
-    networks:
-      - mesh
-    depends_on:
-      - agent4
-
-  # Target server for testing
-  target:
-    image: nginx:alpine
-    container_name: muti-metroo-target
-    hostname: target
-    networks:
-      mesh:
-        ipv4_address: 172.28.0.100
 
 networks:
   mesh:
