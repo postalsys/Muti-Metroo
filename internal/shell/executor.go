@@ -323,6 +323,22 @@ func (s *Session) SignalDrainDone() {
 	}
 }
 
+// ForceCloseOutput closes the stdout and stderr ReadClosers held by this
+// session. This unblocks any goroutine currently blocked on a Read of
+// either pipe -- needed when the child has forked a grandchild that
+// inherits the pipe write end, so the parent's death no longer signals
+// EOF on the read end. Safe to call multiple times.
+func (s *Session) ForceCloseOutput() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stdout != nil {
+		_ = s.stdout.Close()
+	}
+	if s.stderr != nil {
+		_ = s.stderr.Close()
+	}
+}
+
 // Start starts the session command.
 func (s *Session) Start() error {
 	s.mu.Lock()

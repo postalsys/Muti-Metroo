@@ -475,38 +475,56 @@ func (h *Handler) pumpPTYOutput(ss *ShellStream) {
 	h.closeStream(ss)
 }
 
-// waitForExit waits for the session to exit and sends the exit code.
-func (h *Handler) waitForExit(ss *ShellStream) {
-	h.logger.Debug("waitForExit started", logging.KeyStreamID, ss.StreamID)
+// waitOrTimeout blocks on ch up to timeout, logging a warning at "what" if
+// the timeout fires before ch closes.
+func (h *Handler) waitOrTimeout(ch <-chan struct{}, timeout time.Duration, streamID uint64, what string) {
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+		h.logger.Warn(what, logging.KeyStreamID, streamID)
+	}
+}
 
+// waitForExit waits for the session to exit and sends the exit code.
+//
+// Pumps must drain BEFORE cmd.Wait runs: cmd.Wait closes the stdout/stderr
+// pipes and any unread buffered data is dropped (per os/exec docs). The
+// normal path is "child closes its end of the pipes -> pumps see EOF". A
+// child that forks a grandchild inheriting the pipe fds breaks that path,
+// so we also race the wait against session.Context().Done() and use
+// ForceCloseOutput as the escape hatch.
+func (h *Handler) waitForExit(ss *ShellStream) {
 	ss.mu.Lock()
 	session := ss.Session
 	ss.mu.Unlock()
 
 	if session == nil {
-		h.logger.Debug("waitForExit: session is nil", logging.KeyStreamID, ss.StreamID)
 		return
 	}
 
-	// Wait for pumpStdout / pumpStderr to drain the stdout and stderr pipes.
-	// They reach EOF when the child process exits and the kernel closes its
-	// pipe writers, so this is also our signal that the process is done.
-	// We must drain BEFORE letting cmd.Wait run; cmd.Wait closes the pipes
-	// and any unread buffered data is dropped (per os/exec docs).
-	h.logger.Debug("waitForExit: waiting for pumps to drain", logging.KeyStreamID, ss.StreamID)
-	ss.pumpsDone.Wait()
-	h.logger.Debug("waitForExit: pumps drained", logging.KeyStreamID, ss.StreamID)
+	pumpsDoneCh := make(chan struct{})
+	go func() {
+		ss.pumpsDone.Wait()
+		close(pumpsDoneCh)
+	}()
 
-	// Now safe to reap the process: tell the executor to call cmd.Wait,
-	// then wait for it to return so we can read the final exit code.
+	select {
+	case <-pumpsDoneCh:
+	case <-session.Context().Done():
+		session.ForceCloseOutput()
+		h.waitOrTimeout(pumpsDoneCh, 2*time.Second, ss.StreamID,
+			"waitForExit: pumps did not exit after force close")
+	}
+
+	// Reap the process. cmd.Wait on a killed process returns essentially
+	// immediately, so 500ms is generous; the backstop only exists to
+	// guarantee waitForExit always returns.
 	session.SignalDrainDone()
-	<-session.Done()
-	exitCode := session.ExitCode()
-	h.logger.Debug("waitForExit: session done", logging.KeyStreamID, ss.StreamID, "exit_code", exitCode)
+	h.waitOrTimeout(session.Done(), 500*time.Millisecond, ss.StreamID,
+		"waitForExit: cmd.Wait did not complete after drain")
 
-	h.sendExit(ss, exitCode)
+	h.sendExit(ss, session.ExitCode())
 	h.closeStream(ss)
-	h.logger.Debug("waitForExit: stream closed", logging.KeyStreamID, ss.StreamID)
 }
 
 // sendAck sends an ACK message.

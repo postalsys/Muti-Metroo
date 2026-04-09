@@ -305,6 +305,82 @@ func TestHandler_StreamSessionFlow(t *testing.T) {
 	handler.Close()
 }
 
+// TestHandler_StreamSession_GrandchildInheritsStdout verifies that a child
+// process which forks a grandchild inheriting stdout/stderr does NOT cause
+// waitForExit to hang. The session timeout fires, ctx cancels,
+// ForceCloseOutput unblocks the pumps, and the session ends within the
+// test deadline rather than waiting for the grandchild to exit naturally.
+//
+// Regression test for the pre-fix hang where pumpsDone.Wait() blocked
+// indefinitely because the grandchild kept the pipe write ends open.
+func TestHandler_StreamSession_GrandchildInheritsStdout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("daemonization syntax is platform-specific; skip on Windows")
+	}
+
+	writer := newMockDataWriter()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	exec := NewExecutor(Config{
+		Enabled:     true,
+		MaxSessions: 10,
+		Whitelist:   []string{"*"},
+		Timeout:     1 * time.Second, // ctx will cancel after ~1s
+	})
+
+	handler := NewHandler(exec, writer, logger)
+	defer handler.Close()
+
+	peerID := mustNewAgentID(t)
+	streamID := uint64(1)
+	requestID := uint64(1)
+
+	sessionKey := openStreamWithSessionKey(t, handler, peerID, streamID, requestID, false)
+
+	// `sh -c 'sleep 5 &'` backgrounds a 5s sleep that inherits stdout/stderr,
+	// then sh exits immediately. Without the fix, the pump goroutines would
+	// block on the inherited pipes for the full 5 seconds. With the fix, the
+	// session ctx cancels at ~1s, ForceCloseOutput unblocks the pumps, and
+	// MsgExit ships within ~2s.
+	meta := &ShellMeta{
+		Command: "sh",
+		Args:    []string{"-c", "sleep 5 &"},
+	}
+	metaMsg, _ := EncodeMeta(meta)
+	encryptedMeta, err := sessionKey.Encrypt(metaMsg)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	handler.HandleStreamData(peerID, streamID, encryptedMeta, 0)
+
+	// Use a 4s deadline. With the fix this fires at ~2s. Without the fix
+	// the pumps hang for the full 5s grandchild lifetime, which is over
+	// budget and the test fails. Pre- and post-fix outcomes are unambiguous.
+	deadline := time.Now().Add(4 * time.Second)
+	var exited bool
+	for time.Now().Before(deadline) {
+		for _, msg := range writer.getMessages() {
+			decrypted, err := sessionKey.Decrypt(msg.data)
+			if err != nil {
+				continue
+			}
+			msgType, _, _ := DecodeMessage(decrypted)
+			if msgType == MsgExit {
+				exited = true
+				break
+			}
+		}
+		if exited {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !exited {
+		t.Fatal("session did not produce MsgExit within 4s; pumps likely hung on inherited fds")
+	}
+}
+
 func TestHandler_HandleMetadataError(t *testing.T) {
 	writer := newMockDataWriter()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
