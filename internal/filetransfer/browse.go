@@ -266,7 +266,7 @@ func (h *StreamHandler) browseRoots() *BrowseResponse {
 	for _, p := range h.cfg.AllowedPaths {
 		if p == "*" {
 			return &BrowseResponse{
-				Roots:    []string{"/"},
+				Roots:    wildcardRoots(),
 				Wildcard: true,
 			}
 		}

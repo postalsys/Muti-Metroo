@@ -3,6 +3,7 @@ package filetransfer
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -342,8 +343,22 @@ func TestBrowseRoots_Wildcard(t *testing.T) {
 	if !resp.Wildcard {
 		t.Fatal("expected wildcard true")
 	}
-	if len(resp.Roots) != 1 || resp.Roots[0] != "/" {
-		t.Fatalf("expected roots [/], got %v", resp.Roots)
+	if len(resp.Roots) == 0 {
+		t.Fatal("expected at least one root, got none")
+	}
+	if runtime.GOOS == "windows" {
+		// Drives must look like "X:\" so the Manager UI can present them
+		// as a drive selector and navigate into each one independently.
+		// Returning a single "/" root would forever pin the user to C:.
+		for _, root := range resp.Roots {
+			if len(root) != 3 || root[1] != ':' || root[2] != '\\' {
+				t.Errorf("Windows root %q does not look like a drive letter (X:\\)", root)
+			}
+		}
+	} else {
+		if len(resp.Roots) != 1 || resp.Roots[0] != "/" {
+			t.Fatalf("expected roots [/], got %v", resp.Roots)
+		}
 	}
 }
 
