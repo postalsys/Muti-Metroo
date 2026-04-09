@@ -53,14 +53,6 @@ const directDialTimeout = 10 * time.Second
 // the startup delay (via Stop() or signal).
 var ErrInterrupted = errors.New("agent startup interrupted")
 
-// relayStream tracks a stream being relayed through this agent.
-type relayStream struct {
-	UpstreamPeer   identity.AgentID
-	UpstreamID     uint64 // Stream ID from upstream
-	DownstreamPeer identity.AgentID
-	DownstreamID   uint64 // Stream ID to downstream
-}
-
 // fileTransferStream tracks an active file transfer stream.
 type fileTransferStream struct {
 	StreamID     uint64
@@ -129,8 +121,36 @@ type Agent struct {
 	// UDP relay (for exit nodes)
 	udpHandler *udp.Handler
 
+	// UDP ingress association tracking (SOCKS5 client -> mesh).
+	// Per-agent (not package-global) so multiple agents in the same process
+	// do not share state -- this is essential for in-process integration tests
+	// and removes a class of cross-talk bugs in any embedded use of the agent
+	// package.
+	udpIngressMu            sync.RWMutex
+	udpIngressByBase        map[uint64]*udpIngressAssociation // SOCKS5 base stream ID -> ingress association
+	udpIngressByLocalStream map[uint64]*udpDestLookup         // local stream ID (allocated by us via conn.NextStreamID) -> parent + dest
+	udpNextBaseID           atomic.Uint64
+
+	// udpRelay tracks UDP associations being relayed through this agent.
+	// Per-agent for the same reason as the ingress maps above.
+	udpRelay *relayTable
+
 	// ICMP echo (for exit nodes)
 	icmpHandler *icmp.Handler
+
+	// icmpRelay tracks ICMP sessions being relayed through this agent.
+	// Per-agent (not package-global) for the same reason as the UDP maps:
+	// in-process embedded use of the agent package would otherwise share
+	// state across instances.
+	icmpRelay *relayTable
+
+	// ICMP ingress tracking (SOCKS5 ICMP ECHO -> mesh).
+	icmpIngressMu       sync.RWMutex
+	icmpIngressByStream map[uint64]*icmpIngressAssociation
+
+	// ICMP WebSocket session tracking (/agents/{id}/icmp).
+	icmpWSSessionMu       sync.RWMutex
+	icmpWSSessionByStream map[uint64]*icmpWebSocketSession
 
 	// Port forwarding
 	forwardHandler          *forward.Handler
@@ -139,11 +159,8 @@ type Agent struct {
 	dynamicForwardListeners map[string]struct{}          // keys of dynamic-only
 	configForwardListeners  map[string]struct{}          // keys of config-only
 
-	// Relay stream tracking
-	relayMu           sync.RWMutex
-	relayByUpstream   map[uint64]*relayStream // Upstream stream ID -> relay
-	relayByDownstream map[uint64]*relayStream // Downstream stream ID -> relay
-	nextRelayID       uint64
+	// tcpRelay tracks TCP streams being relayed through this agent.
+	tcpRelay *relayTable
 
 	// Control request tracking
 	controlMu        sync.RWMutex
@@ -233,12 +250,17 @@ func New(cfg *config.Config) (*Agent, error) {
 		forwardListeners:        make(map[string]*forward.Listener),
 		dynamicForwardListeners: make(map[string]struct{}),
 		configForwardListeners:  make(map[string]struct{}),
-		relayByUpstream:         make(map[uint64]*relayStream),
-		relayByDownstream:       make(map[uint64]*relayStream),
+		tcpRelay:                newRelayTable(),
+		udpRelay:                newRelayTable(),
+		icmpRelay:               newRelayTable(),
 		pendingControl:          make(map[uint64]*pendingControlRequest),
 		forwardedControl:        make(map[uint64]*forwardedControlRequest),
 		fileStreams:             make(map[uint64]*fileTransferStream),
 		shellClientStreams:      make(map[uint64]*health.ShellStreamAdapter),
+		udpIngressByBase:        make(map[uint64]*udpIngressAssociation),
+		udpIngressByLocalStream: make(map[uint64]*udpDestLookup),
+		icmpIngressByStream:     make(map[uint64]*icmpIngressAssociation),
+		icmpWSSessionByStream:   make(map[uint64]*icmpWebSocketSession),
 	}
 
 	// Initialize components
@@ -985,11 +1007,10 @@ func (a *Agent) handleIncomingConnection(peerConn transport.PeerConn) {
 		logging.KeyPeerID, conn.RemoteID.ShortString(),
 		logging.KeyRemoteAddr, conn.RemoteAddr())
 
-	// Send full routing table to new peer
-	a.flooder.SendFullTable(conn.RemoteID)
-
-	// Send all known node info to new peer
-	a.flooder.SendNodeInfoToNewPeer(conn.RemoteID)
+	// Note: SendFullTable / SendNodeInfoToNewPeer are now triggered from
+	// handlePeerConnected (peer manager OnPeerConnected callback), which
+	// fires for both this accept path and the ReconnectAll path used after
+	// sleep/wake.
 }
 
 // connectToPeer initiates a connection to a configured peer.
@@ -1168,11 +1189,10 @@ func (a *Agent) connectToPeer(cfg config.PeerConfig) {
 		logging.KeyAddress, cfg.Address,
 		logging.KeyTransport, cfg.Transport)
 
-	// Send full routing table to new peer
-	a.flooder.SendFullTable(conn.RemoteID)
-
-	// Send all known node info to new peer
-	a.flooder.SendNodeInfoToNewPeer(conn.RemoteID)
+	// Note: SendFullTable / SendNodeInfoToNewPeer are now triggered from
+	// handlePeerConnected (peer manager OnPeerConnected callback), which
+	// fires for both this dial path and the ReconnectAll path used after
+	// sleep/wake.
 }
 
 // Stop gracefully stops the agent.
@@ -1946,17 +1966,13 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 	downstreamID := conn.NextStreamID()
 
 	// Create relay entry
-	relay := &relayStream{
+	relay := &relayEntry{
 		UpstreamPeer:   peerID,
 		UpstreamID:     frame.StreamID,
 		DownstreamPeer: nextHop,
 		DownstreamID:   downstreamID,
 	}
-
-	a.relayMu.Lock()
-	a.relayByUpstream[frame.StreamID] = relay
-	a.relayByDownstream[downstreamID] = relay
-	a.relayMu.Unlock()
+	a.tcpRelay.Insert(relay)
 
 	// Update remaining path (remove the next hop)
 	newPath := open.RemainingPath[1:]
@@ -1979,10 +1995,7 @@ func (a *Agent) handleStreamOpen(peerID identity.AgentID, frame *protocol.Frame)
 
 	if err := a.peerMgr.SendToPeer(nextHop, fwdFrame); err != nil {
 		// Clean up relay entry on failure
-		a.relayMu.Lock()
-		delete(a.relayByUpstream, frame.StreamID)
-		delete(a.relayByDownstream, downstreamID)
-		a.relayMu.Unlock()
+		a.tcpRelay.Delete(relay)
 
 		// Send error back
 		errPayload := &protocol.StreamOpenErr{
@@ -2021,28 +2034,18 @@ func addressToString(addrType uint8, addr []byte) string {
 
 // handleStreamOpenAck processes a STREAM_OPEN_ACK.
 func (a *Agent) handleStreamOpenAck(peerID identity.AgentID, frame *protocol.Frame) {
-	// Check if this is a relay stream response - ACK comes from downstream
-	// Copy relay info under lock to avoid race with cleanup
-	a.relayMu.RLock()
-	relay := a.relayByDownstream[frame.StreamID]
-	var upstreamID uint64
-	var upstreamPeer, downstreamPeer identity.AgentID
-	if relay != nil {
-		upstreamID = relay.UpstreamID
-		upstreamPeer = relay.UpstreamPeer
-		downstreamPeer = relay.DownstreamPeer
-	}
-	a.relayMu.RUnlock()
-
-	// Verify ACK is from the expected downstream peer
-	if relay != nil && peerID == downstreamPeer {
+	// Check if this is a relay stream response - ACK comes from downstream.
+	// Relay entries are immutable once inserted, so reading fields after the
+	// LookupDownstream RLock returns is safe even though the entry could be
+	// removed concurrently.
+	if relay := a.tcpRelay.LookupDownstream(frame.StreamID); relay != nil && peerID == relay.DownstreamPeer {
 		// Forward ACK to upstream with upstream stream ID
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamOpenAck,
-			StreamID: upstreamID,
+			StreamID: relay.UpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(upstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
 		return
 	}
 
@@ -2063,16 +2066,7 @@ func (a *Agent) handleStreamOpenAck(peerID identity.AgentID, frame *protocol.Fra
 // handleStreamOpenErr processes a STREAM_OPEN_ERR.
 func (a *Agent) handleStreamOpenErr(peerID identity.AgentID, frame *protocol.Frame) {
 	// Check if this is a relay stream response - ERR comes from downstream
-	a.relayMu.Lock()
-	relay := a.relayByDownstream[frame.StreamID]
-
-	// Verify ERR is from the expected downstream peer
-	if relay != nil && peerID == relay.DownstreamPeer {
-		// Clean up relay entry
-		delete(a.relayByUpstream, relay.UpstreamID)
-		delete(a.relayByDownstream, frame.StreamID)
-		a.relayMu.Unlock()
-
+	if relay := a.tcpRelay.PopDownstreamFromPeer(frame.StreamID, peerID); relay != nil {
 		// Forward error to upstream with upstream stream ID
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamOpenErr,
@@ -2082,7 +2076,6 @@ func (a *Agent) handleStreamOpenErr(peerID identity.AgentID, frame *protocol.Fra
 		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
 		return
 	}
-	a.relayMu.Unlock()
 
 	errPayload, err := protocol.DecodeStreamOpenErr(frame.Payload)
 	if err != nil {
@@ -2103,52 +2096,36 @@ func (a *Agent) handleStreamOpenErr(peerID identity.AgentID, frame *protocol.Fra
 
 // handleStreamData processes stream data.
 func (a *Agent) handleStreamData(peerID identity.AgentID, frame *protocol.Frame) {
-	// Check if this is a relay stream - could be from upstream or downstream
+	// Check if this is a relay stream - could be from upstream or downstream.
 	// We must check both the stream ID AND the peer ID to determine direction,
-	// because upstream and downstream may use the same stream ID number
-	// Copy relay info under lock to avoid race with cleanup
-	a.relayMu.RLock()
-	upRelay := a.relayByUpstream[frame.StreamID]
-	downRelay := a.relayByDownstream[frame.StreamID]
-	var upDownstreamID uint64
-	var upDownstreamPeer, upUpstreamPeer identity.AgentID
-	var downUpstreamID uint64
-	var downDownstreamPeer, downUpstreamPeer identity.AgentID
-	if upRelay != nil {
-		upDownstreamID = upRelay.DownstreamID
-		upDownstreamPeer = upRelay.DownstreamPeer
-		upUpstreamPeer = upRelay.UpstreamPeer
-	}
-	if downRelay != nil {
-		downUpstreamID = downRelay.UpstreamID
-		downUpstreamPeer = downRelay.UpstreamPeer
-		downDownstreamPeer = downRelay.DownstreamPeer
-	}
-	a.relayMu.RUnlock()
+	// because the per-connection stream ID space means upstream and downstream
+	// may use the same numeric ID. Relay entries are immutable once inserted,
+	// so reading entry fields after the LookupBoth RLock returns is safe.
+	upRelay, downRelay := a.tcpRelay.LookupBoth(frame.StreamID)
 
 	// Check if data is from upstream (matches upRelay's upstream peer)
-	if upRelay != nil && peerID == upUpstreamPeer {
+	if upRelay != nil && peerID == upRelay.UpstreamPeer {
 		// Data from upstream, forward to downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamData,
-			StreamID: upDownstreamID,
+			StreamID: upRelay.DownstreamID,
 			Flags:    frame.Flags,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(upRelay.DownstreamPeer, fwdFrame)
 		return
 	}
 
 	// Check if data is from downstream (matches downRelay's downstream peer)
-	if downRelay != nil && peerID == downDownstreamPeer {
+	if downRelay != nil && peerID == downRelay.DownstreamPeer {
 		// Data from downstream, forward to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamData,
-			StreamID: downUpstreamID,
+			StreamID: downRelay.UpstreamID,
 			Flags:    frame.Flags,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(downRelay.UpstreamPeer, fwdFrame)
 		return
 	}
 
@@ -2191,45 +2168,20 @@ func (a *Agent) handleStreamClose(peerID identity.AgentID, frame *protocol.Frame
 		logging.KeyPeerID, peerID.ShortString(),
 		logging.KeyStreamID, frame.StreamID)
 
-	// Check if this is a relay stream - must check peerID to determine direction
-	a.relayMu.Lock()
-	upRelay := a.relayByUpstream[frame.StreamID]
-	downRelay := a.relayByDownstream[frame.StreamID]
-
-	// Check if close is from upstream
-	if upRelay != nil && peerID == upRelay.UpstreamPeer {
-		// Close from upstream, forward to downstream and clean up
-		delete(a.relayByUpstream, frame.StreamID)
-		delete(a.relayByDownstream, upRelay.DownstreamID)
-		a.relayMu.Unlock()
-
+	// Check if this is a relay stream - PopMatchingPeer atomically looks up,
+	// peer-disambiguates direction, and removes the entry under one Lock.
+	if entry, fromUpstream := a.tcpRelay.PopMatchingPeer(frame.StreamID, peerID); entry != nil {
+		dstPeer, dstID := entry.UpstreamPeer, entry.UpstreamID
+		if fromUpstream {
+			dstPeer, dstID = entry.DownstreamPeer, entry.DownstreamID
+		}
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamClose,
-			StreamID: upRelay.DownstreamID,
+			StreamID: dstID,
 		}
-		a.peerMgr.SendToPeer(upRelay.DownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(dstPeer, fwdFrame)
 		return
 	}
-
-	// Check if close is from downstream
-	if downRelay != nil && peerID == downRelay.DownstreamPeer {
-		a.logger.Debug("handleStreamClose: forwarding from downstream to upstream",
-			logging.KeyStreamID, frame.StreamID,
-			"upstream_id", downRelay.UpstreamID,
-			"upstream_peer", downRelay.UpstreamPeer.ShortString())
-		// Close from downstream, forward to upstream and clean up
-		delete(a.relayByUpstream, downRelay.UpstreamID)
-		delete(a.relayByDownstream, frame.StreamID)
-		a.relayMu.Unlock()
-
-		fwdFrame := &protocol.Frame{
-			Type:     protocol.FrameStreamClose,
-			StreamID: downRelay.UpstreamID,
-		}
-		a.peerMgr.SendToPeer(downRelay.UpstreamPeer, fwdFrame)
-		return
-	}
-	a.relayMu.Unlock()
 
 	// Check if this is an exit handler stream
 	if a.exitHandler != nil && a.exitHandler.GetConnection(frame.StreamID) != nil {
@@ -2270,43 +2222,21 @@ func (a *Agent) handleStreamReset(peerID identity.AgentID, frame *protocol.Frame
 		return
 	}
 
-	// Check if this is a relay stream - must check peerID to determine direction
-	a.relayMu.Lock()
-	upRelay := a.relayByUpstream[frame.StreamID]
-	downRelay := a.relayByDownstream[frame.StreamID]
-
-	// Check if reset is from upstream
-	if upRelay != nil && peerID == upRelay.UpstreamPeer {
-		// Reset from upstream, forward to downstream and clean up
-		delete(a.relayByUpstream, frame.StreamID)
-		delete(a.relayByDownstream, upRelay.DownstreamID)
-		a.relayMu.Unlock()
-
+	// Check if this is a relay stream - PopMatchingPeer atomically looks up,
+	// peer-disambiguates direction, and removes the entry under one Lock.
+	if entry, fromUpstream := a.tcpRelay.PopMatchingPeer(frame.StreamID, peerID); entry != nil {
+		dstPeer, dstID := entry.UpstreamPeer, entry.UpstreamID
+		if fromUpstream {
+			dstPeer, dstID = entry.DownstreamPeer, entry.DownstreamID
+		}
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameStreamReset,
-			StreamID: upRelay.DownstreamID,
+			StreamID: dstID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(upRelay.DownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(dstPeer, fwdFrame)
 		return
 	}
-
-	// Check if reset is from downstream
-	if downRelay != nil && peerID == downRelay.DownstreamPeer {
-		// Reset from downstream, forward to upstream and clean up
-		delete(a.relayByUpstream, downRelay.UpstreamID)
-		delete(a.relayByDownstream, frame.StreamID)
-		a.relayMu.Unlock()
-
-		fwdFrame := &protocol.Frame{
-			Type:     protocol.FrameStreamReset,
-			StreamID: downRelay.UpstreamID,
-			Payload:  frame.Payload,
-		}
-		a.peerMgr.SendToPeer(downRelay.UpstreamPeer, fwdFrame)
-		return
-	}
-	a.relayMu.Unlock()
 
 	// Check if this is an exit handler stream
 	if a.exitHandler != nil && a.exitHandler.GetConnection(frame.StreamID) != nil {
@@ -2803,7 +2733,16 @@ func (a *Agent) getLocalRoutes() ([]byte, bool) {
 }
 
 // handlePeerConnected is called when a peer connection is established.
-// It forwards any pending wake commands to the new peer.
+// It forwards any pending wake commands to the new peer and sends the full
+// routing table + node info so the peer learns about this side immediately.
+//
+// Sending here (rather than only from connectToPeer / handleIncomingConnection)
+// matters after sleep/wake: the peerMgr.ReconnectAll path used by exitSleep
+// goes directly through peer.Manager.connectWithTransport, which never goes
+// through the agent's per-config connectToPeer wrapper. Without this call,
+// reconnected peers would only learn each other's routes via the next
+// periodic advertise (default 2 minutes), which is too slow for tests and
+// causes a real-world recovery delay after wake.
 func (a *Agent) handlePeerConnected(conn *peer.Connection) {
 	peerID := conn.RemoteID
 
@@ -2813,6 +2752,13 @@ func (a *Agent) handlePeerConnected(conn *peer.Connection) {
 	// Forward any pending wake command to the new peer
 	if a.flooder != nil {
 		a.flooder.OnPeerConnected(peerID)
+
+		// Send the full routing table and node info so the peer can learn
+		// what we know. Idempotent on the receiving side (seen-cache dedupes
+		// duplicates), so it is safe even if connectToPeer / handleIncoming
+		// also call SendFullTable for the same connection.
+		a.flooder.SendFullTable(peerID)
+		a.flooder.SendNodeInfoToNewPeer(peerID)
 	}
 }
 
@@ -2837,20 +2783,7 @@ func (a *Agent) handlePeerDisconnect(conn *peer.Connection, err error) {
 
 // cleanupRelaysForPeer removes all relay entries involving the specified peer.
 func (a *Agent) cleanupRelaysForPeer(peerID identity.AgentID) {
-	a.relayMu.Lock()
-	defer a.relayMu.Unlock()
-
-	var cleaned int
-	for id, relay := range a.relayByUpstream {
-		if relay.UpstreamPeer == peerID || relay.DownstreamPeer == peerID {
-			// Remove from both maps
-			delete(a.relayByUpstream, id)
-			delete(a.relayByDownstream, relay.DownstreamID)
-			cleaned++
-		}
-	}
-
-	if cleaned > 0 {
+	if cleaned := a.tcpRelay.DeleteByPeer(peerID); cleaned > 0 {
 		a.logger.Debug("cleaned up relay streams",
 			logging.KeyPeerID, peerID.ShortString(),
 			logging.KeyCount, cleaned)
@@ -4550,9 +4483,19 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 		return fmt.Errorf("send metadata: %w", err)
 	}
 
-	// Brief check for immediate server rejection (e.g., file too large, path not allowed)
-	// Server validates metadata and may send error response before we start streaming
+	// Capture the stream reference now (before streaming) so we can read the
+	// server's response after the stream content. After STREAM_CLOSE arrives
+	// the manager removes the stream from its map, so a later GetStream call
+	// would return nil; the *Stream object remains valid via this captured
+	// reference and Read() correctly drains buffered data even on a closed
+	// stream.
 	s := a.streamMgr.GetStream(streamID)
+
+	// Brief check for immediate server rejection (e.g., file too large, path
+	// not allowed). This is an optimization to bail before streaming a large
+	// file -- it is best-effort and does not need to catch every rejection
+	// (the post-stream drain at the end of this function is the
+	// authoritative check).
 	if s != nil {
 		responseData, readErr := s.ReadWithTimeout(200 * time.Millisecond)
 		if readErr == nil && len(responseData) > 0 {
@@ -4651,15 +4594,38 @@ func (a *Agent) UploadFile(ctx context.Context, targetID identity.AgentID, local
 		"remote_path", remotePath,
 		"bytes_sent", written)
 
-	// Wait for stream to close (server sends STREAM_CLOSE on completion)
-	finalStream := a.streamMgr.GetStream(streamID)
-	if finalStream != nil {
+	// Wait for stream to close (server sends STREAM_CLOSE on completion or
+	// rejection). After close, drain any buffered response: the server may
+	// have sent encrypted error metadata before STREAM_CLOSE if validation
+	// or write failed. Without this drain we'd return success even when the
+	// server rejected the upload (a flaky test source for restricted-path
+	// and bad-password tests). We use the captured `s` reference because
+	// the manager removes the stream from its map on STREAM_CLOSE, so
+	// GetStream(streamID) here would return nil.
+	if s != nil {
 		select {
-		case <-finalStream.Done():
+		case <-s.Done():
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(30 * time.Second):
-			// Timeout waiting for close acknowledgement
+			return fmt.Errorf("timeout waiting for upload acknowledgement")
+		}
+
+		// Drain any buffered response (error metadata sent before STREAM_CLOSE).
+		// Read with a short timeout per chunk; on EOF / no-data we are done.
+		for {
+			respData, readErr := s.ReadWithTimeout(50 * time.Millisecond)
+			if readErr != nil || len(respData) == 0 {
+				break
+			}
+			decrypted, decErr := sessionKey.Decrypt(respData)
+			if decErr != nil {
+				continue
+			}
+			respMeta, parseErr := filetransfer.ParseMetadata(decrypted)
+			if parseErr == nil && respMeta.Error != "" {
+				return fmt.Errorf("remote error: %s", respMeta.Error)
+			}
 		}
 	}
 

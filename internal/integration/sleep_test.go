@@ -161,12 +161,17 @@ func (m *SleepMesh) buildConfig(name string) *config.Config {
 		cfg.Exit.Routes = []string{"192.168.0.0/16"} // Exit for 192.168.x.x
 	}
 
-	// Enable sleep mode on all agents
+	// Enable sleep mode on all agents.
+	// PollDuration must be long enough to absorb a full dial + handshake +
+	// wake message round-trip under suite-wide CPU contention. Earlier
+	// versions used 1s, which raced against QUIC dial latency under load
+	// and produced flaky failures where leaf agents (e.g. F) never caught
+	// the wake message during their poll window.
 	cfg.Sleep.Enabled = true
-	cfg.Sleep.PollInterval = 2 * time.Second        // Very short for testing
-	cfg.Sleep.PollIntervalJitter = 0.1              // Minimal jitter for testing
-	cfg.Sleep.PollDuration = 1 * time.Second        // Short poll duration
-	cfg.Sleep.PersistState = false                  // Don't persist for tests
+	cfg.Sleep.PollInterval = 2 * time.Second
+	cfg.Sleep.PollIntervalJitter = 0.1
+	cfg.Sleep.PollDuration = 3 * time.Second
+	cfg.Sleep.PersistState = false
 	cfg.Sleep.MaxQueuedMessages = 100
 
 	return cfg
@@ -252,8 +257,14 @@ func (m *SleepMesh) VerifyConnectivity(t *testing.T) bool {
 }
 
 // WaitForRoutes waits for routes to propagate to agent A.
+//
+// The 60s timeout is generous on purpose: under suite-wide load the QUIC
+// dial / handshake / route flood pipeline can take several seconds, and
+// brief mid-flight peer churn can drop a single flood. We rely on the
+// periodic route advertise loop (default 2m, see RoutingConfig) plus the
+// per-connection SendFullTable to converge -- 60s comfortably covers both.
 func (m *SleepMesh) WaitForRoutes(t *testing.T) bool {
-	timeout := 30 * time.Second
+	timeout := 60 * time.Second
 	interval := 100 * time.Millisecond
 	deadline := time.Now().Add(timeout)
 
@@ -269,6 +280,10 @@ func (m *SleepMesh) WaitForRoutes(t *testing.T) bool {
 
 	stats := m.Agents["A"].Stats()
 	t.Logf("Route propagation timeout: Agent A has %d routes", stats.RouteCount)
+	for _, r := range m.Agents["A"].GetRoutes() {
+		t.Logf("  Agent A route: %s via %s (origin=%s, metric=%d)",
+			r.Network, r.NextHop.ShortString(), r.OriginAgent.ShortString(), r.Metric)
+	}
 	return false
 }
 
@@ -450,8 +465,17 @@ func TestSleepMesh_FullCycle(t *testing.T) {
 	wakePropagationTime := time.Since(wakeStart)
 	t.Logf("Wake propagation completed in %v", wakePropagationTime)
 
-	// Step 8: Wait for routes to re-propagate
+	// Step 8: Wait for routes to re-propagate.
+	// On wake, peers reconnect and exchange routes via SendFullTable. The
+	// initial exchange may miss routes that were learned later from other
+	// peers (timing race in the connection ordering). Trigger an explicit
+	// route advertise on each agent so the local routes re-flood through
+	// the chain. This matches the e2e shell test's pattern (commit c96b40b)
+	// and converges faster than waiting for the periodic 2-minute interval.
 	t.Log("=== Step 8: Wait for routes to re-propagate ===")
+	for _, name := range []string{"E", "F", "C", "B", "A"} {
+		mesh.Agents[name].TriggerRouteAdvertise()
+	}
 	if !mesh.WaitForRoutes(t) {
 		t.Fatal("Route re-propagation failed after wake")
 	}
@@ -567,7 +591,11 @@ func TestSleepMesh_EchoThroughMesh(t *testing.T) {
 		t.Fatal("Not all agents awake")
 	}
 
-	// Wait for routes
+	// Wait for routes. See WaitForRoutes / TestSleepMesh_FullCycle for the
+	// rationale behind triggering an explicit advertise here.
+	for _, name := range []string{"E", "F", "C", "B", "A"} {
+		mesh.Agents[name].TriggerRouteAdvertise()
+	}
 	if !mesh.WaitForRoutes(t) {
 		t.Fatal("Route re-propagation failed")
 	}

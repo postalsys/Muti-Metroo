@@ -81,7 +81,8 @@ type Connection struct {
 	ready     chan struct{} // Closed when handshake completes and reader/writer are set
 
 	// Frame processing
-	frameCh chan *protocol.Frame // Sequential frame dispatch channel
+	frameCh    chan *protocol.Frame // Sequential frame dispatch channel (stream-ordered frames)
+	fastLaneCh chan *protocol.Frame // Parallel dispatch for unordered frames (UDP_DATAGRAM, ICMP_ECHO)
 
 	// Callbacks
 	onFrame      func(*Connection, *protocol.Frame)
@@ -107,6 +108,13 @@ func DefaultConnectionConfig(localID identity.AgentID) ConnectionConfig {
 	}
 }
 
+// fastLaneWorkerCount is the number of goroutines draining fastLaneCh per
+// connection. Unordered frames (UDP_DATAGRAM, ICMP_ECHO) take this fast
+// lane to avoid head-of-line blocking the stream-oriented frame processor.
+// 4 is enough to absorb bursty UDP/ICMP traffic without blowing up
+// goroutine counts on agents with many peers.
+const fastLaneWorkerCount = 4
+
 // NewConnection creates a new peer connection wrapper.
 func NewConnection(conn transport.PeerConn, cfg ConnectionConfig) *Connection {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -122,6 +130,7 @@ func NewConnection(conn transport.PeerConn, cfg ConnectionConfig) *Connection {
 		closed:       make(chan struct{}),
 		ready:        make(chan struct{}),
 		frameCh:      make(chan *protocol.Frame, 256),
+		fastLaneCh:   make(chan *protocol.Frame, 256),
 		onFrame:      cfg.OnFrame,
 		onDisconnect: cfg.OnDisconnect,
 	}
@@ -129,28 +138,34 @@ func NewConnection(conn transport.PeerConn, cfg ConnectionConfig) *Connection {
 	c.state.Store(int32(StateHandshaking))
 	c.updateActivity()
 
-	go c.processFrames()
+	// frameCh drains sequentially to preserve per-stream ordering
+	// (STREAM_CLOSE must not pass STREAM_DATA on the same stream).
+	// fastLaneCh drains in parallel because its frame types
+	// (UDP_DATAGRAM, ICMP_ECHO) are explicitly unordered.
+	go c.drainFrames(c.frameCh)
+	for i := 0; i < fastLaneWorkerCount; i++ {
+		go c.drainFrames(c.fastLaneCh)
+	}
 
 	return c
 }
 
-// processFrames processes frames sequentially from the channel.
-// This preserves frame ordering per connection, preventing races
-// where STREAM_CLOSE is processed before STREAM_DATA.
-func (c *Connection) processFrames() {
+// drainFrames pulls frames from ch and dispatches each to onFrame, returning
+// when the connection is closed. A panic in any single handler is recovered
+// so it does not kill the goroutine.
+func (c *Connection) drainFrames(ch <-chan *protocol.Frame) {
 	for {
 		select {
-		case frame := <-c.frameCh:
-			if c.onFrame != nil {
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							// Don't let a panic in one frame handler kill the processor
-						}
-					}()
-					c.onFrame(c, frame)
-				}()
+		case frame := <-ch:
+			if c.onFrame == nil {
+				continue
 			}
+			func() {
+				defer func() {
+					_ = recover()
+				}()
+				c.onFrame(c, frame)
+			}()
 		case <-c.closed:
 			return
 		}

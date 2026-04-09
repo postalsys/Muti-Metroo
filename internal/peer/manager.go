@@ -185,6 +185,18 @@ func (m *Manager) Accept(ctx context.Context, peerConn transport.PeerConn) (*Con
 // registerConnection adds a connection to the manager.
 func (m *Manager) registerConnection(conn *Connection) {
 	m.mu.Lock()
+	// Reject new registrations after the manager has been canceled (Close
+	// runs cancel() then waits on wg). Calling wg.Add concurrently with
+	// wg.Wait when the counter goes 0 -> positive races and risks panicking;
+	// also there is no point starting goroutines we are about to drain.
+	select {
+	case <-m.ctx.Done():
+		m.mu.Unlock()
+		conn.Close()
+		return
+	default:
+	}
+
 	// Check if we already have a connection to this peer
 	if _, ok := m.peers[conn.RemoteID]; ok {
 		// Keep the existing connection, close the new one
@@ -194,10 +206,11 @@ func (m *Manager) registerConnection(conn *Connection) {
 		return
 	}
 	m.peers[conn.RemoteID] = conn
+	// Add to the WaitGroup under m.mu so Close (which also takes m.mu before
+	// calling wg.Wait below) cannot race the Add with the Wait.
+	m.wg.Add(2)
 	m.mu.Unlock()
 
-	// Start connection management goroutines
-	m.wg.Add(2)
 	go m.readLoop(conn)
 	go m.keepaliveLoop(conn)
 
@@ -302,11 +315,20 @@ func (m *Manager) readLoop(conn *Connection) {
 				conn.UpdateRTT(ka.Timestamp)
 			}
 		default:
-			// Send to sequential frame processor via buffered channel.
-			// This preserves frame ordering while keeping the read loop
-			// non-blocking (channel has 256-frame buffer).
+			// Stream-oriented frames go to the sequential processor to
+			// preserve per-connection ordering (e.g., STREAM_CLOSE must
+			// not pass STREAM_DATA on the same stream). Unordered frame
+			// types (UDP_DATAGRAM, ICMP_ECHO) take a parallel fast lane
+			// to avoid head-of-line blocking the sequential path; UDP and
+			// ICMP are unordered by definition and per-frame handlers
+			// have no cross-frame state.
+			ch := conn.frameCh
+			switch frame.Type {
+			case protocol.FrameUDPDatagram, protocol.FrameICMPEcho:
+				ch = conn.fastLaneCh
+			}
 			select {
-			case conn.frameCh <- frame:
+			case ch <- frame:
 			case <-conn.Done():
 				return
 			}
@@ -444,7 +466,10 @@ func (m *Manager) Close() error {
 	// Stop reconnector
 	m.reconnector.Stop()
 
-	// Close all connections
+	// Take m.mu around the connection close + the wg.Wait, paired with the
+	// m.mu held in registerConnection during wg.Add. This guarantees that
+	// any concurrent registerConnection either finishes its Add(2) before we
+	// Wait, or sees ctx.Done() and bails out without touching the WaitGroup.
 	m.mu.Lock()
 	for _, conn := range m.peers {
 		conn.Close()

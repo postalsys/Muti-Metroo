@@ -34,7 +34,24 @@ type ShellStream struct {
 	Released      bool
 	StartTime     time.Time
 	sessionKey    *crypto.SessionKey // E2E encryption session key
-	mu            sync.Mutex
+	// pumpsDone is signalled by pumpStdout/pumpStderr when their underlying
+	// readers have hit EOF (i.e. the child closed its stdout/stderr fds).
+	// waitForExit waits on this before sending the EXIT message so the EXIT
+	// frame is never written to the stream before the final stdout/stderr
+	// chunks: clients (especially the streaming-mode client) terminate
+	// their read loop on EXIT, so any data still in flight after EXIT is
+	// dropped.
+	pumpsDone sync.WaitGroup
+	// writeMu serializes Encrypt+Write pairs in writeEncrypted. Without it,
+	// concurrent pumps (pumpStdout / pumpStderr / waitForExit's sendExit)
+	// can interleave: goroutine A grabs nonce N, goroutine B grabs nonce
+	// N+1, then B writes its frame to the wire first. The receiver sees
+	// nonce N+1 first, advances its expected counter past N, and rejects
+	// nonce N as "nonce too old". This was reported in real shell sessions
+	// before too -- see commit 75a0ec4 which fixed an analogous race in
+	// frame dispatch but not in the per-stream send path.
+	writeMu sync.Mutex
+	mu      sync.Mutex
 }
 
 // Handler handles shell stream operations.
@@ -251,6 +268,11 @@ func (h *Handler) handleMetadata(ss *ShellStream, data []byte) {
 		return
 	}
 
+	// Arm drain signaling before Start so the executor's cmd.Wait goroutine
+	// blocks until pumpStdout/pumpStderr have finished reading the pipes
+	// (otherwise cmd.Wait closes the pipes mid-read and drops data).
+	session.RequireDrain()
+
 	if err := session.Start(); err != nil {
 		h.executor.ReleaseSession()
 		fail("failed to start command: " + err.Error())
@@ -259,6 +281,7 @@ func (h *Handler) handleMetadata(ss *ShellStream, data []byte) {
 
 	ss.Session = session
 	h.sendAck(ss, true, "")
+	ss.pumpsDone.Add(2)
 	go h.pumpStdout(ss)
 	go h.pumpStderr(ss)
 	go h.waitForExit(ss)
@@ -337,10 +360,18 @@ func (h *Handler) handleSignal(ss *ShellStream, data []byte) {
 }
 
 // writeEncrypted encrypts data and sends it via the stream.
+//
+// Holds ss.writeMu so the (Encrypt -> WriteStreamData) pair is atomic per
+// stream. Without serialization, two goroutines can grab consecutive nonces
+// and then race on which calls WriteStreamData first, putting nonces on the
+// wire out of order and tripping the receiver's nonce-monotonicity check.
 func (h *Handler) writeEncrypted(ss *ShellStream, data []byte, flags uint8) error {
 	if ss.sessionKey == nil {
 		return nil // Should not happen, but handle gracefully
 	}
+
+	ss.writeMu.Lock()
+	defer ss.writeMu.Unlock()
 
 	ciphertext, err := ss.sessionKey.Encrypt(data)
 	if err != nil {
@@ -383,6 +414,7 @@ func (h *Handler) pumpOutput(ss *ShellStream, getReader func() io.Reader, encode
 
 // pumpStdout reads stdout and sends it to the client.
 func (h *Handler) pumpStdout(ss *ShellStream) {
+	defer ss.pumpsDone.Done()
 	h.pumpOutput(ss, func() io.Reader {
 		if ss.Session != nil {
 			return ss.Session.Stdout()
@@ -393,6 +425,7 @@ func (h *Handler) pumpStdout(ss *ShellStream) {
 
 // pumpStderr reads stderr and sends it to the client.
 func (h *Handler) pumpStderr(ss *ShellStream) {
+	defer ss.pumpsDone.Done()
 	h.pumpOutput(ss, func() io.Reader {
 		if ss.Session != nil {
 			return ss.Session.Stderr()
@@ -455,7 +488,18 @@ func (h *Handler) waitForExit(ss *ShellStream) {
 		return
 	}
 
-	h.logger.Debug("waitForExit: waiting for session.Done()", logging.KeyStreamID, ss.StreamID)
+	// Wait for pumpStdout / pumpStderr to drain the stdout and stderr pipes.
+	// They reach EOF when the child process exits and the kernel closes its
+	// pipe writers, so this is also our signal that the process is done.
+	// We must drain BEFORE letting cmd.Wait run; cmd.Wait closes the pipes
+	// and any unread buffered data is dropped (per os/exec docs).
+	h.logger.Debug("waitForExit: waiting for pumps to drain", logging.KeyStreamID, ss.StreamID)
+	ss.pumpsDone.Wait()
+	h.logger.Debug("waitForExit: pumps drained", logging.KeyStreamID, ss.StreamID)
+
+	// Now safe to reap the process: tell the executor to call cmd.Wait,
+	// then wait for it to return so we can read the final exit code.
+	session.SignalDrainDone()
 	<-session.Done()
 	exitCode := session.ExitCode()
 	h.logger.Debug("waitForExit: session done", logging.KeyStreamID, ss.StreamID, "exit_code", exitCode)

@@ -24,14 +24,6 @@ var (
 	ErrICMPStreamNotFound = errors.New("ICMP stream not found")
 )
 
-// icmpRelayEntry tracks an ICMP session being relayed through this agent (transit).
-type icmpRelayEntry struct {
-	UpstreamPeer   identity.AgentID
-	UpstreamID     uint64
-	DownstreamPeer identity.AgentID
-	DownstreamID   uint64
-}
-
 // icmpIngressAssociation tracks a SOCKS5 ICMP session from the ingress side.
 type icmpIngressAssociation struct {
 	StreamID         uint64
@@ -60,15 +52,6 @@ func (a *icmpIngressAssociation) closePendingOpen(err error) {
 		close(a.PendingOpen)
 	})
 }
-
-// ICMP relay tracking (for transit nodes)
-var icmpRelayMu sync.RWMutex
-var icmpRelayByUpstream = make(map[uint64]*icmpRelayEntry)
-var icmpRelayByDownstream = make(map[uint64]*icmpRelayEntry)
-
-// ICMP ingress tracking (for SOCKS5 ingress)
-var icmpIngressMu sync.RWMutex
-var icmpIngressByStream = make(map[uint64]*icmpIngressAssociation)
 
 // generateICMPRequestID generates a cryptographically random request ID.
 // Using crypto/rand prevents session correlation attacks.
@@ -149,17 +132,13 @@ func (a *Agent) handleICMPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 	downstreamID := conn.NextStreamID()
 
 	// Create relay entry
-	relay := &icmpRelayEntry{
+	relay := &relayEntry{
 		UpstreamPeer:   peerID,
 		UpstreamID:     frame.StreamID,
 		DownstreamPeer: nextHop,
 		DownstreamID:   downstreamID,
 	}
-
-	icmpRelayMu.Lock()
-	icmpRelayByUpstream[frame.StreamID] = relay
-	icmpRelayByDownstream[downstreamID] = relay
-	icmpRelayMu.Unlock()
+	a.icmpRelay.Insert(relay)
 
 	// Update remaining path
 	newPath := open.RemainingPath[1:]
@@ -190,10 +169,7 @@ func (a *Agent) handleICMPOpen(peerID identity.AgentID, frame *protocol.Frame) {
 			"next_hop", nextHop.ShortString())
 
 		// Clean up relay entry
-		icmpRelayMu.Lock()
-		delete(icmpRelayByUpstream, frame.StreamID)
-		delete(icmpRelayByDownstream, downstreamID)
-		icmpRelayMu.Unlock()
+		a.icmpRelay.Delete(relay)
 
 		a.sendICMPOpenErr(peerID, frame.StreamID, open.RequestID, protocol.ErrConnectionRefused, err.Error())
 	}
@@ -205,37 +181,27 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 		logging.KeyStreamID, frame.StreamID,
 		"from_peer", peerID.ShortString())
 
-	// Check if this is a relay response - copy fields under lock
-	icmpRelayMu.RLock()
-	relay := icmpRelayByDownstream[frame.StreamID]
-	var relayUpstreamID uint64
-	var relayUpstreamPeer, relayDownstreamPeer identity.AgentID
-	if relay != nil {
-		relayUpstreamID = relay.UpstreamID
-		relayUpstreamPeer = relay.UpstreamPeer
-		relayDownstreamPeer = relay.DownstreamPeer
-	}
-	icmpRelayMu.RUnlock()
-
-	if relay != nil && peerID == relayDownstreamPeer {
+	// Check if this is a relay response. Relay entries are immutable once
+	// inserted, so reading fields after LookupDownstream returns is safe.
+	if relay := a.icmpRelay.LookupDownstream(frame.StreamID); relay != nil && peerID == relay.DownstreamPeer {
 		a.logger.Debug("relaying ICMP_OPEN_ACK upstream",
-			logging.KeyStreamID, relayUpstreamID,
-			"upstream_peer", relayUpstreamPeer.ShortString())
+			logging.KeyStreamID, relay.UpstreamID,
+			"upstream_peer", relay.UpstreamPeer.ShortString())
 
 		// Forward ACK to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPOpenAck,
-			StreamID: relayUpstreamID,
+			StreamID: relay.UpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayUpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
 		return
 	}
 
 	// Check if this is for ingress (SOCKS5 client initiated)
-	icmpIngressMu.RLock()
-	ingress := icmpIngressByStream[frame.StreamID]
-	icmpIngressMu.RUnlock()
+	a.icmpIngressMu.RLock()
+	ingress := a.icmpIngressByStream[frame.StreamID]
+	a.icmpIngressMu.RUnlock()
 
 	if ingress != nil {
 		ack, err := protocol.DecodeICMPOpenAck(frame.Payload)
@@ -261,9 +227,9 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 	}
 
 	// Check if this is for WebSocket session
-	icmpWSSessionMu.RLock()
-	wsSession := icmpWSSessionByStream[frame.StreamID]
-	icmpWSSessionMu.RUnlock()
+	a.icmpWSSessionMu.RLock()
+	wsSession := a.icmpWSSessionByStream[frame.StreamID]
+	a.icmpWSSessionMu.RUnlock()
 
 	if wsSession == nil {
 		return
@@ -292,43 +258,26 @@ func (a *Agent) handleICMPOpenAck(peerID identity.AgentID, frame *protocol.Frame
 
 // handleICMPOpenErr processes an ICMP_OPEN_ERR frame.
 func (a *Agent) handleICMPOpenErr(peerID identity.AgentID, frame *protocol.Frame) {
-	// Check if this is a relay response - use write lock to check and delete atomically
-	icmpRelayMu.Lock()
-	relay := icmpRelayByDownstream[frame.StreamID]
-	var relayUpstreamID uint64
-	var relayUpstreamPeer, relayDownstreamPeer identity.AgentID
-	var isRelay bool
-	if relay != nil {
-		relayUpstreamID = relay.UpstreamID
-		relayUpstreamPeer = relay.UpstreamPeer
-		relayDownstreamPeer = relay.DownstreamPeer
-		if peerID == relayDownstreamPeer {
-			isRelay = true
-			// Clean up relay entry while holding lock
-			delete(icmpRelayByUpstream, relayUpstreamID)
-			delete(icmpRelayByDownstream, frame.StreamID)
-		}
-	}
-	icmpRelayMu.Unlock()
-
-	if isRelay {
+	// Check if this is a relay response - PopDownstreamFromPeer atomically
+	// looks up, validates the downstream peer, and removes the entry.
+	if relay := a.icmpRelay.PopDownstreamFromPeer(frame.StreamID, peerID); relay != nil {
 		// Forward error to upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPOpenErr,
-			StreamID: relayUpstreamID,
+			StreamID: relay.UpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(relayUpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(relay.UpstreamPeer, fwdFrame)
 		return
 	}
 
 	// Check if this is for ingress (SOCKS5 client initiated)
-	icmpIngressMu.Lock()
-	ingress := icmpIngressByStream[frame.StreamID]
+	a.icmpIngressMu.Lock()
+	ingress := a.icmpIngressByStream[frame.StreamID]
 	if ingress != nil {
-		delete(icmpIngressByStream, frame.StreamID)
+		delete(a.icmpIngressByStream, frame.StreamID)
 	}
-	icmpIngressMu.Unlock()
+	a.icmpIngressMu.Unlock()
 
 	if ingress != nil {
 		errMsg, err := protocol.DecodeICMPOpenErr(frame.Payload)
@@ -341,12 +290,12 @@ func (a *Agent) handleICMPOpenErr(peerID identity.AgentID, frame *protocol.Frame
 	}
 
 	// Check if this is for WebSocket session
-	icmpWSSessionMu.Lock()
-	wsSession := icmpWSSessionByStream[frame.StreamID]
+	a.icmpWSSessionMu.Lock()
+	wsSession := a.icmpWSSessionByStream[frame.StreamID]
 	if wsSession != nil {
-		delete(icmpWSSessionByStream, frame.StreamID)
+		delete(a.icmpWSSessionByStream, frame.StreamID)
 	}
-	icmpWSSessionMu.Unlock()
+	a.icmpWSSessionMu.Unlock()
 
 	if wsSession == nil {
 		return
@@ -377,9 +326,9 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 
 	// Check if this is for ingress (reply coming back to SOCKS5 client)
 	// Hold lock while getting ingress and extracting fields needed for processing
-	icmpIngressMu.RLock()
-	ingress := icmpIngressByStream[frame.StreamID]
-	icmpIngressMu.RUnlock()
+	a.icmpIngressMu.RLock()
+	ingress := a.icmpIngressByStream[frame.StreamID]
+	a.icmpIngressMu.RUnlock()
 
 	if ingress != nil {
 		echo, err := protocol.DecodeICMPEcho(frame.Payload)
@@ -416,9 +365,9 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 	}
 
 	// Check if this is for WebSocket session (reply coming back to CLI ping)
-	icmpWSSessionMu.RLock()
-	wsSession := icmpWSSessionByStream[frame.StreamID]
-	icmpWSSessionMu.RUnlock()
+	a.icmpWSSessionMu.RLock()
+	wsSession := a.icmpWSSessionByStream[frame.StreamID]
+	a.icmpWSSessionMu.RUnlock()
 
 	if wsSession != nil {
 		echo, err := protocol.DecodeICMPEcho(frame.Payload)
@@ -467,45 +416,30 @@ func (a *Agent) handleICMPEcho(peerID identity.AgentID, frame *protocol.Frame) {
 		return
 	}
 
-	// Check if this is a relay - copy fields under lock
-	icmpRelayMu.RLock()
-	relayUp := icmpRelayByUpstream[frame.StreamID]
-	relayDown := icmpRelayByDownstream[frame.StreamID]
-	var upDownstreamID uint64
-	var upDownstreamPeer, upUpstreamPeer identity.AgentID
-	var downUpstreamID uint64
-	var downUpstreamPeer, downDownstreamPeer identity.AgentID
-	if relayUp != nil {
-		upDownstreamID = relayUp.DownstreamID
-		upDownstreamPeer = relayUp.DownstreamPeer
-		upUpstreamPeer = relayUp.UpstreamPeer
-	}
-	if relayDown != nil {
-		downUpstreamID = relayDown.UpstreamID
-		downUpstreamPeer = relayDown.UpstreamPeer
-		downDownstreamPeer = relayDown.DownstreamPeer
-	}
-	icmpRelayMu.RUnlock()
+	// Check if this is a relay. Relay entries are immutable once inserted,
+	// so reading entry fields after LookupBoth returns is safe even though
+	// the entry could be removed concurrently.
+	relayUp, relayDown := a.icmpRelay.LookupBoth(frame.StreamID)
 
-	if relayUp != nil && peerID == upUpstreamPeer {
+	if relayUp != nil && peerID == relayUp.UpstreamPeer {
 		// Forward downstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPEcho,
-			StreamID: upDownstreamID,
+			StreamID: relayUp.DownstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(relayUp.DownstreamPeer, fwdFrame)
 		return
 	}
 
-	if relayDown != nil && peerID == downDownstreamPeer {
+	if relayDown != nil && peerID == relayDown.DownstreamPeer {
 		// Forward upstream
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPEcho,
-			StreamID: downUpstreamID,
+			StreamID: relayDown.UpstreamID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(relayDown.UpstreamPeer, fwdFrame)
 	}
 }
 
@@ -517,72 +451,46 @@ func (a *Agent) handleICMPClose(peerID identity.AgentID, frame *protocol.Frame) 
 	}
 
 	// Check if this is for ingress (SOCKS5 client session)
-	icmpIngressMu.Lock()
-	ingress := icmpIngressByStream[frame.StreamID]
+	a.icmpIngressMu.Lock()
+	ingress := a.icmpIngressByStream[frame.StreamID]
 	if ingress != nil {
-		delete(icmpIngressByStream, frame.StreamID)
+		delete(a.icmpIngressByStream, frame.StreamID)
 	}
-	icmpIngressMu.Unlock()
+	a.icmpIngressMu.Unlock()
 
 	// Note: We don't need to do anything special for ingress close -
 	// the SOCKS5 connection will be closed when the TCP connection ends
 
 	// Check if this is for WebSocket session
-	icmpWSSessionMu.Lock()
-	wsSession := icmpWSSessionByStream[frame.StreamID]
+	a.icmpWSSessionMu.Lock()
+	wsSession := a.icmpWSSessionByStream[frame.StreamID]
 	if wsSession != nil {
-		delete(icmpWSSessionByStream, frame.StreamID)
+		delete(a.icmpWSSessionByStream, frame.StreamID)
 	}
-	icmpWSSessionMu.Unlock()
+	a.icmpWSSessionMu.Unlock()
 
 	if wsSession != nil {
 		wsSession.close()
 	}
 
-	// Check if this is a relay - copy fields and delete atomically under lock
-	icmpRelayMu.Lock()
-	relayUp := icmpRelayByUpstream[frame.StreamID]
-	relayDown := icmpRelayByDownstream[frame.StreamID]
-
-	var upDownstreamID uint64
-	var upDownstreamPeer, upUpstreamPeer identity.AgentID
-	var downUpstreamID uint64
-	var downUpstreamPeer, downDownstreamPeer identity.AgentID
-
-	if relayUp != nil {
-		upDownstreamID = relayUp.DownstreamID
-		upDownstreamPeer = relayUp.DownstreamPeer
-		upUpstreamPeer = relayUp.UpstreamPeer
-		delete(icmpRelayByUpstream, frame.StreamID)
-		delete(icmpRelayByDownstream, upDownstreamID)
-	}
-	if relayDown != nil {
-		downUpstreamID = relayDown.UpstreamID
-		downUpstreamPeer = relayDown.UpstreamPeer
-		downDownstreamPeer = relayDown.DownstreamPeer
-		delete(icmpRelayByDownstream, frame.StreamID)
-		delete(icmpRelayByUpstream, downUpstreamID)
-	}
-	icmpRelayMu.Unlock()
-
-	if relayUp != nil && peerID == upUpstreamPeer {
-		// Forward downstream
+	// Check if this is a relay - PopMatchingPeer atomically looks up,
+	// peer-disambiguates direction, and removes the entry under one Lock.
+	if entry, fromUpstream := a.icmpRelay.PopMatchingPeer(frame.StreamID, peerID); entry != nil {
+		var dstPeer identity.AgentID
+		var dstID uint64
+		if fromUpstream {
+			dstPeer = entry.DownstreamPeer
+			dstID = entry.DownstreamID
+		} else {
+			dstPeer = entry.UpstreamPeer
+			dstID = entry.UpstreamID
+		}
 		fwdFrame := &protocol.Frame{
 			Type:     protocol.FrameICMPClose,
-			StreamID: upDownstreamID,
+			StreamID: dstID,
 			Payload:  frame.Payload,
 		}
-		a.peerMgr.SendToPeer(upDownstreamPeer, fwdFrame)
-	}
-
-	if relayDown != nil && peerID == downDownstreamPeer {
-		// Forward upstream
-		fwdFrame := &protocol.Frame{
-			Type:     protocol.FrameICMPClose,
-			StreamID: downUpstreamID,
-			Payload:  frame.Payload,
-		}
-		a.peerMgr.SendToPeer(downUpstreamPeer, fwdFrame)
+		a.peerMgr.SendToPeer(dstPeer, fwdFrame)
 	}
 }
 
@@ -697,9 +605,9 @@ func (a *Agent) CreateICMPSession(ctx context.Context, destIP net.IP) (uint64, e
 	}
 
 	// Register in map
-	icmpIngressMu.Lock()
-	icmpIngressByStream[streamID] = assoc
-	icmpIngressMu.Unlock()
+	a.icmpIngressMu.Lock()
+	a.icmpIngressByStream[streamID] = assoc
+	a.icmpIngressMu.Unlock()
 
 	// Build and send ICMP_OPEN
 	open := &protocol.ICMPOpen{
@@ -724,9 +632,9 @@ func (a *Agent) CreateICMPSession(ctx context.Context, destIP net.IP) (uint64, e
 
 	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
 		// Cleanup
-		icmpIngressMu.Lock()
-		delete(icmpIngressByStream, streamID)
-		icmpIngressMu.Unlock()
+		a.icmpIngressMu.Lock()
+		delete(a.icmpIngressByStream, streamID)
+		a.icmpIngressMu.Unlock()
 		assoc.closePendingOpen(err)
 		return 0, err
 	}
@@ -746,10 +654,10 @@ func (a *Agent) CreateICMPSession(ctx context.Context, destIP net.IP) (uint64, e
 
 // SetSOCKS5ICMPAssociation links a SOCKS5 ICMP association to an ingress stream.
 func (a *Agent) SetSOCKS5ICMPAssociation(streamID uint64, socks5Assoc *socks5.ICMPAssociation) {
-	icmpIngressMu.Lock()
-	defer icmpIngressMu.Unlock()
+	a.icmpIngressMu.Lock()
+	defer a.icmpIngressMu.Unlock()
 
-	if assoc := icmpIngressByStream[streamID]; assoc != nil {
+	if assoc := a.icmpIngressByStream[streamID]; assoc != nil {
 		assoc.mu.Lock()
 		assoc.SOCKS5Assoc = socks5Assoc
 		assoc.mu.Unlock()
@@ -760,13 +668,13 @@ func (a *Agent) SetSOCKS5ICMPAssociation(streamID uint64, socks5Assoc *socks5.IC
 // Encrypts and sends an ICMP echo request through the mesh.
 func (a *Agent) RelayICMPEcho(streamID uint64, identifier, sequence uint16, payload []byte) error {
 	// Get association and extract fields under lock
-	icmpIngressMu.RLock()
-	assoc := icmpIngressByStream[streamID]
+	a.icmpIngressMu.RLock()
+	assoc := a.icmpIngressByStream[streamID]
 	if assoc == nil {
-		icmpIngressMu.RUnlock()
+		a.icmpIngressMu.RUnlock()
 		return ErrICMPStreamNotFound
 	}
-	icmpIngressMu.RUnlock()
+	a.icmpIngressMu.RUnlock()
 
 	// Encrypt payload if we have a session key - use fine-grained lock
 	assoc.mu.RLock()
@@ -803,12 +711,12 @@ func (a *Agent) RelayICMPEcho(streamID uint64, identifier, sequence uint16, payl
 
 // CloseICMPSession implements socks5.ICMPHandler.
 func (a *Agent) CloseICMPSession(streamID uint64) {
-	icmpIngressMu.Lock()
-	assoc := icmpIngressByStream[streamID]
+	a.icmpIngressMu.Lock()
+	assoc := a.icmpIngressByStream[streamID]
 	if assoc != nil {
-		delete(icmpIngressByStream, streamID)
+		delete(a.icmpIngressByStream, streamID)
 	}
-	icmpIngressMu.Unlock()
+	a.icmpIngressMu.Unlock()
 
 	if assoc == nil {
 		return
@@ -880,10 +788,6 @@ func (s *icmpWebSocketSession) close() {
 	close(s.Done)
 }
 
-// WebSocket ICMP session tracking
-var icmpWSSessionMu sync.RWMutex
-var icmpWSSessionByStream = make(map[uint64]*icmpWebSocketSession)
-
 // OpenICMPSession implements health.ICMPProvider.
 // Opens an ICMP session to a remote agent for the WebSocket ping API.
 func (a *Agent) OpenICMPSession(ctx context.Context, targetID identity.AgentID, destIP net.IP) (*health.ICMPSession, error) {
@@ -954,9 +858,9 @@ func (a *Agent) OpenICMPSession(ctx context.Context, targetID identity.AgentID, 
 	}
 
 	// Register in map
-	icmpWSSessionMu.Lock()
-	icmpWSSessionByStream[streamID] = session
-	icmpWSSessionMu.Unlock()
+	a.icmpWSSessionMu.Lock()
+	a.icmpWSSessionByStream[streamID] = session
+	a.icmpWSSessionMu.Unlock()
 
 	// Build and send ICMP_OPEN
 	open := &protocol.ICMPOpen{
@@ -981,9 +885,9 @@ func (a *Agent) OpenICMPSession(ctx context.Context, targetID identity.AgentID, 
 
 	if err := a.peerMgr.SendToPeer(nextHop, frame); err != nil {
 		// Cleanup
-		icmpWSSessionMu.Lock()
-		delete(icmpWSSessionByStream, streamID)
-		icmpWSSessionMu.Unlock()
+		a.icmpWSSessionMu.Lock()
+		delete(a.icmpWSSessionByStream, streamID)
+		a.icmpWSSessionMu.Unlock()
 		session.closePendingOpenWS(err)
 		return nil, err
 	}
@@ -992,15 +896,15 @@ func (a *Agent) OpenICMPSession(ctx context.Context, targetID identity.AgentID, 
 	select {
 	case <-ctx.Done():
 		session.closePendingOpenWS(ctx.Err())
-		icmpWSSessionMu.Lock()
-		delete(icmpWSSessionByStream, streamID)
-		icmpWSSessionMu.Unlock()
+		a.icmpWSSessionMu.Lock()
+		delete(a.icmpWSSessionByStream, streamID)
+		a.icmpWSSessionMu.Unlock()
 		return nil, ctx.Err()
 	case <-session.PendingOpen:
 		if session.OpenErr != nil {
-			icmpWSSessionMu.Lock()
-			delete(icmpWSSessionByStream, streamID)
-			icmpWSSessionMu.Unlock()
+			a.icmpWSSessionMu.Lock()
+			delete(a.icmpWSSessionByStream, streamID)
+			a.icmpWSSessionMu.Unlock()
 			return nil, session.OpenErr
 		}
 	}
@@ -1074,12 +978,12 @@ func (a *Agent) runWSICMPSender(session *icmpWebSocketSession) {
 
 // closeWSICMPSession closes a WebSocket ICMP session.
 func (a *Agent) closeWSICMPSession(streamID uint64) {
-	icmpWSSessionMu.Lock()
-	session := icmpWSSessionByStream[streamID]
+	a.icmpWSSessionMu.Lock()
+	session := a.icmpWSSessionByStream[streamID]
 	if session != nil {
-		delete(icmpWSSessionByStream, streamID)
+		delete(a.icmpWSSessionByStream, streamID)
 	}
-	icmpWSSessionMu.Unlock()
+	a.icmpWSSessionMu.Unlock()
 
 	if session == nil {
 		return

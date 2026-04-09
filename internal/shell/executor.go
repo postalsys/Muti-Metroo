@@ -176,11 +176,19 @@ type Session struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	done      chan struct{}
-	exitCode  int32
-	err       error
-	mu        sync.Mutex
-	started   bool
-	startTime time.Time
+	// drainSignal, when non-nil, makes the cmd.Wait goroutine block until
+	// the caller closes it (via SignalDrainDone). This is needed when the
+	// caller is reading from Stdout()/Stderr() concurrently: per the os/exec
+	// docs, "it is incorrect to call Wait before all reads from the pipe
+	// have completed", because Wait closes the pipe and any unread buffered
+	// data is dropped. The default (nil channel) preserves the previous
+	// auto-Wait behavior for callers that don't read the pipes.
+	drainSignal chan struct{}
+	exitCode    int32
+	err         error
+	mu          sync.Mutex
+	started     bool
+	startTime   time.Time
 }
 
 // validateAndAcquire performs common validation for all session types:
@@ -285,23 +293,60 @@ func (e *Executor) NewSession(ctx context.Context, meta *ShellMeta) (*Session, e
 	return session, nil
 }
 
+// RequireDrain arms the Session to wait for an explicit drain signal before
+// calling cmd.Wait. Callers that read from Stdout()/Stderr() must call this
+// before Start, then call SignalDrainDone after the read goroutines have
+// finished, otherwise cmd.Wait can race the readers and drop the final
+// stdout/stderr chunks (per os/exec docs on StdoutPipe/StderrPipe).
+func (s *Session) RequireDrain() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.drainSignal == nil {
+		s.drainSignal = make(chan struct{})
+	}
+}
+
+// SignalDrainDone tells the Wait goroutine that all reads from Stdout/Stderr
+// have completed and it is now safe to call cmd.Wait. No-op if the session
+// was not armed via RequireDrain. Idempotent.
+func (s *Session) SignalDrainDone() {
+	s.mu.Lock()
+	ch := s.drainSignal
+	s.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+}
+
 // Start starts the session command.
 func (s *Session) Start() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.started {
+		s.mu.Unlock()
 		return fmt.Errorf("session already started")
 	}
 
 	if err := s.cmd.Start(); err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
 	s.started = true
+	drainSignal := s.drainSignal
+	s.mu.Unlock()
 
-	// Wait for command in background
+	// Wait for command in background. If a drain signal is set, block until
+	// the caller signals that all stdout/stderr reads are done -- otherwise
+	// cmd.Wait would close the pipes and drop the final buffered chunks.
 	go func() {
+		if drainSignal != nil {
+			<-drainSignal
+		}
 		err := s.cmd.Wait()
 		s.mu.Lock()
 		s.err = err

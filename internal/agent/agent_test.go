@@ -1178,48 +1178,38 @@ func TestAgent_cleanupRelaysForPeer(t *testing.T) {
 	peerB, _ := identity.NewAgentID()
 	peerC, _ := identity.NewAgentID()
 
-	agent.relayMu.Lock()
-	agent.relayByUpstream[1] = &relayStream{
+	agent.tcpRelay.Insert(&relayEntry{
 		UpstreamPeer:   peerA,
 		UpstreamID:     1,
 		DownstreamPeer: peerB,
 		DownstreamID:   100,
-	}
-	agent.relayByDownstream[100] = agent.relayByUpstream[1]
-
-	agent.relayByUpstream[2] = &relayStream{
+	})
+	agent.tcpRelay.Insert(&relayEntry{
 		UpstreamPeer:   peerB,
 		UpstreamID:     2,
 		DownstreamPeer: peerC,
 		DownstreamID:   200,
-	}
-	agent.relayByDownstream[200] = agent.relayByUpstream[2]
-
-	agent.relayByUpstream[3] = &relayStream{
+	})
+	agent.tcpRelay.Insert(&relayEntry{
 		UpstreamPeer:   peerC,
 		UpstreamID:     3,
 		DownstreamPeer: peerA,
 		DownstreamID:   300,
-	}
-	agent.relayByDownstream[300] = agent.relayByUpstream[3]
-	agent.relayMu.Unlock()
+	})
 
 	// Cleanup relays for peerA (should remove entries 1 and 3)
 	agent.cleanupRelaysForPeer(peerA)
 
-	agent.relayMu.RLock()
-	defer agent.relayMu.RUnlock()
-
 	// Entry 2 should remain (only involves peerB and peerC)
-	if _, exists := agent.relayByUpstream[2]; !exists {
+	if e := agent.tcpRelay.LookupDownstream(200); e == nil {
 		t.Error("relay entry 2 should not be removed")
 	}
 
 	// Entries 1 and 3 should be removed
-	if _, exists := agent.relayByUpstream[1]; exists {
+	if e := agent.tcpRelay.LookupDownstream(100); e != nil {
 		t.Error("relay entry 1 should be removed (involves peerA)")
 	}
-	if _, exists := agent.relayByUpstream[3]; exists {
+	if e := agent.tcpRelay.LookupDownstream(300); e != nil {
 		t.Error("relay entry 3 should be removed (involves peerA)")
 	}
 }

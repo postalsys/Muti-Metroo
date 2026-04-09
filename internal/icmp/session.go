@@ -199,28 +199,34 @@ func (s *Session) GetSessionKey() *crypto.SessionKey {
 
 // Encrypt encrypts data using the session key.
 // Returns the original data if no session key is set.
+//
+// The RLock is held for the duration of the crypto operation so that a
+// concurrent Close (which zeros the key bytes) cannot race a use of the
+// key. This matters when frame dispatch is parallel: an ICMP_ECHO and an
+// ICMP_CLOSE for the same stream can otherwise hit Encrypt/Decrypt and
+// Close at the same time.
 func (s *Session) Encrypt(plaintext []byte) ([]byte, error) {
 	s.mu.RLock()
-	key := s.SessionKey
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
 
-	if key == nil {
+	if s.SessionKey == nil {
 		return plaintext, nil
 	}
 
-	return key.Encrypt(plaintext)
+	return s.SessionKey.Encrypt(plaintext)
 }
 
 // Decrypt decrypts data using the session key.
 // Returns the original data if no session key is set.
+//
+// See Encrypt for the lock-holding rationale.
 func (s *Session) Decrypt(ciphertext []byte) ([]byte, error) {
 	s.mu.RLock()
-	key := s.SessionKey
-	s.mu.RUnlock()
+	defer s.mu.RUnlock()
 
-	if key == nil {
+	if s.SessionKey == nil {
 		return ciphertext, nil
 	}
 
-	return key.Decrypt(ciphertext)
+	return s.SessionKey.Decrypt(ciphertext)
 }

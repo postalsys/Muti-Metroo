@@ -77,6 +77,15 @@ type AgentChain struct {
 	// A after EnableHTTP defaults are applied. Use it to set TokenHash,
 	// Minimal, Pprof, Dashboard, or RemoteAPI without bloating the fixture.
 	HTTPConfigure func(*config.HTTPConfig)
+	// UDPConfigure, when non-nil, is invoked against the UDP config on the
+	// exit node (D). Use it to enable UDP relay and tweak limits without
+	// adding a field per knob.
+	UDPConfigure func(*config.UDPConfig)
+	// ICMPConfigure, when non-nil, is invoked against the ICMP config on
+	// BOTH the ingress agent (A) and the exit node (D). Both sides need
+	// it: the exit so it can send ICMP packets, and the ingress so its
+	// SOCKS5 server gets a non-nil icmpHandler for the CmdICMPEcho path.
+	ICMPConfigure func(*config.ICMPConfig)
 }
 
 // CertPair holds TLS certificate and key file paths.
@@ -218,12 +227,30 @@ func (c *AgentChain) buildConfig(i int) *config.Config {
 			cfg.Exit.DNS.Servers = c.ExitDNSServers
 			cfg.Exit.DNS.Timeout = 2 * time.Second
 		}
+
+		// Apply per-test UDP relay config (exit-side)
+		if c.UDPConfigure != nil {
+			c.UDPConfigure(&cfg.UDP)
+		}
+
+		// Apply per-test ICMP echo config (exit-side)
+		if c.ICMPConfigure != nil {
+			c.ICMPConfigure(&cfg.ICMP)
+		}
 	}
 
 	// A has SOCKS5 enabled
 	if i == 0 {
 		cfg.SOCKS5.Enabled = true
 		cfg.SOCKS5.Address = "127.0.0.1:0" // Random port
+
+		// SOCKS5 ICMP_ECHO requires the ingress agent's icmpHandler to be
+		// non-nil, which only happens when cfg.ICMP.Enabled is true on
+		// agent A as well as the exit. Apply ICMPConfigure here too so
+		// tests only need to set it once.
+		if c.ICMPConfigure != nil {
+			c.ICMPConfigure(&cfg.ICMP)
+		}
 
 		// Enable HTTP server on A for WebSocket shell access
 		if c.EnableHTTP {
