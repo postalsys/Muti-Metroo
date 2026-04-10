@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.0.2](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v3.0.1...muti-metroo-v3.0.2) (2026-04-09)
+
+
+### Bug Fixes
+
+* **filetransfer:** list Windows drive letters as browse roots ([bbf5032](https://github.com/postalsys/Muti-Metroo/commit/bbf50325f6c2f522634680bb0bdb39a1c2c24616))
+* **filetransfer:** preserve gzip wrapper for directory downloads ([3ba5899](https://github.com/postalsys/Muti-Metroo/commit/3ba589924467190f07527e09421d413be315a93b))
+* **health:** hide shell, files, and icmp for the local agent in topology ([1a5d309](https://github.com/postalsys/Muti-Metroo/commit/1a5d309441759878493d2f65634c4a204a257401))
+* include forward and domain routes in SendFullTable ([7a84565](https://github.com/postalsys/Muti-Metroo/commit/7a845659697f6b0ed99cf85413f3f1d2c5854b37))
+* resolve two race conditions in peer frame dispatch and sleep transitions ([b6171c5](https://github.com/postalsys/Muti-Metroo/commit/b6171c56bafd7359c60815997445f97a52718961))
+* **shell:** break waitForExit out of pump drain on ctx cancel ([d676726](https://github.com/postalsys/Muti-Metroo/commit/d6767264fdea33ad037e56645b526a4c7df90634))
+* **udp:** close idle dest associations atomically with map removal ([635754d](https://github.com/postalsys/Muti-Metroo/commit/635754d49bf5b4165eed13ac772df1987cdfeb90))
+
 ## [3.0.1](https://github.com/postalsys/Muti-Metroo/compare/muti-metroo-v3.0.0...muti-metroo-v3.0.1) (2026-04-04)
 
 
